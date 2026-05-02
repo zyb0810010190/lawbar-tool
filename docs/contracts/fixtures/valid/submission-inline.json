@@ -1,0 +1,32 @@
+{
+  "contract_version": "1.0.0",
+  "job_id": "01jrk8m4q4xv2v8d4d4ymf5inl",
+  "tenant_id": "01jrk8m4q4xv2v8d4d4ymf5tnt",
+  "document_id": "01jrk8m4q4xv2v8d4d4ymf5doc",
+  "document_revision": 1,
+  "submitted_at": "2026-04-27T08:14:32.451+08:00",
+  "submitted_by": "test-fixture-01",
+  "pages": [
+    {
+      "page_id": "01jrk8m4q4xv2v8d4d4ymf5p03",
+      "page_number": 1,
+      "source": {
+        "kind": "inline",
+        "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
+        "byte_size": 95,
+        "mime_type": "image/png"
+      }
+    }
+  ],
+  "ocr_options": { "languages": ["zh-Hans", "en"] },
+  "preprocessing": {},
+  "priority": 10,
+  "retry": {
+    "max_attempts": 1,
+    "backoff": "fixed",
+    "base_delay_ms": 0,
+    "max_delay_ms": 0,
+    "attempt": 1
+  },
+  "metadata": { "trace_id": "test-trace" }
+}

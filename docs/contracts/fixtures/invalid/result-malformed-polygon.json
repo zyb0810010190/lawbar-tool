@@ -1,0 +1,27 @@
+{
+  "_invalid_reason": "polygon point has 3 coordinates; must be [x,y] pairs only and polygon must have at least 4 points",
+  "_target_schema": "ocr-result",
+  "contract_version": "1.0.0",
+  "job_id": "01jrk8m4q4xv2v8d4d4ymf5b02",
+  "tenant_id": "01jrk8m4q4xv2v8d4d4ymf5tnt",
+  "document_id": "01jrk8m4q4xv2v8d4d4ymf5doc",
+  "page_id": "01jrk8m4q4xv2v8d4d4ymf5p11",
+  "page_number": 1,
+  "status": "succeeded",
+  "engine": { "name": "paddleocr", "version": "2.7.3" },
+  "page_metrics": { "processing_duration_ms": 100 },
+  "raw_text": "x",
+  "blocks": [
+    {
+      "block_id": "b_0001",
+      "type": "paragraph",
+      "text": "x",
+      "confidence": 0.9,
+      "bbox": { "x": 0, "y": 0, "w": 10, "h": 10 },
+      "polygon": [[0, 0, 0], [10, 0]]
+    }
+  ],
+  "partial_failure": null,
+  "metadata": {},
+  "completed_at": "2026-04-27T08:14:33.000+08:00"
+}

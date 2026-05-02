@@ -1,0 +1,59 @@
+{
+  "contract_version": "1.0.0",
+  "job_id": "01jrk8m4q4xv2v8d4d4ymf5xnk",
+  "tenant_id": "01jrk8m4q4xv2v8d4d4ymf5tnt",
+  "case_id": "01jrk8m4q4xv2v8d4d4ymf5cas",
+  "document_id": "01jrk8m4q4xv2v8d4d4ymf5doc",
+  "document_revision": 3,
+  "submitted_at": "2026-04-27T08:14:32.451+08:00",
+  "submitted_by": "user_01jrk8m4q4xv2v8d4d4ymf5usr",
+  "pages": [
+    {
+      "page_id": "01jrk8m4q4xv2v8d4d4ymf5p01",
+      "page_number": 1,
+      "source": {
+        "kind": "s3",
+        "bucket": "ocr-ingest-prod",
+        "key": "tenant/01jrk/doc/01jrk/page-001.png",
+        "etag": "\"d41d8cd98f00b204e9800998ecf8427e\"",
+        "expected_sha256": "9b74c9897bac770ffc029102a200c5de9b74c9897bac770ffc029102a200c5de",
+        "byte_size": 1843201,
+        "mime_type": "image/png"
+      }
+    }
+  ],
+  "rerun": { "is_rerun": false, "previous_job_id": null, "page_ids": null },
+  "ocr_options": {
+    "languages": ["zh-Hans", "en"],
+    "detect_orientation": true,
+    "detect_vertical_text": true,
+    "table_recognition": "auto",
+    "seal_recognition": true,
+    "return_word_confidence": true,
+    "return_polygon": true,
+    "min_confidence_emit": 0.30
+  },
+  "preprocessing": {
+    "deskew": "auto",
+    "denoise": "auto",
+    "binarize": false,
+    "remove_seal_bleed": false,
+    "upscale_low_dpi": true,
+    "target_dpi_floor": 200,
+    "crop_borders": "auto"
+  },
+  "priority": 50,
+  "deadline": "2026-04-27T08:19:32.451+08:00",
+  "retry": {
+    "max_attempts": 3,
+    "backoff": "exponential",
+    "base_delay_ms": 2000,
+    "max_delay_ms": 60000,
+    "attempt": 1
+  },
+  "metadata": {
+    "trace_id": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "originating_request_id": "req_01jrk8m4",
+    "client_tags": ["evidence-index", "court-filing-2025-hu-min-12345"]
+  }
+}

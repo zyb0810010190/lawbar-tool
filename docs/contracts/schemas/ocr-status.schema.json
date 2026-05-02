@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/contracts/ocr-status.schema.json",
+  "title": "OcrStatus",
+  "description": "Validates a single status envelope (object form) or an ordered sequence of transitions (array form). See docs/contracts/ocr-worker-contract.md §3.",
+  "oneOf": [
+    { "$ref": "#/$defs/statusEnvelope" },
+    { "$ref": "#/$defs/transitionSequence" }
+  ],
+
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "ulid": { "type": "string", "pattern": "^[0-9a-z]{26}$" },
+    "state": {
+      "enum": [
+        "queued",
+        "claimed",
+        "processing",
+        "succeeded",
+        "failed",
+        "partial_succeeded",
+        "cancelled",
+        "dead_lettered"
+      ]
+    },
+    "actor": { "enum": ["queue", "worker", "web_app"] },
+    "statusEnvelope": {
+      "type": "object",
+      "required": ["contract_version", "job_id", "tenant_id", "state", "observed_at"],
+      "properties": {
+        "contract_version": { "$ref": "#/$defs/semver" },
+        "job_id":      { "$ref": "#/$defs/ulid" },
+        "tenant_id":   { "$ref": "#/$defs/ulid" },
+        "state":       { "$ref": "#/$defs/state" },
+        "observed_at": { "type": "string", "format": "date-time" },
+        "metadata":    { "type": "object" }
+      }
+    },
+    "transitionSequence": {
+      "type": "object",
+      "required": ["job_id", "transitions"],
+      "properties": {
+        "job_id": { "$ref": "#/$defs/ulid" },
+        "transitions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["from", "to", "controlled_by", "at"],
+            "properties": {
+              "from": { "$ref": "#/$defs/state" },
+              "to":   { "$ref": "#/$defs/state" },
+              "controlled_by": { "$ref": "#/$defs/actor" },
+              "at": { "type": "string", "format": "date-time" },
+              "note": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

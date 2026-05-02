@@ -1,0 +1,28 @@
+{
+  "contract_version": "1.0.0",
+  "job_id": "01jrk8m4q4xv2v8d4d4ymf5xnk",
+  "tenant_id": "01jrk8m4q4xv2v8d4d4ymf5tnt",
+  "document_id": "01jrk8m4q4xv2v8d4d4ymf5doc",
+  "document_revision": 3,
+  "page_id": "01jrk8m4q4xv2v8d4d4ymf5p04",
+  "page_number": 4,
+  "status": "failed",
+  "engine": {
+    "name": "paddleocr",
+    "version": "2.7.3",
+    "model_set": "PP-OCRv4-server-zh"
+  },
+  "page_metrics": {
+    "processing_duration_ms": 142
+  },
+  "partial_failure": {
+    "code": "page_decode_error",
+    "message": "Image decoded but layout analysis returned no regions; likely blank or near-blank page.",
+    "is_transient": false,
+    "attempted_count": 1
+  },
+  "metadata": {
+    "trace_id": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  "completed_at": "2026-04-27T08:14:33.910+08:00"
+}

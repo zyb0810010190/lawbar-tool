@@ -1,0 +1,29 @@
+{
+  "name": "ocr-review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only derivation layer (read model) over OcrPersistence. Produces lawyer-facing review state for a single OCR job. Step 8A: single-job-id-scoped only; cross-job queries deferred to Step 8B.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test tests/review.test.mjs tests/review.crossjob.test.mjs"
+  },
+  "dependencies": {
+    "ocr-persistence": "file:../ocr-persistence",
+    "ocr-worker-contract": "file:../../docs/contracts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ocr-worker-adapter": "file:../ocr-worker",
+    "ocr-ingestion": "file:../ocr-ingestion",
+    "typescript": "^5.6.0"
+  }
+}

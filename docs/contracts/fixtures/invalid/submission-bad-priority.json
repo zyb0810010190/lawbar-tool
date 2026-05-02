@@ -1,0 +1,29 @@
+{
+  "_invalid_reason": "priority must be integer 0-100; 250 is out of range",
+  "_target_schema": "ocr-submission",
+  "contract_version": "1.0.0",
+  "job_id": "01jrk8m4q4xv2v8d4d4ymf5b01",
+  "tenant_id": "01jrk8m4q4xv2v8d4d4ymf5tnt",
+  "document_id": "01jrk8m4q4xv2v8d4d4ymf5doc",
+  "document_revision": 1,
+  "submitted_at": "2026-04-27T08:14:32.451+08:00",
+  "submitted_by": "u",
+  "pages": [
+    {
+      "page_id": "01jrk8m4q4xv2v8d4d4ymf5p10",
+      "page_number": 1,
+      "source": { "kind": "s3", "bucket": "b", "key": "k" }
+    }
+  ],
+  "ocr_options": { "languages": ["zh-Hans"] },
+  "preprocessing": {},
+  "priority": 250,
+  "retry": {
+    "max_attempts": 3,
+    "backoff": "exponential",
+    "base_delay_ms": 2000,
+    "max_delay_ms": 60000,
+    "attempt": 1
+  },
+  "metadata": {}
+}

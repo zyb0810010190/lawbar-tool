@@ -1,0 +1,44 @@
+{
+  "name": "ocr-worker-contract",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Schemas, fixtures, contract tests, and TypeScript validators for the OCR worker boundary.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    },
+    "./schemas/*": "./schemas/*"
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "ocr-worker-contract.md"
+  ],
+  "scripts": {
+    "gen:types": "node scripts/gen-types.mjs",
+    "build": "tsc -p tsconfig.json",
+    "prebuild": "npm run gen:types",
+    "test": "npm run build && node --test tests/contract.test.mjs tests/validators.test.mjs tests/fake-worker.test.mjs"
+  },
+  "engines": {
+    "//": "src/loadSchemas.ts uses JSON import attributes (`with { type: \"json\" }`), which require Node >= 22. Pinning here so unsupported runtimes fail at install rather than at obscure import-time errors.",
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "json-schema-to-typescript": "^15.0.4",
+    "typescript": "^5.6.0"
+  }
+}

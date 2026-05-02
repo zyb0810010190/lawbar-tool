@@ -1,0 +1,12 @@
+{
+  "job_id": "01jrk8m4q4xv2v8d4d4ymf5ret",
+  "transitions": [
+    { "from": "queued",     "to": "claimed",      "controlled_by": "queue",  "at": "2026-04-27T08:14:33.000+08:00" },
+    { "from": "claimed",    "to": "processing",   "controlled_by": "worker", "at": "2026-04-27T08:14:33.200+08:00" },
+    { "from": "processing", "to": "failed",       "controlled_by": "worker", "at": "2026-04-27T08:14:37.643+08:00", "note": "transient, attempt 1 of 3" },
+    { "from": "failed",     "to": "queued",       "controlled_by": "queue",  "at": "2026-04-27T08:14:39.643+08:00" },
+    { "from": "queued",     "to": "claimed",      "controlled_by": "queue",  "at": "2026-04-27T08:14:39.700+08:00" },
+    { "from": "claimed",    "to": "processing",   "controlled_by": "worker", "at": "2026-04-27T08:14:39.800+08:00" },
+    { "from": "processing", "to": "succeeded",    "controlled_by": "worker", "at": "2026-04-27T08:14:43.000+08:00" }
+  ]
+}

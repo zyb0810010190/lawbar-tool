@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/contracts/ocr-result.schema.json",
+  "title": "OcrResult",
+  "description": "OCR worker -> queue/web app. See docs/contracts/ocr-worker-contract.md §2.",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "job_id",
+    "tenant_id",
+    "document_id",
+    "page_id",
+    "page_number",
+    "status",
+    "engine",
+    "page_metrics",
+    "metadata",
+    "completed_at"
+  ],
+  "properties": {
+    "contract_version": { "$ref": "#/$defs/semver" },
+    "job_id":      { "$ref": "#/$defs/ulid" },
+    "tenant_id":   { "$ref": "#/$defs/ulid" },
+    "document_id": { "$ref": "#/$defs/ulid" },
+    "document_revision": { "type": "integer", "minimum": 1 },
+    "page_id":     { "$ref": "#/$defs/ulid" },
+    "page_number": { "type": "integer", "minimum": 1 },
+    "status":      { "enum": ["succeeded", "failed", "cancelled"] },
+
+    "engine": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name":      { "type": "string", "minLength": 1 },
+        "version":   { "type": "string", "minLength": 1 },
+        "model_set": { "type": "string" },
+        "preprocessing_applied": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "page_metrics": {
+      "type": "object",
+      "required": ["processing_duration_ms"],
+      "properties": {
+        "detected_dpi":             { "type": "integer", "minimum": 1 },
+        "detected_orientation_deg": { "type": "integer", "minimum": 0, "maximum": 359 },
+        "detected_dominant_script": { "type": "string" },
+        "page_width_px":            { "type": "integer", "minimum": 1 },
+        "page_height_px":           { "type": "integer", "minimum": 1 },
+        "processing_duration_ms":   { "type": "integer", "minimum": 0 },
+        "queued_duration_ms":       { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "raw_text": { "type": "string" },
+
+    "blocks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/block" }
+    },
+
+    "review": {
+      "type": "object",
+      "required": ["manual_review_recommended"],
+      "properties": {
+        "manual_review_recommended": { "type": "boolean" },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "low_page_mean_confidence",
+              "low_block_confidence",
+              "low_word_confidence_density",
+              "low_dpi",
+              "seal_overlap",
+              "unexpected_vertical_text",
+              "table_cell_variance"
+            ]
+          }
+        },
+        "low_confidence_block_ids": { "type": "array", "items": { "type": "string" } },
+        "page_confidence_summary": {
+          "type": "object",
+          "properties": {
+            "min":    { "type": "number", "minimum": 0, "maximum": 1 },
+            "median": { "type": "number", "minimum": 0, "maximum": 1 },
+            "mean":   { "type": "number", "minimum": 0, "maximum": 1 },
+            "p10":    { "type": "number", "minimum": 0, "maximum": 1 },
+            "fraction_below_0_80": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+
+    "partial_failure": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/partialFailure" }
+      ]
+    },
+
+    "metadata":     { "type": "object" },
+    "completed_at": { "type": "string", "format": "date-time" }
+  },
+
+  "allOf": [
+    {
+      "description": "On succeeded: blocks and raw_text required, partial_failure must be null.",
+      "if": { "properties": { "status": { "const": "succeeded" } }, "required": ["status"] },
+      "then": {
+        "required": ["blocks", "raw_text"],
+        "properties": {
+          "partial_failure": { "type": "null" }
+        }
+      }
+    },
+    {
+      "description": "On failed: partial_failure object required.",
+      "if": { "properties": { "status": { "const": "failed" } }, "required": ["status"] },
+      "then": {
+        "required": ["partial_failure"],
+        "properties": {
+          "partial_failure": { "$ref": "#/$defs/partialFailure" }
+        }
+      }
+    }
+  ],
+
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$"
+    },
+    "bbox": {
+      "type": "object",
+      "required": ["x", "y", "w", "h"],
+      "properties": {
+        "x": { "type": "integer", "minimum": 0 },
+        "y": { "type": "integer", "minimum": 0 },
+        "w": { "type": "integer", "minimum": 1 },
+        "h": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "polygon": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "block": {
+      "type": "object",
+      "required": ["block_id", "type", "confidence", "bbox"],
+      "properties": {
+        "block_id":   { "type": "string", "minLength": 1 },
+        "type":       { "enum": ["paragraph", "line", "heading", "table", "seal", "figure", "formula", "handwriting", "unknown"] },
+        "text":       { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "bbox":       { "$ref": "#/$defs/bbox" },
+        "polygon":    { "$ref": "#/$defs/polygon" },
+        "reading_order": { "type": "integer", "minimum": 0 },
+        "writing_mode":  { "enum": ["horizontal-tb", "vertical-rl", "vertical-lr"] },
+        "language":      { "type": "string" },
+        "words": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["text", "confidence", "bbox"],
+            "properties": {
+              "text":       { "type": "string" },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "bbox":       { "$ref": "#/$defs/bbox" }
+            }
+          }
+        },
+        "seal_shape":         { "enum": ["circle", "ellipse", "square", "rectangle", "triangle", "other"] },
+        "overlaps_block_ids": { "type": "array", "items": { "type": "string" } },
+        "table": { "$ref": "#/$defs/table" }
+      },
+      "allOf": [
+        {
+          "description": "Seal blocks require seal_shape and overlaps_block_ids.",
+          "if": { "properties": { "type": { "const": "seal" } }, "required": ["type"] },
+          "then": { "required": ["seal_shape", "overlaps_block_ids"] }
+        },
+        {
+          "description": "Table blocks require table substructure.",
+          "if": { "properties": { "type": { "const": "table" } }, "required": ["type"] },
+          "then": { "required": ["table"] }
+        }
+      ]
+    },
+    "table": {
+      "type": "object",
+      "required": ["rows", "cols", "cells"],
+      "properties": {
+        "rows": { "type": "integer", "minimum": 1 },
+        "cols": { "type": "integer", "minimum": 1 },
+        "cells": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["row", "col", "text", "confidence"],
+            "properties": {
+              "row":        { "type": "integer", "minimum": 0 },
+              "col":        { "type": "integer", "minimum": 0 },
+              "text":       { "type": "string" },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "row_span":   { "type": "integer", "minimum": 1 },
+              "col_span":   { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    },
+    "partialFailure": {
+      "type": "object",
+      "required": ["code", "message", "is_transient", "attempted_count"],
+      "properties": {
+        "code":            { "type": "string", "minLength": 1 },
+        "message":         { "type": "string", "minLength": 1 },
+        "is_transient":    { "type": "boolean" },
+        "attempted_count": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

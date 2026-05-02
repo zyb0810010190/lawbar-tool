@@ -1,0 +1,32 @@
+// Public surface of the OCR persistence package.
+
+export {
+  InMemoryOcrPersistence,
+  type InMemoryOcrPersistenceOptions,
+} from "./inMemoryRepo.js";
+export {
+  OcrPersistenceError,
+  type OcrPersistence,
+  type OcrJobRecord,
+  type OcrStatusEvent,
+  type OcrResultRecord,
+  type ListOcrJobsByDocumentQuery,
+  type ListOcrJobsByDocumentPage,
+  type ListOcrReviewPageRowsQuery,
+  type ListOcrReviewPageRowsPage,
+  type OcrReviewPageRow,
+} from "./types.js";
+
+export {
+  DEFAULT_LIMIT,
+  MAX_LIMIT,
+  type OcrCursorKind,
+} from "./cursor.js";
+
+export {
+  SqliteOcrPersistence,
+  openSqliteOcrPersistence,
+  applySchema,
+  CURRENT_SCHEMA_VERSION,
+  type SqliteOcrPersistenceOptions,
+} from "./sqlite/index.js";

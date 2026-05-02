@@ -1,0 +1,11 @@
+{
+  "_invalid_reason": "succeeded is terminal; transition succeeded -> queued is not allowed (see contract §3.2)",
+  "_target_schema": "transition-rules",
+  "job_id": "01jrk8m4q4xv2v8d4d4ymf5b04",
+  "transitions": [
+    { "from": "queued",     "to": "claimed",    "controlled_by": "queue",  "at": "2026-04-27T08:14:33.000+08:00" },
+    { "from": "claimed",    "to": "processing", "controlled_by": "worker", "at": "2026-04-27T08:14:33.200+08:00" },
+    { "from": "processing", "to": "succeeded",  "controlled_by": "worker", "at": "2026-04-27T08:14:37.000+08:00" },
+    { "from": "succeeded",  "to": "queued",     "controlled_by": "queue",  "at": "2026-04-27T08:14:38.000+08:00" }
+  ]
+}
