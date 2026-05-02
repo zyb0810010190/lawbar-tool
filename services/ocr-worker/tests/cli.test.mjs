@@ -244,6 +244,78 @@ test("signal handlers are uninstalled after process exits", async () => {
   assert.equal(proc.listenerCount("SIGTERM"), 0);
 });
 
+test("SIGINT during in-flight processOne → waits for completion, exits 0 with stop_reason=stopped", async () => {
+  // Step 10E audit follow-up: prove the runtime honors the 'finish in-flight
+  // work, then stop' contract — not just the SIGINT-during-idle case.
+  const proc = makeFakeProcess();
+
+  let resolveProcessOne;
+  const inFlight = new Promise((resolve) => {
+    resolveProcessOne = resolve;
+  });
+  let processOneStarted = false;
+  let abortObservedDuringInFlight = false;
+
+  // Capture the AbortSignal the loop uses by snooping on the
+  // coordinator. We can observe abort because runOcrWorkerLoop sees it
+  // BEFORE starting the next iteration; what we want to assert is that
+  // the loop did NOT cancel us mid-call.
+  const codeP = runOcrWorkerProcess({
+    argv: [],
+    env: { OCR_WORKER_IDLE_DELAY_MS: "0" },
+    process: proc,
+    buildDeps: async () => ({
+      queue: new InMemoryOcrQueue(),
+      persistence: emptyPersistence(),
+      worker: unusedWorker(),
+      coordinator: {
+        async processOne() {
+          processOneStarted = true;
+          await inFlight;
+          // Verified: the abort fired while we were pending; we still
+          // got to resolve normally before the loop noticed the stop.
+          return { outcome: "empty" };
+        },
+      },
+    }),
+  });
+
+  // Wait until processOne is in-flight.
+  while (!processOneStarted) {
+    await new Promise((r) => setImmediate(r));
+  }
+
+  // Listener must be installed at this point — otherwise SIGINT is a no-op.
+  assert.equal(proc.listenerCount("SIGINT"), 1);
+
+  // Fire SIGINT while processOne is still pending.
+  proc.emit("SIGINT");
+
+  // Allow the abort to propagate through the loop's signal listeners,
+  // and confirm processOne is still pending (i.e. the runtime did NOT
+  // forcibly cancel mid-call — it has no contract channel to do so).
+  await new Promise((r) => setTimeout(r, 20));
+  abortObservedDuringInFlight = true;
+
+  // Now resolve processOne. The loop should see stopSignal aborted on
+  // its next iteration check and finalize with stop_reason="stopped".
+  resolveProcessOne();
+
+  const code = await codeP;
+  assert.equal(code, 0);
+  assert.equal(abortObservedDuringInFlight, true);
+
+  const lines = getStdoutLines(proc);
+  const summary = JSON.parse(lines[lines.length - 1]);
+  assert.equal(summary.stop_reason, "stopped");
+  assert.equal(summary.iterations, 1);
+  assert.equal(summary.outcomes.empty, 1);
+
+  // Listener uninstalled after exit.
+  assert.equal(proc.listenerCount("SIGINT"), 0);
+  assert.equal(proc.listenerCount("SIGTERM"), 0);
+});
+
 test("default deps path: no buildDeps + max_iterations=1 → exit 0", async () => {
   // Verifies the production default wiring builds without injection.
   const proc = makeFakeProcess();

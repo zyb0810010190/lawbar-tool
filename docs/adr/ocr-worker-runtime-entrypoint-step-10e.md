@@ -133,9 +133,12 @@ skipped (used by tests to inject a stub or a coordinator that throws on
 `new OcrProcessingCoordinator({ queue, persistence, worker, worker_id })`
 from the config-provided `worker_id`.
 
-`cleanup` runs on every exit path (success, error, post-loop). Cleanup
-errors are logged to stderr but do not change the exit code — the loop
-result is authoritative.
+`cleanup` runs on every **post-`buildDeps`** exit path: graceful stop,
+`max_iterations`, loop error, and unexpected loop throw. It does **not**
+run when `buildDeps` itself fails, when config parsing fails, or when
+`--help` short-circuits — at those points no `cleanup` handle exists yet
+to invoke. Cleanup errors are logged to stderr but do not change the
+exit code — the loop result is authoritative.
 
 ### 8. Package boundary
 
@@ -172,7 +175,7 @@ result is authoritative.
 | `stop_reason="stopped"` → 0 | ✅ |
 | `stop_reason="max_iterations"` → 0 | ✅ |
 | `stop_reason="error"` → 1 | ✅ `cli.test.mjs` "loop error (coordinator throws)" |
-| Cleanup runs on success and error | ✅ |
+| Cleanup runs on every post-`buildDeps` exit path (success and loop error) | ✅ |
 | Listeners uninstalled after exit | ✅ |
 | Existing 345 tests pass | ✅ 376/376 (115 in worker, +31) |
 | No root `package.json` | ✅ |

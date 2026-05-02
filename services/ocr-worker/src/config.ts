@@ -109,19 +109,23 @@ export function parseOcrWorkerConfig(
     );
   }
 
-  // Idle delay
+  // Idle delay — bounded to keep an adversarial value from parking the
+  // worker for hours. 60s is the upper bound; the loop only sleeps on
+  // empty outcomes, so even the cap is fully recoverable via SIGINT.
   const idleDelayMs = parseInteger(
     "idle_delay_ms",
-    pickString(argvFlags.values.idleDelayMs, env.OCR_WORKER_IDLE_DELAY_MS),
+    pickRaw(argvFlags.values.idleDelayMs, env.OCR_WORKER_IDLE_DELAY_MS),
     DEFAULT_IDLE_DELAY_MS,
-    { min: 0 },
+    { min: 0, max: 60_000 },
   );
 
-  // Max iterations
+  // Max iterations — bounded so a typo cannot create a value beyond
+  // anything a human would deliberately request. Lower bound is 1 since
+  // a 0-iteration loop has no meaningful semantics.
   const maxIterations = parseOptionalInteger(
     "max_iterations",
-    pickString(argvFlags.values.maxIterations, env.OCR_WORKER_MAX_ITERATIONS),
-    { min: 0 },
+    pickRaw(argvFlags.values.maxIterations, env.OCR_WORKER_MAX_ITERATIONS),
+    { min: 1, max: 1_000_000 },
   );
 
   // include_empty_outcomes — argv may be a bare flag (true), an explicit
@@ -185,6 +189,7 @@ const KNOWN_FLAGS: ReadonlyMap<string, keyof ArgvParseResult["values"] | "help">
 
 function parseArgvFlags(argv: readonly string[]): ArgvParseResult {
   const values: ArgvParseResult["values"] = {};
+  const seen = new Set<string>();
   let help = false;
   let bareIncludeEmptyOutcomes = false;
 
@@ -212,6 +217,13 @@ function parseArgvFlags(argv: readonly string[]): ArgvParseResult {
     if (known === undefined) {
       throw new OcrWorkerConfigError(`unknown flag: ${name}`);
     }
+
+    // Repeated flags are an explicit error so silent last-wins surprises
+    // never bury an operator typo.
+    if (seen.has(name)) {
+      throw new OcrWorkerConfigError(`flag ${name} repeated`);
+    }
+    seen.add(name);
 
     if (known === "help") {
       help = true;
@@ -256,6 +268,18 @@ function pickString(...candidates: ReadonlyArray<string | undefined>): string | 
   return undefined;
 }
 
+/**
+ * Like pickString, but does NOT filter empty/whitespace strings — used
+ * for integer fields so the integer parser can reject empty/whitespace
+ * explicitly (instead of silently falling back to the default).
+ */
+function pickRaw(...candidates: ReadonlyArray<string | undefined>): string | undefined {
+  for (const c of candidates) {
+    if (c !== undefined) return c;
+  }
+  return undefined;
+}
+
 function parsePersistence(raw: string | undefined): OcrWorkerPersistenceKind {
   if (raw === undefined) return "memory";
   if (raw === "memory" || raw === "sqlite") return raw;
@@ -266,6 +290,7 @@ function parsePersistence(raw: string | undefined): OcrWorkerPersistenceKind {
 
 interface IntRange {
   min?: number;
+  max?: number;
 }
 
 function parseInteger(
@@ -275,12 +300,32 @@ function parseInteger(
   range: IntRange = {},
 ): number {
   if (raw === undefined) return fallback;
+  // Empty / whitespace-only inputs are explicit errors so an
+  // accidentally-cleared env var never silently degrades to defaults.
+  if (raw.length === 0) {
+    throw new OcrWorkerConfigError(`${name}: empty value`);
+  }
+  if (raw.trim().length === 0) {
+    throw new OcrWorkerConfigError(`${name}: whitespace-only value (${JSON.stringify(raw)})`);
+  }
+  // Strict integer regex: no decimals, no exponent, no leading/trailing
+  // whitespace, no partial numerics like "123abc", no hex.
   if (!/^-?\d+$/.test(raw)) {
     throw new OcrWorkerConfigError(`${name}: not an integer (${raw})`);
   }
   const n = Number.parseInt(raw, 10);
+  // parseInt silently clamps oversize numbers to lossy floats.
+  // Number.isSafeInteger rejects Infinity, NaN, and >2^53 magnitudes.
+  if (!Number.isSafeInteger(n)) {
+    throw new OcrWorkerConfigError(
+      `${name}: not a safe integer (${raw})`,
+    );
+  }
   if (range.min !== undefined && n < range.min) {
     throw new OcrWorkerConfigError(`${name}: must be >= ${range.min} (got ${n})`);
+  }
+  if (range.max !== undefined && n > range.max) {
+    throw new OcrWorkerConfigError(`${name}: must be <= ${range.max} (got ${n})`);
   }
   return n;
 }

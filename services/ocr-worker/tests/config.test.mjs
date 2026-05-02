@@ -148,3 +148,208 @@ test("--help is recognized and surfaces a help-marker config field", () => {
   const cfg = parseOcrWorkerConfig({ env: {}, argv: ["--help"] });
   assert.equal(cfg.help_requested, true);
 });
+
+// ---------------------------------------------------------------------------
+// Step 10E audit hardening — integer parsing edge cases
+// ---------------------------------------------------------------------------
+
+test("unsafe-integer overflow rejected (env)", () => {
+  // 2^53 + 1 — first integer Number.parseInt cannot represent precisely.
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER_MAX_ITERATIONS: "9007199254740993" },
+        argv: [],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError &&
+      /max_iterations/.test(err.message) &&
+      /safe integer|<=/.test(err.message),
+  );
+});
+
+test("absurd-magnitude env value rejected (does not silently clamp to Infinity)", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER_MAX_ITERATIONS: "99999999999999999999" },
+        argv: [],
+      }),
+    OcrWorkerConfigError,
+  );
+});
+
+test("max_iterations above explicit cap (1_000_000) rejected", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER_MAX_ITERATIONS: "1000001" },
+        argv: [],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError &&
+      /max_iterations/.test(err.message) &&
+      /<=\s*1000000/.test(err.message),
+  );
+});
+
+test("max_iterations below explicit floor (1) rejected", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER_MAX_ITERATIONS: "0" },
+        argv: [],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError &&
+      /max_iterations/.test(err.message) &&
+      />=\s*1/.test(err.message),
+  );
+});
+
+test("idle_delay_ms above explicit cap (60_000) rejected", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER_IDLE_DELAY_MS: "60001" },
+        argv: [],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError &&
+      /idle_delay_ms/.test(err.message) &&
+      /<=\s*60000/.test(err.message),
+  );
+});
+
+test("idle_delay_ms accepts the boundary value (60_000)", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: { OCR_WORKER_IDLE_DELAY_MS: "60000" },
+    argv: [],
+  });
+  assert.equal(cfg.idle_delay_ms, 60_000);
+});
+
+test("partial numeric value rejected (e.g. '123abc')", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER_IDLE_DELAY_MS: "123abc" },
+        argv: [],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError && /not an integer/.test(err.message),
+  );
+});
+
+test("decimal value rejected (e.g. '1.5')", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER_IDLE_DELAY_MS: "1.5" },
+        argv: [],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError && /not an integer/.test(err.message),
+  );
+});
+
+test("scientific-notation value rejected (e.g. '1e3')", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER_IDLE_DELAY_MS: "1e3" },
+        argv: [],
+      }),
+    OcrWorkerConfigError,
+  );
+});
+
+test("empty integer value rejected (argv form)", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: {},
+        argv: ["--idle-delay-ms="],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError &&
+      /idle_delay_ms/.test(err.message) &&
+      /empty/.test(err.message),
+  );
+});
+
+test("whitespace-only integer value rejected (env form)", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER_IDLE_DELAY_MS: "   " },
+        argv: [],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError &&
+      /idle_delay_ms/.test(err.message) &&
+      /whitespace/.test(err.message),
+  );
+});
+
+test("repeated argv flag rejected (--idle-delay-ms twice)", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: {},
+        argv: ["--idle-delay-ms=10", "--idle-delay-ms=20"],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError &&
+      /repeated/.test(err.message) &&
+      /idle-delay-ms/.test(err.message),
+  );
+});
+
+test("repeated argv flag rejected even across forms (=value vs space-separated)", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: {},
+        argv: ["--worker-id=a", "--worker-id", "b"],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError && /repeated/.test(err.message),
+  );
+});
+
+test("repeated --include-empty-outcomes rejected (bare twice)", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: {},
+        argv: ["--include-empty-outcomes", "--include-empty-outcomes"],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError && /repeated/.test(err.message),
+  );
+});
+
+test("argv > env precedence still holds after stricter parsing", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: {
+      OCR_WORKER_IDLE_DELAY_MS: "100",
+      OCR_WORKER_MAX_ITERATIONS: "50",
+    },
+    argv: ["--idle-delay-ms=7", "--max-iterations=3"],
+  });
+  assert.equal(cfg.idle_delay_ms, 7);
+  assert.equal(cfg.max_iterations, 3);
+});
+
+test("env-only path still parses valid integers after stricter parsing", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: {
+      OCR_WORKER_IDLE_DELAY_MS: "0",
+      OCR_WORKER_MAX_ITERATIONS: "1",
+    },
+    argv: [],
+  });
+  assert.equal(cfg.idle_delay_ms, 0);
+  assert.equal(cfg.max_iterations, 1);
+});
