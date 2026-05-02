@@ -38,3 +38,24 @@ export {
   type OcrWorkerLoopOptions,
   type OcrWorkerLoopSummary,
 } from "./workerLoop.js";
+export {
+  parseOcrWorkerConfig,
+  OcrWorkerConfigError,
+  type OcrWorkerConfig,
+  type OcrWorkerPersistenceKind,
+  type ParseOcrWorkerConfigInput,
+} from "./config.js";
+export {
+  installShutdownHandlers,
+  type InstallShutdownHandlersOptions,
+  type InstalledShutdownHandlers,
+  type SignalSource,
+  type SupportedSignal,
+} from "./processSignals.js";
+export {
+  runOcrWorkerProcess,
+  type OcrWorkerProcessDeps,
+  type OcrWorkerProcessDepsBuilder,
+  type OcrWorkerProcessLike,
+  type RunOcrWorkerProcessOptions,
+} from "./cli.js";
