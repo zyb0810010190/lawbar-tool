@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test tests/review.test.mjs tests/review.crossjob.test.mjs"
+    "test": "npm --prefix ../../docs/contracts run build && npm --prefix ../ocr-persistence run build && npm --prefix ../ocr-worker run build && npm --prefix ../ocr-ingestion run build && npm run build && node --test tests/review.test.mjs tests/review.crossjob.test.mjs tests/pipeline.runtime.e2e.test.mjs"
   },
   "dependencies": {
     "ocr-persistence": "file:../ocr-persistence",
