@@ -6,6 +6,9 @@
   "description": "Minimal queue-facing adapter around the OCR worker contract. In-memory by default; BullMQ-ready seam.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "ocr-worker": "./bin/ocr-worker.mjs"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,7 +17,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm --prefix ../ocr-persistence run build && npm run build && node --test tests/adapter.test.mjs tests/inMemoryQueue.conformance.test.mjs tests/coordinator.test.mjs tests/workerLoop.test.mjs tests/config.test.mjs tests/processSignals.test.mjs tests/cli.test.mjs"
+    "test": "npm --prefix ../ocr-persistence run build && npm run build && node --test tests/adapter.test.mjs tests/inMemoryQueue.conformance.test.mjs tests/coordinator.test.mjs tests/workerLoop.test.mjs tests/config.test.mjs tests/processSignals.test.mjs tests/cli.test.mjs tests/cli.spawn.test.mjs"
   },
   "dependencies": {
     "ocr-persistence": "file:../ocr-persistence",
