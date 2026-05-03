@@ -1,8 +1,15 @@
-// Backend-agnostic conformance harness for `OcrJobQueueBackend` (Step 10B).
+// Backend-agnostic conformance harness for `OcrJobQueueBackend`.
+//
+// Step 10I-A relocation. Previously lived at
+// `services/ocr-worker/tests/conformance/runOcrQueueConformance.mjs`. Moved
+// here so that:
+//   - the `ocr-persistence` SqliteOcrQueue (10I-B) can run the same matrix
+//     without taking a runtime dep on `ocr-worker-adapter`;
+//   - the in-memory and SQLite backends prove the *same* contract — drift
+//     fails here.
 //
 // Mirrors `runOcrPersistenceConformance` in spirit: every concrete backend
-// (in-memory today, BullMQ tomorrow) imports this module and runs the same
-// suite. A backend that diverges silently from the contract fails here.
+// (in-memory today, SQLite next) imports this module and runs the suite.
 //
 // Inputs:
 //   - label:           prefix for `node:test` test names
@@ -10,52 +17,71 @@
 //                      harness passes `{ now, leaseMs, generateReceipt }`
 //                      so tests can drive deterministic time, lease length,
 //                      and receipt minting.
-//   - OcrQueueError:   the error class the backend throws. The harness
-//                      asserts `err instanceof OcrQueueError` and that the
-//                      `code` property matches the documented discriminant.
-//
-// Conventions:
-//   - Submissions are derived from the canonical success fixture; job_id is
-//     overridden per-test to keep dedupe scoping legible.
-//   - When a test needs to advance simulated time, it owns its own
-//     `clock` array and reads its head; the queue's injected `now` calls
-//     `() => new Date(clock[0])` so the test can shift the clock between
-//     queue ops without instantiating new wallclocks.
+//   - OcrQueueError:   optional. The error class the backend throws. The
+//                      harness asserts `err instanceof OcrQueueError` and
+//                      that the `code` property matches the documented
+//                      discriminant. Defaults to the canonical class
+//                      exported from this contract package — backends
+//                      MUST throw the same class identity to keep
+//                      `instanceof` honest across the worker re-export.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const fixtureDir = join(
-  here,
-  "..",
-  "..",
-  "node_modules",
-  "ocr-worker-contract",
-  "fixtures",
-  "valid",
-);
-const baseSubmission = JSON.parse(
-  readFileSync(join(fixtureDir, "submission-s3.json"), "utf8"),
-);
+import baseSubmissionFixture from "../../fixtures/valid/submission-s3.json" with { type: "json" };
 
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
+import {
+  OcrQueueError as CanonicalOcrQueueError,
+  type OcrJob,
+  type OcrJobQueueBackend,
+  type OcrQueueClaim,
+} from "../queue.js";
+
+export interface MakeImplOptions {
+  now?: () => Date;
+  leaseMs?: number;
+  generateReceipt?: () => string;
+}
+
+export interface RunOcrQueueConformanceOptions {
+  label: string;
+  makeImpl: (opts: MakeImplOptions) => OcrJobQueueBackend;
+  /**
+   * The `OcrQueueError` class identity the backend throws. Defaults to the
+   * canonical class exported by `ocr-worker-contract`. Backends should not
+   * pass a different class — the worker re-export preserves identity, and
+   * `ocr-persistence` imports from here directly.
+   */
+  OcrQueueError?: typeof CanonicalOcrQueueError;
+}
+
+interface MakeJobOptions {
+  jobId?: string;
+  transportId?: string;
+  enqueuedAt?: string;
+  scenario?: OcrJob["scenario"];
+  submissionOverrides?: Record<string, unknown>;
+}
+
+const baseSubmission = baseSubmissionFixture as Record<string, unknown>;
 
 /**
- * Build a `OcrJob` with a chosen `submission.job_id`. The 26-char ULID
+ * Build an `OcrJob` with a chosen `submission.job_id`. The 26-char ULID
  * shape is preserved by overlaying onto the fixture.
  */
-function makeJob({ jobId, transportId, enqueuedAt = "2030-01-01T00:00:00.000Z", scenario, submissionOverrides = {} } = {}) {
-  const submission = structuredClone(baseSubmission);
+function makeJob({
+  jobId,
+  transportId,
+  enqueuedAt = "2030-01-01T00:00:00.000Z",
+  scenario,
+  submissionOverrides = {},
+}: MakeJobOptions = {}): OcrJob {
+  const submission = structuredClone(baseSubmission) as Record<string, unknown>;
   if (jobId) submission.job_id = jobId;
   for (const [k, v] of Object.entries(submissionOverrides)) submission[k] = v;
-  const job = {
-    id: transportId ?? `job-${jobId ?? submission.job_id}`,
+  const effectiveJobId = (jobId ?? (submission.job_id as string));
+  const job: OcrJob = {
+    id: transportId ?? `job-${effectiveJobId}`,
     submission,
     enqueued_at: enqueuedAt,
   };
@@ -63,40 +89,54 @@ function makeJob({ jobId, transportId, enqueuedAt = "2030-01-01T00:00:00.000Z", 
   return job;
 }
 
+interface ClockHandle {
+  now: () => Date;
+  advance: (delta: number) => void;
+  set: (ms: number) => void;
+}
+
 /**
  * Mutable clock helper. `clock.now()` returns the head epoch as a Date;
  * `clock.advance(ms)` adds to the head. Pass `clock.now` into makeImpl as
  * the queue's `now`.
  */
-function makeClock(startMs = Date.UTC(2030, 0, 1)) {
+function makeClock(startMs: number = Date.UTC(2030, 0, 1)): ClockHandle {
   const state = { ms: startMs };
   return {
     now: () => new Date(state.ms),
-    advance: (delta) => { state.ms += delta; },
-    set: (ms) => { state.ms = ms; },
+    advance: (delta: number) => { state.ms += delta; },
+    set: (ms: number) => { state.ms = ms; },
   };
 }
 
 /** Sequential receipt minter for deterministic tests. */
-function makeReceiptMinter(prefix = "r") {
+function makeReceiptMinter(prefix = "r"): () => string {
   let n = 0;
   return () => `${prefix}-${++n}`;
 }
 
-async function rejectsWithCode(promise, OcrQueueError, expectedCode) {
-  await assert.rejects(promise, (err) => {
-    return (
-      err instanceof OcrQueueError &&
-      err.code === expectedCode
-    );
-  }, `expected OcrQueueError(code=${expectedCode})`);
+async function rejectsWithCode(
+  promise: Promise<unknown>,
+  ErrorClass: typeof CanonicalOcrQueueError,
+  expectedCode: string,
+): Promise<void> {
+  await assert.rejects(
+    promise,
+    (err: unknown) => {
+      return (
+        err instanceof ErrorClass &&
+        (err as InstanceType<typeof CanonicalOcrQueueError>).code === expectedCode
+      );
+    },
+    `expected OcrQueueError(code=${expectedCode})`,
+  );
 }
 
-// ---------------------------------------------------------------------------
-// Suite
-// ---------------------------------------------------------------------------
-
-export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
+export function runOcrQueueConformance({
+  label,
+  makeImpl,
+  OcrQueueError = CanonicalOcrQueueError,
+}: RunOcrQueueConformanceOptions): void {
   // -------------------------------------------------------------------------
   // enqueue + claimNext basics
   // -------------------------------------------------------------------------
@@ -115,15 +155,19 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
 
     const claim = await q.claimNext("worker-A");
     assert.ok(claim, "expected a claim");
-    assert.equal(claim.worker_id, "worker-A");
-    assert.equal(claim.job_id, "01jrk8m4q4xv2v8d4d4ymf5xnk");
-    assert.equal(claim.job.submission.job_id, "01jrk8m4q4xv2v8d4d4ymf5xnk");
-    assert.equal(typeof claim.receipt, "string");
-    assert.notEqual(claim.receipt, "");
-    assert.equal(typeof claim.claimed_at, "string");
-    assert.equal(typeof claim.lease_expires_at, "string");
+    const c = claim as OcrQueueClaim;
+    assert.equal(c.worker_id, "worker-A");
+    assert.equal(c.job_id, "01jrk8m4q4xv2v8d4d4ymf5xnk");
+    assert.equal(
+      (c.job.submission as { job_id: string }).job_id,
+      "01jrk8m4q4xv2v8d4d4ymf5xnk",
+    );
+    assert.equal(typeof c.receipt, "string");
+    assert.notEqual(c.receipt, "");
+    assert.equal(typeof c.claimed_at, "string");
+    assert.equal(typeof c.lease_expires_at, "string");
     assert.ok(
-      Date.parse(claim.lease_expires_at) > Date.parse(claim.claimed_at),
+      Date.parse(c.lease_expires_at) > Date.parse(c.claimed_at),
       "lease_expires_at must be after claimed_at",
     );
   });
@@ -150,11 +194,11 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
     ];
     for (const jobId of ids) await q.enqueue(makeJob({ jobId }));
 
-    const c1 = await q.claimNext("w");
+    const c1 = (await q.claimNext("w")) as OcrQueueClaim;
     await q.completeClaim(c1);
-    const c2 = await q.claimNext("w");
+    const c2 = (await q.claimNext("w")) as OcrQueueClaim;
     await q.completeClaim(c2);
-    const c3 = await q.claimNext("w");
+    const c3 = (await q.claimNext("w")) as OcrQueueClaim;
     await q.completeClaim(c3);
     const c4 = await q.claimNext("w");
 
@@ -177,7 +221,7 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
 
     const c1 = await q.claimNext("w");
     assert.ok(c1);
-    await q.completeClaim(c1);
+    await q.completeClaim(c1 as OcrQueueClaim);
     const c2 = await q.claimNext("w");
     assert.equal(c2, null, "second enqueue must not create a second slot");
   });
@@ -199,7 +243,7 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
     await q.enqueue(b);
 
     const c1 = await q.claimNext("w");
-    await q.completeClaim(c1);
+    await q.completeClaim(c1 as OcrQueueClaim);
     const c2 = await q.claimNext("w");
     assert.equal(c2, null, "transport metadata differences must not bypass dedupe");
   });
@@ -220,16 +264,19 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
     const a = makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" });
     await q.enqueue(a);
     const c = await q.claimNext("w");
-    await q.completeClaim(c);
+    await q.completeClaim(c as OcrQueueClaim);
 
     const b = makeJob({
       jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk",
       submissionOverrides: { priority: 99 },
     });
     await q.enqueue(b); // must NOT throw
-    const c2 = await q.claimNext("w");
+    const c2 = (await q.claimNext("w")) as OcrQueueClaim | null;
     assert.ok(c2);
-    assert.equal(c2.job.submission.priority, 99);
+    assert.equal(
+      ((c2 as OcrQueueClaim).job.submission as { priority: number }).priority,
+      99,
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -240,7 +287,7 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
     const clock = makeClock();
     const q = makeImpl({ now: clock.now, leaseMs: 30_000, generateReceipt: makeReceiptMinter() });
     await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
-    const claim = await q.claimNext("w");
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
 
     clock.advance(10_000); // 10s passes
     const renewed = await q.renewClaim(claim);
@@ -255,8 +302,8 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
   test(`${label}: renewClaim with an unknown receipt rejects with unknown_receipt`, async () => {
     const q = makeImpl({});
     await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
-    const claim = await q.claimNext("w");
-    const fake = { ...claim, receipt: "definitely-not-a-real-receipt" };
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
+    const fake: OcrQueueClaim = { ...claim, receipt: "definitely-not-a-real-receipt" };
     await rejectsWithCode(q.renewClaim(fake), OcrQueueError, "unknown_receipt");
   });
 
@@ -267,7 +314,7 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
   test(`${label}: completeClaim removes the job from the queue`, async () => {
     const q = makeImpl({});
     await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
-    const claim = await q.claimNext("w");
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
     await q.completeClaim(claim);
     const next = await q.claimNext("w");
     assert.equal(next, null);
@@ -276,7 +323,7 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
   test(`${label}: completing the same claim twice rejects on the second attempt`, async () => {
     const q = makeImpl({});
     await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
-    const claim = await q.claimNext("w");
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
     await q.completeClaim(claim);
     await rejectsWithCode(q.completeClaim(claim), OcrQueueError, "unknown_receipt");
   });
@@ -288,14 +335,15 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
   test(`${label}: requeueClaim makes the job claimable again`, async () => {
     const q = makeImpl({});
     await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
-    const claim = await q.claimNext("w");
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
     await q.requeueClaim(claim);
 
-    const reclaim = await q.claimNext("w2");
+    const reclaim = (await q.claimNext("w2")) as OcrQueueClaim | null;
     assert.ok(reclaim);
-    assert.equal(reclaim.job_id, "01jrk8m4q4xv2v8d4d4ymf5xnk");
+    const r = reclaim as OcrQueueClaim;
+    assert.equal(r.job_id, "01jrk8m4q4xv2v8d4d4ymf5xnk");
     assert.notEqual(
-      reclaim.receipt,
+      r.receipt,
       claim.receipt,
       "re-claim must mint a new receipt",
     );
@@ -304,7 +352,7 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
   test(`${label}: requeueClaim with an unknown receipt rejects`, async () => {
     const q = makeImpl({});
     await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
-    const claim = await q.claimNext("w");
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
     await q.completeClaim(claim);
     await rejectsWithCode(q.requeueClaim(claim), OcrQueueError, "unknown_receipt");
   });
@@ -317,7 +365,7 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
     const clock = makeClock();
     const q = makeImpl({ now: clock.now, leaseMs: 1_000, generateReceipt: makeReceiptMinter() });
     await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
-    const claim = await q.claimNext("w");
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
 
     clock.advance(5_000); // well past 1s lease
     await rejectsWithCode(q.renewClaim(claim), OcrQueueError, "lease_expired");
@@ -327,15 +375,16 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
     const clock = makeClock();
     const q = makeImpl({ now: clock.now, leaseMs: 1_000, generateReceipt: makeReceiptMinter() });
     await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
-    const oldClaim = await q.claimNext("w1");
+    const oldClaim = (await q.claimNext("w1")) as OcrQueueClaim;
 
     clock.advance(5_000);
     // Re-claim under a different worker. The expired claim is swept and a
     // new receipt is minted.
-    const newClaim = await q.claimNext("w2");
+    const newClaim = (await q.claimNext("w2")) as OcrQueueClaim | null;
     assert.ok(newClaim);
-    assert.equal(newClaim.job_id, "01jrk8m4q4xv2v8d4d4ymf5xnk");
-    assert.notEqual(newClaim.receipt, oldClaim.receipt);
+    const nc = newClaim as OcrQueueClaim;
+    assert.equal(nc.job_id, "01jrk8m4q4xv2v8d4d4ymf5xnk");
+    assert.notEqual(nc.receipt, oldClaim.receipt);
 
     // The old receipt now points at a slot owned by someone else. Every
     // op surfaces stale_receipt, including requeueClaim.
@@ -366,7 +415,7 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
     const clock = makeClock();
     const q = makeImpl({ now: clock.now, leaseMs: 1_000, generateReceipt: makeReceiptMinter() });
     await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
-    const claim = await q.claimNext("w");
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
 
     clock.advance(5_000); // past lease, no claimNext to trigger sweep
     await rejectsWithCode(q.completeClaim(claim), OcrQueueError, "lease_expired");
@@ -376,7 +425,7 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
     const clock = makeClock();
     const q = makeImpl({ now: clock.now, leaseMs: 1_000, generateReceipt: makeReceiptMinter() });
     await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
-    const claim = await q.claimNext("w");
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
 
     clock.advance(5_000);
     await rejectsWithCode(q.requeueClaim(claim), OcrQueueError, "lease_expired");
@@ -394,19 +443,19 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
     const idB = "01jrk8m4q4xv2v8d4d4ymf5xn2";
     await q.enqueue(makeJob({ jobId: idA }));
     await q.enqueue(makeJob({ jobId: idB }));
-    const claimA = await q.claimNext("w1");
-    const claimB = await q.claimNext("w2");
+    const claimA = (await q.claimNext("w1")) as OcrQueueClaim;
+    const claimB = (await q.claimNext("w2")) as OcrQueueClaim;
     assert.equal(claimA.job_id, idA);
     assert.equal(claimB.job_id, idB);
 
     clock.advance(5_000);
-    const reclaim = await q.claimNext("w3"); // sweeps both, takes one
+    const reclaim = (await q.claimNext("w3")) as OcrQueueClaim | null; // sweeps both, takes one
     assert.ok(reclaim);
 
     // Identify which one is still waiting (the one NOT reclaimed) and
     // assert its original receipt is treated as unknown_receipt — no
     // active claim with that job_id exists.
-    const stranded = reclaim.job_id === idA ? claimB : claimA;
+    const stranded = (reclaim as OcrQueueClaim).job_id === idA ? claimB : claimA;
     await rejectsWithCode(q.renewClaim(stranded), OcrQueueError, "unknown_receipt");
     await rejectsWithCode(q.completeClaim(stranded), OcrQueueError, "unknown_receipt");
     await rejectsWithCode(q.requeueClaim(stranded), OcrQueueError, "unknown_receipt");
@@ -419,12 +468,12 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
   test(`${label}: a live receipt paired with the wrong job_id rejects with invalid_claim`, async () => {
     const q = makeImpl({});
     await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
-    const real = await q.claimNext("w");
+    const real = (await q.claimNext("w")) as OcrQueueClaim;
 
     // Tampered claim: keeps the real (live) receipt but lies about job_id.
     // This is *not* legitimate lease succession (which would surface as
     // stale_receipt after expiry+reclaim) — it is malformed input.
-    const tampered = { ...real, job_id: "01zzzzzzzzzzzzzzzzzzzzzzzz" };
+    const tampered: OcrQueueClaim = { ...real, job_id: "01zzzzzzzzzzzzzzzzzzzzzzzz" };
     await rejectsWithCode(q.renewClaim(tampered), OcrQueueError, "invalid_claim");
     await rejectsWithCode(q.completeClaim(tampered), OcrQueueError, "invalid_claim");
     await rejectsWithCode(q.requeueClaim(tampered), OcrQueueError, "invalid_claim");
@@ -436,7 +485,7 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
 
   test(`${label}: a malformed claim (empty receipt) rejects with invalid_claim`, async () => {
     const q = makeImpl({});
-    const malformed = {
+    const malformed: OcrQueueClaim = {
       job_id: "01jrk8m4q4xv2v8d4d4ymf5xnk",
       job: makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }),
       worker_id: "w",
@@ -456,16 +505,16 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
   test(`${label}: mutating the returned claim's job does not change backend state`, async () => {
     const q = makeImpl({});
     const original = makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" });
-    const originalPriority = original.submission.priority;
+    const originalPriority = (original.submission as { priority: number }).priority;
     await q.enqueue(original);
-    const claim = await q.claimNext("w");
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
 
     // Tamper post-claim.
-    claim.job.submission.priority = 999;
+    (claim.job.submission as { priority: number }).priority = 999;
 
     const renewed = await q.renewClaim(claim);
     assert.equal(
-      renewed.job.submission.priority,
+      (renewed.job.submission as { priority: number }).priority,
       originalPriority,
       "backend must hold the canonical submission, not the mutated copy",
     );
@@ -474,12 +523,15 @@ export function runOcrQueueConformance({ label, makeImpl, OcrQueueError }) {
   test(`${label}: mutating the original job after enqueue does not poison the queue`, async () => {
     const q = makeImpl({});
     const job = makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" });
-    const originalPriority = job.submission.priority;
+    const originalPriority = (job.submission as { priority: number }).priority;
     await q.enqueue(job);
-    job.submission.priority = 999;
+    (job.submission as { priority: number }).priority = 999;
 
-    const claim = await q.claimNext("w");
-    assert.equal(claim.job.submission.priority, originalPriority);
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
+    assert.equal(
+      (claim.job.submission as { priority: number }).priority,
+      originalPriority,
+    );
   });
 
   // -------------------------------------------------------------------------

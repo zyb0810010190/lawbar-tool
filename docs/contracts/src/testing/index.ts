@@ -12,3 +12,13 @@ export {
   type FakeWorkerOptions,
   type FakeJobOutcome,
 } from "./fake-worker.js";
+
+// Queue conformance harness (Step 10I-A relocation; see ADR
+// `docs/adr/ocr-queue-boundary-amendment-step-10h-a.md`). Backend-agnostic;
+// `InMemoryOcrQueue` and the future `SqliteOcrQueue` both prove identical
+// behavior against this matrix.
+export {
+  runOcrQueueConformance,
+  type RunOcrQueueConformanceOptions,
+  type MakeImplOptions,
+} from "./queue-conformance.js";

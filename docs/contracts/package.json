@@ -20,13 +20,14 @@
   "files": [
     "dist",
     "schemas",
+    "fixtures",
     "ocr-worker-contract.md"
   ],
   "scripts": {
     "gen:types": "node scripts/gen-types.mjs",
     "build": "tsc -p tsconfig.json",
     "prebuild": "npm run gen:types",
-    "test": "npm run build && node --test tests/contract.test.mjs tests/validators.test.mjs tests/fake-worker.test.mjs"
+    "test": "npm run build && node --test tests/contract.test.mjs tests/validators.test.mjs tests/fake-worker.test.mjs tests/queue-types.test.mjs"
   },
   "engines": {
     "//": "src/loadSchemas.ts uses JSON import attributes (`with { type: \"json\" }`), which require Node >= 22. Pinning here so unsupported runtimes fail at install rather than at obscure import-time errors.",

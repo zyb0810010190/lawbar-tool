@@ -42,6 +42,19 @@ export {
 export { RetryPolicyError } from "./retryPolicy.js";
 export { validateRetryCounters } from "./retry-rules.js";
 
+// Queue transport types (Step 10I-A relocation; see ADR
+// `docs/adr/ocr-queue-boundary-amendment-step-10h-a.md`). `ocr-worker-adapter`
+// re-exports these for source compatibility; new consumers
+// (`ocr-persistence`, future SqliteOcrQueue) should import from here.
+export {
+  OcrQueueError,
+  type EnqueueResult,
+  type OcrJob,
+  type OcrJobQueueBackend,
+  type OcrQueueClaim,
+  type OcrQueueErrorCode,
+} from "./queue.js";
+
 export type {
   ValidationResult,
   ValidationOk,
