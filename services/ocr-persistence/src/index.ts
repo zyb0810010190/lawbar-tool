@@ -26,7 +26,11 @@ export {
 export {
   SqliteOcrPersistence,
   openSqliteOcrPersistence,
+  SqliteOcrQueue,
+  openSqliteOcrQueue,
   applySchema,
   CURRENT_SCHEMA_VERSION,
   type SqliteOcrPersistenceOptions,
+  type SqliteOcrQueueOptions,
+  type OpenSqliteOcrQueueOptions,
 } from "./sqlite/index.js";

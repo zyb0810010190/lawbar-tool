@@ -33,9 +33,13 @@ test("applySchema: repeated invocation is idempotent (INSERT OR IGNORE)", () => 
     const rows = db
       .prepare("SELECT version FROM schema_version ORDER BY version ASC")
       .all();
-    // Exactly one row regardless of how many times applySchema is called.
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].version, CURRENT_SCHEMA_VERSION);
+    // One row per applied migration (1..CURRENT_SCHEMA_VERSION). Repeat
+    // invocations of applySchema must not duplicate rows — INSERT OR
+    // IGNORE keeps the per-version applied_at frozen at first-write.
+    assert.equal(rows.length, CURRENT_SCHEMA_VERSION);
+    for (let i = 0; i < CURRENT_SCHEMA_VERSION; i++) {
+      assert.equal(rows[i].version, i + 1);
+    }
   } finally {
     db.close();
   }
@@ -62,7 +66,14 @@ test("applySchema: schema_version row is preserved across re-runs", () => {
       .get(CURRENT_SCHEMA_VERSION).applied_at;
 
     assert.equal(secondApplied, firstApplied);
-    assert.equal(nowCallCount, 1, "applied_at clock only sampled on first apply");
+    // First apply runs every missing migration (1..CURRENT_SCHEMA_VERSION),
+    // sampling `now` once per migration. The second apply short-circuits
+    // (DB already at current) and does not call `now` at all.
+    assert.equal(
+      nowCallCount,
+      CURRENT_SCHEMA_VERSION,
+      "applied_at clock sampled once per migration on first apply, never again",
+    );
   } finally {
     db.close();
   }
