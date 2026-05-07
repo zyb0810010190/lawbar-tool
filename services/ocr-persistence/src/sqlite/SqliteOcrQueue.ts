@@ -274,6 +274,21 @@ export class SqliteOcrQueue implements OcrJobQueueBackend {
         .get() as { m: number };
       const enqueueSeq = seqRow.m + 1;
 
+      // A resolved row with this transport_id may exist from a previous
+      // lifecycle (same logical job re-enqueued after completion). Per
+      // contract, `OcrJob.id` is adapter-assigned audit/trace only and is
+      // NOT a dedupe key, so repeating it on re-enqueue is legal — but the
+      // schema's `transport_id PRIMARY KEY` would collide. Clear the
+      // resolved row before INSERT. The receipt ledger (keyed by `receipt`,
+      // not transport_id) keeps the durable audit trail, so this drops no
+      // load-bearing history.
+      this.db
+        .prepare(
+          `DELETE FROM ocr_queue_jobs
+             WHERE transport_id = ? AND state = 'resolved'`,
+        )
+        .run(cloned.id);
+
       this.db
         .prepare(
           `INSERT INTO ocr_queue_jobs
@@ -397,6 +412,36 @@ export class SqliteOcrQueue implements OcrJobQueueBackend {
         lease_expires_at: new Date(leaseExpiresMs).toISOString(),
         receipt,
       };
+
+      // Sweep any OTHER expired-claimed rows that were NOT the reclaim
+      // target this pass. Without this, two simultaneously-expired claims
+      // would leave the not-picked one in `claimed/expired` state — its
+      // receipt would still classify as `lease_expired`, but the contract
+      // mandates `unknown_receipt` once the slot has been "post-swept,
+      // pre-reclaim with no successor". `expired_swept` is the resolution
+      // flag for that classification (see `classifyOrThrow`).
+      this.db
+        .prepare(
+          `UPDATE ocr_queue_receipts
+             SET resolution = 'expired_swept', resolved_at_ms = ?
+           WHERE resolved_at_ms IS NULL
+             AND receipt IN (
+               SELECT current_receipt FROM ocr_queue_jobs
+                WHERE state = 'claimed' AND claimed_until_ms <= ?
+                  AND current_receipt IS NOT NULL
+             )`,
+        )
+        .run(nowMs, nowMs);
+      this.db
+        .prepare(
+          `UPDATE ocr_queue_jobs
+             SET state = 'waiting',
+                 claimed_until_ms = NULL,
+                 claimed_by = NULL,
+                 current_receipt = NULL
+           WHERE state = 'claimed' AND claimed_until_ms <= ?`,
+        )
+        .run(nowMs);
     });
     tx.immediate();
 

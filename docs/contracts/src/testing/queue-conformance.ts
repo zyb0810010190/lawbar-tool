@@ -535,6 +535,201 @@ export function runOcrQueueConformance({
   });
 
   // -------------------------------------------------------------------------
+  // Step 10I-B2a — extended conformance
+  //
+  // Added cases:
+  //   - canonical-JSON equivalence (different key order still dedupes)
+  //   - dedupe return shape (`deduped` flag + canonical existing record)
+  //   - active dedupe after `requeueClaim`
+  //   - renew metadata authority (caller-supplied worker_id/claimed_at ignored)
+  //   - lease boundary at exactly `now === lease_expires_at`
+  //   - cross-terminal: double-requeue, complete-after-requeue
+  //   - never-issued receipt parity for complete and requeue
+  //   - rejection state-preservation for dedupe_conflict and invalid_claim
+  // -------------------------------------------------------------------------
+
+  test(`${label}: enqueue dedupes when canonical submissions match despite different key order`, async () => {
+    const q = makeImpl({});
+    const a = makeJob({
+      jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk",
+      submissionOverrides: { extraA: 1, extraB: 2 },
+    });
+    const b = makeJob({
+      jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk",
+      submissionOverrides: { extraB: 2, extraA: 1 },
+    });
+    // Precondition sanity: insertion-order JSON must differ for this test
+    // to mean what it claims. Canonical equivalence is what dedupes them.
+    assert.notEqual(
+      JSON.stringify(a.submission),
+      JSON.stringify(b.submission),
+      "preconditions: insertion-order strings must differ",
+    );
+
+    const r1 = await q.enqueue(a);
+    assert.equal(r1.deduped, false);
+    const r2 = await q.enqueue(b);
+    assert.equal(r2.deduped, true, "different key order must still dedupe");
+  });
+
+  test(`${label}: enqueue returns deduped:false on fresh and deduped:true with the existing canonical record`, async () => {
+    const q = makeImpl({});
+    const fresh = makeJob({
+      jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk",
+      transportId: "transport-A",
+      enqueuedAt: "2030-01-01T00:00:00.000Z",
+    });
+    const r1 = await q.enqueue(fresh);
+    assert.equal(r1.deduped, false);
+    assert.equal(r1.job.id, "transport-A");
+    assert.equal(r1.job.enqueued_at, "2030-01-01T00:00:00.000Z");
+
+    const candidate = makeJob({
+      jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk",
+      transportId: "transport-B-different",
+      enqueuedAt: "2030-12-31T23:59:59.000Z",
+    });
+    const r2 = await q.enqueue(candidate);
+    assert.equal(r2.deduped, true);
+    // Returned record must be the EXISTING queued one, not the candidate.
+    assert.equal(r2.job.id, "transport-A");
+    assert.equal(r2.job.enqueued_at, "2030-01-01T00:00:00.000Z");
+  });
+
+  test(`${label}: after requeueClaim, the slot is active and dedupes a same-payload enqueue`, async () => {
+    const q = makeImpl({});
+    await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
+    await q.requeueClaim(claim);
+
+    // Same canonical submission must dedupe (active scope spans waiting).
+    const r = await q.enqueue(
+      makeJob({
+        jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk",
+        transportId: "transport-different",
+      }),
+    );
+    assert.equal(r.deduped, true);
+
+    // Different submission still conflicts on the active slot.
+    await rejectsWithCode(
+      q.enqueue(
+        makeJob({
+          jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk",
+          submissionOverrides: { priority: 7 },
+        }),
+      ),
+      OcrQueueError,
+      "dedupe_conflict",
+    );
+  });
+
+  test(`${label}: renewClaim returns authoritative metadata, not caller-supplied fields`, async () => {
+    const clock = makeClock();
+    const q = makeImpl({ now: clock.now, leaseMs: 30_000, generateReceipt: makeReceiptMinter() });
+    await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
+    const original = (await q.claimNext("real-worker")) as OcrQueueClaim;
+
+    clock.advance(5_000);
+    const forged: OcrQueueClaim = {
+      ...original,
+      worker_id: "imposter",
+      claimed_at: "1999-01-01T00:00:00.000Z",
+    };
+    const renewed = await q.renewClaim(forged);
+    assert.equal(
+      renewed.worker_id,
+      "real-worker",
+      "renew must return the issuing worker, not the forged caller field",
+    );
+    assert.equal(
+      renewed.claimed_at,
+      original.claimed_at,
+      "renew must return the issuance time, not the forged caller field",
+    );
+    assert.equal(renewed.receipt, original.receipt);
+  });
+
+  test(`${label}: at the exact lease boundary (now === lease_expires_at), receipt rejects as lease_expired`, async () => {
+    const clock = makeClock();
+    const leaseMs = 1_000;
+    const q = makeImpl({ now: clock.now, leaseMs, generateReceipt: makeReceiptMinter() });
+    await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
+
+    // Advance to exactly the lease deadline; both backends use a `<=`
+    // comparison, so equality must reject.
+    clock.advance(leaseMs);
+    await rejectsWithCode(q.renewClaim(claim), OcrQueueError, "lease_expired");
+  });
+
+  test(`${label}: requeueClaim twice on the same receipt rejects on the second attempt`, async () => {
+    const q = makeImpl({});
+    await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
+    await q.requeueClaim(claim);
+    await rejectsWithCode(q.requeueClaim(claim), OcrQueueError, "unknown_receipt");
+  });
+
+  test(`${label}: completeClaim after requeueClaim rejects with unknown_receipt`, async () => {
+    const q = makeImpl({});
+    await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
+    await q.requeueClaim(claim);
+    await rejectsWithCode(q.completeClaim(claim), OcrQueueError, "unknown_receipt");
+  });
+
+  test(`${label}: completeClaim with a never-issued receipt rejects with unknown_receipt`, async () => {
+    const q = makeImpl({});
+    await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
+    const fake: OcrQueueClaim = { ...claim, receipt: "never-issued-receipt" };
+    await rejectsWithCode(q.completeClaim(fake), OcrQueueError, "unknown_receipt");
+  });
+
+  test(`${label}: requeueClaim with a never-issued receipt rejects with unknown_receipt`, async () => {
+    const q = makeImpl({});
+    await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
+    const fake: OcrQueueClaim = { ...claim, receipt: "never-issued-receipt" };
+    await rejectsWithCode(q.requeueClaim(fake), OcrQueueError, "unknown_receipt");
+  });
+
+  test(`${label}: dedupe_conflict does not mutate the active queued record`, async () => {
+    const q = makeImpl({});
+    await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
+    await rejectsWithCode(
+      q.enqueue(
+        makeJob({
+          jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk",
+          submissionOverrides: { priority: 99 },
+        }),
+      ),
+      OcrQueueError,
+      "dedupe_conflict",
+    );
+    // Original queued submission remains intact.
+    const claim = (await q.claimNext("w")) as OcrQueueClaim;
+    assert.notEqual(
+      (claim.job.submission as { priority: number }).priority,
+      99,
+      "rejected enqueue must not overwrite the queued submission",
+    );
+  });
+
+  test(`${label}: invalid_claim (forged job_id) does not consume or mutate the live receipt`, async () => {
+    const q = makeImpl({});
+    await q.enqueue(makeJob({ jobId: "01jrk8m4q4xv2v8d4d4ymf5xnk" }));
+    const real = (await q.claimNext("w")) as OcrQueueClaim;
+    const tampered: OcrQueueClaim = { ...real, job_id: "01zzzzzzzzzzzzzzzzzzzzzzzz" };
+    await rejectsWithCode(q.completeClaim(tampered), OcrQueueError, "invalid_claim");
+    // Real receipt still works after the tampered rejection.
+    const renewed = await q.renewClaim(real);
+    assert.equal(renewed.receipt, real.receipt);
+    await q.completeClaim(real);
+  });
+
+  // -------------------------------------------------------------------------
   // close (optional)
   // -------------------------------------------------------------------------
 
