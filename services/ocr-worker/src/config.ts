@@ -14,13 +14,24 @@ import { randomUUID } from "node:crypto";
 // ---------------------------------------------------------------------------
 
 export type OcrWorkerPersistenceKind = "memory" | "sqlite";
+export type OcrWorkerQueueKind = "memory" | "sqlite";
 
 export interface OcrWorkerConfig {
   /** Stable worker identity; passed to `claimNext`. */
   worker_id: string;
   /** Which persistence backend to construct in the default deps factory. */
   persistence: OcrWorkerPersistenceKind;
-  /** Path to the SQLite file. Required when `persistence === "sqlite"`. */
+  /**
+   * Which queue backend to construct in the default deps factory.
+   * Default `"memory"`. `"sqlite"` requires `persistence === "sqlite"`
+   * and reuses `sqlite_path` (one file, two connections — see
+   * docs/adr/ocr-queue-runtime-wiring-step-10j.md).
+   */
+  queue: OcrWorkerQueueKind;
+  /**
+   * Path to the SQLite file. Required when `persistence === "sqlite"` or
+   * `queue === "sqlite"` (which already implies persistence === "sqlite").
+   */
   sqlite_path: string | undefined;
   /** `runOcrWorkerLoop({ idleDelayMs })`. Default: 250ms. */
   idle_delay_ms: number;
@@ -63,6 +74,7 @@ export interface ParseOcrWorkerConfigInput {
  * Recognized argv flags (long form only):
  *   --worker-id <s>
  *   --persistence <memory|sqlite>
+ *   --queue <memory|sqlite>
  *   --sqlite-path <s>
  *   --idle-delay-ms <int>
  *   --max-iterations <int>
@@ -72,6 +84,7 @@ export interface ParseOcrWorkerConfigInput {
  * Recognized env keys:
  *   OCR_WORKER_ID
  *   OCR_WORKER_PERSISTENCE
+ *   OCR_WORKER_QUEUE
  *   OCR_WORKER_SQLITE_PATH
  *   OCR_WORKER_IDLE_DELAY_MS
  *   OCR_WORKER_MAX_ITERATIONS
@@ -89,6 +102,7 @@ export function parseOcrWorkerConfig(
     return {
       worker_id: pickString(argvFlags.values.workerId, env.OCR_WORKER_ID) ?? generateWorkerId(),
       persistence: "memory",
+      queue: "memory",
       sqlite_path: undefined,
       idle_delay_ms: DEFAULT_IDLE_DELAY_MS,
       max_iterations: undefined,
@@ -100,6 +114,20 @@ export function parseOcrWorkerConfig(
   // Persistence
   const persistenceRaw = pickString(argvFlags.values.persistence, env.OCR_WORKER_PERSISTENCE);
   const persistence = parsePersistence(persistenceRaw);
+
+  // Queue
+  const queueRaw = pickString(argvFlags.values.queue, env.OCR_WORKER_QUEUE);
+  const queue = parseQueue(queueRaw);
+
+  // queue=sqlite requires persistence=sqlite, so they share the SQLite
+  // file (ADR-10H "Default intent for 10J: queue uses the same SQLite path
+  // as persistence"). Splitting backends would imply two separate DB files,
+  // which the ADR explicitly rejects.
+  if (queue === "sqlite" && persistence !== "sqlite") {
+    throw new OcrWorkerConfigError(
+      "queue=sqlite requires persistence=sqlite (queue and persistence share the SQLite file)",
+    );
+  }
 
   // SQLite path
   const sqlitePath = pickString(argvFlags.values.sqlitePath, env.OCR_WORKER_SQLITE_PATH);
@@ -148,6 +176,7 @@ export function parseOcrWorkerConfig(
   return {
     worker_id: workerId,
     persistence,
+    queue,
     sqlite_path: sqlitePath,
     idle_delay_ms: idleDelayMs,
     max_iterations: maxIterations,
@@ -169,6 +198,7 @@ interface ArgvParseResult {
   values: {
     workerId?: string;
     persistence?: string;
+    queue?: string;
     sqlitePath?: string;
     idleDelayMs?: string;
     maxIterations?: string;
@@ -180,6 +210,7 @@ interface ArgvParseResult {
 const KNOWN_FLAGS: ReadonlyMap<string, keyof ArgvParseResult["values"] | "help"> = new Map([
   ["--worker-id", "workerId"],
   ["--persistence", "persistence"],
+  ["--queue", "queue"],
   ["--sqlite-path", "sqlitePath"],
   ["--idle-delay-ms", "idleDelayMs"],
   ["--max-iterations", "maxIterations"],
@@ -285,6 +316,14 @@ function parsePersistence(raw: string | undefined): OcrWorkerPersistenceKind {
   if (raw === "memory" || raw === "sqlite") return raw;
   throw new OcrWorkerConfigError(
     `invalid persistence: ${raw} (expected memory | sqlite)`,
+  );
+}
+
+function parseQueue(raw: string | undefined): OcrWorkerQueueKind {
+  if (raw === undefined) return "memory";
+  if (raw === "memory" || raw === "sqlite") return raw;
+  throw new OcrWorkerConfigError(
+    `invalid queue: ${raw} (expected memory | sqlite)`,
   );
 }
 

@@ -18,7 +18,11 @@
 //   2 — config parse failure OR dep wiring failure (startup failure)
 
 import { processFakeOcrJob } from "ocr-worker-contract/testing";
-import { InMemoryOcrPersistence, openSqliteOcrPersistence } from "ocr-persistence";
+import {
+  InMemoryOcrPersistence,
+  openSqliteOcrPersistence,
+  openSqliteOcrQueue,
+} from "ocr-persistence";
 
 import {
   parseOcrWorkerConfig,
@@ -97,6 +101,9 @@ Usage:
 Flags:
   --worker-id <id>                    Worker identity (default: random UUID)
   --persistence <memory|sqlite>       Persistence backend (default: memory)
+  --queue <memory|sqlite>             Queue backend (default: memory)
+                                      sqlite requires --persistence=sqlite;
+                                      shares --sqlite-path with persistence.
   --sqlite-path <path>                SQLite DB path (required with --persistence=sqlite)
   --idle-delay-ms <int>               Idle pacing for empty claims (default: 250)
   --max-iterations <int>              Stop after N coordinator iterations
@@ -104,9 +111,9 @@ Flags:
   --help                              Print this and exit 0
 
 Environment variables (argv flags take precedence):
-  OCR_WORKER_ID, OCR_WORKER_PERSISTENCE, OCR_WORKER_SQLITE_PATH,
-  OCR_WORKER_IDLE_DELAY_MS, OCR_WORKER_MAX_ITERATIONS,
-  OCR_WORKER_INCLUDE_EMPTY_OUTCOMES
+  OCR_WORKER_ID, OCR_WORKER_PERSISTENCE, OCR_WORKER_QUEUE,
+  OCR_WORKER_SQLITE_PATH, OCR_WORKER_IDLE_DELAY_MS,
+  OCR_WORKER_MAX_ITERATIONS, OCR_WORKER_INCLUDE_EMPTY_OUTCOMES
 
 Signals:
   SIGINT/SIGTERM        Graceful shutdown — wait for the in-flight processOne()
@@ -240,7 +247,6 @@ const defaultFakeWorker: OcrWorker = {
 };
 
 async function buildDefaultDeps(config: OcrWorkerConfig): Promise<OcrWorkerProcessDeps> {
-  const queue = new InMemoryOcrQueue();
   const worker = defaultFakeWorker;
 
   if (config.persistence === "sqlite") {
@@ -248,19 +254,50 @@ async function buildDefaultDeps(config: OcrWorkerConfig): Promise<OcrWorkerProce
       // Already validated by parseOcrWorkerConfig; defensive guard.
       throw new Error("internal: sqlite_path missing after config validation");
     }
-    const { persistence, db } = openSqliteOcrPersistence({ path: config.sqlite_path });
+    const { persistence, db: persistenceDb } = openSqliteOcrPersistence({
+      path: config.sqlite_path,
+    });
+
+    if (config.queue === "sqlite") {
+      // Two connections, one file. ADR-10H rejects a separate queue path
+      // key; ADR-10J defers shared-connection (single-tx) wiring to 10K's
+      // ingest seam — the worker side never writes queue+persistence in
+      // one transaction (10C: persist-first then ack, idempotent).
+      const { queue, db: queueDb } = openSqliteOcrQueue({ path: config.sqlite_path });
+      return {
+        queue,
+        worker,
+        persistence,
+        cleanup: async () => {
+          // close queue first so its connection releases the WAL writer
+          // slot before persistence shuts down.
+          try {
+            queue.close();
+          } finally {
+            // queue.close() also closes queueDb (ownsDb=true via factory),
+            // so do not double-close. Persistence db is owned here.
+            persistenceDb.close();
+          }
+          // Reference queueDb to keep the destructure pinned in the
+          // closure for static analysis tooling.
+          void queueDb;
+        },
+      };
+    }
+
     return {
-      queue,
+      queue: new InMemoryOcrQueue(),
       worker,
       persistence,
       cleanup: async () => {
-        db.close();
+        persistenceDb.close();
       },
     };
   }
 
+  // persistence=memory implies queue=memory (cross-validated in config.ts).
   return {
-    queue,
+    queue: new InMemoryOcrQueue(),
     worker,
     persistence: new InMemoryOcrPersistence(),
   };

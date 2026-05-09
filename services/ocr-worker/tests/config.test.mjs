@@ -353,3 +353,106 @@ test("env-only path still parses valid integers after stricter parsing", () => {
   assert.equal(cfg.idle_delay_ms, 0);
   assert.equal(cfg.max_iterations, 1);
 });
+
+// ----------------------------------------------------------------------
+// Step 10J — queue backend selection
+// ----------------------------------------------------------------------
+
+test("queue defaults to memory when neither env nor argv sets it", () => {
+  const cfg = parseOcrWorkerConfig({ env: {}, argv: [] });
+  assert.equal(cfg.queue, "memory");
+});
+
+test("OCR_WORKER_QUEUE=memory is accepted explicitly", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: { OCR_WORKER_QUEUE: "memory" },
+    argv: [],
+  });
+  assert.equal(cfg.queue, "memory");
+});
+
+test("--queue sqlite + --persistence sqlite + --sqlite-path parses cleanly", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: {},
+    argv: [
+      "--queue",
+      "sqlite",
+      "--persistence",
+      "sqlite",
+      "--sqlite-path",
+      "/tmp/ocr.db",
+    ],
+  });
+  assert.equal(cfg.queue, "sqlite");
+  assert.equal(cfg.persistence, "sqlite");
+  assert.equal(cfg.sqlite_path, "/tmp/ocr.db");
+});
+
+test("OCR_WORKER_QUEUE=sqlite without persistence=sqlite throws", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER_QUEUE: "sqlite" },
+        argv: [],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError &&
+      /queue=sqlite requires persistence=sqlite/.test(err.message),
+  );
+});
+
+test("--queue=sqlite with persistence=memory in env still throws", () => {
+  // argv > env, but cross-validation must use the resolved values.
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER_PERSISTENCE: "memory" },
+        argv: ["--queue=sqlite"],
+      }),
+    OcrWorkerConfigError,
+  );
+});
+
+test("argv --queue overrides env OCR_WORKER_QUEUE", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: {
+      OCR_WORKER_QUEUE: "sqlite",
+      OCR_WORKER_PERSISTENCE: "sqlite",
+      OCR_WORKER_SQLITE_PATH: "/tmp/ocr.db",
+    },
+    argv: ["--queue=memory"],
+  });
+  assert.equal(cfg.queue, "memory");
+  assert.equal(cfg.persistence, "sqlite");
+});
+
+test("invalid --queue value rejects", () => {
+  assert.throws(
+    () => parseOcrWorkerConfig({ env: {}, argv: ["--queue", "redis"] }),
+    (err) =>
+      err instanceof OcrWorkerConfigError &&
+      /invalid queue/.test(err.message),
+  );
+});
+
+test("repeated --queue flag rejects", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: {},
+        argv: ["--queue", "memory", "--queue", "sqlite"],
+      }),
+    (err) =>
+      err instanceof OcrWorkerConfigError &&
+      /flag --queue repeated/.test(err.message),
+  );
+});
+
+test("--help short-circuit returns queue=memory regardless of env", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: { OCR_WORKER_QUEUE: "sqlite" },
+    argv: ["--help"],
+  });
+  assert.equal(cfg.help_requested, true);
+  assert.equal(cfg.queue, "memory");
+});

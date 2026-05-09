@@ -17,7 +17,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm --prefix ../../docs/contracts run build && npm --prefix ../ocr-persistence run build && npm run build && node --test tests/adapter.test.mjs tests/inMemoryQueue.conformance.test.mjs tests/queueContractRelocation.test.mjs tests/coordinator.test.mjs tests/workerLoop.test.mjs tests/config.test.mjs tests/processSignals.test.mjs tests/cli.test.mjs tests/cli.spawn.test.mjs"
+    "test": "npm --prefix ../../docs/contracts run build && npm --prefix ../ocr-persistence run build && npm run build && node --test tests/adapter.test.mjs tests/inMemoryQueue.conformance.test.mjs tests/queueContractRelocation.test.mjs tests/coordinator.test.mjs tests/workerLoop.test.mjs tests/config.test.mjs tests/processSignals.test.mjs tests/cli.test.mjs tests/cli.spawn.test.mjs tests/cli.sqlite.test.mjs"
   },
   "dependencies": {
     "ocr-persistence": "file:../ocr-persistence",
