@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm --prefix ../../docs/contracts run build && npm run build && node --test tests/inMemory.conformance.test.mjs tests/sqlite.conformance.test.mjs tests/sqlite.hardening.test.mjs tests/sqliteQueue.schema.test.mjs tests/sqliteQueue.lineage.test.mjs tests/sqliteQueue.conformance.test.mjs tests/sqliteQueue.contention.test.mjs"
+    "test": "npm --prefix ../../docs/contracts run build && npm run build && node --test tests/inMemory.conformance.test.mjs tests/sqlite.conformance.test.mjs tests/sqlite.hardening.test.mjs tests/sqliteQueue.schema.test.mjs tests/sqliteQueue.lineage.test.mjs tests/sqliteQueue.conformance.test.mjs tests/sqliteQueue.contention.test.mjs tests/sqliteAtomicEnqueue.step10k.test.mjs"
   },
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",

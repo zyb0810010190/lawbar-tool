@@ -201,6 +201,13 @@ export class SqliteOcrQueue implements OcrJobQueueBackend {
   private readonly generateReceipt: () => string;
   private readonly ownsDb: boolean;
 
+  /** Filesystem path of the underlying SQLite file (or `:memory:`).
+   *  Used by the 10K atomic ingest seam to verify a persistence + queue
+   *  pair share the same store before attempting an atomic enqueue. */
+  get dbFilePath(): string {
+    return this.db.name;
+  }
+
   constructor(options: SqliteOcrQueueOptions) {
     this.db = options.db;
     this.now = options.now ?? (() => new Date());
@@ -235,85 +242,11 @@ export class SqliteOcrQueue implements OcrJobQueueBackend {
   // -------------------------------------------------------------------------
 
   async enqueue(job: OcrJob): Promise<EnqueueResult> {
-    const logicalId = jobIdOf(job);
-    const cloned = structuredClone(job);
-    const submissionCanonical = canonicalJSON(cloned.submission);
-    const jobJson = JSON.stringify(cloned);
     const enqueuedAtMs = this.now().getTime();
-
-    let outcome: { kind: "fresh"; row: QueueJobRow } | { kind: "deduped"; row: QueueJobRow } | null =
-      null;
+    let outcome: EnqueueOnConnectionOutcome | null = null;
 
     const tx = this.db.transaction(() => {
-      // Look for an active row (waiting or claimed) with this logical id.
-      // Active rows are bounded by the partial unique index, so this finds
-      // 0 or 1 row.
-      const active = this.db
-        .prepare(
-          "SELECT * FROM ocr_queue_jobs WHERE job_id = ? AND state != 'resolved'",
-        )
-        .get(logicalId) as QueueJobRow | undefined;
-
-      if (active !== undefined) {
-        if (active.submission_json === submissionCanonical) {
-          // Same logical id, equal canonical submission — idempotent replay.
-          outcome = { kind: "deduped", row: active };
-          return;
-        }
-        throw new OcrQueueError(
-          "dedupe_conflict",
-          `enqueue conflict for job_id ${logicalId}: submission differs from active queued record`,
-        );
-      }
-
-      // No active row — append. enqueue_seq is the running max + 1; the
-      // UNIQUE constraint catches a race even under BEGIN IMMEDIATE
-      // serialization (defensive, not load-bearing here).
-      const seqRow = this.db
-        .prepare("SELECT COALESCE(MAX(enqueue_seq), 0) AS m FROM ocr_queue_jobs")
-        .get() as { m: number };
-      const enqueueSeq = seqRow.m + 1;
-
-      // A resolved row with this transport_id may exist from a previous
-      // lifecycle (same logical job re-enqueued after completion). Per
-      // contract, `OcrJob.id` is adapter-assigned audit/trace only and is
-      // NOT a dedupe key, so repeating it on re-enqueue is legal — but the
-      // schema's `transport_id PRIMARY KEY` would collide. Clear the
-      // resolved row before INSERT. The receipt ledger (keyed by `receipt`,
-      // not transport_id) keeps the durable audit trail, so this drops no
-      // load-bearing history.
-      this.db
-        .prepare(
-          `DELETE FROM ocr_queue_jobs
-             WHERE transport_id = ? AND state = 'resolved'`,
-        )
-        .run(cloned.id);
-
-      this.db
-        .prepare(
-          `INSERT INTO ocr_queue_jobs
-             (transport_id, job_id, job_json, submission_json, state,
-              enqueued_at_ms, enqueue_seq,
-              claimed_until_ms, claimed_by, current_receipt,
-              resolved_at_ms, resolution)
-           VALUES (?, ?, ?, ?, 'waiting',
-                   ?, ?,
-                   NULL, NULL, NULL,
-                   NULL, NULL)`,
-        )
-        .run(
-          cloned.id,
-          logicalId,
-          jobJson,
-          submissionCanonical,
-          enqueuedAtMs,
-          enqueueSeq,
-        );
-
-      const inserted = this.db
-        .prepare("SELECT * FROM ocr_queue_jobs WHERE transport_id = ?")
-        .get(cloned.id) as QueueJobRow;
-      outcome = { kind: "fresh", row: inserted };
+      outcome = enqueueOcrJobIntoConnection(this.db, job, enqueuedAtMs);
     });
     // BEGIN IMMEDIATE — any concurrent writer (claim, complete, enqueue) is
     // serialized on the reserved lock, so the dedupe read+insert pair is
@@ -326,7 +259,7 @@ export class SqliteOcrQueue implements OcrJobQueueBackend {
         "internal: enqueue produced no outcome",
       );
     }
-    const o = outcome as { kind: "fresh" | "deduped"; row: QueueJobRow };
+    const o = outcome as EnqueueOnConnectionOutcome;
     return {
       job: rowToOcrJob(o.row),
       deduped: o.kind === "deduped",
@@ -654,6 +587,88 @@ function rowToOcrJob(row: QueueJobRow): OcrJob {
   // canonical stored payload.
   return JSON.parse(row.job_json) as OcrJob;
 }
+
+export type EnqueueOnConnectionOutcome =
+  | { kind: "fresh"; row: QueueJobRow }
+  | { kind: "deduped"; row: QueueJobRow };
+
+/** 10K atomic seam: queue insert against a caller-owned tx. Caller must wrap. */
+export function enqueueOcrJobIntoConnection(
+  db: BetterSqlite3Database,
+  job: OcrJob,
+  enqueuedAtMs: number,
+): EnqueueOnConnectionOutcome {
+  const logicalId = jobIdOf(job);
+  const cloned = structuredClone(job);
+  const submissionCanonical = canonicalJSON(cloned.submission);
+  const jobJson = JSON.stringify(cloned);
+
+  // Look for an active row (waiting or claimed) with this logical id.
+  // Active rows are bounded by the partial unique index, so this finds
+  // 0 or 1 row.
+  const active = db
+    .prepare(
+      "SELECT * FROM ocr_queue_jobs WHERE job_id = ? AND state != 'resolved'",
+    )
+    .get(logicalId) as QueueJobRow | undefined;
+
+  if (active !== undefined) {
+    if (active.submission_json === submissionCanonical) {
+      // Same logical id, equal canonical submission — idempotent replay.
+      return { kind: "deduped", row: active };
+    }
+    throw new OcrQueueError(
+      "dedupe_conflict",
+      `enqueue conflict for job_id ${logicalId}: submission differs from active queued record`,
+    );
+  }
+
+  // No active row — append. enqueue_seq is the running max + 1; the
+  // UNIQUE constraint catches a race even under BEGIN IMMEDIATE
+  // serialization (defensive, not load-bearing here).
+  const seqRow = db
+    .prepare("SELECT COALESCE(MAX(enqueue_seq), 0) AS m FROM ocr_queue_jobs")
+    .get() as { m: number };
+  const enqueueSeq = seqRow.m + 1;
+
+  // A resolved row with this transport_id may exist from a previous
+  // lifecycle (same logical job re-enqueued after completion). Per
+  // contract, `OcrJob.id` is adapter-assigned audit/trace only and is
+  // NOT a dedupe key, so repeating it on re-enqueue is legal — but the
+  // schema's `transport_id PRIMARY KEY` would collide. Clear the
+  // resolved row before INSERT. The receipt ledger (keyed by `receipt`,
+  // not transport_id) keeps the durable audit trail, so this drops no
+  // load-bearing history.
+  db.prepare(
+    `DELETE FROM ocr_queue_jobs
+       WHERE transport_id = ? AND state = 'resolved'`,
+  ).run(cloned.id);
+
+  db.prepare(
+    `INSERT INTO ocr_queue_jobs
+       (transport_id, job_id, job_json, submission_json, state,
+        enqueued_at_ms, enqueue_seq,
+        claimed_until_ms, claimed_by, current_receipt,
+        resolved_at_ms, resolution)
+     VALUES (?, ?, ?, ?, 'waiting',
+             ?, ?,
+             NULL, NULL, NULL,
+             NULL, NULL)`,
+  ).run(
+    cloned.id,
+    logicalId,
+    jobJson,
+    submissionCanonical,
+    enqueuedAtMs,
+    enqueueSeq,
+  );
+
+  const inserted = db
+    .prepare("SELECT * FROM ocr_queue_jobs WHERE transport_id = ?")
+    .get(cloned.id) as QueueJobRow;
+  return { kind: "fresh", row: inserted };
+}
+
 
 /**
  * Convenience factory: open a file-backed (or `:memory:`) SQLite database,

@@ -21,6 +21,44 @@ import {
 import { InMemoryOcrPersistence } from "ocr-persistence";
 import { OcrJobAdapter, InMemoryOcrQueue } from "ocr-worker-adapter";
 import { ingestDocumentForOcr } from "ocr-ingestion";
+import { drainOcrPipelineForTesting } from "ocr-ingestion/testing";
+
+// Step 10K — ingestion is enqueue-only. Helper drives the 10C coordinator
+// to populate the timeline + per-page results before read-model assertions.
+async function ingestAndDrain(input, { persistence, queueAdapter, queueBackend, scenario }) {
+  const enqueued = await ingestDocumentForOcr(input, {
+    persistence,
+    queueAdapter,
+    scenario,
+  });
+  await drainOcrPipelineForTesting({
+    queue: queueBackend,
+    persistence,
+    worker_id: "review-test-worker",
+  });
+  return enqueued;
+}
+
+// 10C admits success + partial_failure. The other two fake scenarios are
+// rejected by the coordinator (Decision 12). The review read-model only
+// cares about the persisted state shape, not which seam wrote it — so for
+// `permanent_failure` and `transient_then_success` we seed persistence
+// directly with the equivalent terminal state. This preserves every
+// assertion the synchronous-lifecycle tests previously made.
+async function seedJobLifecycle(persistence, submission, transitions, results) {
+  await persistence.createOcrJob(submission);
+  for (const t of transitions) {
+    await persistence.appendOcrStatus(submission.job_id, t);
+  }
+  for (const r of results) {
+    await persistence.saveOcrResult(submission.job_id, r);
+  }
+}
+
+function isoTickFactory(start = Date.UTC(2030, 0, 1, 0, 0, 0)) {
+  let n = 0;
+  return () => new Date(start + n++ * 1000).toISOString();
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures & helpers
@@ -348,10 +386,11 @@ test("summarizeOcrIngestionOutcome: created-but-untouched job -> all pages pendi
   assert.equal(s.terminal_state, undefined);
 });
 
-test("summarizeOcrIngestionOutcome: end-to-end success scenario via ingestion -> 1 succeeded, 0 failed, terminal_state succeeded", async () => {
+test("summarizeOcrIngestionOutcome: end-to-end success via ingest+drain -> 1 succeeded, 0 failed, terminal_state succeeded", async () => {
   const persistence = new InMemoryOcrPersistence();
-  const queueAdapter = new OcrJobAdapter({ backend: new InMemoryOcrQueue() });
-  const out = await ingestDocumentForOcr(
+  const queueBackend = new InMemoryOcrQueue();
+  const queueAdapter = new OcrJobAdapter({ backend: queueBackend });
+  const enqueued = await ingestAndDrain(
     {
       tenant_id: "01jrk8m4q4xv2v8d4d4ymf5tnt",
       case_id: "01jrk8m4q4xv2v8d4d4ymf5cas",
@@ -373,9 +412,9 @@ test("summarizeOcrIngestionOutcome: end-to-end success scenario via ingestion ->
       ],
       metadata: { trace_id: "t" },
     },
-    { persistence, queueAdapter },
+    { persistence, queueAdapter, queueBackend },
   );
-  const s = await summarizeOcrIngestionOutcome(persistence, out.job.job_id);
+  const s = await summarizeOcrIngestionOutcome(persistence, enqueued.job.job_id);
   assert.equal(s.terminal_state, "succeeded");
   assert.equal(s.is_terminal, true);
   assert.equal(s.dead_lettered, false);
@@ -388,10 +427,11 @@ test("summarizeOcrIngestionOutcome: end-to-end success scenario via ingestion ->
   assert.deepEqual([...s.pending_page_ids], []);
 });
 
-test("summarizeOcrIngestionOutcome: partial_failure scenario via ingestion -> mixed succeeded/failed page counts and ids", async () => {
+test("summarizeOcrIngestionOutcome: partial_failure via ingest+drain -> mixed succeeded/failed page counts and ids", async () => {
   const persistence = new InMemoryOcrPersistence();
-  const queueAdapter = new OcrJobAdapter({ backend: new InMemoryOcrQueue() });
-  const out = await ingestDocumentForOcr(
+  const queueBackend = new InMemoryOcrQueue();
+  const queueAdapter = new OcrJobAdapter({ backend: queueBackend });
+  const enqueued = await ingestAndDrain(
     {
       tenant_id: "01jrk8m4q4xv2v8d4d4ymf5tnt",
       document_id: "01jrk8m4q4xv2v8d4d4ymf5doc",
@@ -415,9 +455,9 @@ test("summarizeOcrIngestionOutcome: partial_failure scenario via ingestion -> mi
         },
       ],
     },
-    { persistence, queueAdapter, scenario: "partial_failure" },
+    { persistence, queueAdapter, queueBackend, scenario: "partial_failure" },
   );
-  const s = await summarizeOcrIngestionOutcome(persistence, out.job.job_id);
+  const s = await summarizeOcrIngestionOutcome(persistence, enqueued.job.job_id);
   assert.equal(s.total_pages, 2);
   assert.equal(s.succeeded_pages, 1);
   assert.equal(s.failed_pages, 1);
@@ -427,28 +467,42 @@ test("summarizeOcrIngestionOutcome: partial_failure scenario via ingestion -> mi
   assert.equal(s.dead_lettered, false);
 });
 
-test("summarizeOcrIngestionOutcome: permanent_failure scenario -> dead_lettered true, retry_count 0", async () => {
+test("summarizeOcrIngestionOutcome: dead_lettered terminal state -> dead_lettered true, retry_count 0", async () => {
+  // 10K migration: 10C coordinator rejects the `permanent_failure` fake
+  // scenario (Decision 12 — DLQ edge in worker output). Read-model
+  // assertions are pinned by direct persistence seeding instead.
   const persistence = new InMemoryOcrPersistence();
-  const queueAdapter = new OcrJobAdapter({ backend: new InMemoryOcrQueue() });
-  const out = await ingestDocumentForOcr(
-    {
-      tenant_id: "01jrk8m4q4xv2v8d4d4ymf5tnt",
-      document_id: "01jrk8m4q4xv2v8d4d4ymf5doc",
-      submitted_by: "user_01jrk8m4q4xv2v8d4d4ymf5usr",
-      pages: [
-        {
-          page_id: "01jrk8m4q4xv2v8d4d4ymf5p01",
-          page_number: 1,
-          source: {
-            kind: "s3", bucket: "b", key: "k/page-001.png",
-            byte_size: 1, mime_type: "image/png",
-          },
-        },
-      ],
-    },
-    { persistence, queueAdapter, scenario: "permanent_failure" },
+  const submission = JSON.parse(JSON.stringify(rawSubmission));
+  // Use the canonical fixture's job + page identity. failureResult is bound
+  // to its own page_id; ensure the submission carries it.
+  const failingPage = JSON.parse(JSON.stringify(submission.pages[0]));
+  failingPage.page_id = failureResult.page_id;
+  failingPage.page_number = failureResult.page_number;
+  submission.pages = [failingPage];
+  const tick = isoTickFactory();
+  await seedJobLifecycle(
+    persistence,
+    submission,
+    [
+      { from: "queued", to: "claimed", controlled_by: "queue", at: tick() },
+      { from: "claimed", to: "processing", controlled_by: "worker", at: tick() },
+      { from: "processing", to: "failed", controlled_by: "worker", at: tick() },
+      { from: "failed", to: "dead_lettered", controlled_by: "queue", at: tick() },
+    ],
+    [
+      (() => {
+        const r = JSON.parse(JSON.stringify(failureResult));
+        r.job_id = submission.job_id;
+        r.tenant_id = submission.tenant_id;
+        r.document_id = submission.document_id;
+        if (submission.document_revision !== undefined) {
+          r.document_revision = submission.document_revision;
+        }
+        return r;
+      })(),
+    ],
   );
-  const s = await summarizeOcrIngestionOutcome(persistence, out.job.job_id);
+  const s = await summarizeOcrIngestionOutcome(persistence, submission.job_id);
   assert.equal(s.dead_lettered, true);
   assert.equal(s.terminal_state, "dead_lettered");
   assert.equal(s.retry_count, 0);
@@ -456,28 +510,44 @@ test("summarizeOcrIngestionOutcome: permanent_failure scenario -> dead_lettered 
   assert.equal(s.succeeded_pages, 0);
 });
 
-test("summarizeOcrIngestionOutcome: transient_then_success preserves retry_count >= 1 and terminal_state succeeded", async () => {
+test("summarizeOcrIngestionOutcome: retry-loop terminal state preserves retry_count >= 1 and terminal_state succeeded", async () => {
+  // 10K migration: 10C coordinator rejects bundled-retry worker outputs
+  // (the `transient_then_success` fake scenario). Seed the equivalent
+  // timeline directly.
   const persistence = new InMemoryOcrPersistence();
-  const queueAdapter = new OcrJobAdapter({ backend: new InMemoryOcrQueue() });
-  const out = await ingestDocumentForOcr(
-    {
-      tenant_id: "01jrk8m4q4xv2v8d4d4ymf5tnt",
-      document_id: "01jrk8m4q4xv2v8d4d4ymf5doc",
-      submitted_by: "user_01jrk8m4q4xv2v8d4d4ymf5usr",
-      pages: [
-        {
-          page_id: "01jrk8m4q4xv2v8d4d4ymf5p01",
-          page_number: 1,
-          source: {
-            kind: "s3", bucket: "b", key: "k/page-001.png",
-            byte_size: 1, mime_type: "image/png",
-          },
-        },
-      ],
-    },
-    { persistence, queueAdapter, scenario: "transient_then_success" },
+  const submission = JSON.parse(JSON.stringify(rawSubmission));
+  // Single-page submission tied to the success fixture.
+  const successPage = JSON.parse(JSON.stringify(submission.pages[0]));
+  successPage.page_id = successResult.page_id;
+  successPage.page_number = successResult.page_number;
+  submission.pages = [successPage];
+  const tick = isoTickFactory();
+  await seedJobLifecycle(
+    persistence,
+    submission,
+    [
+      { from: "queued", to: "claimed", controlled_by: "queue", at: tick() },
+      { from: "claimed", to: "processing", controlled_by: "worker", at: tick() },
+      { from: "processing", to: "failed", controlled_by: "worker", at: tick() },
+      { from: "failed", to: "queued", controlled_by: "queue", at: tick() },
+      { from: "queued", to: "claimed", controlled_by: "queue", at: tick() },
+      { from: "claimed", to: "processing", controlled_by: "worker", at: tick() },
+      { from: "processing", to: "succeeded", controlled_by: "worker", at: tick() },
+    ],
+    [
+      (() => {
+        const r = JSON.parse(JSON.stringify(successResult));
+        r.job_id = submission.job_id;
+        r.tenant_id = submission.tenant_id;
+        r.document_id = submission.document_id;
+        if (submission.document_revision !== undefined) {
+          r.document_revision = submission.document_revision;
+        }
+        return r;
+      })(),
+    ],
   );
-  const s = await summarizeOcrIngestionOutcome(persistence, out.job.job_id);
+  const s = await summarizeOcrIngestionOutcome(persistence, submission.job_id);
   assert.equal(s.terminal_state, "succeeded");
   assert.equal(s.dead_lettered, false);
   assert.ok(s.retry_count >= 1, `expected retry_count >= 1, got ${s.retry_count}`);

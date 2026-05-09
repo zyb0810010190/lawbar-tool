@@ -31,6 +31,11 @@ import type {
   TransitionRecord,
   OcrJobState,
 } from "ocr-worker-contract";
+import type {
+  EnqueueResult,
+  OcrJob,
+  OcrJobQueueBackend,
+} from "ocr-worker-contract";
 
 /**
  * Stored representation of an accepted OCR job. Indexing fields are lifted
@@ -172,6 +177,41 @@ export interface OcrPersistence {
   listOcrReviewPageRows(
     query: ListOcrReviewPageRowsQuery,
   ): Promise<ListOcrReviewPageRowsPage>;
+
+  /**
+   * Step 10K atomic ingest seam. Optional. Atomically writes both the
+   * `ocr_jobs` row and the queue row, or neither. Implementations that
+   * cannot guarantee atomicity (e.g. in-memory) omit this method.
+   *
+   * The supplied `queue` MUST share the same store as this persistence
+   * (see `SqliteOcrQueue.dbFilePath` / `SqliteOcrPersistence.dbFilePath`).
+   * Implementations reject mismatched stores rather than silently writing
+   * a queue row a runtime worker cannot read. See ADR-10K.
+   */
+  enqueueNewOcrJob?(
+    submission: unknown,
+    queue: OcrJobQueueBackend,
+    opts?: EnqueueNewOcrJobOptions,
+  ): Promise<EnqueueNewOcrJobResult>;
+}
+
+/**
+ * Options for the optional atomic ingest seam. Mirrors the inputs the
+ * `OcrJobAdapter` would otherwise consume when building the queue
+ * candidate.
+ */
+export interface EnqueueNewOcrJobOptions {
+  /** Test-only escape hatch forwarded to the queue candidate. */
+  scenario?: OcrJob["scenario"];
+  /** Override the transport-id generator. Defaults to `randomUUID`. */
+  generateId?: () => string;
+  /** Override the wall clock used for `enqueued_at` and `created_at`. */
+  now?: () => Date;
+}
+
+export interface EnqueueNewOcrJobResult {
+  job: OcrJobRecord;
+  enqueueResult: EnqueueResult;
 }
 
 // ---------------------------------------------------------------------------

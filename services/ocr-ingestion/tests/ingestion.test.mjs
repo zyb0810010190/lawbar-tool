@@ -12,6 +12,7 @@ import {
   ingestDocumentForOcr,
   IngestionError,
 } from "../dist/index.js";
+import { drainOcrPipelineForTesting } from "../dist/testing/drainPipeline.js";
 import {
   OcrJobAdapter,
   InMemoryOcrQueue,
@@ -22,6 +23,30 @@ import {
 import {
   validateOcrSubmission,
 } from "ocr-worker-contract";
+
+// Step 10K: ingestion is enqueue-only. Tests that previously relied on
+// the synchronous worker drive now invoke this helper after
+// `ingestDocumentForOcr` so the 10C coordinator persists the worker's
+// status timeline + per-page results, then re-read via persistence.
+async function runPipelineToTerminal(input, deps) {
+  const enqueued = await ingestDocumentForOcr(input, deps);
+  const queueBackend = deps.queueAdapter._backendForTests ?? deps.queueBackend;
+  if (queueBackend === undefined) {
+    throw new Error(
+      "test wiring: drain helper needs the underlying queue backend; pass `queueBackend` on deps",
+    );
+  }
+  await drainOcrPipelineForTesting({
+    queue: queueBackend,
+    persistence: deps.persistence,
+    worker_id: "test-worker",
+    now: deps.now,
+  });
+  const job = await deps.persistence.getOcrJob(enqueued.job.job_id);
+  const statuses = await deps.persistence.listOcrJobStatuses(enqueued.job.job_id);
+  const results = await deps.persistence.listOcrResults(enqueued.job.job_id);
+  return { job, statuses, results, enqueued };
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -76,9 +101,11 @@ function makeEnv() {
 
 function makeDeps(scenario) {
   const env = makeEnv();
+  const queueBackend = new InMemoryOcrQueue();
   return {
     persistence: new InMemoryOcrPersistence({ now: env.now }),
-    queueAdapter: new OcrJobAdapter({ backend: new InMemoryOcrQueue() }),
+    queueAdapter: new OcrJobAdapter({ backend: queueBackend }),
+    queueBackend,
     scenario,
     generateJobId: env.generateJobId,
     now: env.now,
@@ -278,20 +305,29 @@ test("createOcrSubmissionFromDocument: caller-supplied retry/preprocessing/metad
 // ingestDocumentForOcr — orchestration
 // ---------------------------------------------------------------------------
 
-test("ingestDocumentForOcr: persists job and emits succeeded lifecycle by default", async () => {
+test("ingestDocumentForOcr: enqueues + drained pipeline produces succeeded lifecycle by default", async () => {
   const deps = makeDeps(); // defaults to "success" via the queue adapter
-  const out = await ingestDocumentForOcr(baseInput(), deps);
+  const { job, statuses, results, enqueued } = await runPipelineToTerminal(
+    baseInput(),
+    deps,
+  );
 
-  assert.equal(out.job.tenant_id, TENANT);
-  assert.equal(out.job.document_id, DOCUMENT);
-  assert.equal(out.job.terminal_state, "succeeded");
-  assert.equal(out.statuses.length, 3);
-  assert.equal(out.statuses.at(-1).to, "succeeded");
-  assert.equal(out.results.length, 1);
-  assert.equal(out.results[0].result.status, "succeeded");
+  // Step 10K invariant: ingestDocumentForOcr returns BEFORE worker runs.
+  assert.equal(enqueued.job.terminal_state, undefined);
+  assert.equal(enqueued.atomic, false); // in-memory persistence => fallback path
+  assert.equal(enqueued.enqueueResult.deduped, false);
+
+  // After draining via the coordinator the timeline matches old expectations.
+  assert.equal(job.tenant_id, TENANT);
+  assert.equal(job.document_id, DOCUMENT);
+  assert.equal(job.terminal_state, "succeeded");
+  assert.equal(statuses.length, 3);
+  assert.equal(statuses.at(-1).to, "succeeded");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].result.status, "succeeded");
 });
 
-test("ingestDocumentForOcr: partial_failure is persisted with mixed page results", async () => {
+test("ingestDocumentForOcr: partial_failure is persisted with mixed page results after drain", async () => {
   const deps = makeDeps("partial_failure");
   // partial_failure scenario emits one result per submitted page (first page
   // succeeds, the rest fail) and therefore requires a multi-page submission.
@@ -305,63 +341,94 @@ test("ingestDocumentForOcr: partial_failure is persisted with mixed page results
       source: { ...sampleSource, key: "tenant/01jrk/doc/01jrk/page-002.png" },
     },
   ];
-  const out = await ingestDocumentForOcr(input, deps);
+  const { job, results } = await runPipelineToTerminal(input, deps);
 
-  assert.equal(out.job.terminal_state, "partial_succeeded");
-  assert.equal(out.results.length, 2);
-  const statuses = out.results.map((r) => r.result.status).sort();
-  assert.deepEqual(statuses, ["failed", "succeeded"]);
+  assert.equal(job.terminal_state, "partial_succeeded");
+  assert.equal(results.length, 2);
+  const pageStatuses = results.map((r) => r.result.status).sort();
+  assert.deepEqual(pageStatuses, ["failed", "succeeded"]);
 });
 
-test("ingestDocumentForOcr: permanent_failure ends in dead_lettered without requeue", async () => {
-  const deps = makeDeps("permanent_failure");
-  const out = await ingestDocumentForOcr(baseInput(), deps);
+// 10K test-migration note: the previous ingestion tests for the
+// `permanent_failure` and `transient_then_success` fake scenarios asserted
+// a synchronous lifecycle that ingest.ts wrote directly into persistence.
+// Step 10C ADR Decision 12 rejected both scenarios from the coordinator:
+//
+//   - `permanent_failure` produces a trailing `failed → dead_lettered` DLQ
+//     edge that the coordinator rejects.
+//   - `transient_then_success` bundles a `failed → queued → claimed → ...`
+//     retry chain that the coordinator rejects as a bundled-retry signal.
+//
+// Post-10K ingestion drives the coordinator. Therefore those scenarios
+// are no longer reachable via the ingestion seam. Their fake-worker
+// behaviour is asserted at the contract layer
+// (`docs/contracts/tests/fake-worker.test.mjs`) — the assertions formerly
+// here are not lost, just relocated to the layer that legitimately owns
+// them.
 
-  assert.equal(out.job.terminal_state, "dead_lettered");
-  // No re-enter `queued` after the first claim.
-  const requeues = out.statuses.filter((e, i) => i > 0 && e.to === "queued");
-  assert.equal(requeues.length, 0);
-  assert.equal(out.results.length, 1);
-  assert.equal(out.results[0].result.status, "failed");
-  assert.equal(out.results[0].result.partial_failure.is_transient, false);
-});
-
-test("ingestDocumentForOcr: transient_then_success preserves the retry edge in the timeline", async () => {
-  const deps = makeDeps("transient_then_success");
-  const out = await ingestDocumentForOcr(baseInput(), deps);
-
-  assert.equal(out.job.terminal_state, "succeeded");
-  const retryEdges = out.statuses.filter(
-    (e) => e.from === "failed" && e.to === "queued",
-  );
-  assert.equal(retryEdges.length, 1);
-  assert.equal(out.results.length, 1);
-  assert.equal(out.results[0].result.status, "succeeded");
-});
-
-test("ingestDocumentForOcr: end-to-end view via persistence matches returned snapshot", async () => {
-  const deps = makeDeps("transient_then_success");
+test("ingestDocumentForOcr: end-to-end view via persistence is the only authoritative read post-10K", async () => {
+  const deps = makeDeps("success");
   const input = baseInput();
-  const out = await ingestDocumentForOcr(input, deps);
-
-  // Re-read via persistence as a downstream query would.
-  const job = await deps.persistence.getOcrJob(out.job.job_id);
-  const statuses = await deps.persistence.listOcrJobStatuses(out.job.job_id);
-  const results = await deps.persistence.listOcrResults(out.job.job_id);
+  const { job, statuses, results, enqueued } = await runPipelineToTerminal(
+    input,
+    deps,
+  );
 
   assert.equal(job.terminal_state, "succeeded");
-  assert.equal(statuses.length, out.statuses.length);
-  assert.deepEqual(
-    statuses.map((s) => `${s.from}->${s.to}`),
-    out.statuses.map((s) => `${s.from}->${s.to}`),
-  );
-  assert.equal(results.length, out.results.length);
+  assert.equal(job.job_id, enqueued.job.job_id);
   // Linkage round-trips: every persisted result references the same job/tenant/document.
   for (const r of results) {
     assert.equal(r.result.job_id, job.job_id);
     assert.equal(r.result.tenant_id, TENANT);
     assert.equal(r.result.document_id, DOCUMENT);
   }
+  // Sanity: status timeline length is the chain the worker produced + the
+  // 10C coordinator-owned queued→claimed edge.
+  assert.ok(statuses.length >= 3);
+});
+
+// ----------------------------------------------------------------------
+// Step 10K — enqueue-only invariants
+// ----------------------------------------------------------------------
+
+test("ingestDocumentForOcr (10K): returns before the worker runs (no terminal_state, no persisted statuses)", async () => {
+  const deps = makeDeps();
+  const enqueued = await ingestDocumentForOcr(baseInput(), deps);
+
+  assert.equal(enqueued.job.terminal_state, undefined);
+  assert.equal(enqueued.enqueueResult.deduped, false);
+  // Nothing has been claimed/processed/persisted yet — only the
+  // ocr_jobs row + queue row exist.
+  const statuses = await deps.persistence.listOcrJobStatuses(enqueued.job.job_id);
+  const results = await deps.persistence.listOcrResults(enqueued.job.job_id);
+  assert.equal(statuses.length, 0);
+  assert.equal(results.length, 0);
+  assert.equal(await deps.queueAdapter.pendingCount(), 1);
+});
+
+test("ingestDocumentForOcr (10K): in-memory persistence reports atomic=false (fallback path)", async () => {
+  const deps = makeDeps();
+  const enqueued = await ingestDocumentForOcr(baseInput(), deps);
+  assert.equal(enqueued.atomic, false);
+});
+
+test("ingestDocumentForOcr (10K): repeated submission with same job_id surfaces as createOcrJob conflict", async () => {
+  // Fallback path: persistence rejects duplicate job_id BEFORE enqueue runs,
+  // so the queue is left untouched on the second call.
+  const deps = makeDeps();
+  const input = baseInput();
+  const first = await ingestDocumentForOcr(input, deps);
+  // Force the SAME job_id on the next call so we exercise the
+  // persistence-side existence check, regardless of generator state.
+  const reusedDeps = { ...deps, generateJobId: () => first.job.job_id };
+  const before = await deps.queueAdapter.pendingCount();
+  await assert.rejects(
+    () => ingestDocumentForOcr(input, reusedDeps),
+    (err) => /already exists|dedupe/.test(err.message ?? String(err)),
+  );
+  const after = await deps.queueAdapter.pendingCount();
+  // Queue count must not grow on the rejected duplicate.
+  assert.equal(after, before);
 });
 
 test("ingestDocumentForOcr: missing persistence dep throws IngestionError", async () => {

@@ -3,6 +3,7 @@
 export {
   SqliteOcrPersistence,
   openSqliteOcrPersistence,
+  isAtomicEligiblePath,
   type SqliteOcrPersistenceOptions,
 } from "./SqliteOcrPersistence.js";
 export {

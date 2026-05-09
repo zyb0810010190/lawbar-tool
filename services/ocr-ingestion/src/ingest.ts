@@ -1,25 +1,41 @@
-// Orchestrator: domain input -> OCR submission -> persistence -> queue ->
-// worker outcome -> persistence. The orchestrator does not know how OCR
-// runs; it only knows the boundaries it talks to.
+// Step 10K — ingestion is enqueue-only.
 //
-// Sequencing rationale
-// --------------------
-// We persist the job *before* enqueueing so a crash between enqueue and
-// the next persistence call cannot leave a queued job with no record.
-// (The reverse order would be worse: a status arriving before the job
-// row exists.) Statuses and results are persisted *after* the worker's
-// outcome is in hand because the in-process fake bundles the full
-// trajectory in one call. A real BullMQ-backed worker would persist
-// per attempt; the same persistence primitives compose either way.
+// Sequencing rationale (post-10K)
+// -------------------------------
+// Validate domain input → persist `ocr_jobs` row → place job on queue.
+// Do NOT drive the worker — a separate worker process owns
+// claim/process/persist via the 10C coordinator.
+//
+// Atomicity (10K)
+// ---------------
+// Atomic path requires (a) persistence advertising `enqueueNewOcrJob`
+// AND (b) the runtime queue sharing the same store (probed via
+// matching `dbFilePath`). Both are SQLite-on-the-same-file in
+// production (per ADR-10J cross-validation). When either condition
+// fails we fall back to a non-atomic createOcrJob + queue.enqueue
+// sequence.
+//
+// Failure modes
+// -------------
+// Atomic path: rolled back by the SQLite transaction; neither row
+// persists; OcrQueueError or OcrPersistenceError propagates.
+// Fallback path: persistence succeeds first. If queue.enqueue then
+// throws, the persisted ocr_jobs row LEAKS (an orphaned job with no
+// queue row, no claim, no terminal_state). 10C does not auto-reconcile
+// this direction (its path-B handles claimed-but-unknown-job, the
+// inverse). Operator/caller must surface or retry.
 
 import type {
   OcrJobAdapter,
 } from "ocr-worker-adapter";
 import type {
-  OcrPersistence,
+  EnqueueResult,
+  OcrJobQueueBackend,
+} from "ocr-worker-contract";
+import { isAtomicEligiblePath } from "ocr-persistence";
+import type {
   OcrJobRecord,
-  OcrStatusEvent,
-  OcrResultRecord,
+  OcrPersistence,
 } from "ocr-persistence";
 import type { FakeScenario } from "ocr-worker-contract/testing";
 
@@ -34,16 +50,21 @@ export interface IngestDependencies extends IngestionEnvironment {
   persistence: OcrPersistence;
   queueAdapter: OcrJobAdapter;
   /**
-   * Test-only escape hatch: forces a specific worker scenario. Production
-   * callers omit it; the worker decides reality.
+   * Optional. When provided AND it shares the persistence's store
+   * (matching `dbFilePath`), ingestion takes the atomic path. The
+   * runtime worker observes the inserted queue row via its own
+   * connection on that file.
    */
+  queue?: OcrJobQueueBackend;
+  /** Test-only escape hatch forwarded to the queue candidate. */
   scenario?: FakeScenario;
 }
 
 export interface IngestionOutcome {
   job: OcrJobRecord;
-  statuses: OcrStatusEvent[];
-  results: OcrResultRecord[];
+  enqueueResult: EnqueueResult;
+  /** Whether the underlying persistence guaranteed atomic createOcrJob + enqueue. */
+  atomic: boolean;
 }
 
 export async function ingestDocumentForOcr(
@@ -57,47 +78,43 @@ export async function ingestDocumentForOcr(
     throw new IngestionError("queueAdapter dependency is required");
   }
 
-  // 1. Build a contract-valid submission from domain input.
   const submission = createOcrSubmissionFromDocument(input, deps);
+  const enqueueOpts =
+    deps.scenario !== undefined ? { scenario: deps.scenario } : {};
 
-  // 2. Persist the job before any side effects on the queue.
-  const job = await deps.persistence.createOcrJob(submission);
-
-  // 3. Hand to the queue adapter. Scenario is forwarded for tests; in
-  //    production the worker decides outcomes on its own.
-  const enqueueOpts = deps.scenario !== undefined ? { scenario: deps.scenario } : {};
-  await deps.queueAdapter.enqueueOcrJob(submission, enqueueOpts);
-
-  // 4. Drive the queue forward synchronously so the test can observe the
-  //    full lifecycle. A real worker process would call this in a loop.
-  const processed = await deps.queueAdapter.processNextOcrJob();
-  if (!processed) {
-    throw new IngestionError("queue did not return a processed job");
-  }
-  if (processed.outcome.job_id !== submission.job_id) {
-    throw new IngestionError(
-      `processed job_id ${processed.outcome.job_id} does not match submission ${submission.job_id}`,
+  if (canTakeAtomicPath(deps.persistence, deps.queue)) {
+    const { job, enqueueResult } = await deps.persistence.enqueueNewOcrJob!(
+      submission,
+      deps.queue!,
+      enqueueOpts,
     );
+    return { job, enqueueResult, atomic: true };
   }
 
-  // 5. Persist the worker's status timeline. The persistence layer
-  //    re-validates the chain on each append.
-  for (const t of processed.outcome.statuses) {
-    await deps.persistence.appendOcrStatus(submission.job_id, t);
-  }
+  const job = await deps.persistence.createOcrJob(submission);
+  const enqueueResult = await deps.queueAdapter.enqueueOcrJob(
+    submission,
+    enqueueOpts,
+  );
+  return { job, enqueueResult, atomic: false };
+}
 
-  // 6. Persist per-page results. Persistence re-validates each result.
-  for (const r of processed.outcome.results) {
-    await deps.persistence.saveOcrResult(submission.job_id, r);
+function canTakeAtomicPath(
+  persistence: OcrPersistence,
+  queue: OcrJobQueueBackend | undefined,
+): boolean {
+  if (typeof persistence.enqueueNewOcrJob !== "function") return false;
+  if (queue === undefined) return false;
+  // Duck-type the same-store probe so ocr-ingestion does not need to
+  // import SqliteOcr* concrete classes.
+  const p = persistence as { dbFilePath?: unknown };
+  const q = queue as { dbFilePath?: unknown };
+  if (typeof p.dbFilePath !== "string" || typeof q.dbFilePath !== "string") {
+    return false;
   }
-
-  // 7. Read back through the same interface the rest of the app would use,
-  //    so the returned snapshot matches what queries will see.
-  const stored = await deps.persistence.getOcrJob(submission.job_id);
-  if (!stored) {
-    throw new IngestionError("job vanished from persistence after writes");
-  }
-  const statuses = await deps.persistence.listOcrJobStatuses(submission.job_id);
-  const results = await deps.persistence.listOcrResults(submission.job_id);
-  return { job: stored, statuses, results };
+  // `:memory:` and other transient/sentinel paths are spoofable
+  // (two distinct in-memory DBs both report ":memory:"), so reject
+  // them at this gate. Persistence enforces the same rule.
+  if (!isAtomicEligiblePath(p.dbFilePath)) return false;
+  return p.dbFilePath === q.dbFilePath;
 }

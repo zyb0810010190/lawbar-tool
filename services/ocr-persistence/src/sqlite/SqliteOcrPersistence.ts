@@ -27,15 +27,21 @@ import Database from "better-sqlite3";
 import type { Database as BetterSqlite3Database } from "better-sqlite3";
 
 import {
+  OcrQueueError,
   validateOcrResult,
   validateOcrStatusTransitionSequence,
   validateOcrSubmission,
+  type OcrJobQueueBackend,
   type OcrSubmission,
   type TransitionRecord,
 } from "ocr-worker-contract";
 
+import { randomUUID } from "node:crypto";
+
 import {
   OcrPersistenceError,
+  type EnqueueNewOcrJobOptions,
+  type EnqueueNewOcrJobResult,
   type ListOcrJobsByDocumentPage,
   type ListOcrJobsByDocumentQuery,
   type ListOcrReviewPageRowsPage,
@@ -46,6 +52,10 @@ import {
   type OcrReviewPageRow,
   type OcrStatusEvent,
 } from "../types.js";
+
+import { enqueueOcrJobIntoConnection } from "./SqliteOcrQueue.js";
+
+import type { OcrJob } from "ocr-worker-contract";
 
 import {
   computeFiltersHash,
@@ -111,6 +121,12 @@ export class SqliteOcrPersistence implements OcrPersistence {
   private readonly db: BetterSqlite3Database;
   private readonly now: () => Date;
 
+  /** Filesystem path of the underlying SQLite file. Probe used by the
+   *  10K atomic ingest seam to confirm persistence + queue share a store. */
+  get dbFilePath(): string {
+    return this.db.name;
+  }
+
   constructor(options: SqliteOcrPersistenceOptions) {
     this.db = options.db;
     this.now = options.now ?? (() => new Date());
@@ -140,6 +156,10 @@ export class SqliteOcrPersistence implements OcrPersistence {
       return fn();
     } catch (err) {
       if (err instanceof OcrPersistenceError) throw err;
+      // 10K: preserve typed queue errors (dedupe_conflict etc.) raised
+      // from the shared `enqueueOcrJobIntoConnection` helper, so atomic-
+      // path callers can still discriminate by `OcrQueueError.code`.
+      if (err instanceof OcrQueueError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       throw new OcrPersistenceError(`internal db error: ${msg}`);
     }
@@ -151,56 +171,163 @@ export class SqliteOcrPersistence implements OcrPersistence {
 
   async createOcrJob(submission: unknown): Promise<OcrJobRecord> {
     return this.wrapErrors(() => {
-      const v = validateOcrSubmission(submission);
-      if (!v.ok) {
-        throw new OcrPersistenceError(`invalid submission: ${v.summary}`);
-      }
-      // Clone validated value so caller mutations after this call cannot leak in.
-      const sub = structuredClone(v.value) as OcrSubmission & {
-        case_id?: string;
-        document_revision?: number;
-        submitted_by: string;
-        metadata?: unknown;
-      };
+      const sub = this.validateAndCloneSubmission(submission);
       const createdAt = this.now().toISOString();
-      const submissionJson = JSON.stringify(sub);
-      const metadataJson =
-        sub.metadata !== undefined ? JSON.stringify(sub.metadata) : null;
-
-      // Atomic existence-check + insert, mirroring in-memory's
-      // "already exists" precheck without depending on raw constraint errors.
       const tx = this.db.transaction(() => {
-        const existing = this.db
-          .prepare("SELECT 1 AS one FROM ocr_jobs WHERE job_id = ?")
-          .get(sub.job_id);
-        if (existing !== undefined) {
-          throw new OcrPersistenceError(`job already exists: ${sub.job_id}`);
-        }
-        this.db
-          .prepare(
-            `INSERT INTO ocr_jobs
-               (job_id, tenant_id, case_id, document_id, document_revision,
-                submitted_by, created_at, terminal_state, submission_json, metadata_json)
-             VALUES (@job_id, @tenant_id, @case_id, @document_id, @document_revision,
-                     @submitted_by, @created_at, NULL, @submission_json, @metadata_json)`,
-          )
-          .run({
-            job_id: sub.job_id,
-            tenant_id: sub.tenant_id,
-            case_id: sub.case_id ?? null,
-            document_id: sub.document_id,
-            document_revision: sub.document_revision ?? null,
-            submitted_by: sub.submitted_by,
-            created_at: createdAt,
-            submission_json: submissionJson,
-            metadata_json: metadataJson,
-          });
+        this.insertOcrJobRow(sub, createdAt);
       });
-      // better-sqlite3's transaction() runs synchronously and rethrows.
       tx.immediate();
-
       return buildJobRecordFromSubmission(sub, createdAt, null);
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // enqueueNewOcrJob — Step 10K atomic ingest seam
+  // -------------------------------------------------------------------------
+
+  async enqueueNewOcrJob(
+    submission: unknown,
+    queue: OcrJobQueueBackend,
+    opts: EnqueueNewOcrJobOptions = {},
+  ): Promise<EnqueueNewOcrJobResult> {
+    return this.wrapErrors(() => {
+      // Atomicity is only meaningful when the queue lives in the same
+      // SQLite file. A queue against a different store would silently
+      // commit the queue row to a place the runtime queue cannot read.
+      // Reject `:memory:` and empty paths: two independent in-memory
+      // DBs both report `:memory:`, so equality there is spoofable.
+      const supplied = queue as { dbFilePath?: unknown };
+      if (
+        typeof supplied.dbFilePath !== "string" ||
+        supplied.dbFilePath !== this.dbFilePath ||
+        !isAtomicEligiblePath(this.dbFilePath)
+      ) {
+        throw new OcrPersistenceError(
+          "atomic enqueueNewOcrJob requires a SqliteOcrQueue on the same on-disk SQLite file",
+        );
+      }
+
+      const sub = this.validateAndCloneSubmission(submission);
+
+      // Capture ONE wall-clock sample so created_at and enqueued_at
+      // cannot diverge under an injected counter clock.
+      const now = opts.now ?? this.now;
+      const sampledAt = now();
+      const createdAt = sampledAt.toISOString();
+      const enqueuedAtMs = sampledAt.getTime();
+      const generateId = opts.generateId ?? (() => randomUUID());
+
+      const candidate: OcrJob = {
+        id: generateId(),
+        submission: sub,
+        enqueued_at: sampledAt.toISOString(),
+        ...(opts.scenario !== undefined ? { scenario: opts.scenario } : {}),
+      };
+
+      let enqueueOutcome:
+        | { kind: "fresh"; row_json: string; deduped: false }
+        | { kind: "deduped"; row_json: string; deduped: true }
+        | null = null;
+
+      const tx = this.db.transaction(() => {
+        this.insertOcrJobRow(sub, createdAt);
+        const out = enqueueOcrJobIntoConnection(this.db, candidate, enqueuedAtMs);
+        enqueueOutcome = {
+          kind: out.kind,
+          row_json: out.row.job_json,
+          deduped: out.kind === "deduped",
+        } as typeof enqueueOutcome;
+      });
+      tx.immediate();
+
+      if (enqueueOutcome === null) {
+        throw new OcrPersistenceError(
+          "internal: enqueueNewOcrJob produced no outcome",
+        );
+      }
+      const eo = enqueueOutcome as {
+        kind: "fresh" | "deduped";
+        row_json: string;
+        deduped: boolean;
+      };
+      const job = buildJobRecordFromSubmission(sub, createdAt, null);
+      return {
+        job,
+        enqueueResult: {
+          job: JSON.parse(eo.row_json) as OcrJob,
+          deduped: eo.deduped,
+        },
+      };
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Shared helpers (10K DRY: createOcrJob ∪ enqueueNewOcrJob)
+  // -------------------------------------------------------------------------
+
+  private validateAndCloneSubmission(
+    submission: unknown,
+  ): OcrSubmission & {
+    case_id?: string;
+    document_revision?: number;
+    submitted_by: string;
+    metadata?: unknown;
+  } {
+    const v = validateOcrSubmission(submission);
+    if (!v.ok) {
+      throw new OcrPersistenceError(`invalid submission: ${v.summary}`);
+    }
+    // Clone validated value so caller mutations after this call cannot leak in.
+    return structuredClone(v.value) as OcrSubmission & {
+      case_id?: string;
+      document_revision?: number;
+      submitted_by: string;
+      metadata?: unknown;
+    };
+  }
+
+  /**
+   * Insert one ocr_jobs row inside the caller's open transaction. Mirrors
+   * the in-memory "already exists" precheck without depending on raw
+   * constraint errors. Caller owns the surrounding `db.transaction(...).immediate()`.
+   */
+  private insertOcrJobRow(
+    sub: OcrSubmission & {
+      case_id?: string;
+      document_revision?: number;
+      submitted_by: string;
+      metadata?: unknown;
+    },
+    createdAt: string,
+  ): void {
+    const existing = this.db
+      .prepare("SELECT 1 AS one FROM ocr_jobs WHERE job_id = ?")
+      .get(sub.job_id);
+    if (existing !== undefined) {
+      throw new OcrPersistenceError(`job already exists: ${sub.job_id}`);
+    }
+    const submissionJson = JSON.stringify(sub);
+    const metadataJson =
+      sub.metadata !== undefined ? JSON.stringify(sub.metadata) : null;
+    this.db
+      .prepare(
+        `INSERT INTO ocr_jobs
+           (job_id, tenant_id, case_id, document_id, document_revision,
+            submitted_by, created_at, terminal_state, submission_json, metadata_json)
+         VALUES (@job_id, @tenant_id, @case_id, @document_id, @document_revision,
+                 @submitted_by, @created_at, NULL, @submission_json, @metadata_json)`,
+      )
+      .run({
+        job_id: sub.job_id,
+        tenant_id: sub.tenant_id,
+        case_id: sub.case_id ?? null,
+        document_id: sub.document_id,
+        document_revision: sub.document_revision ?? null,
+        submitted_by: sub.submitted_by,
+        created_at: createdAt,
+        submission_json: submissionJson,
+        metadata_json: metadataJson,
+      });
   }
 
   // -------------------------------------------------------------------------
@@ -909,6 +1036,29 @@ export class SqliteOcrPersistence implements OcrPersistence {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Atomic ingest is only safe on a SHARED on-disk file. Reject any
+ * path-shape that does not resolve to a real, separately-addressable
+ * file on disk: bare `:memory:`, empty/transient strings, and SQLite
+ * URI variants whose semantics put the database in memory (whether
+ * `file::memory:` or named `mode=memory` URIs like
+ * `file:foo?mode=memory&cache=shared`). Two distinct in-memory DBs
+ * both report identical `dbFilePath`, which would defeat the
+ * persistence ↔ queue same-store probe.
+ */
+export function isAtomicEligiblePath(path: string): boolean {
+  if (typeof path !== "string" || path.length === 0) return false;
+  if (path === ":memory:") return false;
+  if (path.startsWith("file::memory:")) return false;
+  // Named URI memory: `file:foo?mode=memory[&...]` — better-sqlite3
+  // treats this as a file path by default, but a future caller passing
+  // `{ uri: true }` would make it an in-memory DB.
+  if (path.startsWith("file:") && /[?&]mode=memory(\b|&|$)/.test(path)) {
+    return false;
+  }
+  return true;
+}
 
 function rowToJobRecord(row: OcrJobRow): OcrJobRecord {
   const submission = JSON.parse(row.submission_json) as OcrSubmission;

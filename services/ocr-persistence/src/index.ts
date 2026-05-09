@@ -30,6 +30,7 @@ export {
   openSqliteOcrQueue,
   applySchema,
   CURRENT_SCHEMA_VERSION,
+  isAtomicEligiblePath,
   type SqliteOcrPersistenceOptions,
   type SqliteOcrQueueOptions,
   type OpenSqliteOcrQueueOptions,
