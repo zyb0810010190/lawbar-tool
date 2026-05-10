@@ -1,33 +1,7 @@
-// Step 10L — cross-process e2e.
-//
-// Two real Node processes share one SQLite file:
-//   1. the test (this process) opens persistence + queue, calls
-//      `ingestDocumentForOcr` on the 10K atomic seam,
-//   2. the bin (`services/ocr-worker/bin/ocr-worker.mjs`) is spawned
-//      as a child process with `--queue=sqlite --persistence=sqlite
-//      --max-iterations=1`. It runs the 10C coordinator once, drains
-//      the single job, persists status + result, and exits.
-//
-// 10L is observation-only. No production wiring change. The bin
-// already exists (10G), the queue selector already exists (10J), the
-// atomic ingest already exists (10K). 10L only proves they compose
-// across the process boundary.
-//
-// Pinned decisions (R1–R12 from the plan-review thread, see
-// `dev-memo/step-10l-plan.md`):
-//   - `--max-iterations=1`, `--idle-delay-ms=0`. With one queued job
-//     this gives `stop_reason="max_iterations"`, `iterations=1`,
-//     `outcomes.completed=1`. (`stop_reason="stopped"` would require
-//     a signal — wrong for this case.)
-//   - Pre-spawn assertions: `out.atomic`, `!deduped`, exactly 1
-//     active queue row in the same SQLite file.
-//   - `process.execPath` (matches 10G's spawn pattern).
-//   - Spawn helper resolves on `"close"` (stdio drained), rejects on
-//     `"error"`, with per-child timeout that SIGKILLs and re-throws
-//     with diagnostics.
-//   - Close order: `queue.close()` → `persistenceDb.close()` → spawn.
-//   - Last non-empty stdout line is parsed as JSON; on parse failure
-//     the assertion includes both stdout and stderr.
+// Step 10L — cross-process e2e. Two Node processes share one SQLite
+// file; the spawned worker bin drains the queue, the test asserts
+// persistence terminal state. See docs/adr/ocr-cross-process-e2e-step-10l.md
+// for scope and pinned decisions.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -59,17 +33,38 @@ const BIN_PATH = resolve(
 // Spawn helper (R4)
 // ---------------------------------------------------------------------------
 
+// Minimal allowlisted env passed to the spawned bin. Excludes
+// NODE_OPTIONS, NODE_PATH, and any parent-process secrets so the
+// child cannot be perturbed by the test process's environment.
+const CHILD_ENV_ALLOWLIST = [
+  "HOME",
+  "PATH",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "SystemRoot",
+];
+
+function buildChildEnv({ path, workerId }) {
+  const inherited = {};
+  for (const key of CHILD_ENV_ALLOWLIST) {
+    const v = process.env[key];
+    if (v !== undefined) inherited[key] = v;
+  }
+  return {
+    ...inherited,
+    OCR_WORKER_PERSISTENCE: "sqlite",
+    OCR_WORKER_QUEUE: "sqlite",
+    OCR_WORKER_SQLITE_PATH: path,
+    OCR_WORKER_MAX_ITERATIONS: "1",
+    OCR_WORKER_IDLE_DELAY_MS: "0",
+    OCR_WORKER_ID: workerId,
+  };
+}
+
 function spawnWorkerBin({ path, workerId, timeoutMs = 15_000 }) {
   const child = spawn(process.execPath, [BIN_PATH], {
-    env: {
-      ...process.env,
-      OCR_WORKER_PERSISTENCE: "sqlite",
-      OCR_WORKER_QUEUE: "sqlite",
-      OCR_WORKER_SQLITE_PATH: path,
-      OCR_WORKER_MAX_ITERATIONS: "1",
-      OCR_WORKER_IDLE_DELAY_MS: "0",
-      OCR_WORKER_ID: workerId,
-    },
+    env: buildChildEnv({ path, workerId }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const stdoutChunks = [];
@@ -134,14 +129,14 @@ function parseSummary(stdout, stderr) {
   const last = lines[lines.length - 1];
   if (last === undefined) {
     throw new Error(
-      `10L: bin produced no stdout. stderr=${JSON.stringify(stderr)} lines=${JSON.stringify(lines)}`,
+      `10L: bin produced no stdout. stdout=${JSON.stringify(stdout)} stderr=${JSON.stringify(stderr)} lines=${JSON.stringify(lines)}`,
     );
   }
   try {
     return JSON.parse(last);
   } catch (parseErr) {
     throw new Error(
-      `10L: bin's last stdout line is not JSON. line=${JSON.stringify(last)} stderr=${JSON.stringify(stderr)} parseErr=${String(parseErr)}`,
+      `10L: bin's last stdout line is not JSON. line=${JSON.stringify(last)} stdout=${JSON.stringify(stdout)} stderr=${JSON.stringify(stderr)} parseErr=${String(parseErr)}`,
     );
   }
 }
@@ -164,9 +159,12 @@ function freshSqliteWorkspace() {
     queueAdapter,
     path,
     dir,
-    cleanup: () => {
+    // Async to honour the OcrJobQueueBackend.close contract; idempotent
+    // so callers may close the queue/persistence directly first and still
+    // call cleanup() in finally.
+    cleanup: async () => {
       try {
-        queue.close();
+        await queue.close();
       } catch {
         // already closed
       }
@@ -237,173 +235,147 @@ function deterministicEnv() {
 }
 
 // ---------------------------------------------------------------------------
+// Shared case runner
+// ---------------------------------------------------------------------------
+
+/**
+ * Run one cross-process e2e case end-to-end.
+ *
+ * @param {object} opts
+ * @param {() => object} opts.input - factory returning a fresh DocumentIngestionInput
+ * @param {string} [opts.scenario] - fake-worker scenario; omit for default success
+ * @param {string} opts.workerId - stable worker identity for the spawned bin
+ * @param {string} opts.expectedTerminalState - "succeeded" | "partial_succeeded"
+ * @param {Array<{page_number: number, status: string, hasPartialFailure?: boolean}>} opts.expectedResults
+ * @param {string[]} opts.expectedEdges - ordered "<controlled_by>:<from>-><to>" entries
+ */
+async function runCrossProcessCase(opts) {
+  const ws = freshSqliteWorkspace();
+  try {
+    const env = deterministicEnv();
+    const ingestDeps = {
+      persistence: ws.persistence,
+      queueAdapter: ws.queueAdapter,
+      queue: ws.queue,
+      generateJobId: env.generateJobId,
+      now: env.now,
+    };
+    if (opts.scenario !== undefined) ingestDeps.scenario = opts.scenario;
+
+    const out = await ingestDocumentForOcr(opts.input(), ingestDeps);
+
+    // R2: pre-spawn invariants — atomic seam, fresh enqueue, exactly
+    // one active queue row in the same SQLite file.
+    assert.equal(out.atomic, true, "atomic ingest path must have been taken");
+    assert.equal(out.enqueueResult.deduped, false, "fresh enqueue, not a dedupe");
+    const queueRows = ws.persistenceDb
+      .prepare(
+        "SELECT COUNT(*) AS n FROM ocr_queue_jobs WHERE state != 'resolved' AND job_id = ?",
+      )
+      .get(out.job.job_id).n;
+    assert.equal(queueRows, 1, "exactly one active queue row before spawn");
+
+    // R8: close ingestion handles BEFORE spawning the bin. Await the
+    // queue close — its interface is async even when current impl is
+    // synchronous internally.
+    await ws.queue.close();
+    ws.persistenceDb.close();
+
+    const { done } = spawnWorkerBin({ path: ws.path, workerId: opts.workerId });
+    const result = await done;
+
+    assert.equal(result.code, 0, `bin exit code (stderr=${result.stderr})`);
+    assert.equal(result.signal, null, "bin must not be killed by a signal");
+
+    // R1: with --max-iterations=1 and one queued job, the loop runs
+    // exactly one iteration that completes the job.
+    const summary = parseSummary(result.stdout, result.stderr);
+    assert.equal(summary.stop_reason, "max_iterations");
+    assert.equal(summary.iterations, 1);
+    assert.equal(summary.outcomes.completed, 1);
+    assert.equal(summary.outcomes.requeued ?? 0, 0);
+    assert.equal(summary.outcomes.ack_failed ?? 0, 0);
+    assert.equal(summary.outcomes.persistence_failed ?? 0, 0);
+    assert.equal(summary.outcomes.lease_lost ?? 0, 0);
+
+    // Re-open persistence to inspect final state.
+    const { persistence, db } = openSqliteOcrPersistence({ path: ws.path });
+    try {
+      const job = await persistence.getOcrJob(out.job.job_id);
+      assert.notEqual(job, null);
+      assert.equal(job.terminal_state, opts.expectedTerminalState);
+
+      const results = await persistence.listOcrResults(out.job.job_id);
+      assert.equal(results.length, opts.expectedResults.length);
+      const byPage = new Map(results.map((r) => [r.result.page_number, r.result]));
+      for (const expected of opts.expectedResults) {
+        const r = byPage.get(expected.page_number);
+        assert.notEqual(
+          r,
+          undefined,
+          `result for page ${expected.page_number} missing`,
+        );
+        assert.equal(r.status, expected.status);
+        if (expected.hasPartialFailure) {
+          assert.ok(
+            r.partial_failure,
+            `page ${expected.page_number} must carry partial_failure digest`,
+          );
+        }
+      }
+
+      const statuses = await persistence.listOcrJobStatuses(out.job.job_id);
+      const edges = statuses.map((s) => `${s.controlled_by}:${s.from}->${s.to}`);
+      // R5: exact ordered edges per case.
+      assert.deepEqual(edges, opts.expectedEdges);
+    } finally {
+      db.close();
+    }
+  } finally {
+    await ws.cleanup();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 test(
   "10L: success scenario — atomic ingest, spawned worker drains, persistence terminal_state=succeeded",
   { timeout: 20_000 },
-  async () => {
-    const ws = freshSqliteWorkspace();
-    try {
-      const env = deterministicEnv();
-      const out = await ingestDocumentForOcr(singlePageInput(), {
-        persistence: ws.persistence,
-        queueAdapter: ws.queueAdapter,
-        queue: ws.queue,
-        generateJobId: env.generateJobId,
-        now: env.now,
-      });
-
-      // R2: pre-spawn assertions.
-      assert.equal(out.atomic, true, "atomic ingest path must have been taken");
-      assert.equal(
-        out.enqueueResult.deduped,
-        false,
-        "fresh enqueue, not a dedupe",
-      );
-      const queueRows = ws.persistenceDb
-        .prepare(
-          "SELECT COUNT(*) AS n FROM ocr_queue_jobs WHERE state != 'resolved' AND job_id = ?",
-        )
-        .get(out.job.job_id).n;
-      assert.equal(queueRows, 1, "exactly one active queue row before spawn");
-
-      // R8: close ingestion handles BEFORE spawning the bin.
-      ws.queue.close();
-      ws.persistenceDb.close();
-
-      const { done } = spawnWorkerBin({
-        path: ws.path,
-        workerId: "10l-success-worker",
-      });
-      const result = await done;
-
-      assert.equal(result.code, 0, `bin exit code (stderr=${result.stderr})`);
-      assert.equal(result.signal, null, "bin must not be killed by a signal");
-
-      // R1: with --max-iterations=1 and one queued job, the loop runs
-      // exactly one iteration that completes the job.
-      const summary = parseSummary(result.stdout, result.stderr);
-      assert.equal(summary.stop_reason, "max_iterations");
-      assert.equal(summary.iterations, 1);
-      assert.equal(summary.outcomes.completed, 1);
-      assert.equal(summary.outcomes.requeued ?? 0, 0);
-      assert.equal(summary.outcomes.ack_failed ?? 0, 0);
-      assert.equal(summary.outcomes.persistence_failed ?? 0, 0);
-      assert.equal(summary.outcomes.lease_lost ?? 0, 0);
-
-      // Re-open persistence to inspect final state.
-      const { persistence, db } = openSqliteOcrPersistence({ path: ws.path });
-      try {
-        const job = await persistence.getOcrJob(out.job.job_id);
-        assert.notEqual(job, null);
-        assert.equal(job.terminal_state, "succeeded");
-
-        const results = await persistence.listOcrResults(out.job.job_id);
-        assert.equal(results.length, 1);
-        assert.equal(results[0].result.status, "succeeded");
-
-        const statuses = await persistence.listOcrJobStatuses(out.job.job_id);
-        const edges = statuses.map(
-          (s) => `${s.controlled_by}:${s.from}->${s.to}`,
-        );
-        // R5: exact ordered edges for the success case.
-        assert.deepEqual(edges, [
-          "queue:queued->claimed",
-          "worker:claimed->processing",
-          "worker:processing->succeeded",
-        ]);
-      } finally {
-        db.close();
-      }
-    } finally {
-      ws.cleanup();
-    }
-  },
+  () =>
+    runCrossProcessCase({
+      input: singlePageInput,
+      workerId: "10l-success-worker",
+      expectedTerminalState: "succeeded",
+      expectedResults: [{ page_number: 1, status: "succeeded" }],
+      expectedEdges: [
+        "queue:queued->claimed",
+        "worker:claimed->processing",
+        "worker:processing->succeeded",
+      ],
+    }),
 );
 
 test(
   "10L: partial_failure scenario — terminal_state=partial_succeeded, mixed page results",
   { timeout: 20_000 },
-  async () => {
-    const ws = freshSqliteWorkspace();
-    try {
-      const env = deterministicEnv();
-      // R6: scenario must be passed via ingest opts; without it the
-      // fake worker default-runs as success.
-      const out = await ingestDocumentForOcr(twoPageInput(), {
-        persistence: ws.persistence,
-        queueAdapter: ws.queueAdapter,
-        queue: ws.queue,
-        scenario: "partial_failure",
-        generateJobId: env.generateJobId,
-        now: env.now,
-      });
-
-      assert.equal(out.atomic, true);
-      assert.equal(out.enqueueResult.deduped, false);
-      const queueRows = ws.persistenceDb
-        .prepare(
-          "SELECT COUNT(*) AS n FROM ocr_queue_jobs WHERE state != 'resolved' AND job_id = ?",
-        )
-        .get(out.job.job_id).n;
-      assert.equal(queueRows, 1);
-
-      ws.queue.close();
-      ws.persistenceDb.close();
-
-      const { done } = spawnWorkerBin({
-        path: ws.path,
-        workerId: "10l-partial-worker",
-      });
-      const result = await done;
-
-      assert.equal(result.code, 0, `bin exit code (stderr=${result.stderr})`);
-      assert.equal(result.signal, null);
-
-      const summary = parseSummary(result.stdout, result.stderr);
-      assert.equal(summary.stop_reason, "max_iterations");
-      assert.equal(summary.iterations, 1);
-      assert.equal(summary.outcomes.completed, 1);
-      assert.equal(summary.outcomes.requeued ?? 0, 0);
-      assert.equal(summary.outcomes.ack_failed ?? 0, 0);
-      assert.equal(summary.outcomes.persistence_failed ?? 0, 0);
-      assert.equal(summary.outcomes.lease_lost ?? 0, 0);
-
-      const { persistence, db } = openSqliteOcrPersistence({ path: ws.path });
-      try {
-        const job = await persistence.getOcrJob(out.job.job_id);
-        assert.notEqual(job, null);
-        // R5: partial_failure terminal state is `partial_succeeded`.
-        assert.equal(job.terminal_state, "partial_succeeded");
-
-        const results = await persistence.listOcrResults(out.job.job_id);
-        assert.equal(results.length, 2);
-        const byPage = new Map(
-          results.map((r) => [r.result.page_number, r.result]),
-        );
-        assert.equal(byPage.get(1).status, "succeeded");
-        assert.equal(byPage.get(2).status, "failed");
-        assert.ok(
-          byPage.get(2).partial_failure,
-          "failed page must carry partial_failure digest",
-        );
-
-        const statuses = await persistence.listOcrJobStatuses(out.job.job_id);
-        const edges = statuses.map(
-          (s) => `${s.controlled_by}:${s.from}->${s.to}`,
-        );
-        assert.deepEqual(edges, [
-          "queue:queued->claimed",
-          "worker:claimed->processing",
-          "worker:processing->partial_succeeded",
-        ]);
-      } finally {
-        db.close();
-      }
-    } finally {
-      ws.cleanup();
-    }
-  },
+  () =>
+    runCrossProcessCase({
+      input: twoPageInput,
+      // R6: scenario must flow through ingest opts; without it the fake
+      // worker default-runs as success.
+      scenario: "partial_failure",
+      workerId: "10l-partial-worker",
+      expectedTerminalState: "partial_succeeded",
+      expectedResults: [
+        { page_number: 1, status: "succeeded" },
+        { page_number: 2, status: "failed", hasPartialFailure: true },
+      ],
+      expectedEdges: [
+        "queue:queued->claimed",
+        "worker:claimed->processing",
+        "worker:processing->partial_succeeded",
+      ],
+    }),
 );
