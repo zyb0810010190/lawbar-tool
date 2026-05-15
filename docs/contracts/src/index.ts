@@ -6,6 +6,7 @@
 
 export { validateOcrSubmission } from "./validateSubmission.js";
 export { validateOcrResult } from "./validateResult.js";
+export { validateOcrJobOutcome } from "./validateOcrJobOutcome.js";
 export {
   validateOcrStatusEnvelope,
   validateOcrStatusTransitionSequence,
@@ -67,6 +68,7 @@ export type { AjvErrorObject } from "./ajv-instance.js";
 export type { OcrSubmission } from "./generated/ocr-submission.js";
 export type { OcrResult } from "./generated/ocr-result.js";
 export type { OcrStatus } from "./generated/ocr-status.js";
+export type { OcrJobOutcome } from "./generated/ocr-job-outcome.js";
 
 // Re-export the schemas in case callers want to validate elsewhere
 // (e.g., in a different runtime, with a different Ajv config). They are
@@ -79,6 +81,7 @@ import {
   submissionSchema as rawSubmissionSchema,
   resultSchema as rawResultSchema,
   statusSchema as rawStatusSchema,
+  outcomeSchema as rawOutcomeSchema,
 } from "./loadSchemas.js";
 
 function deepFreeze<T>(value: T): T {
@@ -94,3 +97,4 @@ function deepFreeze<T>(value: T): T {
 export const submissionSchema = deepFreeze(structuredClone(rawSubmissionSchema));
 export const resultSchema = deepFreeze(structuredClone(rawResultSchema));
 export const statusSchema = deepFreeze(structuredClone(rawStatusSchema));
+export const outcomeSchema = deepFreeze(structuredClone(rawOutcomeSchema));

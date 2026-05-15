@@ -1,0 +1,8 @@
+{
+  "_invalid_reason": "statuses must have minItems 1; empty array is rejected at the envelope schema layer",
+  "_target_schema": "ocr-job-outcome",
+  "job_id": "01jrk8m4q4xv2v8d4d4ymf5xnk",
+  "statuses": [],
+  "results": [],
+  "terminal_state": "succeeded"
+}

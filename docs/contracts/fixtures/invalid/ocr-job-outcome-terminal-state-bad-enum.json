@@ -1,0 +1,10 @@
+{
+  "_invalid_reason": "terminal_state must be one of the documented OcrJobState enum values; 'wibble' is rejected at the envelope schema layer",
+  "_target_schema": "ocr-job-outcome",
+  "job_id": "01jrk8m4q4xv2v8d4d4ymf5xnk",
+  "statuses": [
+    { "from": "queued", "to": "claimed", "controlled_by": "queue", "at": "2026-04-27T08:14:33.000+08:00" }
+  ],
+  "results": [],
+  "terminal_state": "wibble"
+}

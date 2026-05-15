@@ -41,10 +41,14 @@ addFormats(ajv);
 const submissionSchema = readJson(join(schemasDir, "ocr-submission.schema.json"));
 const resultSchema     = readJson(join(schemasDir, "ocr-result.schema.json"));
 const statusSchema     = readJson(join(schemasDir, "ocr-status.schema.json"));
+const outcomeSchema    = readJson(join(schemasDir, "ocr-job-outcome.schema.json"));
 
 const validateSubmission = ajv.compile(submissionSchema);
 const validateResult     = ajv.compile(resultSchema);
 const validateStatus     = ajv.compile(statusSchema);
+// outcomeSchema $refs ocr-result by $id; resultSchema is already registered
+// on this ajv instance via the compile() call above, so the reference resolves.
+const validateOutcome    = ajv.compile(outcomeSchema);
 
 const errs = (v) => (v.errors || []).map((e) => `${e.instancePath} ${e.message}`).join("; ");
 
@@ -99,6 +103,12 @@ test("valid: status-transitions-retry (transient failure -> requeue -> success) 
   assert.equal(r.ok, true, r.error);
 });
 
+test("valid: ocr-job-outcome.example passes the outcome envelope schema", () => {
+  const fixture = readJson(join(validDir, "ocr-job-outcome.example.json"));
+  const ok = validateOutcome(fixture);
+  assert.equal(ok, true, errs(validateOutcome));
+});
+
 // ---------------------------------------------------------------------------
 // Invalid fixtures must fail. The reason for failure is asserted explicitly.
 // ---------------------------------------------------------------------------
@@ -146,6 +156,40 @@ test("invalid: retry violation (permanent failure re-queued) is rejected by retr
   const r = validateRetryBehavior(fixture);
   assert.equal(r.ok, false, "expected retry rule rejection");
   assert.match(r.error, /permanent failure/i);
+});
+
+test("invalid: ocr-job-outcome-missing-job-id is rejected by outcome schema on /job_id", () => {
+  const fixture = readJson(join(invalidDir, "ocr-job-outcome-missing-job-id.json"));
+  const ok = validateOutcome(fixture);
+  assert.equal(ok, false);
+  const offenders = (validateOutcome.errors || []).filter(
+    (e) => e.keyword === "required" && (e.params?.missingProperty === "job_id"),
+  );
+  assert.ok(offenders.length > 0, "expected a required-job_id error");
+});
+
+test("invalid: ocr-job-outcome-empty-statuses is rejected by outcome schema on /statuses", () => {
+  const fixture = readJson(join(invalidDir, "ocr-job-outcome-empty-statuses.json"));
+  const ok = validateOutcome(fixture);
+  assert.equal(ok, false);
+  const offenders = (validateOutcome.errors || []).filter((e) => e.instancePath === "/statuses");
+  assert.ok(offenders.length > 0, "expected a /statuses error");
+});
+
+test("invalid: ocr-job-outcome-terminal-state-bad-enum is rejected on /terminal_state", () => {
+  const fixture = readJson(join(invalidDir, "ocr-job-outcome-terminal-state-bad-enum.json"));
+  const ok = validateOutcome(fixture);
+  assert.equal(ok, false);
+  const offenders = (validateOutcome.errors || []).filter((e) => e.instancePath === "/terminal_state");
+  assert.ok(offenders.length > 0, "expected a /terminal_state error");
+});
+
+test("invalid: ocr-job-outcome-statuses-element-malformed is rejected on /statuses/0", () => {
+  const fixture = readJson(join(invalidDir, "ocr-job-outcome-statuses-element-malformed.json"));
+  const ok = validateOutcome(fixture);
+  assert.equal(ok, false);
+  const offenders = (validateOutcome.errors || []).filter((e) => e.instancePath.startsWith("/statuses/0"));
+  assert.ok(offenders.length > 0, "expected an error inside /statuses/0");
 });
 
 // ---------------------------------------------------------------------------
@@ -220,6 +264,53 @@ test("partial_failure must be null on success and an object on failure", () => {
   assert.equal(validateResult(broken3), false, "partial_failure shape must be enforced");
 });
 
+test("drift: local $defs/transitionRecord in outcome schema matches the nested transition shape in status schema", () => {
+  // ADR-11A.5 v0.1 §2: outcome schema declares a LOCAL transitionRecord shape
+  // because the status schema's transition record lives inside a oneOf branch
+  // and is not directly $ref-able. This guard rejects any drift between the
+  // two definitions so the duplication does not silently diverge.
+  //
+  // Canonical compare: walk both shapes, compare structurally on
+  // required + properties + types. Both schemas reference the same
+  // state + actor enums by name; the local outcome schema mirrors them
+  // under its own $defs, so we compare those too.
+
+  const outcomeTransition = outcomeSchema.$defs.transitionRecord;
+  const statusTransition  = statusSchema.$defs.transitionSequence
+    .properties.transitions.items;
+
+  // Required field lists must match exactly.
+  assert.deepEqual(
+    [...outcomeTransition.required].sort(),
+    [...statusTransition.required].sort(),
+    "transitionRecord.required has drifted between schemas",
+  );
+
+  // Property shape must match for the four required + the optional `note`.
+  for (const propName of ["from", "to", "controlled_by", "at", "note"]) {
+    const outProp = outcomeTransition.properties[propName];
+    const statusProp = statusTransition.properties[propName];
+    assert.deepEqual(
+      outProp,
+      statusProp,
+      `transitionRecord.${propName} differs between outcome and status schemas`,
+    );
+  }
+
+  // The two refs in transitionRecord point at $defs/state and $defs/actor.
+  // Mirror those enums between the two schemas too.
+  assert.deepEqual(
+    outcomeSchema.$defs.state.enum,
+    statusSchema.$defs.state.enum,
+    "state enum has drifted between schemas",
+  );
+  assert.deepEqual(
+    outcomeSchema.$defs.actor.enum,
+    statusSchema.$defs.actor.enum,
+    "actor enum has drifted between schemas",
+  );
+});
+
 test("transition matrix: every documented edge is allowed; obvious bad edges are not", () => {
   // Documented edges (from §3.2). Sanity-check the matrix here.
   assert.ok(isAllowedTransition("queued", "claimed", "queue"));
@@ -251,6 +342,7 @@ test("transition matrix: every documented edge is allowed; obvious bad edges are
 test("sweep: every valid fixture is used by an explicit test", () => {
   const found = readdirSync(validDir).filter((f) => f.endsWith(".json")).sort();
   const expected = [
+    "ocr-job-outcome.example.json",
     "result-chinese-litigation.json",
     "result-partial-failure.json",
     "status-transitions-retry.json",
@@ -265,6 +357,10 @@ test("sweep: every valid fixture is used by an explicit test", () => {
 test("sweep: every invalid fixture is used by an explicit test", () => {
   const found = readdirSync(invalidDir).filter((f) => f.endsWith(".json")).sort();
   const expected = [
+    "ocr-job-outcome-empty-statuses.json",
+    "ocr-job-outcome-missing-job-id.json",
+    "ocr-job-outcome-statuses-element-malformed.json",
+    "ocr-job-outcome-terminal-state-bad-enum.json",
     "result-malformed-polygon.json",
     "retry-violation.json",
     "status-illegal-transition.json",

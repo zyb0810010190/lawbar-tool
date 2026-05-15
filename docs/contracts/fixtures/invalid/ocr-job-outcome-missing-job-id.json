@@ -1,0 +1,9 @@
+{
+  "_invalid_reason": "job_id is required at the outcome envelope; this fixture omits it",
+  "_target_schema": "ocr-job-outcome",
+  "statuses": [
+    { "from": "queued", "to": "claimed", "controlled_by": "queue", "at": "2026-04-27T08:14:33.000+08:00" }
+  ],
+  "results": [],
+  "terminal_state": "claimed"
+}

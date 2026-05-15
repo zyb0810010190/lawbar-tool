@@ -6,5 +6,6 @@
 import submissionSchema from "../schemas/ocr-submission.schema.json" with { type: "json" };
 import resultSchema from "../schemas/ocr-result.schema.json" with { type: "json" };
 import statusSchema from "../schemas/ocr-status.schema.json" with { type: "json" };
+import outcomeSchema from "../schemas/ocr-job-outcome.schema.json" with { type: "json" };
 
-export { submissionSchema, resultSchema, statusSchema };
+export { submissionSchema, resultSchema, statusSchema, outcomeSchema };

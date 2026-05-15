@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import {
   validateOcrSubmission,
   validateOcrResult,
+  validateOcrJobOutcome,
   validateOcrStatusEnvelope,
   validateOcrStatusTransitionSequence,
   assertValidOcrStatusTransition,
@@ -24,6 +25,7 @@ import {
   submissionSchema,
   resultSchema,
   statusSchema,
+  outcomeSchema,
 } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -238,6 +240,7 @@ test("sweep: every valid fixture is referenced by a validator test (or by contra
     "result-partial-failure.json",
     "status-transitions.json",
     "status-transitions-retry.json",
+    "ocr-job-outcome.example.json",
   ]);
   for (const f of found) {
     assert.ok(referenced.has(f), `fixture ${f} has no validator test`);
@@ -410,5 +413,120 @@ test("classifyOcrFailureForRetry: never returns fractional attemptsRemaining", (
         assert.ok(decision.attemptsRemaining >= 1);
       }
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// validateOcrJobOutcome — composed validator (ADR-11A.5 v0.1)
+//
+// Layers tested below:
+//   1. envelope schema       — schema-detectable invalid fixtures
+//   2. status sequence       — illegal-edge case built inline
+//   3. per-result validity   — one bad results[] element built inline
+//   4. terminal coherence    — terminal_state vs statuses[last].to mismatch
+//
+// Job/submission binding lives in services/ocr-worker/src/outcomeValidation.ts
+// and is NOT covered here (no external job context at the contract layer).
+// ---------------------------------------------------------------------------
+
+test("validateOcrJobOutcome: valid example fixture passes", () => {
+  const fixture = readJson(join(validDir, "ocr-job-outcome.example.json"));
+  const r = validateOcrJobOutcome(fixture);
+  assert.equal(r.ok, true, r.ok ? "" : r.summary);
+  if (r.ok) {
+    assert.equal(r.value.terminal_state, "succeeded");
+    assert.equal(r.value.statuses[r.value.statuses.length - 1].to, "succeeded");
+  }
+});
+
+test("validateOcrJobOutcome: outcomeSchema export is the frozen contract schema", () => {
+  assert.equal(typeof outcomeSchema, "object");
+  assert.equal(outcomeSchema.title, "OcrJobOutcome");
+  assert.ok(Object.isFrozen(outcomeSchema), "outcomeSchema must be frozen at the boundary");
+});
+
+test("validateOcrJobOutcome: missing-job-id fixture fails at envelope schema", () => {
+  const r = validateOcrJobOutcome(readJson(join(invalidDir, "ocr-job-outcome-missing-job-id.json")));
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.ok(r.errors.some((e) => e.params && e.params.missingProperty === "job_id"));
+  }
+});
+
+test("validateOcrJobOutcome: empty-statuses fixture fails at envelope schema", () => {
+  const r = validateOcrJobOutcome(readJson(join(invalidDir, "ocr-job-outcome-empty-statuses.json")));
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.ok(r.errors.some((e) => e.instancePath === "/statuses"));
+  }
+});
+
+test("validateOcrJobOutcome: terminal-state-bad-enum fixture fails at envelope schema", () => {
+  const r = validateOcrJobOutcome(readJson(join(invalidDir, "ocr-job-outcome-terminal-state-bad-enum.json")));
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.ok(r.errors.some((e) => e.instancePath === "/terminal_state"));
+  }
+});
+
+test("validateOcrJobOutcome: statuses-element-malformed fixture fails at envelope schema", () => {
+  const r = validateOcrJobOutcome(readJson(join(invalidDir, "ocr-job-outcome-statuses-element-malformed.json")));
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.ok(r.errors.some((e) => e.instancePath.startsWith("/statuses/0")));
+  }
+});
+
+test("validateOcrJobOutcome: SEMANTIC — terminal_state does not match final transition.to", () => {
+  const base = readJson(join(validDir, "ocr-job-outcome.example.json"));
+  const drifted = structuredClone(base);
+  drifted.terminal_state = "partial_succeeded"; // statuses[last].to is still "succeeded"
+  const r = validateOcrJobOutcome(drifted);
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.match(r.summary, /terminal_state/);
+    assert.ok(r.errors.some((e) => e.keyword === "semanticCoherence"));
+  }
+});
+
+test("validateOcrJobOutcome: SEMANTIC — illegal status transition is rejected by sequence layer", () => {
+  const base = readJson(join(validDir, "ocr-job-outcome.example.json"));
+  const bad = structuredClone(base);
+  // succeeded -> queued is a documented illegal transition (transitions.ts).
+  bad.statuses.push({
+    from: "succeeded",
+    to: "queued",
+    controlled_by: "queue",
+    at: "2026-04-27T08:14:38.000+08:00",
+  });
+  bad.terminal_state = "queued";
+  const r = validateOcrJobOutcome(bad);
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    // The sequence validator surfaces semantic errors via keyword="transition".
+    assert.ok(
+      r.summary.startsWith("statuses:"),
+      `expected statuses-prefixed summary, got: ${r.summary}`,
+    );
+    assert.ok(r.errors.some((e) => e.keyword === "transition"));
+  }
+});
+
+test("validateOcrJobOutcome: a malformed results[] element is rejected", () => {
+  // Because the outcome schema cross-$refs ocr-result.schema.json by $id,
+  // a malformed result element fails at the envelope-schema layer (layer 1)
+  // before the explicit per-result loop (layer 3) is reached. Either path is
+  // a correct rejection; the assertion here pins the rejection path the
+  // composed validator actually takes today.
+  const base = readJson(join(validDir, "ocr-job-outcome.example.json"));
+  const bad = structuredClone(base);
+  delete bad.results[0].engine; // ocr-result requires `engine`
+  const r = validateOcrJobOutcome(bad);
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.ok(
+      r.errors.some((e) => e.instancePath.startsWith("/results/0")),
+      `expected an error on /results/0, got: ${r.summary}`,
+    );
   }
 });
