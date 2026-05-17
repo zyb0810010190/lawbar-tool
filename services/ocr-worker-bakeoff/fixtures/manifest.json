@@ -2,6 +2,29 @@
   "version": 1,
   "fixtures": [
     {
+      "active": true,
+      "id": "01-hello-bakeoff",
+      "role": "smoke",
+      "kind": "synthetic",
+      "category": "printed-english",
+      "path": "synthetic/01-hello-bakeoff.png",
+      "expected_text_path": "synthetic/01-hello-bakeoff.txt",
+      "sha256": "5c5d8d794f02cf107bdf4d151c5277950b1bd90ed44e9034faefa385c597540e",
+      "expected_text_sha256": "36a874a282966db8d20ca4494fed804d1befcfac1dee790f698e84c3ef125c63",
+      "language": "eng",
+      "provenance": "Synthetic v1, printed English. Rendered offline via ImageMagick 7.1.2 on darwin-arm64; canonical bytes committed. CI never regenerates. Smoke fixture only — excluded from the ε verdict corpus.",
+      "last_verified_at": "2026-05-17T00:00:00Z",
+      "render": {
+        "render_command": "magick -size 400x80 xc:white -font /System/Library/Fonts/Supplemental/Arial\\ Bold.ttf -pointsize 36 -gravity center -annotate +0+0 'hello bakeoff' 01-hello-bakeoff.png",
+        "font": "Arial Bold (/System/Library/Fonts/Supplemental/Arial Bold.ttf)",
+        "point_size": 36,
+        "canvas": "400x80",
+        "source_text": "hello bakeoff",
+        "notes": "Rendered with ImageMagick 7.1.2-19 on macOS. Tesseract 5.5.2 (eng) reads this image verbatim as 'hello bakeoff' — CER = 0 against the authored source phrase."
+      },
+      "notes": "First synthetic fixture; verifies the Tesseract harness end-to-end. The Chinese verdict corpus (≥5 active synthetic + ≥2 active real, per Q3 sign-off) is built in γ/δ once tesseract-lang / PaddleOCR / RapidOCR are in scope."
+    },
+    {
       "active": false,
       "id": "01-printed-chinese",
       "kind": "synthetic",
@@ -9,8 +32,8 @@
       "path": "synthetic/01-printed-chinese.png",
       "expected_text_path": "synthetic/01-printed-chinese.txt",
       "language": "zh-Hans",
-      "reason": "α ships engine-free; first active synthetic fixture lands in β alongside the Tesseract harness once `brew install tesseract` is complete and a canonical PNG can be rendered + verified end-to-end against a real engine.",
-      "notes": "Slot reserved. Per Q3 sign-off the bakeoff verdict (ε) requires ≥5 active synthetic + ≥2 active real fixtures; β earns the first of those."
+      "reason": "α ships engine-free; Chinese verdict fixtures land in γ/δ. Tesseract baseline (β) uses an English smoke fixture (01-hello-bakeoff) because chi_sim isn't installed locally (`brew install tesseract-lang` required for Chinese coverage).",
+      "notes": "Slot reserved. Per Q3 sign-off the bakeoff verdict (ε) requires ≥5 active synthetic + ≥2 active real Chinese-pleading fixtures; γ/δ earn them once the respective engines + language packs are in scope."
     }
   ]
 }

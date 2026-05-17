@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test tests/accuracy.test.mjs tests/manifest.test.mjs"
+    "test": "npm run build && node --test tests/accuracy.test.mjs tests/manifest.test.mjs tests/tesseract.test.mjs"
   },
   "engines": {
     "node": ">=22.0.0"
