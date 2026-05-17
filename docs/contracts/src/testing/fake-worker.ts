@@ -64,16 +64,6 @@ export interface FakeJobOutcome extends OcrJobOutcome {
   scenario?: FakeScenario;
 }
 
-/**
- * Compile-time assertion that `FakeJobOutcome` is a structural subtype of
- * `OcrJobOutcome`. If a future refactor diverges the two shapes (e.g.
- * narrows `OcrJobOutcome.statuses` further, or removes a field), this line
- * stops compiling and pins the regression independently of any consumer.
- */
-type _AssertFakeIsOutcome = FakeJobOutcome extends OcrJobOutcome ? true : never;
-const _fakeIsOutcome: _AssertFakeIsOutcome = true;
-void _fakeIsOutcome;
-
 export class FakeWorkerError extends Error {
   constructor(message: string) {
     super(message);
