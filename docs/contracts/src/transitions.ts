@@ -137,3 +137,40 @@ export function validateTransitionSequence(
 
   return { ok: true };
 }
+
+// ---------------------------------------------------------------------------
+// Compile-time compatibility guard between this hand-written
+// `TransitionRecord` (the semantic source of truth for the state machine)
+// and the schema-derived `TransitionRecord` baked into
+// `OcrJobOutcome["statuses"][number]` (the wire-shape source of truth for
+// the outcome contract).
+//
+// They are independently defined — the generated type carries an open
+// `[k: string]: unknown` index signature that the hand-written interface
+// does not — so silent divergence is possible. The two assertions below
+// pin bidirectional structural assignability: if either side stops fitting
+// the other, tsc fails. Pure type-level — `declare const` emits no JS.
+//
+// Audit thread 019e3538 H#2.
+// ---------------------------------------------------------------------------
+
+import type { OcrJobOutcome as _GenOutcome } from "./generated/ocr-job-outcome.js";
+
+type _GenTransitionRecord = _GenOutcome["statuses"][number];
+
+type _AssertHandFitsGen =
+  TransitionRecord extends _GenTransitionRecord ? true : never;
+type _AssertGenFitsHand =
+  _GenTransitionRecord extends TransitionRecord ? true : never;
+
+type _BothWays = [_AssertHandFitsGen, _AssertGenFitsHand];
+
+// Force evaluation. If either side resolves to `never`, the tuple element
+// becomes `never` and `_MustBeBothTrue` narrows to `never`, making the
+// `declare const` assignment unassignable at compile time.
+type _MustBeBothTrue = _BothWays extends [true, true] ? true : never;
+
+// `declare const` is type-only; tsc emits no JS for this line, so the
+// guard is purely a compile-time check. If `_MustBeBothTrue` ever
+// resolves to `never`, this declaration is unassignable and tsc fails.
+declare const _transitionRecordCompat: _MustBeBothTrue;

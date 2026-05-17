@@ -177,6 +177,63 @@ test("scenario success: terminal_state=succeeded, contract-valid statuses + resu
 });
 
 // ---------------------------------------------------------------------------
+// Production-shape outcome: a worker that returns exactly the four fields
+// of OcrJobOutcome (no `scenario`) must round-trip through the adapter
+// unchanged. This pins what ADR-11A.5 v0.1 promises about the production
+// seam, independent of the fake worker's structural-subtype convenience.
+// Audit thread 019e3538 H#4.
+// ---------------------------------------------------------------------------
+
+test("production-shape outcome (no scenario field) round-trips through processOcrJob", async () => {
+  const adapter = new OcrJobAdapter({
+    backend: new InMemoryOcrQueue(),
+    worker: {
+      async process(job) {
+        // Hand-assembled OcrJobOutcome — four fields exactly, NO scenario.
+        // Embeds the canonical success fixture so the result schema check
+        // inside outcomeValidation accepts it.
+        const result = {
+          ...successFixture,
+          job_id: job.submission.job_id,
+          tenant_id: job.submission.tenant_id,
+          document_id: job.submission.document_id,
+          document_revision: job.submission.document_revision,
+          page_id: job.submission.pages[0].page_id,
+          page_number: job.submission.pages[0].page_number,
+          metadata: { ...job.submission.metadata },
+          completed_at: "2030-01-01T00:00:03.500Z",
+        };
+        return {
+          job_id: job.submission.job_id,
+          statuses: [
+            { from: "queued",     to: "claimed",    controlled_by: "queue",  at: "2030-01-01T00:00:01.000Z" },
+            { from: "claimed",    to: "processing", controlled_by: "worker", at: "2030-01-01T00:00:02.000Z" },
+            { from: "processing", to: "succeeded",  controlled_by: "worker", at: "2030-01-01T00:00:03.000Z" },
+          ],
+          results: [result],
+          terminal_state: "succeeded",
+        };
+      },
+    },
+  });
+  const { job } = await adapter.enqueueOcrJob(baseSubmission);
+  const out = await adapter.processOcrJob(job);
+
+  // Production seam accepts the four-field shape.
+  assert.equal(out.outcome.terminal_state, "succeeded");
+  assert.equal(out.outcome.statuses.length, 3);
+  assert.equal(out.outcome.results.length, 1);
+  assert.equal(out.outcome.results[0].status, "succeeded");
+  // `scenario` is absent on the production-shape outcome.
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(out.outcome, "scenario"),
+    false,
+    "production-shape outcome must not carry a scenario field",
+  );
+  assertOutcomeFullyValid(out.outcome);
+});
+
+// ---------------------------------------------------------------------------
 // scenario: partial_failure
 // ---------------------------------------------------------------------------
 
