@@ -267,35 +267,34 @@ test("partial_failure must be null on success and an object on failure", () => {
 test("drift: local $defs/transitionRecord in outcome schema matches the nested transition shape in status schema", () => {
   // ADR-11A.5 v0.1 §2: outcome schema declares a LOCAL transitionRecord shape
   // because the status schema's transition record lives inside a oneOf branch
-  // and is not directly $ref-able. This guard rejects any drift between the
-  // two definitions so the duplication does not silently diverge.
-  //
-  // Canonical compare: walk both shapes, compare structurally on
-  // required + properties + types. Both schemas reference the same
-  // state + actor enums by name; the local outcome schema mirrors them
-  // under its own $defs, so we compare those too.
+  // and is not directly $ref-able. This guard rejects ANY drift between the
+  // two definitions — including added/removed optional fields and added
+  // schema keywords (description, additionalProperties, patternProperties,
+  // etc.) — so duplication cannot silently diverge.
+
+  // Deep-canonicalize: sort object keys recursively so two structurally
+  // identical schemas stringify byte-for-byte regardless of authoring order.
+  const canon = (v) => {
+    if (Array.isArray(v)) return v.map(canon);
+    if (v && typeof v === "object") {
+      return Object.fromEntries(
+        Object.keys(v).sort().map((k) => [k, canon(v[k])]),
+      );
+    }
+    return v;
+  };
 
   const outcomeTransition = outcomeSchema.$defs.transitionRecord;
   const statusTransition  = statusSchema.$defs.transitionSequence
     .properties.transitions.items;
 
-  // Required field lists must match exactly.
-  assert.deepEqual(
-    [...outcomeTransition.required].sort(),
-    [...statusTransition.required].sort(),
-    "transitionRecord.required has drifted between schemas",
+  // Full normalized subtree must match byte-for-byte. Any added/removed
+  // property or schema keyword on either side trips this assertion.
+  assert.equal(
+    JSON.stringify(canon(outcomeTransition)),
+    JSON.stringify(canon(statusTransition)),
+    "transitionRecord subtree has drifted between outcome and status schemas",
   );
-
-  // Property shape must match for the four required + the optional `note`.
-  for (const propName of ["from", "to", "controlled_by", "at", "note"]) {
-    const outProp = outcomeTransition.properties[propName];
-    const statusProp = statusTransition.properties[propName];
-    assert.deepEqual(
-      outProp,
-      statusProp,
-      `transitionRecord.${propName} differs between outcome and status schemas`,
-    );
-  }
 
   // The two refs in transitionRecord point at $defs/state and $defs/actor.
   // Mirror those enums between the two schemas too.

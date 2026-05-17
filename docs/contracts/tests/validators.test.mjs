@@ -509,6 +509,72 @@ test("validateOcrJobOutcome: SEMANTIC — illegal status transition is rejected 
       `expected statuses-prefixed summary, got: ${r.summary}`,
     );
     assert.ok(r.errors.some((e) => e.keyword === "transition"));
+    // Path must be remapped from /transitions/N to /statuses/N — callers
+    // should see the outcome envelope's field name, not the inner sequence
+    // payload's field name.
+    assert.ok(
+      r.errors.some((e) => e.instancePath.startsWith("/statuses/")),
+      `expected /statuses/ instancePath, got: ${r.errors.map((e) => e.instancePath).join(", ")}`,
+    );
+    assert.ok(
+      !r.errors.some((e) => e.instancePath.startsWith("/transitions/")),
+      "no /transitions/ instancePath should leak through",
+    );
+  }
+});
+
+test("validateOcrJobOutcome: PRECEDENCE — sequence layer wins over terminal coherence under mixed failure", () => {
+  // Build a payload that fails BOTH layer 2 (illegal edge) AND layer 3
+  // (terminal_state mismatch). The validator must short-circuit at layer 2
+  // and surface a `statuses:` failure, not a `semanticCoherence` failure.
+  const base = readJson(join(validDir, "ocr-job-outcome.example.json"));
+  const bad = structuredClone(base);
+  bad.statuses.push({
+    from: "succeeded",
+    to: "queued",
+    controlled_by: "queue",
+    at: "2026-04-27T08:14:38.000+08:00",
+  });
+  // Deliberately set terminal_state to a value that ALSO disagrees with
+  // statuses[last].to, so both layers would reject if reached.
+  bad.terminal_state = "failed";
+  const r = validateOcrJobOutcome(bad);
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.ok(
+      r.summary.startsWith("statuses:"),
+      `expected sequence-layer to win, got: ${r.summary}`,
+    );
+    assert.ok(
+      !r.errors.some((e) => e.keyword === "semanticCoherence"),
+      "terminal coherence error must NOT appear when sequence layer already failed",
+    );
+  }
+});
+
+test("validateOcrJobOutcome: PRECEDENCE — envelope schema wins over semantic failure under mixed failure", () => {
+  // Build a payload that fails BOTH layer 1 (missing job_id) AND would
+  // also fail layer 3 (terminal mismatch). Envelope schema must short-
+  // circuit; no semantic error should leak through.
+  const base = readJson(join(validDir, "ocr-job-outcome.example.json"));
+  const bad = structuredClone(base);
+  delete bad.job_id;
+  bad.terminal_state = "failed"; // disagrees with statuses[last].to ("succeeded")
+  const r = validateOcrJobOutcome(bad);
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.ok(
+      r.errors.some((e) => e.params && e.params.missingProperty === "job_id"),
+      "envelope schema must surface the missing job_id",
+    );
+    assert.ok(
+      !r.errors.some((e) => e.keyword === "semanticCoherence"),
+      "terminal coherence error must NOT appear when envelope already failed",
+    );
+    assert.ok(
+      !r.errors.some((e) => e.keyword === "transition"),
+      "transition error must NOT appear when envelope already failed",
+    );
   }
 });
 
