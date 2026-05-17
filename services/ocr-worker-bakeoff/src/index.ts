@@ -15,11 +15,16 @@ export type {
   EngineFailureObservation,
   EngineCandidate,
   RunOptions,
+  RunKind,
   LicenseEvidence,
   RedistributionStatus,
   ActiveBakeoffFixture,
+  SyntheticActiveBakeoffFixture,
+  RealActiveBakeoffFixture,
+  SyntheticRenderProvenance,
   PlaceholderBakeoffFixture,
   BakeoffFixture,
+  FixtureRole,
   FixtureManifest,
 } from "./types.js";
 

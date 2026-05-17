@@ -126,7 +126,7 @@ export interface EngineSuccessObservation {
    */
   per_page_inference_ms: number;
   /** Whether this run was a cold (fresh process) or warm (reused) run. */
-  run_kind: "cold" | "warm";
+  run_kind: RunKind;
 }
 
 export interface EngineFailureObservation {
@@ -156,14 +156,23 @@ export interface LicenseEvidence {
   code_license: string;
   /**
    * SPDX-ish identifier for the model weights, if separate. `null` means
-   * the engine has no separately-licensed weights (e.g. Tesseract's
-   * built-in language data ships under the same code license).
+   * the engine has no separately-distributed model artifact (e.g. a pure
+   * algorithmic engine with no weights). When non-null, `model_evidence_url`
+   * MUST point at the matching upstream LICENSE — even when `model_license`
+   * equals `code_license` numerically, the two artifacts ship from
+   * different repositories and need separate provenance for ε's legal
+   * artifact.
    */
   model_license: string | null;
   redistribution: RedistributionStatus;
-  /** URL to upstream LICENSE file or equivalent legal source. */
-  evidence_url: string;
-  /** ISO-8601 timestamp of last manual verification. */
+  /** URL to upstream code LICENSE file. */
+  code_evidence_url: string;
+  /**
+   * URL to upstream model LICENSE file. `null` only when `model_license`
+   * is also null (no separate model artifact). Otherwise required.
+   */
+  model_evidence_url: string | null;
+  /** ISO-8601 timestamp of last manual verification of all evidence URLs. */
   last_verified_at: string;
   /** Free-form notes (e.g. "weights bundle includes CC-BY-SA training set"). */
   notes?: string;
@@ -173,11 +182,22 @@ export interface LicenseEvidence {
 // Engine candidate — the seam each per-engine commit implements.
 // ---------------------------------------------------------------------------
 
+export type RunKind = "cold" | "warm";
+
 export interface EngineCandidate {
   name: string;
   /** Pinned engine version this harness targets. */
   version_pinned: string;
   license: LicenseEvidence;
+  /**
+   * Run kinds this candidate can honestly execute. The runner MUST only
+   * request modes listed here; a direct unsupported request yields a
+   * structured `unsupported_run_kind` failure observation rather than a
+   * silent downgrade. CLI-per-page engines (e.g. Tesseract) typically
+   * advertise only `"cold"`; persistent-process engines may advertise
+   * both.
+   */
+  supported_run_kinds: readonly RunKind[];
   probe(): Promise<ProbeResult>;
   run(fixture: ActiveBakeoffFixture, opts: RunOptions): Promise<EngineObservation>;
   /** Tear down any subprocesses / loaded models. */
@@ -185,8 +205,13 @@ export interface EngineCandidate {
 }
 
 export interface RunOptions {
-  /** Cold (fresh process) vs warm (reuse). β/γ/δ define semantics. */
-  run_kind: "cold" | "warm";
+  /**
+   * Cold (fresh process) vs warm (reused process). The runner MUST check
+   * `EngineCandidate.supported_run_kinds` before invoking; passing an
+   * unsupported mode is allowed but yields a structured failure
+   * observation, never a silent downgrade.
+   */
+  run_kind: RunKind;
   /** Wall-clock timeout in milliseconds for the run() call. */
   timeout_ms: number;
 }
@@ -199,10 +224,42 @@ export interface RunOptions {
 // the two real-sample placeholders pending PII review).
 // ---------------------------------------------------------------------------
 
-export interface ActiveBakeoffFixture {
+/**
+ * Fixture role. Smoke fixtures verify harness plumbing (e.g. β's English
+ * `hello bakeoff` PNG) and are EXCLUDED from verdict aggregation entirely.
+ * Verdict fixtures form the signed-off corpus (Q3: ≥5 active synthetic +
+ * ≥2 active real Chinese-pleading samples) that ADR-11A.1's verdict
+ * depends on. The runner filters by role; the verdict path only sees
+ * `verdict` fixtures.
+ */
+export type FixtureRole = "smoke" | "verdict";
+
+/**
+ * Render provenance for synthetic active fixtures. Records enough intent
+ * for a future human to reproduce a fixture's authoring step even though
+ * the canonical bytes are committed (CI never regenerates). Required for
+ * synthetic active fixtures; absent for real fixtures.
+ */
+export interface SyntheticRenderProvenance {
+  /** Exact command line used at authoring time (e.g. `magick ... label:"hello"`). */
+  render_command: string;
+  /** Font family / file (e.g. "Arial-Bold", "NotoSerifSC-Regular"). */
+  font: string;
+  /** Point size used at render time. */
+  point_size: number;
+  /** Canvas dimensions (e.g. "400x80"). */
+  canvas: string;
+  /** Authored source text — this MUST equal the expected ground truth. */
+  source_text: string;
+  /** Free-form notes about the rendering environment. */
+  notes?: string;
+}
+
+interface ActiveBakeoffFixtureBase {
   active: true;
   id: string;
-  kind: "synthetic" | "real";
+  /** Role within the bakeoff verdict: smoke fixtures are excluded from scoring. */
+  role: FixtureRole;
   /** Coverage category (e.g. "printed-chinese", "table", "seal", "vertical"). */
   category: string;
   /** Path to the image bytes, relative to the fixtures/ root. */
@@ -217,12 +274,28 @@ export interface ActiveBakeoffFixture {
   dpi?: number;
   /** Primary language tag of the expected text (e.g. "zh-Hans"). */
   language: string;
-  /** Free-form provenance trail (e.g. "synthetic v1, font NotoSerifSC-Regular"). */
+  /** Free-form provenance summary. */
   provenance: string;
   /** ISO-8601 timestamp of last manual verification of the bytes + expected text. */
   last_verified_at: string;
   notes?: string;
 }
+
+export interface SyntheticActiveBakeoffFixture extends ActiveBakeoffFixtureBase {
+  kind: "synthetic";
+  /** Required for synthetic fixtures so manual replacement remains auditable. */
+  render: SyntheticRenderProvenance;
+}
+
+export interface RealActiveBakeoffFixture extends ActiveBakeoffFixtureBase {
+  kind: "real";
+  /** Real-source provenance: where the image came from (URL / acquisition / consent). */
+  real_source: string;
+  /** PII / redaction status — required for real fixtures before ε. */
+  pii_review: "redacted" | "pending" | "not_required";
+}
+
+export type ActiveBakeoffFixture = SyntheticActiveBakeoffFixture | RealActiveBakeoffFixture;
 
 export interface PlaceholderBakeoffFixture {
   active: false;

@@ -74,6 +74,33 @@ test("manifest.json: every ACTIVE fixture has all required active-branch fields"
     assert.match(f.expected_text_sha256, /^[0-9a-f]{64}$/);
     assert.equal(typeof f.provenance, "string");
     assert.equal(typeof f.last_verified_at, "string");
+    // Role is required and constrained to the documented enum.
+    assert.ok(
+      ["smoke", "verdict"].includes(f.role),
+      `${f.id}: role must be "smoke" | "verdict" (got ${JSON.stringify(f.role)})`,
+    );
+    // Synthetic active fixtures require render provenance (α.1).
+    if (f.kind === "synthetic") {
+      assert.equal(typeof f.render, "object", `${f.id}: synthetic active must carry render provenance`);
+      assert.ok(f.render && f.render !== null, `${f.id}: render must be non-null`);
+      for (const field of ["render_command", "font", "point_size", "canvas", "source_text"]) {
+        assert.ok(
+          f.render[field] !== undefined && f.render[field] !== "",
+          `${f.id}: synthetic render.${field} required`,
+        );
+      }
+      // source_text MUST be the ground-truth source — Codex pass-3 D1.2.
+      // It is the authored phrase; the runner uses it as the CER reference.
+      assert.equal(typeof f.render.source_text, "string");
+    }
+    // Real active fixtures require real_source + pii_review (α.1).
+    if (f.kind === "real") {
+      assert.equal(typeof f.real_source, "string", `${f.id}: real active must carry real_source`);
+      assert.ok(
+        ["redacted", "pending", "not_required"].includes(f.pii_review),
+        `${f.id}: real active must declare pii_review status`,
+      );
+    }
   }
 });
 
@@ -146,6 +173,7 @@ test("synthetic manifest with one ACTIVE fixture: hash checks pass when bytes ma
   const fixture = {
     active: true,
     id: "synthetic-active",
+    role: "smoke",
     kind: "synthetic",
     category: "test",
     path: "img.png",
@@ -155,6 +183,13 @@ test("synthetic manifest with one ACTIVE fixture: hash checks pass when bytes ma
     language: "und",
     provenance: "in-test",
     last_verified_at: "2026-01-01T00:00:00Z",
+    render: {
+      render_command: "(in-test stub)",
+      font: "stub",
+      point_size: 12,
+      canvas: "10x10",
+      source_text: "hello world",
+    },
   };
 
   // Reproduce the active-branch checks against this synthetic.
@@ -206,6 +241,7 @@ test("synthetic manifest: an ACTIVE fixture missing expected_text_sha256 must be
   const malformed = {
     active: true,
     id: "missing-hash",
+    role: "smoke",
     kind: "synthetic",
     category: "test",
     path: "img.png",
@@ -215,6 +251,13 @@ test("synthetic manifest: an ACTIVE fixture missing expected_text_sha256 must be
     language: "und",
     provenance: "in-test",
     last_verified_at: "2026-01-01T00:00:00Z",
+    render: {
+      render_command: "(in-test stub)",
+      font: "stub",
+      point_size: 12,
+      canvas: "10x10",
+      source_text: "hello world",
+    },
   };
   assert.equal(malformed.active, true);
   assert.equal(malformed.expected_text_sha256, undefined);
