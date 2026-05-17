@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 
 import { makeTesseractCandidate } from "../dist/harnesses/tesseract.js";
-import { parseMaxRssBytesFromTimeL } from "../dist/harnesses/tesseract.js";
+import { parseMaxRssBytesFromTimeL, resolveTesseractLang } from "../dist/harnesses/tesseract.js";
 import { runBakeoff } from "../dist/runner.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -126,8 +126,10 @@ test("probe: wrong version → bad_version", async () => {
   }
 });
 
-test("probe: missing language → missing_model", async () => {
+test("probe: missing language → missing_model (BCP-47 tag resolves to absent engine model)", async () => {
   // Fake binary: --version returns 5.5.2, --list-langs returns only "eng".
+  // Harness is asked for ["eng", "zh-Hans"]; resolveTesseractLang maps
+  // zh-Hans → chi_sim, which is absent → missing_model on chi_sim.
   const fake = makeFakeBin([
     "#!/bin/sh",
     'case "$1" in',
@@ -138,7 +140,7 @@ test("probe: missing language → missing_model", async () => {
   ].join("\n"));
   const candidate = makeTesseractCandidate(fixturesRoot, {
     binary_path: fake,
-    required_languages: ["eng", "chi_sim"],
+    required_languages: ["eng", "zh-Hans"],
   });
   const result = await candidate.probe();
   assert.equal(result.status, "missing_model");
@@ -349,6 +351,189 @@ test("run: happy path with fake binary + fake time → success observation", asy
     assert.ok(obs.latency_ms >= 0);
     assert.equal(obs.per_page_inference_ms, obs.latency_ms);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Language mapping (BCP-47 → Tesseract engine lang) — audit 019e36a0 D3.4
+// ---------------------------------------------------------------------------
+
+test("resolveTesseractLang: known BCP-47 tags resolve to Tesseract engine names", () => {
+  assert.equal(resolveTesseractLang("eng"), "eng");
+  assert.equal(resolveTesseractLang("en"), "eng");
+  assert.equal(resolveTesseractLang("en-US"), "eng");
+  assert.equal(resolveTesseractLang("zh-Hans"), "chi_sim");
+  assert.equal(resolveTesseractLang("zh-CN"), "chi_sim");
+  assert.equal(resolveTesseractLang("zh"), "chi_sim");
+  assert.equal(resolveTesseractLang("zh-Hant"), "chi_tra");
+  assert.equal(resolveTesseractLang("zh-TW"), "chi_tra");
+  assert.equal(resolveTesseractLang("ja"), "jpn");
+  assert.equal(resolveTesseractLang("ko"), "kor");
+});
+
+test("resolveTesseractLang: unknown tags return null (no silent passthrough)", () => {
+  assert.equal(resolveTesseractLang("fr"), null);
+  assert.equal(resolveTesseractLang("de"), null);
+  assert.equal(resolveTesseractLang(""), null);
+  // The raw BCP-47 tag "zh-Hans" is mapped; the engine name "chi_sim"
+  // is NOT a BCP-47 tag and should not round-trip through this map.
+  assert.equal(resolveTesseractLang("chi_sim"), null);
+});
+
+test("probe: required BCP-47 tag with no Tesseract mapping → missing_model unmapped", async () => {
+  // Fake binary with only eng installed.
+  const fake = makeFakeBin([
+    "#!/bin/sh",
+    'case "$1" in',
+    "  --version) echo 'tesseract 5.5.2'; exit 0;;",
+    "  --list-langs) echo 'List of available languages (1):'; echo 'eng'; exit 0;;",
+    "  *) exit 1;;",
+    "esac",
+  ].join("\n"));
+  const candidate = makeTesseractCandidate(fixturesRoot, {
+    binary_path: fake,
+    required_languages: ["fr"], // not in TAG_TO_TESS_LANG
+  });
+  const result = await candidate.probe();
+  assert.equal(result.status, "missing_model");
+  if (result.status === "missing_model") {
+    assert.match(result.model, /^<unmapped:fr>$/);
+    assert.match(result.remediation, /TAG_TO_TESS_LANG/);
+  }
+});
+
+test("probe: BCP-47 zh-Hans against eng-only binary → missing_model chi_sim.traineddata", async () => {
+  // Fake binary that lists ONLY eng — the harness should resolve
+  // zh-Hans → chi_sim, find chi_sim absent, and report missing_model
+  // for the engine model name (not the raw tag).
+  const fake = makeFakeBin([
+    "#!/bin/sh",
+    'case "$1" in',
+    "  --version) echo 'tesseract 5.5.2'; exit 0;;",
+    "  --list-langs)",
+    "    # Include the header line that real Tesseract emits;",
+    "    # the parser must NOT treat it as a language.",
+    "    echo 'List of available languages (1):'",
+    "    echo 'eng'",
+    "    exit 0",
+    "    ;;",
+    "  *) exit 1;;",
+    "esac",
+  ].join("\n"));
+  const candidate = makeTesseractCandidate(fixturesRoot, {
+    binary_path: fake,
+    required_languages: ["zh-Hans"],
+  });
+  const result = await candidate.probe();
+  assert.equal(result.status, "missing_model");
+  if (result.status === "missing_model") {
+    assert.equal(result.model, "chi_sim.traineddata");
+    assert.match(result.remediation, /tesseract-lang/);
+    // Remediation should mention the original tag so operators trace it back.
+    assert.match(result.remediation, /zh-Hans/);
+  }
+});
+
+test("probe: header line 'List of available languages...' is NOT treated as a language", async () => {
+  // Fake binary that emits ONLY the header line, no actual languages.
+  // The parser used to admit the header as a language identifier; with
+  // the regex filter it should not.
+  const fake = makeFakeBin([
+    "#!/bin/sh",
+    'case "$1" in',
+    "  --version) echo 'tesseract 5.5.2'; exit 0;;",
+    "  --list-langs) echo 'List of available languages (0):'; exit 0;;",
+    "  *) exit 1;;",
+    "esac",
+  ].join("\n"));
+  const candidate = makeTesseractCandidate(fixturesRoot, {
+    binary_path: fake,
+    required_languages: ["eng"],
+  });
+  const result = await candidate.probe();
+  // eng should be missing — the header line must NOT count as "eng".
+  assert.equal(result.status, "missing_model");
+  if (result.status === "missing_model") {
+    assert.equal(result.model, "eng.traineddata");
+  }
+});
+
+test("run: fixture with unmapped language tag → unsupported_language_tag failure", async () => {
+  // Use a real-fixture-shaped object so the active branch is exercised.
+  const candidate = makeTesseractCandidate(fixturesRoot, {
+    binary_path: "/nonexistent", // run() returns before reaching spawn
+  });
+  const fakeFixture = {
+    active: true,
+    id: "unmapped-lang",
+    role: "smoke",
+    kind: "real",
+    category: "test",
+    path: "synthetic/01-hello-bakeoff.png",
+    expected_text_path: "synthetic/01-hello-bakeoff.txt",
+    sha256: "0".repeat(64),
+    expected_text_sha256: "0".repeat(64),
+    language: "fr", // no TAG_TO_TESS_LANG entry
+    provenance: "in-test",
+    last_verified_at: "2026-01-01T00:00:00Z",
+    real_source: "in-test",
+    pii_review: "not_required",
+  };
+  const obs = await candidate.run(fakeFixture, { run_kind: "cold", timeout_ms: 5000 });
+  assert.equal(obs.outcome, "failure");
+  if (obs.outcome === "failure") {
+    assert.equal(obs.code, "unsupported_language_tag");
+    assert.match(obs.message, /fr/);
+  }
+});
+
+test("run: fixture with zh-Hans invokes Tesseract with `-l chi_sim`", async () => {
+  // Fake binary that records its argv to a side-channel file so we can
+  // assert exactly what the harness passed.
+  const argFile = join(mkdtempSync(join(tmpdir(), "bakeoff-args-")), "argv.txt");
+  const fakeTesseract = makeFakeBin([
+    "#!/bin/sh",
+    'case "$1" in',
+    "  --version) echo 'tesseract 5.5.2'; exit 0;;",
+    "  --list-langs) echo 'List of available languages (2):'; echo 'eng'; echo 'chi_sim'; exit 0;;",
+    "  *)",
+    '    echo "$@" > "' + argFile + '"',
+    "    echo '你好'", // pretend transcript
+    "    exit 0",
+    "    ;;",
+    "esac",
+  ].join("\n"));
+  const fakeTime = makeFakeTimeBin();
+  const candidate = makeTesseractCandidate(fixturesRoot, {
+    binary_path: fakeTesseract,
+    time_binary: fakeTime,
+  });
+  const fakeFixture = {
+    active: true,
+    id: "zh-fixture",
+    role: "smoke",
+    kind: "synthetic",
+    category: "printed-chinese",
+    path: "synthetic/01-hello-bakeoff.png", // any existing file
+    expected_text_path: "synthetic/01-hello-bakeoff.txt",
+    sha256: "0".repeat(64),
+    expected_text_sha256: "0".repeat(64),
+    language: "zh-Hans",
+    provenance: "in-test",
+    last_verified_at: "2026-01-01T00:00:00Z",
+    render: {
+      render_command: "stub",
+      font: "stub",
+      point_size: 12,
+      canvas: "10x10",
+      source_text: "你好",
+    },
+  };
+  const obs = await candidate.run(fakeFixture, { run_kind: "cold", timeout_ms: 5000 });
+  assert.equal(obs.outcome, "success", `expected success, got ${JSON.stringify(obs)}`);
+  // The recorded argv must contain `-l chi_sim`, not `-l zh-Hans`.
+  const recordedArgv = readFileSync(argFile, "utf8").trim();
+  assert.match(recordedArgv, /-l chi_sim\b/, `harness must pass -l chi_sim, got argv: ${recordedArgv}`);
+  assert.doesNotMatch(recordedArgv, /-l zh-Hans/, "harness must NOT pass raw BCP-47 tag to Tesseract");
 });
 
 // ---------------------------------------------------------------------------

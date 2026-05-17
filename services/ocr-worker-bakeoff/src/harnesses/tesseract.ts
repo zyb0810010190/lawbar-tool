@@ -70,10 +70,58 @@ export interface TesseractHarnessOptions {
   binary_path?: string;
   /** Override the `time -l` binary path. Default: `/usr/bin/time`. */
   time_binary?: string;
-  /** Languages required at probe time. Default: `["eng"]`. */
+  /**
+   * BCP-47 language tags this harness needs at probe time. The harness
+   * resolves each tag to the corresponding Tesseract engine model name
+   * (e.g. `zh-Hans` → `chi_sim`) via `resolveTesseractLang()` and
+   * verifies the model is installed. Default: `["eng"]`.
+   */
   required_languages?: readonly string[];
   /** Test seam: provide a fake spawner. Defaults to `node:child_process`'s `spawn`. */
   spawner?: typeof spawn;
+}
+
+// ---------------------------------------------------------------------------
+// BCP-47 → Tesseract engine-language mapping (audit thread 019e36a0 D3.4).
+//
+// Fixtures declare their language as a BCP-47 tag (e.g. `zh-Hans`).
+// Tesseract's CLI expects engine model names (`chi_sim`). Bridging the
+// two used to be a no-op branch (`fixture.language === "eng" ? "eng" :
+// fixture.language`) that would have broken the moment any non-English
+// fixture arrived. This map is engine-specific; γ (PaddleOCR) and
+// δ (RapidOCR) will ship their own resolvers.
+// ---------------------------------------------------------------------------
+
+const TAG_TO_TESS_LANG: Readonly<Record<string, string>> = Object.freeze({
+  "eng": "eng",
+  "en": "eng",
+  "en-US": "eng",
+  "en-GB": "eng",
+  "zh": "chi_sim",       // unqualified Chinese defaults to Simplified
+  "zh-Hans": "chi_sim",
+  "zh-Hans-CN": "chi_sim",
+  "zh-CN": "chi_sim",
+  "zh-Hant": "chi_tra",
+  "zh-Hant-TW": "chi_tra",
+  "zh-TW": "chi_tra",
+  "zh-HK": "chi_tra",
+  "ja": "jpn",
+  "ja-JP": "jpn",
+  "jpn": "jpn",
+  "ko": "kor",
+  "ko-KR": "kor",
+  "kor": "kor",
+  "osd": "osd",          // orientation + script detection (engine-internal tag)
+});
+
+/**
+ * Resolve a BCP-47 (or Tesseract-native) language tag to the engine model
+ * name Tesseract loads via `-l`. Returns null if no mapping is known —
+ * callers MUST surface this as an unsupported_language_tag failure
+ * rather than blindly passing the tag through.
+ */
+export function resolveTesseractLang(tag: string): string | null {
+  return TAG_TO_TESS_LANG[tag] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,19 +318,40 @@ async function probeTesseract(opts: TesseractHarnessOptions): Promise<ProbeResul
   }
 
   // 2. Required languages present?
+  // requiredLangs is BCP-47; resolve each tag to a Tesseract engine
+  // model name before checking installation. An unmappable tag is a
+  // structured missing_model with a clear remediation.
   const langRes = await captureCommand(spawner, binary, ["--list-langs"]);
   // --list-langs writes to stderr in older tesseract; capture both.
   const langText = langRes.stdout + langRes.stderr;
-  const langs = new Set(langText.split(/\r?\n/).map((s) => s.trim()).filter(Boolean));
-  for (const lang of requiredLangs) {
-    if (!langs.has(lang)) {
+  // The first line of --list-langs is "List of available languages (N):".
+  // Filter to plausible traineddata identifiers: lowercase letters /
+  // digits / underscore. This drops the header without affecting the
+  // legitimate model names. (Audit 019e36a0 D3.3.)
+  const langs = new Set(
+    langText
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter((s) => /^[a-z0-9_]+$/.test(s)),
+  );
+  for (const tag of requiredLangs) {
+    const engineLang = resolveTesseractLang(tag);
+    if (engineLang === null) {
       return {
         status: "missing_model",
-        model: `${lang}.traineddata`,
-        expected_path: `<tessdata>/${lang}.traineddata`,
-        remediation: lang.startsWith("chi") || lang === "jpn" || lang === "kor"
-          ? `Install Tesseract language packs: \`brew install tesseract-lang\`.`
-          : `Install the ${lang} traineddata into Tesseract's tessdata directory.`,
+        model: `<unmapped:${tag}>`,
+        expected_path: `(no Tesseract engine-language mapping for tag "${tag}")`,
+        remediation: `Add a TAG_TO_TESS_LANG entry for "${tag}" in src/harnesses/tesseract.ts, or change the fixture's language to a supported BCP-47 tag (e.g. en, zh-Hans, zh-Hant, ja, ko).`,
+      };
+    }
+    if (!langs.has(engineLang)) {
+      return {
+        status: "missing_model",
+        model: `${engineLang}.traineddata`,
+        expected_path: `<tessdata>/${engineLang}.traineddata`,
+        remediation: engineLang.startsWith("chi") || engineLang === "jpn" || engineLang === "kor"
+          ? `Install Tesseract language packs: \`brew install tesseract-lang\` (to add ${engineLang} for tag "${tag}").`
+          : `Install the ${engineLang} traineddata into Tesseract's tessdata directory (tag "${tag}").`,
       };
     }
   }
@@ -338,11 +407,26 @@ async function runTesseract(
   const timeBin = harnessOpts.time_binary ?? "/usr/bin/time";
   const imagePath = join(fixturesRoot, fixture.path);
 
+  // Resolve fixture's BCP-47 tag to a Tesseract engine language. An
+  // unmappable tag is a structured failure — never silently pass the
+  // raw tag to `-l` (which would either error obscurely or recognize
+  // nothing).
+  const engineLang = resolveTesseractLang(fixture.language);
+  if (engineLang === null) {
+    return {
+      outcome: "failure",
+      fixture_id: fixture.id,
+      engine_name: ENGINE_NAME,
+      code: "unsupported_language_tag",
+      message: `No Tesseract engine-language mapping for fixture.language "${fixture.language}". Add an entry to TAG_TO_TESS_LANG or change the fixture's tag.`,
+    };
+  }
+
   const start = performance.now();
   const result = await runWithTimeout(
     spawner,
     timeBin,
-    ["-l", binary, imagePath, "stdout", "-l", fixture.language === "eng" ? "eng" : fixture.language],
+    ["-l", binary, imagePath, "stdout", "-l", engineLang],
     opts.timeout_ms,
   );
   const latency_ms = Math.round(performance.now() - start);

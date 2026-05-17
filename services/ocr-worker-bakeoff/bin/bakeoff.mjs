@@ -3,7 +3,13 @@
 // Verdict role (ε) flips `--role=verdict` explicitly.
 //
 // Usage:
-//   node bin/bakeoff.mjs [--role=smoke|verdict] [--lang=eng] [--fixture-id=<id>]
+//   node bin/bakeoff.mjs [--role=smoke|verdict] [--fixture-id=<id>]
+//
+// Each fixture declares its own language as a BCP-47 tag in
+// fixtures/manifest.json (e.g. `zh-Hans`); the harness resolves the tag
+// to its engine-specific model name (e.g. `chi_sim` for Tesseract) via
+// the per-engine mapping. There is intentionally NO --lang CLI override
+// — the fixture is the source of truth.
 //
 // Exit codes:
 //   0 — at least one successful observation
@@ -22,10 +28,9 @@ const pkgRoot = join(here, "..");
 const fixturesRoot = join(pkgRoot, "fixtures");
 
 function parseArgs(argv) {
-  const out = { role: "smoke", lang: undefined, fixtureId: undefined };
+  const out = { role: "smoke", fixtureId: undefined };
   for (const tok of argv) {
     if (tok.startsWith("--role=")) out.role = tok.slice("--role=".length);
-    else if (tok.startsWith("--lang=")) out.lang = tok.slice("--lang=".length);
     else if (tok.startsWith("--fixture-id=")) out.fixtureId = tok.slice("--fixture-id=".length);
     else {
       process.stderr.write(`unknown arg: ${tok}\n`);
