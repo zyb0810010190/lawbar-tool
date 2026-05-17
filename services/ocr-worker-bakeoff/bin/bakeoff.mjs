@@ -10,12 +10,12 @@
 //   2 — every observation failed or probe unavailable
 //   3 — bad CLI args
 
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { makeTesseractCandidate } from "../dist/harnesses/tesseract.js";
 import { runBakeoff } from "../dist/runner.js";
+import { loadManifest, ManifestValidationError } from "../dist/manifest.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(here, "..");
@@ -41,7 +41,16 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 
-const manifest = JSON.parse(readFileSync(join(fixturesRoot, "manifest.json"), "utf8"));
+let manifest;
+try {
+  manifest = loadManifest(fixturesRoot);
+} catch (err) {
+  if (err instanceof ManifestValidationError) {
+    process.stderr.write(`manifest validation failed: ${err.message}\n`);
+    process.exit(2);
+  }
+  throw err;
+}
 const fixtures = args.fixtureId
   ? manifest.fixtures.filter((f) => f.id === args.fixtureId)
   : manifest.fixtures;

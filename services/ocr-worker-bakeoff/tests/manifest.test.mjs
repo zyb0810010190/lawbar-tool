@@ -19,6 +19,8 @@ import { dirname, join, resolve } from "node:path";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
+import { loadManifest, ManifestValidationError } from "../dist/index.js";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(here, "..");
 const fixturesRoot = join(pkgRoot, "fixtures");
@@ -26,20 +28,20 @@ const manifestPath = join(fixturesRoot, "manifest.json");
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
-const loadManifest = (path) => JSON.parse(readFileSync(path, "utf8"));
+const loadManifestJson = (path) => JSON.parse(readFileSync(path, "utf8"));
 
 // ---------------------------------------------------------------------------
 // On-disk manifest shape
 // ---------------------------------------------------------------------------
 
 test("manifest.json exists at fixtures/manifest.json and has version 1", () => {
-  const m = loadManifest(manifestPath);
+  const m = loadManifestJson(manifestPath);
   assert.equal(m.version, 1);
   assert.ok(Array.isArray(m.fixtures), "fixtures must be an array");
 });
 
 test("manifest.json: every entry has the required common fields", () => {
-  const m = loadManifest(manifestPath);
+  const m = loadManifestJson(manifestPath);
   for (const f of m.fixtures) {
     assert.equal(typeof f.id, "string", `${f.id}: id must be string`);
     assert.ok(f.id.length > 0, "id non-empty");
@@ -66,7 +68,7 @@ function* activeFixtures(manifest) {
 }
 
 test("manifest.json: every ACTIVE fixture has all required active-branch fields", () => {
-  const m = loadManifest(manifestPath);
+  const m = loadManifestJson(manifestPath);
   for (const f of activeFixtures(m)) {
     assert.equal(typeof f.sha256, "string", `${f.id}: sha256 must be string`);
     assert.match(f.sha256, /^[0-9a-f]{64}$/, `${f.id}: sha256 must be lowercase hex`);
@@ -105,7 +107,7 @@ test("manifest.json: every ACTIVE fixture has all required active-branch fields"
 });
 
 test("manifest.json: every ACTIVE fixture's image SHA matches the on-disk bytes and the .sha256 sidecar", () => {
-  const m = loadManifest(manifestPath);
+  const m = loadManifestJson(manifestPath);
   for (const f of activeFixtures(m)) {
     const imagePath = join(fixturesRoot, f.path);
     assert.ok(existsSync(imagePath), `${f.id}: image must exist at ${imagePath}`);
@@ -125,7 +127,7 @@ test("manifest.json: every ACTIVE fixture's image SHA matches the on-disk bytes 
 });
 
 test("manifest.json: every ACTIVE fixture's expected text exists and matches expected_text_sha256", () => {
-  const m = loadManifest(manifestPath);
+  const m = loadManifestJson(manifestPath);
   for (const f of activeFixtures(m)) {
     const txtPath = join(fixturesRoot, f.expected_text_path);
     assert.ok(existsSync(txtPath), `${f.id}: expected text must exist at ${txtPath}`);
@@ -146,7 +148,7 @@ function* placeholderFixtures(manifest) {
 }
 
 test("manifest.json: every PLACEHOLDER fixture carries an explicit reason and skips hash checks", () => {
-  const m = loadManifest(manifestPath);
+  const m = loadManifestJson(manifestPath);
   for (const f of placeholderFixtures(m)) {
     assert.equal(typeof f.reason, "string", `${f.id}: placeholder must have a reason`);
     assert.ok(f.reason.length > 0, "reason must be non-empty");
@@ -232,35 +234,248 @@ test("synthetic manifest with one PLACEHOLDER fixture: skips hash checks even if
   assert.equal(existsSync(absPath), false);
 });
 
-test("synthetic manifest: an ACTIVE fixture missing expected_text_sha256 must be rejected at runtime", () => {
-  // The runner (lands in β) will need to enforce this. Here we just pin
-  // the expectation: an active fixture without expected_text_sha256 is
-  // not valid. The TypeScript type guarantees this at compile time
-  // (ActiveBakeoffFixture has it required); this test makes the
-  // contract explicit at runtime for whoever writes the runner.
-  const malformed = {
-    active: true,
-    id: "missing-hash",
-    role: "smoke",
-    kind: "synthetic",
-    category: "test",
-    path: "img.png",
-    expected_text_path: "img.txt",
-    sha256: "0".repeat(64),
-    // expected_text_sha256: MISSING
-    language: "und",
-    provenance: "in-test",
-    last_verified_at: "2026-01-01T00:00:00Z",
-    render: {
-      render_command: "(in-test stub)",
-      font: "stub",
-      point_size: 12,
-      canvas: "10x10",
-      source_text: "hello world",
-    },
-  };
-  assert.equal(malformed.active, true);
-  assert.equal(malformed.expected_text_sha256, undefined);
-  // The runner-side check would be: if (active && !expected_text_sha256) reject.
-  // This test pins the property; the runner enforces the rejection.
+// ---------------------------------------------------------------------------
+// loadManifest runtime validation (audit thread 019e36a0 D2.* + D7.1).
+//
+// These tests replace the prior false-positive test that only asserted a
+// property was undefined. They write malformed manifests to a temp dir
+// and assert loadManifest rejects each one with a typed error.
+// ---------------------------------------------------------------------------
+
+function makeManifestDir(manifestObj) {
+  const dir = mkdtempSync(join(tmpdir(), "bakeoff-validator-"));
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifestObj, null, 2));
+  return dir;
+}
+
+test("loadManifest: valid on-disk manifest loads without throwing", () => {
+  const result = loadManifest(fixturesRoot);
+  assert.equal(result.version, 1);
+  assert.ok(result.fixtures.length >= 1);
+});
+
+test("loadManifest: rejects manifest with version !== 1", () => {
+  const dir = makeManifestDir({ version: 2, fixtures: [] });
+  assert.throws(() => loadManifest(dir), ManifestValidationError);
+});
+
+test("loadManifest: rejects path traversal in fixture.path", () => {
+  const dir = makeManifestDir({
+    version: 1,
+    fixtures: [
+      {
+        active: false,
+        id: "traversal",
+        kind: "real",
+        category: "test",
+        path: "../../etc/passwd",
+        expected_text_path: "stub.txt",
+        language: "und",
+        reason: "placeholder",
+      },
+    ],
+  });
+  assert.throws(
+    () => loadManifest(dir),
+    (err) => err instanceof ManifestValidationError && /outside fixturesRoot/.test(err.message),
+  );
+});
+
+test("loadManifest: rejects path traversal in expected_text_path", () => {
+  const dir = makeManifestDir({
+    version: 1,
+    fixtures: [
+      {
+        active: false,
+        id: "traversal",
+        kind: "real",
+        category: "test",
+        path: "stub.png",
+        expected_text_path: "../../etc/passwd",
+        language: "und",
+        reason: "placeholder",
+      },
+    ],
+  });
+  assert.throws(
+    () => loadManifest(dir),
+    (err) => err instanceof ManifestValidationError && /outside fixturesRoot/.test(err.message),
+  );
+});
+
+test("loadManifest: rejects active synthetic fixture missing render provenance", () => {
+  const dir = makeManifestDir({
+    version: 1,
+    fixtures: [
+      {
+        active: true,
+        id: "no-render",
+        role: "smoke",
+        kind: "synthetic",
+        category: "test",
+        path: "stub.png",
+        expected_text_path: "stub.txt",
+        sha256: "0".repeat(64),
+        expected_text_sha256: "0".repeat(64),
+        language: "und",
+        provenance: "stub",
+        last_verified_at: "2026-01-01T00:00:00Z",
+        // render: MISSING
+      },
+    ],
+  });
+  assert.throws(
+    () => loadManifest(dir),
+    (err) => err instanceof ManifestValidationError && /render is required/.test(err.message),
+  );
+});
+
+test("loadManifest: rejects active fixture with missing expected_text_sha256", () => {
+  const dir = makeManifestDir({
+    version: 1,
+    fixtures: [
+      {
+        active: true,
+        id: "missing-hash",
+        role: "smoke",
+        kind: "synthetic",
+        category: "test",
+        path: "stub.png",
+        expected_text_path: "stub.txt",
+        sha256: "0".repeat(64),
+        // expected_text_sha256: MISSING
+        language: "und",
+        provenance: "stub",
+        last_verified_at: "2026-01-01T00:00:00Z",
+        render: {
+          render_command: "stub",
+          font: "stub",
+          point_size: 12,
+          canvas: "10x10",
+          source_text: "stub",
+        },
+      },
+    ],
+  });
+  assert.throws(
+    () => loadManifest(dir),
+    (err) => err instanceof ManifestValidationError && /expected_text_sha256/.test(err.message),
+  );
+});
+
+test("loadManifest: rejects bad sha256 format", () => {
+  const dir = makeManifestDir({
+    version: 1,
+    fixtures: [
+      {
+        active: true,
+        id: "bad-hash",
+        role: "smoke",
+        kind: "synthetic",
+        category: "test",
+        path: "stub.png",
+        expected_text_path: "stub.txt",
+        sha256: "NOTAHEX",
+        expected_text_sha256: "0".repeat(64),
+        language: "und",
+        provenance: "stub",
+        last_verified_at: "2026-01-01T00:00:00Z",
+        render: {
+          render_command: "stub",
+          font: "stub",
+          point_size: 12,
+          canvas: "10x10",
+          source_text: "stub",
+        },
+      },
+    ],
+  });
+  assert.throws(
+    () => loadManifest(dir),
+    (err) => err instanceof ManifestValidationError && /lowercase 64-hex/.test(err.message),
+  );
+});
+
+test("loadManifest: rejects placeholder fixture that declares sha256", () => {
+  const dir = makeManifestDir({
+    version: 1,
+    fixtures: [
+      {
+        active: false,
+        id: "placeholder-with-hash",
+        kind: "synthetic",
+        category: "test",
+        path: "stub.png",
+        expected_text_path: "stub.txt",
+        sha256: "0".repeat(64), // FORBIDDEN on placeholders
+        language: "und",
+        reason: "stub",
+      },
+    ],
+  });
+  assert.throws(
+    () => loadManifest(dir),
+    (err) => err instanceof ManifestValidationError && /placeholder.*sha256/i.test(err.message),
+  );
+});
+
+test("loadManifest: rejects active fixture with role outside enum", () => {
+  const dir = makeManifestDir({
+    version: 1,
+    fixtures: [
+      {
+        active: true,
+        id: "bad-role",
+        role: "ad_hoc",
+        kind: "synthetic",
+        category: "test",
+        path: "stub.png",
+        expected_text_path: "stub.txt",
+        sha256: "0".repeat(64),
+        expected_text_sha256: "0".repeat(64),
+        language: "und",
+        provenance: "stub",
+        last_verified_at: "2026-01-01T00:00:00Z",
+        render: {
+          render_command: "stub",
+          font: "stub",
+          point_size: 12,
+          canvas: "10x10",
+          source_text: "stub",
+        },
+      },
+    ],
+  });
+  assert.throws(
+    () => loadManifest(dir),
+    (err) => err instanceof ManifestValidationError && /role.*smoke.*verdict/.test(err.message),
+  );
+});
+
+test("loadManifest: rejects active real fixture with missing pii_review", () => {
+  const dir = makeManifestDir({
+    version: 1,
+    fixtures: [
+      {
+        active: true,
+        id: "real-no-pii",
+        role: "verdict",
+        kind: "real",
+        category: "test",
+        path: "stub.png",
+        expected_text_path: "stub.txt",
+        sha256: "0".repeat(64),
+        expected_text_sha256: "0".repeat(64),
+        language: "zh-Hans",
+        provenance: "stub",
+        last_verified_at: "2026-01-01T00:00:00Z",
+        real_source: "stub",
+        // pii_review: MISSING
+      },
+    ],
+  });
+  assert.throws(
+    () => loadManifest(dir),
+    (err) => err instanceof ManifestValidationError && /pii_review/.test(err.message),
+  );
 });

@@ -137,6 +137,7 @@ async function runWithTimeout(
   proc.stderr?.on("data", (b: Buffer) => { stderr += b.toString("utf8"); });
 
   let timedOut = false;
+  let sigkillHandle: NodeJS.Timeout | undefined;
   const timeoutHandle = setTimeout(() => {
     timedOut = true;
     try {
@@ -145,10 +146,13 @@ async function runWithTimeout(
     } catch {
       // ESRCH if the group already exited — benign.
     }
-    // SIGKILL grace.
-    setTimeout(() => {
+    // SIGKILL grace. Store the handle so we can cancel it on `close`;
+    // otherwise the timer can fire later against a recycled PGID and
+    // kill an unrelated process group (audit thread 019e36a0 D3.1).
+    sigkillHandle = setTimeout(() => {
       try { process.kill(-pgid, "SIGKILL"); } catch { /* benign */ }
-    }, 1000).unref();
+    }, 1000);
+    sigkillHandle.unref();
   }, timeout_ms);
 
   const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
@@ -160,6 +164,7 @@ async function runWithTimeout(
   });
 
   clearTimeout(timeoutHandle);
+  if (sigkillHandle) clearTimeout(sigkillHandle);
 
   return {
     exit_code: exit.code,
@@ -174,11 +179,15 @@ async function runWithTimeout(
 // Probe
 // ---------------------------------------------------------------------------
 
+/** Probe-side timeout: short cap on every captureCommand invocation. */
+const PROBE_TIMEOUT_MS = 5_000;
+
 async function captureCommand(
   spawner: typeof spawn,
   binary: string,
   args: readonly string[],
-): Promise<{ exit_code: number | null; stdout: string; stderr: string; error?: NodeJS.ErrnoException }> {
+  timeout_ms: number = PROBE_TIMEOUT_MS,
+): Promise<{ exit_code: number | null; stdout: string; stderr: string; error?: NodeJS.ErrnoException; timed_out?: boolean }> {
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";
@@ -189,13 +198,24 @@ async function captureCommand(
       resolve({ exit_code: null, stdout: "", stderr: "", error: err as NodeJS.ErrnoException });
       return;
     }
+    // Audit 019e36a0 D3.2: a hung probe subprocess (e.g. `tesseract
+    // --version` blocking on a broken install) would otherwise block the
+    // bakeoff indefinitely. Hard cap every probe-side spawn.
+    let timedOut = false;
+    const handle = setTimeout(() => {
+      timedOut = true;
+      try { proc.kill("SIGKILL"); } catch { /* benign */ }
+    }, timeout_ms);
+
     proc.stdout?.on("data", (b: Buffer) => { stdout += b.toString("utf8"); });
     proc.stderr?.on("data", (b: Buffer) => { stderr += b.toString("utf8"); });
     proc.on("error", (err) => {
+      clearTimeout(handle);
       resolve({ exit_code: null, stdout, stderr, error: err as NodeJS.ErrnoException });
     });
     proc.on("close", (code) => {
-      resolve({ exit_code: code, stdout, stderr });
+      clearTimeout(handle);
+      resolve({ exit_code: code, stdout, stderr, timed_out: timedOut });
     });
   });
 }

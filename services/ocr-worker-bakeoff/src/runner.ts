@@ -9,6 +9,7 @@
 // smoke-only run for a verdict-eligible one.
 
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import { computeCER } from "./accuracy.js";
@@ -48,6 +49,10 @@ export interface BakeoffRunReport {
 
 function isActive(f: BakeoffFixture): f is ActiveBakeoffFixture {
   return f.active === true;
+}
+
+function sha256File(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 function selectFixtures(fixtures: readonly BakeoffFixture[], role: FixtureRole): ActiveBakeoffFixture[] {
@@ -105,10 +110,42 @@ export async function runBakeoff(opts: RunBakeoffOptions): Promise<BakeoffRunRep
     }
 
     for (const fx of scoredFixtures) {
+      // Audit 019e36a0 D3.6 / contract gap: enforce the active-fixture
+      // hash gate at RUNTIME, not only in the manifest test. Drifted
+      // bytes against the manifest's recorded SHA-256 → fail this
+      // observation as `fixture_hash_drift`, never run the engine, never
+      // compute CER. The manifest test catches drift at commit time;
+      // this catches a runtime checkout where bytes diverged from the
+      // tracked hash without the manifest being updated.
+      const imgPath = join(opts.fixturesRoot, fx.path);
+      const txtPath = join(opts.fixturesRoot, fx.expected_text_path);
+      const imgHash = sha256File(imgPath);
+      if (imgHash !== fx.sha256) {
+        observations.push({
+          outcome: "failure",
+          fixture_id: fx.id,
+          engine_name: candidate.name,
+          code: "fixture_hash_drift",
+          message: `image sha256 ${imgHash} does not match manifest ${fx.sha256}`,
+        });
+        continue;
+      }
+      const txtHash = sha256File(txtPath);
+      if (txtHash !== fx.expected_text_sha256) {
+        observations.push({
+          outcome: "failure",
+          fixture_id: fx.id,
+          engine_name: candidate.name,
+          code: "fixture_hash_drift",
+          message: `expected text sha256 ${txtHash} does not match manifest ${fx.expected_text_sha256}`,
+        });
+        continue;
+      }
+
       const obs = await candidate.run(fx, { run_kind: requestedKind, timeout_ms });
       observations.push(obs);
       if (obs.outcome === "success") {
-        const expected = readFileSync(join(opts.fixturesRoot, fx.expected_text_path), "utf8");
+        const expected = readFileSync(txtPath, "utf8");
         cer_scores.push({
           candidate: candidate.name,
           fixture_id: fx.id,
