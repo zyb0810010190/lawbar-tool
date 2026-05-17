@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "active": false,
+      "id": "01-printed-chinese",
+      "kind": "synthetic",
+      "category": "printed-chinese",
+      "path": "synthetic/01-printed-chinese.png",
+      "expected_text_path": "synthetic/01-printed-chinese.txt",
+      "language": "zh-Hans",
+      "reason": "α ships engine-free; first active synthetic fixture lands in β alongside the Tesseract harness once `brew install tesseract` is complete and a canonical PNG can be rendered + verified end-to-end against a real engine.",
+      "notes": "Slot reserved. Per Q3 sign-off the bakeoff verdict (ε) requires ≥5 active synthetic + ≥2 active real fixtures; β earns the first of those."
+    }
+  ]
+}

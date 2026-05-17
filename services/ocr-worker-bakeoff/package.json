@@ -1,0 +1,26 @@
+{
+  "name": "ocr-worker-bakeoff",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Engine bakeoff harness for ADR-11A.1. Outside the production dependency graph: stands up the types, accuracy metric, and fixture-manifest schema that the per-engine harness commits (Tesseract / PaddleOCR / RapidOCR) will consume.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test tests/accuracy.test.mjs tests/manifest.test.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
