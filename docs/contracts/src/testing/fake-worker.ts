@@ -26,6 +26,7 @@ import {
 } from "../validateStatusTransition.js";
 import type { OcrSubmission, PageRef } from "../generated/ocr-submission.js";
 import type { OcrResult } from "../generated/ocr-result.js";
+import type { OcrJobOutcome } from "../generated/ocr-job-outcome.js";
 import type {
   OcrJobActor,
   OcrJobState,
@@ -48,16 +49,30 @@ export interface FakeWorkerOptions {
   now?: () => Date;
 }
 
-export interface FakeJobOutcome {
-  scenario: FakeScenario;
-  job_id: string;
-  /** Full chain of transitions, each pre-asserted by `assertValidOcrStatusTransition`. */
-  statuses: TransitionRecord[];
-  /** Per-page results. Always validated by `validateOcrResult` before return. */
-  results: OcrResult[];
-  /** Last `to` state in the transition chain. */
-  terminal_state: OcrJobState;
+/**
+ * Test-only specialization of the production `OcrJobOutcome` shape.
+ *
+ * Per ADR-11A.5 §1, the production type is `OcrJobOutcome` (4-field,
+ * schema-derived). The fake worker emits the same shape plus a `scenario`
+ * tag so tests can identify which deterministic path produced an outcome.
+ *
+ * `scenario` is OPTIONAL on the type even though `processFakeOcrJob` always
+ * sets it at runtime — this lets hand-built test fakes omit the tag without
+ * a cast, while still satisfying structural assignment to `OcrJobOutcome`.
+ */
+export interface FakeJobOutcome extends OcrJobOutcome {
+  scenario?: FakeScenario;
 }
+
+/**
+ * Compile-time assertion that `FakeJobOutcome` is a structural subtype of
+ * `OcrJobOutcome`. If a future refactor diverges the two shapes (e.g.
+ * narrows `OcrJobOutcome.statuses` further, or removes a field), this line
+ * stops compiling and pins the regression independently of any consumer.
+ */
+type _AssertFakeIsOutcome = FakeJobOutcome extends OcrJobOutcome ? true : never;
+const _fakeIsOutcome: _AssertFakeIsOutcome = true;
+void _fakeIsOutcome;
 
 export class FakeWorkerError extends Error {
   constructor(message: string) {
@@ -134,11 +149,27 @@ export function processFakeOcrJob(
     }
   }
 
+  // Generated `OcrJobOutcome.statuses` is the non-empty tuple
+  // `[TransitionRecord, ...TransitionRecord[]]` (schema `minItems: 1`).
+  // `buildStatusSequence` always pushes >= 1 transition, and the sequence
+  // validator above would have failed if it didn't; defend explicitly so
+  // a future change to the switch cannot silently produce an empty tuple.
+  if (statuses.length === 0) {
+    throw new FakeWorkerError(
+      "fake worker assembled an empty status sequence; expected >= 1",
+    );
+  }
   const lastTransition = statuses[statuses.length - 1]!;
+  // Cast to OcrJobOutcome["statuses"] (rather than the local
+  // TransitionRecord tuple) because the schema-derived generated type
+  // carries a `[k: string]: unknown` index signature on TransitionRecord
+  // that the hand-written `../transitions.ts` shape does not. Going
+  // through OcrJobOutcome["statuses"] keeps the source compatible with
+  // both representations of TransitionRecord without a triple-cast.
   return {
     scenario,
     job_id: sub.job_id,
-    statuses,
+    statuses: statuses as unknown as OcrJobOutcome["statuses"],
     results,
     terminal_state: lastTransition.to,
   };
