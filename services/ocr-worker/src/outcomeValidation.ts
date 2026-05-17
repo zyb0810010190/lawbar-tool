@@ -22,8 +22,8 @@
 import {
   validateOcrResult,
   validateOcrStatusTransitionSequence,
+  type OcrJobOutcome,
 } from "ocr-worker-contract";
-import type { FakeJobOutcome } from "ocr-worker-contract/testing";
 
 import type { OcrJob } from "./types.js";
 
@@ -32,7 +32,7 @@ export type OutcomeValidationResult =
   | { ok: false; reason: string };
 
 export function validateWorkerOutcomeContract(
-  outcome: FakeJobOutcome,
+  outcome: OcrJobOutcome,
   job: OcrJob,
 ): OutcomeValidationResult {
   const sub = job.submission as {

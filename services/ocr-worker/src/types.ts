@@ -13,8 +13,7 @@
 // must remain honest across both paths. There is a regression test pinning
 // this identity in `tests/queueContractRelocation.test.mjs`.
 
-import type { FakeJobOutcome } from "ocr-worker-contract/testing";
-import type { OcrJob } from "ocr-worker-contract";
+import type { OcrJob, OcrJobOutcome } from "ocr-worker-contract";
 
 // --- Relocated queue surface (from `ocr-worker-contract`). -------------------
 export {
@@ -29,12 +28,14 @@ export {
 // --- Worker-local surface (unchanged). ---------------------------------------
 
 /**
- * The worker seam. The default implementation wraps `processFakeOcrJob`.
- * A production worker would post to an external OCR service; we never
- * reach that codepath in this adapter.
+ * The worker seam. Returns the production `OcrJobOutcome` shape per
+ * ADR-11A.5 §1. Test/dev paths inject the fake worker (whose
+ * `FakeJobOutcome` is a structural subtype) via the existing `buildDeps`
+ * override seam. A production worker would post to an external OCR
+ * service; the swap to a real engine is staged for ADR-11C.
  */
 export interface OcrWorker {
-  process(job: OcrJob): Promise<FakeJobOutcome>;
+  process(job: OcrJob): Promise<OcrJobOutcome>;
 }
 
 /** What `processOcrJob` / `processNextOcrJob` return to the caller. */
@@ -42,7 +43,7 @@ export interface ProcessResult {
   /** The job that was processed (id, submission, enqueued_at). */
   job: OcrJob;
   /** Full outcome from the worker — statuses, results, terminal_state. */
-  outcome: FakeJobOutcome;
+  outcome: OcrJobOutcome;
 }
 
 /** Adapter-layer error: invalid submission, contract-violating worker output. */

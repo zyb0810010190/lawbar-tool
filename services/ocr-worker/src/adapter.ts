@@ -23,11 +23,8 @@
 
 import { randomUUID } from "node:crypto";
 
-import { validateOcrSubmission } from "ocr-worker-contract";
-import {
-  processFakeOcrJob,
-  type FakeJobOutcome,
-} from "ocr-worker-contract/testing";
+import { validateOcrSubmission, type OcrJobOutcome } from "ocr-worker-contract";
+import { processFakeOcrJob } from "ocr-worker-contract/testing";
 
 import { InMemoryOcrQueue } from "./inMemoryQueue.js";
 import { validateWorkerOutcomeContract } from "./outcomeValidation.js";
@@ -57,7 +54,7 @@ export interface OcrJobAdapterOptions {
 }
 
 const defaultWorker: OcrWorker = {
-  async process(job: OcrJob): Promise<FakeJobOutcome> {
+  async process(job: OcrJob): Promise<OcrJobOutcome> {
     return processFakeOcrJob(job.submission, {
       scenario: job.scenario ?? "success",
     });
@@ -213,7 +210,7 @@ export class OcrJobAdapter {
   // -------------------------------------------------------------------------
 
   private assertOutcomeContractValid(
-    outcome: FakeJobOutcome,
+    outcome: OcrJobOutcome,
     job: OcrJob,
   ): void {
     const v = validateWorkerOutcomeContract(outcome, job);

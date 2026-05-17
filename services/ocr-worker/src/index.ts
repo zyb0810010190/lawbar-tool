@@ -17,6 +17,10 @@ export {
   type OcrWorker,
   type ProcessResult,
 } from "./types.js";
+// Canonical adapter-side import path for the production outcome type
+// (per ADR-11A.5 §"Consequences"). Adapter consumers should not need to
+// reach into ocr-worker-contract directly.
+export type { OcrJobOutcome } from "ocr-worker-contract";
 export {
   validateWorkerOutcomeContract,
   type OutcomeValidationResult,
