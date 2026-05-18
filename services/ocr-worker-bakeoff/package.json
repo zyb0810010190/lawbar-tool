@@ -13,8 +13,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test tests/accuracy.test.mjs tests/manifest.test.mjs tests/tesseract.test.mjs tests/bin-cli.test.mjs"
+    "build": "tsc -p tsconfig.json && node -e \"import('node:fs').then(({mkdirSync,copyFileSync,readdirSync,statSync})=>{const src='src/harnesses';const dst='dist/harnesses';mkdirSync(dst,{recursive:true});for(const f of readdirSync(src)){if(f.endsWith('.mjs')&&statSync(src+'/'+f).isFile()){copyFileSync(src+'/'+f,dst+'/'+f);}}})\"",
+    "test": "npm run build && node --test tests/accuracy.test.mjs tests/manifest.test.mjs tests/tesseract.test.mjs tests/bin-cli.test.mjs tests/paddleocr-onnx.test.mjs"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -22,5 +22,8 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "@gutenye/ocr-node": "^1.4.8"
   }
 }
