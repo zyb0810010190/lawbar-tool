@@ -80,6 +80,35 @@ test("include_empty_outcomes parses truthy/falsy strings", () => {
   }
 });
 
+test("log_outcomes defaults to false", () => {
+  const cfg = parseOcrWorkerConfig({ env: {}, argv: [] });
+  assert.equal(cfg.log_outcomes, false);
+});
+
+test("log_outcomes via bare --log-outcomes argv flag", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: {},
+    argv: ["--log-outcomes"],
+  });
+  assert.equal(cfg.log_outcomes, true);
+});
+
+test("log_outcomes via OCR_LOG_OUTCOMES env", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: { OCR_LOG_OUTCOMES: "1" },
+    argv: [],
+  });
+  assert.equal(cfg.log_outcomes, true);
+});
+
+test("log_outcomes argv overrides env", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: { OCR_LOG_OUTCOMES: "true" },
+    argv: ["--log-outcomes=false"],
+  });
+  assert.equal(cfg.log_outcomes, false);
+});
+
 test("invalid persistence value throws OcrWorkerConfigError", () => {
   assert.throws(
     () => parseOcrWorkerConfig({ env: { OCR_WORKER_PERSISTENCE: "redis" }, argv: [] }),

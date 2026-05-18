@@ -72,6 +72,15 @@ export interface OcrWorkerConfig {
   max_iterations: number | undefined;
   /** `runOcrWorkerLoop({ includeEmptyOutcomes })`. Default: false. */
   include_empty_outcomes: boolean;
+  /**
+   * When true, the CLI's `onOutcome` hook formats each coordinator
+   * result as a single-line JSON event (via `formatCoordinatorEventJson`)
+   * and writes it to stdout. Default: false (preserves the prior CLI
+   * behavior where only the final summary is emitted). Operator
+   * dashboards consuming the structured stream should set
+   * `OCR_LOG_OUTCOMES=1` or pass `--log-outcomes`.
+   */
+  log_outcomes: boolean;
   /** `--help` was passed. CLI should print usage and exit 0 without running. */
   help_requested: boolean;
 }
@@ -147,6 +156,7 @@ export function parseOcrWorkerConfig(
       idle_delay_ms: DEFAULT_IDLE_DELAY_MS,
       max_iterations: undefined,
       include_empty_outcomes: false,
+      log_outcomes: false,
       help_requested: true,
     };
   }
@@ -209,6 +219,18 @@ export function parseOcrWorkerConfig(
     includeEmptyOutcomes = false;
   }
 
+  // log_outcomes — same precedence as include_empty_outcomes.
+  let logOutcomes: boolean;
+  if (argvFlags.values.logOutcomes !== undefined) {
+    logOutcomes = parseBoolean(argvFlags.values.logOutcomes);
+  } else if (argvFlags.bareLogOutcomes) {
+    logOutcomes = true;
+  } else if (env.OCR_LOG_OUTCOMES !== undefined) {
+    logOutcomes = parseBoolean(env.OCR_LOG_OUTCOMES);
+  } else {
+    logOutcomes = false;
+  }
+
   // Worker id: explicit > env > generated.
   const workerId =
     pickString(argvFlags.values.workerId, env.OCR_WORKER_ID) ?? generateWorkerId();
@@ -255,6 +277,7 @@ export function parseOcrWorkerConfig(
     idle_delay_ms: idleDelayMs,
     max_iterations: maxIterations,
     include_empty_outcomes: includeEmptyOutcomes,
+    log_outcomes: logOutcomes,
     help_requested: false,
   };
 }
@@ -404,8 +427,10 @@ interface ArgvParseResult {
     idleDelayMs?: string;
     maxIterations?: string;
     includeEmptyOutcomes?: string;
+    logOutcomes?: string;
   };
   bareIncludeEmptyOutcomes: boolean;
+  bareLogOutcomes: boolean;
 }
 
 const KNOWN_FLAGS: ReadonlyMap<string, keyof ArgvParseResult["values"] | "help"> = new Map([
@@ -419,6 +444,7 @@ const KNOWN_FLAGS: ReadonlyMap<string, keyof ArgvParseResult["values"] | "help">
   ["--idle-delay-ms", "idleDelayMs"],
   ["--max-iterations", "maxIterations"],
   ["--include-empty-outcomes", "includeEmptyOutcomes"],
+  ["--log-outcomes", "logOutcomes"],
   ["--help", "help"],
 ]);
 
@@ -427,6 +453,7 @@ function parseArgvFlags(argv: readonly string[]): ArgvParseResult {
   const seen = new Set<string>();
   let help = false;
   let bareIncludeEmptyOutcomes = false;
+  let bareLogOutcomes = false;
 
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i];
@@ -465,7 +492,7 @@ function parseArgvFlags(argv: readonly string[]): ArgvParseResult {
       continue;
     }
 
-    // include-empty-outcomes is the only flag that may appear bare.
+    // include-empty-outcomes / log-outcomes may appear bare.
     if (known === "includeEmptyOutcomes" && inlineValue === undefined) {
       const next = argv[i + 1];
       if (next !== undefined && !next.startsWith("--")) {
@@ -474,6 +501,16 @@ function parseArgvFlags(argv: readonly string[]): ArgvParseResult {
         i++;
       } else {
         bareIncludeEmptyOutcomes = true;
+      }
+      continue;
+    }
+    if (known === "logOutcomes" && inlineValue === undefined) {
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith("--")) {
+        values.logOutcomes = next;
+        i++;
+      } else {
+        bareLogOutcomes = true;
       }
       continue;
     }
@@ -493,7 +530,7 @@ function parseArgvFlags(argv: readonly string[]): ArgvParseResult {
     values[known] = value;
   }
 
-  return { help, values, bareIncludeEmptyOutcomes };
+  return { help, values, bareIncludeEmptyOutcomes, bareLogOutcomes };
 }
 
 function pickString(...candidates: ReadonlyArray<string | undefined>): string | undefined {

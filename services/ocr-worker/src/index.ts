@@ -43,6 +43,23 @@ export {
   type OcrWorkerLoopSummary,
 } from "./workerLoop.js";
 export {
+  toCoordinatorEvent,
+  formatCoordinatorEventJson,
+  OCR_COORDINATOR_EVENT_SCHEMA_VERSION,
+  type OcrCoordinatorEvent,
+  type OcrCoordinatorEventSeverity,
+  type OcrCoordinatorEmptyEvent,
+  type OcrCoordinatorCompletedEvent,
+  type OcrCoordinatorCompletedAlreadyTerminalEvent,
+  type OcrCoordinatorRequeuedEvent,
+  type OcrCoordinatorRetriedEvent,
+  type OcrCoordinatorDeadLetteredEvent,
+  type OcrCoordinatorPersistenceFailedEvent,
+  type OcrCoordinatorAckFailedEvent,
+  type OcrCoordinatorLeaseLostEvent,
+  type ToCoordinatorEventOptions,
+} from "./observability.js";
+export {
   parseOcrWorkerConfig,
   OcrWorkerConfigError,
   type OcrWorkerConfig,

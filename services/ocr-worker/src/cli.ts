@@ -41,6 +41,10 @@ import {
   type OcrCoordinatorLike,
   type OcrWorkerLoopSummary,
 } from "./workerLoop.js";
+import {
+  formatCoordinatorEventJson,
+  toCoordinatorEvent,
+} from "./observability.js";
 import { WORKER_REGISTRY } from "./registry.js";
 import { makeRealPaddleEngine } from "./engines/real-paddleocr-engine.js";
 import type { OcrJobQueueBackend, OcrWorker } from "./types.js";
@@ -120,6 +124,9 @@ Flags:
   --idle-delay-ms <int>               Idle pacing for empty claims (default: 250)
   --max-iterations <int>              Stop after N coordinator iterations
   --include-empty-outcomes [bool]     Emit onOutcome for empty results (default: false)
+  --log-outcomes [bool]               Per-result structured JSON event on stdout
+                                      (default: false). Each line is one
+                                      OcrCoordinatorEvent (schema_version=1).
   --help                              Print this and exit 0
 
 Environment variables (argv flags take precedence):
@@ -127,7 +134,8 @@ Environment variables (argv flags take precedence):
   OCR_FETCHER_HTTPS_HOSTS,
   OCR_WORKER_PERSISTENCE, OCR_WORKER_QUEUE,
   OCR_WORKER_SQLITE_PATH, OCR_WORKER_IDLE_DELAY_MS,
-  OCR_WORKER_MAX_ITERATIONS, OCR_WORKER_INCLUDE_EMPTY_OUTCOMES
+  OCR_WORKER_MAX_ITERATIONS, OCR_WORKER_INCLUDE_EMPTY_OUTCOMES,
+  OCR_LOG_OUTCOMES
 
 Production profile (ADR-11A.0 §10) — env-only, no argv flag:
   OCR_WORKER_REQUIRE_REAL=1    Forbid worker=fake (exit 2 if violated).
@@ -237,6 +245,21 @@ export async function runOcrWorkerProcess(
       idleDelayMs: config.idle_delay_ms,
       maxIterations: config.max_iterations,
       includeEmptyOutcomes: config.include_empty_outcomes,
+      onOutcome: config.log_outcomes
+        ? (result) => {
+            // Format and write a per-result structured event.
+            // toCoordinatorEvent throws if a non-empty outcome has no
+            // job_id (a coordinator bug); guard so a single bad row
+            // does not crash the loop's onOutcome hook.
+            try {
+              writeOut(formatCoordinatorEventJson(toCoordinatorEvent(result)));
+            } catch (err) {
+              writeErr(
+                `observability event format failed: ${describeError(err)}\n`,
+              );
+            }
+          }
+        : undefined,
       onError: (event) => {
         writeErr(
           `loop error (${event.phase}): ${event.message}\n`,
