@@ -241,18 +241,31 @@ async function captureCommand(
     let stderr = "";
     let proc;
     try {
-      proc = spawner(binary, args.slice());
+      // `detached: true` puts the spawned process in its own group so a
+      // timeout can kill the whole descendant tree, not just the direct
+      // child. Without this, e.g. a shell-script probe whose `sleep`
+      // child inherits the shell's stdio pipes would keep `close` from
+      // firing for the full sleep duration even after the shell is
+      // SIGKILL'd, blocking captureCommand far past timeout_ms.
+      proc = spawner(binary, args.slice(), { detached: true });
     } catch (err) {
       resolve({ exit_code: null, stdout: "", stderr: "", error: err as NodeJS.ErrnoException });
       return;
     }
+    const pgid = proc.pid;
     // Audit 019e36a0 D3.2: a hung probe subprocess (e.g. `tesseract
     // --version` blocking on a broken install) would otherwise block the
-    // bakeoff indefinitely. Hard cap every probe-side spawn.
+    // bakeoff indefinitely. Hard cap every probe-side spawn and kill the
+    // whole process group on timeout so descendant children don't keep
+    // the stdio pipes alive.
     let timedOut = false;
     const handle = setTimeout(() => {
       timedOut = true;
-      try { proc.kill("SIGKILL"); } catch { /* benign */ }
+      if (pgid !== undefined) {
+        try { process.kill(-pgid, "SIGKILL"); } catch { /* benign */ }
+      } else {
+        try { proc.kill("SIGKILL"); } catch { /* benign */ }
+      }
     }, timeout_ms);
 
     proc.stdout?.on("data", (b: Buffer) => { stdout += b.toString("utf8"); });
@@ -289,6 +302,16 @@ async function probeTesseract(opts: TesseractHarnessOptions): Promise<ProbeResul
       remediation: `Install Tesseract (e.g. \`brew install tesseract\`) or pass an explicit binary_path.`,
     };
   }
+  // Hung probes are now terminal — a command that emits valid partial
+  // output and then hangs gets killed at the timeout, but we must NOT
+  // parse its captured stdout/stderr as a healthy result. Audit 019e3854 R1.
+  if (versionRes.timed_out) {
+    return {
+      status: "probe_failed",
+      error_message: `\`${binary} --version\` timed out`,
+      remediation: "Tesseract probe hung — the install may be broken or in an unusable state.",
+    };
+  }
   if (versionRes.exit_code !== 0 && !versionRes.stdout && !versionRes.stderr) {
     return {
       status: "probe_failed",
@@ -322,6 +345,13 @@ async function probeTesseract(opts: TesseractHarnessOptions): Promise<ProbeResul
   // model name before checking installation. An unmappable tag is a
   // structured missing_model with a clear remediation.
   const langRes = await captureCommand(spawner, binary, ["--list-langs"]);
+  if (langRes.timed_out) {
+    return {
+      status: "probe_failed",
+      error_message: `\`${binary} --list-langs\` timed out`,
+      remediation: "Tesseract probe hung on language listing — the install may be broken.",
+    };
+  }
   // --list-langs writes to stderr in older tesseract; capture both.
   const langText = langRes.stdout + langRes.stderr;
   // The first line of --list-langs is "List of available languages (N):".
@@ -363,6 +393,13 @@ async function probeTesseract(opts: TesseractHarnessOptions): Promise<ProbeResul
       status: "probe_failed",
       error_message: `${timeBin} not found`,
       remediation: "Tesseract harness requires /usr/bin/time -l for RSS measurement (macOS BSD).",
+    };
+  }
+  if (rssProbe.timed_out) {
+    return {
+      status: "probe_failed",
+      error_message: `${timeBin} -l timed out`,
+      remediation: "RSS backend probe hung — verify /usr/bin/time -l is functional on this host.",
     };
   }
   if (parseMaxRssBytesFromTimeL(rssProbe.stderr) === null) {

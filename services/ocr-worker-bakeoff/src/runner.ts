@@ -51,8 +51,30 @@ function isActive(f: BakeoffFixture): f is ActiveBakeoffFixture {
   return f.active === true;
 }
 
-function sha256File(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
+type HashResult =
+  | { ok: true; value: string }
+  | { ok: false; error: string };
+
+/** Hash a file's bytes, converting filesystem errors into a typed result.
+ *  Audit 019e3854 R2: missing/non-file/permission errors must become
+ *  structured `fixture_unreadable` failure observations, never thrown.
+ */
+function tryHashFile(path: string): HashResult {
+  try {
+    return { ok: true, value: createHash("sha256").update(readFileSync(path)).digest("hex") };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Best-effort dispose; never throws into the caller. */
+async function disposeSafely(candidate: EngineCandidate): Promise<void> {
+  try {
+    await candidate.dispose();
+  } catch {
+    // dispose() is "tear down" — failure is logged via swallow; the
+    // runner has already produced its observations for this candidate.
+  }
 }
 
 function selectFixtures(fixtures: readonly BakeoffFixture[], role: FixtureRole): ActiveBakeoffFixture[] {
@@ -106,55 +128,83 @@ export async function runBakeoff(opts: RunBakeoffOptions): Promise<BakeoffRunRep
           message: remediation,
         });
       }
+      await disposeSafely(candidate);
       continue;
     }
 
-    for (const fx of scoredFixtures) {
-      // Audit 019e36a0 D3.6 / contract gap: enforce the active-fixture
-      // hash gate at RUNTIME, not only in the manifest test. Drifted
-      // bytes against the manifest's recorded SHA-256 → fail this
-      // observation as `fixture_hash_drift`, never run the engine, never
-      // compute CER. The manifest test catches drift at commit time;
-      // this catches a runtime checkout where bytes diverged from the
-      // tracked hash without the manifest being updated.
-      const imgPath = join(opts.fixturesRoot, fx.path);
-      const txtPath = join(opts.fixturesRoot, fx.expected_text_path);
-      const imgHash = sha256File(imgPath);
-      if (imgHash !== fx.sha256) {
-        observations.push({
-          outcome: "failure",
-          fixture_id: fx.id,
-          engine_name: candidate.name,
-          code: "fixture_hash_drift",
-          message: `image sha256 ${imgHash} does not match manifest ${fx.sha256}`,
-        });
-        continue;
-      }
-      const txtHash = sha256File(txtPath);
-      if (txtHash !== fx.expected_text_sha256) {
-        observations.push({
-          outcome: "failure",
-          fixture_id: fx.id,
-          engine_name: candidate.name,
-          code: "fixture_hash_drift",
-          message: `expected text sha256 ${txtHash} does not match manifest ${fx.expected_text_sha256}`,
-        });
-        continue;
-      }
+    // Audit 019e3854 R2: wrap every per-fixture lifecycle in try/finally
+    // so an unreadable hash file or a thrown engine adapter still calls
+    // dispose() for future engines that hold persistent state.
+    try {
+      for (const fx of scoredFixtures) {
+        // Audit 019e36a0 D3.6 / contract gap: enforce the active-fixture
+        // hash gate at RUNTIME, not only in the manifest test. Drifted
+        // bytes against the manifest's recorded SHA-256 → fail this
+        // observation as `fixture_hash_drift`, never run the engine.
+        // I/O failures (missing / unreadable / non-file) → fail this
+        // observation as `fixture_unreadable` (audit 019e3854 R2). Either
+        // way the run() call is skipped and the loop continues; we never
+        // tear down the runner over a single bad fixture.
+        const imgPath = join(opts.fixturesRoot, fx.path);
+        const txtPath = join(opts.fixturesRoot, fx.expected_text_path);
 
-      const obs = await candidate.run(fx, { run_kind: requestedKind, timeout_ms });
-      observations.push(obs);
-      if (obs.outcome === "success") {
-        const expected = readFileSync(txtPath, "utf8");
-        cer_scores.push({
-          candidate: candidate.name,
-          fixture_id: fx.id,
-          cer: computeCER(expected, obs.transcript),
-        });
+        const imgHash = tryHashFile(imgPath);
+        if (!imgHash.ok) {
+          observations.push({
+            outcome: "failure",
+            fixture_id: fx.id,
+            engine_name: candidate.name,
+            code: "fixture_unreadable",
+            message: `image at ${fx.path} could not be read: ${imgHash.error}`,
+          });
+          continue;
+        }
+        if (imgHash.value !== fx.sha256) {
+          observations.push({
+            outcome: "failure",
+            fixture_id: fx.id,
+            engine_name: candidate.name,
+            code: "fixture_hash_drift",
+            message: `image sha256 ${imgHash.value} does not match manifest ${fx.sha256}`,
+          });
+          continue;
+        }
+        const txtHash = tryHashFile(txtPath);
+        if (!txtHash.ok) {
+          observations.push({
+            outcome: "failure",
+            fixture_id: fx.id,
+            engine_name: candidate.name,
+            code: "fixture_unreadable",
+            message: `expected text at ${fx.expected_text_path} could not be read: ${txtHash.error}`,
+          });
+          continue;
+        }
+        if (txtHash.value !== fx.expected_text_sha256) {
+          observations.push({
+            outcome: "failure",
+            fixture_id: fx.id,
+            engine_name: candidate.name,
+            code: "fixture_hash_drift",
+            message: `expected text sha256 ${txtHash.value} does not match manifest ${fx.expected_text_sha256}`,
+          });
+          continue;
+        }
+
+        const obs = await candidate.run(fx, { run_kind: requestedKind, timeout_ms });
+        observations.push(obs);
+        if (obs.outcome === "success") {
+          const expected = readFileSync(txtPath, "utf8");
+          cer_scores.push({
+            candidate: candidate.name,
+            fixture_id: fx.id,
+            cer: computeCER(expected, obs.transcript),
+          });
+        }
       }
+    } finally {
+      await disposeSafely(candidate);
     }
-
-    await candidate.dispose();
   }
 
   const verdict_ready =

@@ -16,10 +16,12 @@ import { createHash } from "node:crypto";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
-import { loadManifest, ManifestValidationError } from "../dist/index.js";
+import { symlinkSync } from "node:fs";
+
+import { loadManifest, ManifestValidationError, collectLanguages } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(here, "..");
@@ -478,4 +480,192 @@ test("loadManifest: rejects active real fixture with missing pii_review", () => 
     () => loadManifest(dir),
     (err) => err instanceof ManifestValidationError && /pii_review/.test(err.message),
   );
+});
+
+// ---------------------------------------------------------------------------
+// Audit 019e3854 S1: symlink + absolute + root-equivalent containment.
+// ---------------------------------------------------------------------------
+
+test("loadManifest: rejects absolute path in fixture.path (even when under fixturesRoot)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bakeoff-absolute-"));
+  // Pre-create the file so structural containment can't be confused with
+  // a missing-file error.
+  writeFileSync(join(dir, "img.png"), Buffer.from("stub"));
+  writeFileSync(join(dir, "img.txt"), Buffer.from("stub"));
+  writeFileSync(
+    join(dir, "manifest.json"),
+    JSON.stringify({
+      version: 1,
+      fixtures: [
+        {
+          active: false,
+          id: "abs",
+          kind: "real",
+          category: "test",
+          path: join(dir, "img.png"), // absolute path
+          expected_text_path: "img.txt",
+          language: "und",
+          reason: "absolute-path test",
+        },
+      ],
+    }),
+  );
+  assert.throws(
+    () => loadManifest(dir),
+    (err) =>
+      err instanceof ManifestValidationError &&
+      /must be a relative path/.test(err.message),
+  );
+});
+
+test("loadManifest: rejects path '.' that resolves to fixturesRoot itself", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bakeoff-rootequiv-"));
+  writeFileSync(
+    join(dir, "manifest.json"),
+    JSON.stringify({
+      version: 1,
+      fixtures: [
+        {
+          active: false,
+          id: "root-equiv",
+          kind: "real",
+          category: "test",
+          path: ".",
+          expected_text_path: "img.txt",
+          language: "und",
+          reason: "root-equivalent-path test",
+        },
+      ],
+    }),
+  );
+  assert.throws(
+    () => loadManifest(dir),
+    (err) =>
+      err instanceof ManifestValidationError &&
+      /resolves to fixturesRoot itself/.test(err.message),
+  );
+});
+
+test("loadManifest: rejects active fixture whose symlink target escapes fixturesRoot", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bakeoff-symlink-"));
+  // Target lives OUTSIDE the fixtures root.
+  const outside = mkdtempSync(join(tmpdir(), "bakeoff-outside-"));
+  const targetPath = join(outside, "secret.png");
+  const targetTxt = join(outside, "secret.txt");
+  writeFileSync(targetPath, Buffer.from("secret bytes"));
+  writeFileSync(targetTxt, Buffer.from("secret text"));
+  // Inside fixturesRoot, drop a symlink that points outside.
+  symlinkSync(targetPath, join(dir, "img.png"));
+  symlinkSync(targetTxt, join(dir, "img.txt"));
+
+  const fakeSha = "0".repeat(64);
+  writeFileSync(
+    join(dir, "manifest.json"),
+    JSON.stringify({
+      version: 1,
+      fixtures: [
+        {
+          active: true,
+          id: "symlink-escape",
+          role: "smoke",
+          kind: "synthetic",
+          category: "test",
+          path: "img.png",
+          expected_text_path: "img.txt",
+          sha256: fakeSha,
+          expected_text_sha256: fakeSha,
+          language: "und",
+          provenance: "in-test",
+          last_verified_at: "2026-01-01T00:00:00Z",
+          render: {
+            render_command: "stub",
+            font: "stub",
+            point_size: 12,
+            canvas: "10x10",
+            source_text: "stub",
+          },
+        },
+      ],
+    }),
+  );
+  assert.throws(
+    () => loadManifest(dir),
+    (err) =>
+      err instanceof ManifestValidationError &&
+      /real path escapes fixturesRoot via symlink/.test(err.message),
+  );
+});
+
+test("loadManifest: active fixture with non-regular file (directory) is rejected", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bakeoff-dir-"));
+  const dirAsPath = join(dir, "img.png");
+  // Create a directory at the path the manifest expects to be a file.
+  mkdirSync(dirAsPath, { recursive: true });
+  // Need an existing expected_text_path file or realpath fails on it first.
+  writeFileSync(join(dir, "img.txt"), Buffer.from("stub"));
+
+  const fakeSha = "0".repeat(64);
+  writeFileSync(
+    join(dir, "manifest.json"),
+    JSON.stringify({
+      version: 1,
+      fixtures: [
+        {
+          active: true,
+          id: "dir-as-file",
+          role: "smoke",
+          kind: "synthetic",
+          category: "test",
+          path: "img.png",
+          expected_text_path: "img.txt",
+          sha256: fakeSha,
+          expected_text_sha256: fakeSha,
+          language: "und",
+          provenance: "in-test",
+          last_verified_at: "2026-01-01T00:00:00Z",
+          render: {
+            render_command: "stub",
+            font: "stub",
+            point_size: 12,
+            canvas: "10x10",
+            source_text: "stub",
+          },
+        },
+      ],
+    }),
+  );
+  assert.throws(
+    () => loadManifest(dir),
+    (err) =>
+      err instanceof ManifestValidationError &&
+      /is not a regular file/.test(err.message),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Audit 019e3854 F1: collectLanguages helper for the CLI wiring path.
+// ---------------------------------------------------------------------------
+
+test("collectLanguages: returns unique tags from active fixtures only", () => {
+  const fixtures = [
+    { active: true, role: "smoke", kind: "synthetic", language: "eng" },
+    { active: true, role: "verdict", kind: "synthetic", language: "zh-Hans" },
+    { active: true, role: "smoke", kind: "real", language: "zh-Hans" },
+    { active: false, kind: "real", language: "ja" }, // placeholder — ignored
+  ];
+  assert.deepEqual(collectLanguages(fixtures), ["eng", "zh-Hans"]);
+});
+
+test("collectLanguages: role filter excludes other roles", () => {
+  const fixtures = [
+    { active: true, role: "smoke", kind: "synthetic", language: "eng" },
+    { active: true, role: "verdict", kind: "synthetic", language: "zh-Hans" },
+  ];
+  assert.deepEqual(collectLanguages(fixtures, { role: "smoke" }), ["eng"]);
+  assert.deepEqual(collectLanguages(fixtures, { role: "verdict" }), ["zh-Hans"]);
+});
+
+test("collectLanguages: empty input returns empty array", () => {
+  assert.deepEqual(collectLanguages([]), []);
+  assert.deepEqual(collectLanguages([{ active: false, kind: "real", language: "eng" }]), []);
 });

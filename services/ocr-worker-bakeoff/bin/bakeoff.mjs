@@ -21,7 +21,7 @@ import { dirname, join } from "node:path";
 
 import { makeTesseractCandidate } from "../dist/harnesses/tesseract.js";
 import { runBakeoff } from "../dist/runner.js";
-import { loadManifest, ManifestValidationError } from "../dist/manifest.js";
+import { loadManifest, ManifestValidationError, collectLanguages } from "../dist/manifest.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(here, "..");
@@ -60,7 +60,19 @@ const fixtures = args.fixtureId
   ? manifest.fixtures.filter((f) => f.id === args.fixtureId)
   : manifest.fixtures;
 
-const candidate = makeTesseractCandidate(fixturesRoot);
+// Audit 019e3854 F1: derive the required BCP-47 language tags from the
+// active fixtures the runner will actually process, so the candidate's
+// preflight (probe) checks every model it will be asked to load. Without
+// this wiring, a missing chi_sim model would surface as a generic
+// runtime exit instead of a structured `missing_model` ProbeResult.
+const requiredLanguages = collectLanguages(fixtures, { role: args.role });
+// Fall back to `["eng"]` if no active fixtures match the role filter,
+// so the harness still has a sensible probe target.
+const probeLanguages = requiredLanguages.length > 0 ? requiredLanguages : ["eng"];
+
+const candidate = makeTesseractCandidate(fixturesRoot, {
+  required_languages: probeLanguages,
+});
 
 const report = await runBakeoff({
   candidates: [candidate],

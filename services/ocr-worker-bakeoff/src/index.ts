@@ -29,5 +29,5 @@ export type {
 } from "./types.js";
 
 export { computeCER, normalizeForCer } from "./accuracy.js";
-export { loadManifest, ManifestValidationError } from "./manifest.js";
+export { loadManifest, ManifestValidationError, collectLanguages } from "./manifest.js";
 export type { LoadedManifest } from "./manifest.js";

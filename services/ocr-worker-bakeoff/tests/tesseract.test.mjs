@@ -544,6 +544,244 @@ test("run: fixture with zh-Hans invokes Tesseract with `-l chi_sim`", async () =
 // engine is absent — no silent skip when explicitly requested.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Audit 019e3854 R1: probe timeout terminal — a partially-chatty hung
+// probe must NOT be parsed as a healthy result.
+// ---------------------------------------------------------------------------
+
+test("probe: --version hangs after emitting valid output → probe_failed (timeout terminal)", async () => {
+  // Fake binary that prints a valid version line, then sleeps far longer
+  // than the probe timeout. The harness must NOT parse the captured
+  // stdout as a successful probe.
+  const fake = makeFakeBin([
+    "#!/bin/sh",
+    'case "$1" in',
+    "  --version) echo 'tesseract 5.5.2'; sleep 60; exit 0;;",
+    "  *) exit 1;;",
+    "esac",
+  ].join("\n"));
+  // The harness's captureCommand uses a 5s default timeout; this test
+  // would normally take 5s. Skip when the host's `sh`/`sleep` are
+  // unusable — but at least pin the contract.
+  const candidate = makeTesseractCandidate(fixturesRoot, {
+    binary_path: fake,
+  });
+  const result = await candidate.probe();
+  assert.equal(result.status, "probe_failed");
+  if (result.status === "probe_failed") {
+    assert.match(result.error_message, /timed out/);
+  }
+}, { timeout: 15_000 });
+
+test("probe: --list-langs hangs → probe_failed (not silently accepted as healthy)", async () => {
+  const fake = makeFakeBin([
+    "#!/bin/sh",
+    'case "$1" in',
+    "  --version) echo 'tesseract 5.5.2'; exit 0;;",
+    "  --list-langs) echo 'List of available languages (1):'; echo 'eng'; sleep 60; exit 0;;",
+    "  *) exit 1;;",
+    "esac",
+  ].join("\n"));
+  const candidate = makeTesseractCandidate(fixturesRoot, {
+    binary_path: fake,
+  });
+  const result = await candidate.probe();
+  assert.equal(result.status, "probe_failed");
+  if (result.status === "probe_failed") {
+    assert.match(result.error_message, /list-langs.*timed out/);
+  }
+}, { timeout: 15_000 });
+
+// ---------------------------------------------------------------------------
+// Audit 019e3854 R2: hash-gate I/O failures become structured observations
+// instead of throwing out of runBakeoff.
+// ---------------------------------------------------------------------------
+
+test("runner: missing image file → fixture_unreadable observation (not a thrown error)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bakeoff-missing-img-"));
+  // Create only the expected-text file; the image is intentionally absent.
+  writeFileSync(join(dir, "img.txt"), Buffer.from("expected"));
+
+  // Use a stub candidate that should never be reached because the hash
+  // gate fails first.
+  const stubCandidate = {
+    name: "stub",
+    version_pinned: "0.0.0",
+    license: {
+      code_license: "Apache-2.0",
+      model_license: null,
+      redistribution: "permitted",
+      code_evidence_url: "https://example.invalid/code",
+      model_evidence_url: null,
+      last_verified_at: "2026-01-01",
+    },
+    supported_run_kinds: ["cold"],
+    async probe() { return { status: "available", resolved_version: "0.0.0" }; },
+    async run() {
+      throw new Error("stub.run must never be invoked when the hash gate fails first");
+    },
+    async dispose() {},
+  };
+
+  const fixtures = [{
+    active: true,
+    id: "missing-img",
+    role: "smoke",
+    kind: "synthetic",
+    category: "test",
+    path: "absent.png", // missing on disk
+    expected_text_path: "img.txt",
+    sha256: "0".repeat(64),
+    expected_text_sha256: "0".repeat(64),
+    language: "eng",
+    provenance: "in-test",
+    last_verified_at: "2026-01-01T00:00:00Z",
+    render: {
+      render_command: "stub",
+      font: "stub",
+      point_size: 12,
+      canvas: "10x10",
+      source_text: "stub",
+    },
+  }];
+
+  const report = await runBakeoff({
+    candidates: [stubCandidate],
+    fixtures,
+    roleFilter: "smoke",
+    fixturesRoot: dir,
+  });
+  // Runner did not throw; emitted one structured failure.
+  assert.equal(report.observations.length, 1);
+  const obs = report.observations[0];
+  assert.equal(obs.outcome, "failure");
+  if (obs.outcome === "failure") {
+    assert.equal(obs.code, "fixture_unreadable");
+    assert.match(obs.message, /image.*absent\.png.*could not be read/);
+  }
+});
+
+test("runner: missing expected-text file → fixture_unreadable observation", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bakeoff-missing-txt-"));
+  // Create only the image file; the expected-text is intentionally absent.
+  const imgBytes = Buffer.from("synthetic image bytes");
+  writeFileSync(join(dir, "img.png"), imgBytes);
+  const imgSha = (await import("node:crypto")).createHash("sha256").update(imgBytes).digest("hex");
+
+  const stubCandidate = {
+    name: "stub",
+    version_pinned: "0.0.0",
+    license: {
+      code_license: "Apache-2.0",
+      model_license: null,
+      redistribution: "permitted",
+      code_evidence_url: "https://example.invalid/code",
+      model_evidence_url: null,
+      last_verified_at: "2026-01-01",
+    },
+    supported_run_kinds: ["cold"],
+    async probe() { return { status: "available", resolved_version: "0.0.0" }; },
+    async run() { throw new Error("must not run when txt is missing"); },
+    async dispose() {},
+  };
+
+  const fixtures = [{
+    active: true,
+    id: "missing-txt",
+    role: "smoke",
+    kind: "synthetic",
+    category: "test",
+    path: "img.png",
+    expected_text_path: "absent.txt",
+    sha256: imgSha,
+    expected_text_sha256: "0".repeat(64),
+    language: "eng",
+    provenance: "in-test",
+    last_verified_at: "2026-01-01T00:00:00Z",
+    render: {
+      render_command: "stub",
+      font: "stub",
+      point_size: 12,
+      canvas: "10x10",
+      source_text: "stub",
+    },
+  }];
+
+  const report = await runBakeoff({
+    candidates: [stubCandidate],
+    fixtures,
+    roleFilter: "smoke",
+    fixturesRoot: dir,
+  });
+  assert.equal(report.observations.length, 1);
+  const obs = report.observations[0];
+  assert.equal(obs.outcome, "failure");
+  if (obs.outcome === "failure") {
+    assert.equal(obs.code, "fixture_unreadable");
+    assert.match(obs.message, /expected text.*absent\.txt.*could not be read/);
+  }
+});
+
+test("runner: bytes drift triggers fixture_hash_drift, not fixture_unreadable", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bakeoff-drift-"));
+  // Files exist, but their actual SHA-256 won't match the manifest.
+  writeFileSync(join(dir, "img.png"), Buffer.from("actual bytes"));
+  writeFileSync(join(dir, "img.txt"), Buffer.from("actual text"));
+
+  const stubCandidate = {
+    name: "stub",
+    version_pinned: "0.0.0",
+    license: {
+      code_license: "Apache-2.0",
+      model_license: null,
+      redistribution: "permitted",
+      code_evidence_url: "https://example.invalid/code",
+      model_evidence_url: null,
+      last_verified_at: "2026-01-01",
+    },
+    supported_run_kinds: ["cold"],
+    async probe() { return { status: "available", resolved_version: "0.0.0" }; },
+    async run() { throw new Error("must not run on hash drift"); },
+    async dispose() {},
+  };
+
+  const fixtures = [{
+    active: true,
+    id: "drift",
+    role: "smoke",
+    kind: "synthetic",
+    category: "test",
+    path: "img.png",
+    expected_text_path: "img.txt",
+    sha256: "1".repeat(64), // deliberately wrong
+    expected_text_sha256: "1".repeat(64),
+    language: "eng",
+    provenance: "in-test",
+    last_verified_at: "2026-01-01T00:00:00Z",
+    render: {
+      render_command: "stub",
+      font: "stub",
+      point_size: 12,
+      canvas: "10x10",
+      source_text: "stub",
+    },
+  }];
+
+  const report = await runBakeoff({
+    candidates: [stubCandidate],
+    fixtures,
+    roleFilter: "smoke",
+    fixturesRoot: dir,
+  });
+  assert.equal(report.observations.length, 1);
+  const obs = report.observations[0];
+  assert.equal(obs.outcome, "failure");
+  if (obs.outcome === "failure") {
+    assert.equal(obs.code, "fixture_hash_drift");
+    assert.match(obs.message, /image sha256.*does not match/);
+  }
+});
+
 test("REAL: probe returns `available` on this host", { skip: !realTestsRequested ? `set ${REAL_ENV_KEY}=1 to enable` : false }, async () => {
   const candidate = makeTesseractCandidate(fixturesRoot);
   const probe = await candidate.probe();

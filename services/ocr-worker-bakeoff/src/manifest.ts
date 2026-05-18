@@ -11,15 +11,23 @@
 // read or feed arbitrary files into the engine subprocess." The validator
 // is structural + containment-based, not adversarial sandboxing.
 //
-// Audit thread 019e36a0 D2.1 / D2.2 / D2.3.
+// Containment guards (audit threads 019e36a0 D2.1-3 + 019e3854 S1):
+//   - All fixtures: reject absolute paths; reject paths that lexically
+//     resolve to fixturesRoot itself; reject paths that lexically resolve
+//     outside fixturesRoot.
+//   - Active fixtures: ALSO follow symlinks via realpathSync and reject
+//     real paths that escape fixturesRoot. The image and expected-text
+//     files MUST exist for active fixtures (the hash gate would have
+//     read them anyway), so realpath is well-defined.
+//   - Placeholders: lexical check only. The file MAY be absent (slot
+//     reserved), so realpath would throw spuriously.
 
-import { readFileSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, resolve, sep } from "node:path";
 
 import type {
   BakeoffFixture,
   ActiveBakeoffFixture,
-  FixtureManifest,
   FixtureRole,
 } from "./types.js";
 
@@ -38,13 +46,13 @@ export interface LoadedManifest {
 /**
  * Load and validate the on-disk fixture manifest at `<fixturesRoot>/manifest.json`.
  * Every fixture path is confined to `fixturesRoot`; every active fixture is
- * structurally checked against the contract.
+ * structurally checked against the contract and realpath-verified.
  *
  * Throws `ManifestValidationError` on any failure, never returns partial data.
  */
 export function loadManifest(fixturesRoot: string): LoadedManifest {
-  const manifestPath = resolve(fixturesRoot, "manifest.json");
-  const root = ensureAbsolute(fixturesRoot, "fixturesRoot");
+  const root = resolve(fixturesRoot);
+  const manifestPath = resolve(root, "manifest.json");
 
   let raw: string;
   try {
@@ -78,6 +86,26 @@ export function loadManifest(fixturesRoot: string): LoadedManifest {
   return { version: 1, fixtures: validated };
 }
 
+/**
+ * Collect the unique BCP-47 language tags from the given fixtures, optionally
+ * filtered by role. The CLI uses this to pre-flight the engine for every
+ * language it will be asked to recognize, so a missing model surfaces as a
+ * structured `missing_model` ProbeResult instead of a generic runtime exit
+ * later. Audit 019e3854 F1.
+ */
+export function collectLanguages(
+  fixtures: readonly BakeoffFixture[],
+  opts: { role?: FixtureRole } = {},
+): string[] {
+  const seen = new Set<string>();
+  for (const f of fixtures) {
+    if (!f.active) continue;
+    if (opts.role !== undefined && f.role !== opts.role) continue;
+    seen.add(f.language);
+  }
+  return [...seen].sort();
+}
+
 function validateFixture(raw: unknown, index: number, root: string): BakeoffFixture {
   if (!raw || typeof raw !== "object") {
     throw new ManifestValidationError(`fixtures[${index}] must be an object`);
@@ -91,9 +119,9 @@ function validateFixture(raw: unknown, index: number, root: string): BakeoffFixt
   const expected_text_path = expectNonEmptyString(f, "expected_text_path", index);
   const language = expectNonEmptyString(f, "language", index);
 
-  // Containment: both paths must resolve under fixturesRoot.
-  assertContained(root, path, `fixtures[${index}].path`);
-  assertContained(root, expected_text_path, `fixtures[${index}].expected_text_path`);
+  // Lexical containment for every fixture (active + placeholder).
+  assertLexicallyContained(root, path, `fixtures[${index}].path`);
+  assertLexicallyContained(root, expected_text_path, `fixtures[${index}].expected_text_path`);
 
   if (f.active === true) {
     const role = expectEnum(f, "role", ["smoke", "verdict"], index) as FixtureRole;
@@ -102,60 +130,60 @@ function validateFixture(raw: unknown, index: number, root: string): BakeoffFixt
     const provenance = expectNonEmptyString(f, "provenance", index);
     const last_verified_at = expectNonEmptyString(f, "last_verified_at", index);
 
-    const base: ActiveBakeoffFixture = (() => {
-      if (kind === "synthetic") {
-        const render = f.render;
-        if (!render || typeof render !== "object") {
-          throw new ManifestValidationError(`fixtures[${index}].render is required for synthetic active fixtures`);
-        }
-        const r = render as Record<string, unknown>;
-        return {
-          active: true,
-          id,
-          role,
-          kind: "synthetic",
-          category,
-          path,
-          expected_text_path,
-          sha256,
-          expected_text_sha256,
-          dpi: typeof f.dpi === "number" ? f.dpi : undefined,
-          language,
-          provenance,
-          last_verified_at,
-          notes: typeof f.notes === "string" ? f.notes : undefined,
-          render: {
-            render_command: expectNonEmptyString(r, "render_command", index, "render."),
-            font: expectNonEmptyString(r, "font", index, "render."),
-            point_size: expectPositiveNumber(r, "point_size", index, "render."),
-            canvas: expectNonEmptyString(r, "canvas", index, "render."),
-            source_text: expectNonEmptyString(r, "source_text", index, "render."),
-            notes: typeof r.notes === "string" ? r.notes : undefined,
-          },
-        };
+    const base: Omit<ActiveBakeoffFixture, "kind" | "render" | "real_source" | "pii_review"> & { active: true } = {
+      active: true,
+      id,
+      role,
+      category,
+      path,
+      expected_text_path,
+      sha256,
+      expected_text_sha256,
+      dpi: typeof f.dpi === "number" ? f.dpi : undefined,
+      language,
+      provenance,
+      last_verified_at,
+      notes: typeof f.notes === "string" ? f.notes : undefined,
+    };
+
+    let result: ActiveBakeoffFixture;
+    if (kind === "synthetic") {
+      const render = f.render;
+      if (!render || typeof render !== "object") {
+        throw new ManifestValidationError(`fixtures[${index}].render is required for synthetic active fixtures`);
       }
+      const r = render as Record<string, unknown>;
+      result = {
+        ...base,
+        kind: "synthetic",
+        render: {
+          render_command: expectNonEmptyString(r, "render_command", index, "render."),
+          font: expectNonEmptyString(r, "font", index, "render."),
+          point_size: expectPositiveNumber(r, "point_size", index, "render."),
+          canvas: expectNonEmptyString(r, "canvas", index, "render."),
+          source_text: expectNonEmptyString(r, "source_text", index, "render."),
+          notes: typeof r.notes === "string" ? r.notes : undefined,
+        },
+      };
+    } else {
       // kind === "real"
       const pii = expectEnum(f, "pii_review", ["redacted", "pending", "not_required"], index);
-      return {
-        active: true,
-        id,
-        role,
+      result = {
+        ...base,
         kind: "real",
-        category,
-        path,
-        expected_text_path,
-        sha256,
-        expected_text_sha256,
-        dpi: typeof f.dpi === "number" ? f.dpi : undefined,
-        language,
-        provenance,
-        last_verified_at,
-        notes: typeof f.notes === "string" ? f.notes : undefined,
         real_source: expectNonEmptyString(f, "real_source", index),
         pii_review: pii as "redacted" | "pending" | "not_required",
       };
-    })();
-    return base;
+    }
+
+    // Realpath + regular-file containment is the FINAL gate for active
+    // fixtures, after every structural check has passed. Active fixtures
+    // MUST have on-disk bytes (the hash gate depends on it), so realpath
+    // is well-defined here. Placeholders skip this check because the
+    // file may legitimately be absent (slot reserved).
+    assertRealContained(root, path, `fixtures[${index}].path`);
+    assertRealContained(root, expected_text_path, `fixtures[${index}].expected_text_path`);
+    return result;
   }
 
   if (f.active === false) {
@@ -184,25 +212,91 @@ function validateFixture(raw: unknown, index: number, root: string): BakeoffFixt
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Path helpers
 // ---------------------------------------------------------------------------
 
-function ensureAbsolute(p: string, label: string): string {
-  const r = resolve(p);
-  return r;
-}
-
-function assertContained(root: string, candidate: string, label: string): void {
+/**
+ * Lexical containment: candidate must be a relative path that resolves
+ * strictly INSIDE root (not equal to root, not outside it). No filesystem
+ * access. Applied to every fixture entry.
+ */
+function assertLexicallyContained(root: string, candidate: string, label: string): void {
+  if (isAbsolute(candidate)) {
+    throw new ManifestValidationError(
+      `${label} ${JSON.stringify(candidate)} must be a relative path (absolute paths forbidden)`,
+    );
+  }
   const resolved = resolve(root, candidate);
-  // Reject if resolved path doesn't sit under root. Add separator to avoid
-  // false-positive when fixturesRoot is "/a" and resolved is "/abc".
+  if (resolved === root) {
+    throw new ManifestValidationError(
+      `${label} ${JSON.stringify(candidate)} resolves to fixturesRoot itself; it must point at a file inside the root`,
+    );
+  }
   const rootWithSep = root.endsWith(sep) ? root : root + sep;
-  if (resolved !== root && !resolved.startsWith(rootWithSep)) {
+  if (!resolved.startsWith(rootWithSep)) {
     throw new ManifestValidationError(
       `${label} ${JSON.stringify(candidate)} resolves outside fixturesRoot (${resolved} vs ${root})`,
     );
   }
 }
+
+/**
+ * Real-path containment: candidate's resolved real path (following symlinks)
+ * must also be a regular file inside root. Catches a symlink under
+ * fixturesRoot whose target points outside. Only applied to active fixtures
+ * (the placeholder branch allows absent files).
+ */
+function assertRealContained(root: string, candidate: string, label: string): void {
+  const lexicalResolved = resolve(root, candidate);
+  let realRoot: string;
+  let realPath: string;
+  try {
+    realRoot = realpathSync.native(root);
+  } catch (err) {
+    throw new ManifestValidationError(`failed to resolve fixturesRoot real path: ${(err as Error).message}`);
+  }
+  try {
+    realPath = realpathSync.native(lexicalResolved);
+  } catch (err) {
+    throw new ManifestValidationError(
+      `${label} ${JSON.stringify(candidate)} cannot be realpath-resolved (file missing or unreadable): ${(err as Error).message}`,
+    );
+  }
+  const realRootWithSep = realRoot.endsWith(sep) ? realRoot : realRoot + sep;
+  if (realPath !== realRoot && !realPath.startsWith(realRootWithSep)) {
+    throw new ManifestValidationError(
+      `${label} ${JSON.stringify(candidate)} real path escapes fixturesRoot via symlink (${realPath} vs ${realRoot})`,
+    );
+  }
+  // Require a regular file (not a directory; symlinks already resolved).
+  let st;
+  try {
+    st = statSync(realPath);
+  } catch (err) {
+    throw new ManifestValidationError(
+      `${label} ${JSON.stringify(candidate)} cannot be stat'd: ${(err as Error).message}`,
+    );
+  }
+  if (!st.isFile()) {
+    throw new ManifestValidationError(
+      `${label} ${JSON.stringify(candidate)} is not a regular file (got ${describeFileType(st)})`,
+    );
+  }
+}
+
+function describeFileType(st: import("node:fs").Stats): string {
+  if (st.isDirectory()) return "directory";
+  if (st.isSymbolicLink()) return "symlink";
+  if (st.isBlockDevice()) return "block device";
+  if (st.isCharacterDevice()) return "character device";
+  if (st.isFIFO()) return "fifo";
+  if (st.isSocket()) return "socket";
+  return "non-regular";
+}
+
+// ---------------------------------------------------------------------------
+// Field helpers
+// ---------------------------------------------------------------------------
 
 function expectNonEmptyString(
   obj: Record<string, unknown>,
