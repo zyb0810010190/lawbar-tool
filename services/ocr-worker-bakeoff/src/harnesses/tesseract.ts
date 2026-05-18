@@ -115,13 +115,49 @@ const TAG_TO_TESS_LANG: Readonly<Record<string, string>> = Object.freeze({
 });
 
 /**
- * Resolve a BCP-47 (or Tesseract-native) language tag to the engine model
- * name Tesseract loads via `-l`. Returns null if no mapping is known —
- * callers MUST surface this as an unsupported_language_tag failure
- * rather than blindly passing the tag through.
+ * Resolve a BCP-47 language tag to the engine model name Tesseract loads
+ * via `-l`. Returns null if no mapping is known — callers MUST surface
+ * this as an unsupported_language_tag failure rather than blindly
+ * passing the tag through.
+ *
+ * RFC 5646 §2.1.1 says BCP-47 tags are case-insensitive; canonical
+ * casing (lowercase language, Title-case script, UPPERCASE region) is
+ * RECOMMENDED for presentation but not for matching. We honour that by
+ * normalizing the tag to canonical casing before lookup so authors who
+ * write `zh-hans` or `EN-US` are not rejected as unsupported. Audit
+ * 019e3854 F2.
  */
 export function resolveTesseractLang(tag: string): string | null {
-  return TAG_TO_TESS_LANG[tag] ?? null;
+  return TAG_TO_TESS_LANG[canonicalizeBcp47(tag)] ?? null;
+}
+
+/**
+ * Canonicalize a BCP-47 tag to the casing used in TAG_TO_TESS_LANG:
+ *   - language subtag (first chunk) → lowercase
+ *   - script subtag (4 letters)     → Title-case
+ *   - region subtag (2 letters or 3 digits) → UPPERCASE
+ *   - other subtags                 → lowercase
+ *
+ * Per RFC 5646 §2.1.1 + §4.5; this matches the recommended display
+ * casing. Unrecognized shapes (e.g. extlangs, variants) pass through
+ * lowercase, which is the safe default.
+ */
+function canonicalizeBcp47(tag: string): string {
+  const parts = tag.split("-");
+  return parts
+    .map((part, idx) => {
+      if (idx === 0) return part.toLowerCase();
+      if (part.length === 4 && /^[A-Za-z]{4}$/.test(part)) {
+        // script subtag → Title-case
+        return part[0]!.toUpperCase() + part.slice(1).toLowerCase();
+      }
+      if ((part.length === 2 && /^[A-Za-z]{2}$/.test(part)) || /^\d{3}$/.test(part)) {
+        // region subtag → UPPERCASE
+        return part.toUpperCase();
+      }
+      return part.toLowerCase();
+    })
+    .join("-");
 }
 
 // ---------------------------------------------------------------------------
@@ -355,14 +391,16 @@ async function probeTesseract(opts: TesseractHarnessOptions): Promise<ProbeResul
   // --list-langs writes to stderr in older tesseract; capture both.
   const langText = langRes.stdout + langRes.stderr;
   // The first line of --list-langs is "List of available languages (N):".
-  // Filter to plausible traineddata identifiers: lowercase letters /
-  // digits / underscore. This drops the header without affecting the
-  // legitimate model names. (Audit 019e36a0 D3.3.)
+  // Accept Tesseract model identifiers, which include:
+  //   - standard models:  eng, jpn, chi_sim, equ, osd
+  //   - script models:    script/Latin, script/Devanagari, script/HanS
+  // and drop everything else (the header line, blank lines, diagnostics).
+  // Audit 019e36a0 D3.3 + 019e3854 D1.
   const langs = new Set(
     langText
       .split(/\r?\n/)
       .map((s) => s.trim())
-      .filter((s) => /^[a-z0-9_]+$/.test(s)),
+      .filter((s) => /^(?:script\/)?[A-Za-z0-9_]+$/.test(s) && !s.includes(" ")),
   );
   for (const tag of requiredLangs) {
     const engineLang = resolveTesseractLang(tag);

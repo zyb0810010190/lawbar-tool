@@ -2,7 +2,16 @@
 //
 //   ALWAYS-ON  — exercise the harness's orchestration, parser, and
 //                failure taxonomy via fake-binary subprocesses. These
-//                run on any host without Tesseract installed.
+//                run on any POSIX host without Tesseract installed.
+//
+// POSIX-only (audit 019e3854 D8.1):
+//   The always-on layer writes shell scripts (`#!/bin/sh`) and chmods
+//   them executable, then spawns them. That depends on `/bin/sh`,
+//   `chmod`, and the spawn-an-arbitrary-file-with-shebang behavior of
+//   POSIX. Windows lacks the shebang resolution path; this suite is not
+//   expected to pass there. When/if the bakeoff package needs Windows
+//   support, rewrite the fakes as Node helper scripts spawned via
+//   `process.execPath`.
 //
 //   OPT-IN     — gated on `OCR_REAL_TESSERACT_TESTS=1`. Requires a real
 //                Tesseract installation + the language packs the
@@ -377,6 +386,18 @@ test("resolveTesseractLang: unknown tags return null (no silent passthrough)", (
   // The raw BCP-47 tag "zh-Hans" is mapped; the engine name "chi_sim"
   // is NOT a BCP-47 tag and should not round-trip through this map.
   assert.equal(resolveTesseractLang("chi_sim"), null);
+});
+
+test("resolveTesseractLang: non-canonical casing resolves correctly (RFC 5646 case-insensitive)", () => {
+  // Audit 019e3854 F2: BCP-47 §2.1.1 declares tags case-insensitive;
+  // canonical casing is RECOMMENDED for presentation, not for matching.
+  assert.equal(resolveTesseractLang("ZH-HANS"), "chi_sim");
+  assert.equal(resolveTesseractLang("zh-hans"), "chi_sim");
+  assert.equal(resolveTesseractLang("Zh-HaNs"), "chi_sim");
+  assert.equal(resolveTesseractLang("EN-US"), "eng");
+  assert.equal(resolveTesseractLang("en-us"), "eng");
+  assert.equal(resolveTesseractLang("zh-tw"), "chi_tra");
+  assert.equal(resolveTesseractLang("ZH-Hant-TW"), "chi_tra");
 });
 
 test("probe: required BCP-47 tag with no Tesseract mapping → missing_model unmapped", async () => {
@@ -792,7 +813,7 @@ test("REAL: probe returns `available` on this host", { skip: !realTestsRequested
   );
 });
 
-test("REAL: runBakeoff on the smoke fixture yields CER < 0.10", { skip: !realTestsRequested ? `set ${REAL_ENV_KEY}=1 to enable` : false }, async () => {
+test("REAL: runBakeoff on the smoke fixture yields CER === 0", { skip: !realTestsRequested ? `set ${REAL_ENV_KEY}=1 to enable` : false }, async () => {
   const candidate = makeTesseractCandidate(fixturesRoot);
   const manifest = JSON.parse(readFileSync(join(fixturesRoot, "manifest.json"), "utf8"));
   const report = await runBakeoff({
@@ -812,7 +833,11 @@ test("REAL: runBakeoff on the smoke fixture yields CER < 0.10", { skip: !realTes
   }
   const score = report.cer_scores[0];
   assert.ok(score, "expected a CER score");
-  assert.ok(score.cer < 0.10, `real Tesseract CER ${score.cer} exceeds 0.10 threshold`);
+  // Tesseract reads the canonical "hello bakeoff" PNG verbatim — CER
+  // should be 0. Tightened from <0.10 to ===0 per audit 019e3854 D7.5:
+  // the prior loose threshold would have masked a one-character
+  // regression on a tiny smoke string.
+  assert.equal(score.cer, 0, `real Tesseract CER on the smoke fixture must be exactly 0; got ${score.cer}`);
 });
 
 test("REAL: smoke roleFilter does NOT count toward verdict_ready even when successful", { skip: !realTestsRequested ? `set ${REAL_ENV_KEY}=1 to enable` : false }, async () => {
