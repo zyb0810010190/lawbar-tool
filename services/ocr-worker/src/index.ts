@@ -71,3 +71,15 @@ export {
   type FetcherDeps,
   type FetchedPage,
 } from "./fetcher/index.js";
+export {
+  WORKER_REGISTRY,
+  type WorkerKey,
+  type WorkerEntry,
+} from "./registry.js";
+export {
+  processPaddleOcrOnnxJob,
+  makePaddleOcrOnnxWorker,
+  ENGINE_FAILED_CODE,
+  type EnginePort,
+  type PaddleOcrOnnxAdapterDeps,
+} from "./engines/paddleocr-onnx.js";
