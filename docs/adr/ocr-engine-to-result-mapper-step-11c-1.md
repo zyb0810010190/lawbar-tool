@@ -111,16 +111,34 @@ Pure: no I/O, no clock, no randomness. All time + ULIDs injected via
   in engine-output order. Matches the existing fixture convention in
   `docs/contracts/fixtures/valid/result-chinese-litigation.json`. The
   schema only requires `minLength: 1`; the 4-digit pad is a project
-  convention pinned here.
+  convention pinned here. **Operating envelope**: ≤ 9,999 lines per
+  page. Lexicographic block_id ordering equals numeric ordering only
+  within this range — at line 10,000, `b_10000` sorts before `b_9999`.
+  Realistic legal-document pages have ≤ ~500 lines, so this is a
+  documented cap, not a hard runtime guard. If a future engine
+  emits > 9,999 lines per page, widen `BLOCK_ID_WIDTH` here and
+  the ordering contract simultaneously.
 - `type`: `"line"`. The engine emits no paragraph/heading/seal/table
   signal. **No inference v1.** Promotion to richer block types is the
   job of a downstream block-grouping pass (out of 11C scope).
 - `text`: `line.text` verbatim. No NFC normalization here — that lives
   in the CER metric, not in the persisted result. The schema does not
   require any particular Unicode normalization form.
-- `confidence`: `line.mean`. Schema patched to allow `null` (§5);
-  `@gutenye/ocr-node` always sets `mean`, so the null branch is
-  unreachable for δ but the schema is forward-compatible.
+- `confidence`: derived from `line.mean` via a normalization step.
+  The mapper treats the engine boundary as hostile because TypeScript
+  `number` admits `NaN`, `Infinity`, and out-of-range values that the
+  schema would reject. Normalization rule (audit 019e39cc D2/D9 fix):
+  - If `mean` is `null`, `undefined`, non-finite (`NaN` / `±Infinity`),
+    or outside `[0, 1]` → emit `confidence: null`.
+  - Otherwise → pass `mean` through unchanged.
+  `confidence` is always present on every block (either a number or
+  `null`); it is never absent and never `undefined`. JSON serialization
+  drops `undefined` keys, so an `undefined` here would silently disappear
+  off the wire — explicit `null` is the on-purpose absence signal.
+  `@gutenye/ocr-node@1.4.8` itself always emits a finite mean in
+  `[0, 1]`, so the null branch is unreachable for δ in practice; the
+  normalization is forward-compatible against future engines and
+  defensive against engine bugs.
 - `reading_order`: not emitted. Engine output order is the only
   available signal; downstream consumers can use `block_id` ordering
   (the zero-pad guarantees lexicographic = numeric).
@@ -143,14 +161,26 @@ becomes a `1×1` bbox the schema accepts. Clamp `w` and `h` to `≥ 1`
 because the schema requires `minimum: 1`. Negative coords are clamped
 to `0` (schema requires `minimum: 0`).
 
-`polygon` (schema field) is also emitted alongside `bbox` when `box`
-is present: each `[x, y]` rounded to integer. Reason: the engine's
-polygon is more precise than its axis-aligned bbox and downstream
-review UI may want to render the tighter shape. Cost is small (8 ints
-per line).
+`polygon` (schema field) is emitted alongside `bbox` when `box` is
+present and well-formed: each `[x, y]` is **floored** to a non-negative
+integer (the same `clampNonNegativeInt` used for the bbox origin), not
+rounded. Reason: pinning a single direction (floor for origins / `min`,
+ceil for extents / `max`) widens the bbox to fully contain every
+sub-pixel corner; rounding would let a corner at `0.6` move to `1` and
+clip the rendered shape. Cost is small (8 ints per line).
 
-When `line.box` is absent: omit both `bbox` and `polygon` on that
-block. The block is text-only. Schema patch (§5) allows this.
+**Geometry hostility (audit 019e39cc D3 fix):** if any one of the
+supplied corners contains a non-finite coordinate (`NaN`, `Infinity`),
+the entire geometry is omitted — both `bbox` and `polygon`. Partial
+geometry (a bbox with a 3-point polygon, for example) is **never**
+emitted: a 3-point polygon would fail the schema's `minItems: 4`
+constraint, and silently dropping a corner from a valid 4-corner
+quad would lie about position. The block stays in `blocks[]` and in
+`raw_text`; only the position-bearing fields go missing.
+
+When `line.box` is absent: same outcome — omit both `bbox` and
+`polygon` on that block. The block is text-only. Schema patch (§5)
+allows this.
 
 ### §4 OcrResult assembly
 
@@ -171,7 +201,7 @@ block. The block is text-only. Schema patch (§5) allows this.
 | `raw_text` | `lines.map(l => l.text).join("\n")`. Empty array → `""`. Matches the bakeoff transcript projection (also a `\n` join) |
 | `blocks` | Per-§2 projection over `lines`, preserving order. Empty array allowed on `succeeded` (schema requires the field, not non-emptiness) |
 | `review` | OMIT v1. No manual-review heuristic until a downstream review service exists (separate ADR) |
-| `partial_failure` | `null`. Status is always `succeeded`; schema's `succeeded → partial_failure: null` `allOf` clause holds |
+| `partial_failure` | `null`. Status is always `succeeded`; schema's `allOf/0/then` constrains `partial_failure` to `null` *when present*, the mapper always emits it explicitly as `null` for the stronger invariant. **Note** (audit 019e39cc D3): the schema does NOT currently `required: ["partial_failure"]` on the succeeded branch, so a `succeeded` payload omitting `partial_failure` would still validate at the contract layer. Tightening that is a separate narrowing-contract change tracked outside this ADR; the mapper meanwhile produces the stronger shape unconditionally |
 | `metadata` | `{}` v1. Open for downstream tagging |
 | `completed_at` | `input.timing.completed_at` |
 
@@ -217,9 +247,14 @@ Pre-conditions verified by the type system:
 - `input.lines` is `ReadonlyArray<EngineLine>` — empty allowed
 - `input.job.*` ULIDs are strings — schema validation happens in the
   outer envelope check, not here
-- Each `line.mean ∈ [0, 1]` is **trusted** from the engine. If paddle
-  ever returns out-of-range mean (it does not in 1.4.8), the schema
-  validator catches it at the outer envelope. Mapper does not re-check.
+
+Hostile inputs the mapper actively defends against (audit 019e39cc):
+- `line.mean` is **not trusted**. TypeScript `number` admits `NaN`,
+  `Infinity`, and out-of-range values; engine boundaries are validated
+  here, not deferred to the outer envelope check. Out-of-spec means
+  collapse to `confidence: null` (§2).
+- Non-finite polygon coordinates abort geometry derivation entirely
+  (§3); the mapper never emits a partial polygon.
 
 ### §7 Determinism + idempotency
 

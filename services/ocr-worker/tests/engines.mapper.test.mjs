@@ -263,3 +263,153 @@ test("block_id zero-pad to width 4 (b_0001 .. b_0010+)", () => {
   assert.equal(result.blocks[9].block_id, "b_0010");
   assert.equal(result.blocks[11].block_id, "b_0012");
 });
+
+// --- Adversarial inputs (audit 019e39cc, ADR-11C.1 fix-up) -----------------
+// TypeScript `number` admits NaN, Infinity, and out-of-range values. The
+// engine boundary is treated as hostile: anything non-finite or
+// out-of-range for confidence collapses to null; any non-finite polygon
+// coord aborts geometry derivation for that line.
+
+test("non-finite polygon coord (NaN) in any corner -> bbox + polygon both omitted", () => {
+  const result = mapEngineLinesToOcrResult(
+    makeInput({
+      lines: [
+        {
+          text: "bad-corner",
+          mean: 0.9,
+          box: [
+            [0, 0],
+            [10, 0],
+            [Number.NaN, 10],
+            [0, 10],
+          ],
+        },
+      ],
+    }),
+  );
+  assertValidResult(result);
+  assert.equal(result.blocks.length, 1);
+  assert.equal("bbox" in result.blocks[0], false);
+  assert.equal("polygon" in result.blocks[0], false);
+  assert.equal(result.blocks[0].text, "bad-corner");
+});
+
+test("non-finite polygon coord (Infinity) -> bbox + polygon both omitted", () => {
+  const result = mapEngineLinesToOcrResult(
+    makeInput({
+      lines: [
+        {
+          text: "inf-corner",
+          mean: 0.5,
+          box: [
+            [0, 0],
+            [10, 0],
+            [10, 10],
+            [Number.POSITIVE_INFINITY, 10],
+          ],
+        },
+      ],
+    }),
+  );
+  assertValidResult(result);
+  assert.equal("bbox" in result.blocks[0], false);
+  assert.equal("polygon" in result.blocks[0], false);
+});
+
+test("mean=NaN -> confidence: null", () => {
+  const result = mapEngineLinesToOcrResult(
+    makeInput({ lines: [{ text: "x", mean: Number.NaN }] }),
+  );
+  assertValidResult(result);
+  assert.equal(result.blocks[0].confidence, null);
+});
+
+test("mean=Infinity -> confidence: null", () => {
+  const result = mapEngineLinesToOcrResult(
+    makeInput({ lines: [{ text: "x", mean: Number.POSITIVE_INFINITY }] }),
+  );
+  assertValidResult(result);
+  assert.equal(result.blocks[0].confidence, null);
+});
+
+test("mean out of range (-0.1) -> confidence: null", () => {
+  const result = mapEngineLinesToOcrResult(
+    makeInput({ lines: [{ text: "x", mean: -0.1 }] }),
+  );
+  assertValidResult(result);
+  assert.equal(result.blocks[0].confidence, null);
+});
+
+test("mean out of range (1.1) -> confidence: null", () => {
+  const result = mapEngineLinesToOcrResult(
+    makeInput({ lines: [{ text: "x", mean: 1.1 }] }),
+  );
+  assertValidResult(result);
+  assert.equal(result.blocks[0].confidence, null);
+});
+
+test("mean omitted (engine drops the field) -> confidence: null, not undefined", () => {
+  const result = mapEngineLinesToOcrResult(
+    makeInput({ lines: [{ text: "x" }] }),
+  );
+  assertValidResult(result);
+  assert.equal(result.blocks[0].confidence, null);
+  // Property must exist and be explicit null — not absent. JSON.stringify
+  // drops undefined keys; null survives.
+  const reparsed = JSON.parse(JSON.stringify(result));
+  assert.equal("confidence" in reparsed.blocks[0], true);
+  assert.equal(reparsed.blocks[0].confidence, null);
+});
+
+test("mean explicitly null -> confidence: null", () => {
+  const result = mapEngineLinesToOcrResult(
+    makeInput({ lines: [{ text: "x", mean: null }] }),
+  );
+  assertValidResult(result);
+  assert.equal(result.blocks[0].confidence, null);
+});
+
+test("mean at the legal boundaries (0 and 1) passes through unchanged", () => {
+  const result = mapEngineLinesToOcrResult(
+    makeInput({
+      lines: [
+        { text: "lo", mean: 0 },
+        { text: "hi", mean: 1 },
+      ],
+    }),
+  );
+  assertValidResult(result);
+  assert.equal(result.blocks[0].confidence, 0);
+  assert.equal(result.blocks[1].confidence, 1);
+});
+
+test("sub-pixel rounding rule pinned: polygon uses floor, not round", () => {
+  // ADR-11C.1 §3: polygon coords go through clampNonNegativeInt
+  // (Math.floor + clamp to >= 0). Value 0.6 must become 0, not 1.
+  const result = mapEngineLinesToOcrResult(
+    makeInput({
+      lines: [
+        {
+          text: "subpixel",
+          mean: 0.7,
+          box: [
+            [0.6, 0.6],
+            [10.4, 0.6],
+            [10.4, 10.4],
+            [0.6, 10.4],
+          ],
+        },
+      ],
+    }),
+  );
+  assertValidResult(result);
+  // floor(0.6) = 0, floor(10.4) = 10 → polygon stays at integer multiples
+  // of the floor rule. bbox.x = floor(0.6) = 0; bbox.w = ceil(10.4) - 0 = 11.
+  assert.deepEqual(result.blocks[0].polygon, [
+    [0, 0],
+    [10, 0],
+    [10, 10],
+    [0, 10],
+  ]);
+  assert.deepEqual(result.blocks[0].bbox, { x: 0, y: 0, w: 11, h: 11 });
+});
