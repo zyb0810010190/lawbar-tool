@@ -507,9 +507,25 @@ test("expected_sha256 mismatch rejected with content_hash_mismatch", async () =>
   );
 });
 
-test("expected_sha256 case-insensitive match accepted", async () => {
-  // Schema's pattern is lowercase-only but our compare is to lowercase
-  // anyway; this pins the contract.
+test("expected_sha256: uppercase hex accepted (case-insensitive compare)", async () => {
+  // Audit 019e3af0 verify L-D7: the previous test was named
+  // "case-insensitive match accepted" but only ever passed
+  // lowercase input. This actually tests the case-insensitivity
+  // by passing the SHA in UPPERCASE; the fetcher's pre-network
+  // shape check normalizes via toLowerCase + then the post-fetch
+  // comparison also normalizes both sides.
+  const sha = createHash("sha256").update(PNG_HEADER).digest("hex");
+  const upperSha = sha.toUpperCase();
+  const submission = makeSubmission({
+    source: makeHttpsSource({ expected_sha256: upperSha }),
+  });
+  const result = await fetchPageBytes(submission, deps({
+    httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+  }));
+  assert.equal(result.sizeBytes, PNG_HEADER.length);
+});
+
+test("expected_sha256: lowercase matching value accepted (happy path)", async () => {
   const sha = createHash("sha256").update(PNG_HEADER).digest("hex");
   const submission = makeSubmission({
     source: makeHttpsSource({ expected_sha256: sha }),

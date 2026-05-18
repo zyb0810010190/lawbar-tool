@@ -98,7 +98,15 @@ Gate order, cheap-before-expensive plus specific-before-general:
    adversarial-sized responses that would exhaust memory.
 10. **Body read with cap enforcement**: stream the response body
     into a Buffer; abort if the running byte total exceeds
-    `MAX_PAGE_BYTES`. Throw `size_cap_exceeded`.
+    `MAX_PAGE_BYTES`. Throw `size_cap_exceeded`. Implementation
+    note (audit 019e3af0 D6 Low): chunks are collected into a
+    `Uint8Array[]` and concatenated via `Buffer.concat` at the
+    end. Peak memory is briefly ~2x the final body size during
+    the concat step (chunks array still live + new contiguous
+    buffer allocated). Acceptable under the 50 MB cap and v1's
+    single-job-at-a-time worker (~100 MB peak per job, single
+    process). If multi-tenant batched workers ever come back,
+    revisit by streaming directly to the adapter's temp file.
 11. **`size_mismatch`**: actual body length vs `source.byte_size`.
 12. **`content_hash_mismatch`**: if `source.expected_sha256` is
     present, compute `crypto.createHash("sha256").update(buf).digest("hex")`
@@ -353,7 +361,7 @@ ADR-11E will classify which codes warrant queue requeue.
 - Operators can deploy with `OCR_FETCHER_HTTPS_HOSTS=signed.example.com`
   and submit `https` source kinds against that allowlist.
 - Real-world OCR via signed S3/HTTPS URLs is now functional.
-- 9 new stable error codes enter the public fetcher surface.
+- 10 new stable error codes enter the public fetcher surface.
 - One new private file (`privateIp.ts`) + one new infrastructure
   file (`httpsTransport.ts`).
 - No new runtime dependencies (Node's built-in `fetch` + `dns` +

@@ -16,12 +16,12 @@ export function makeNodeFetchHttpsTransport(): HttpsTransport {
       });
       const body = res.body;
       if (body === null) {
-        // Node returns null for HEAD requests or no-content responses.
-        // We never issue HEAD; if the body is null on a GET it means
-        // the server returned 204 / 304. Either way, an empty async
-        // iterable lets the caller's size-mismatch / 200-only checks
-        // surface the right error code (https_status_not_ok for 304;
-        // size_mismatch for 204 with declared byte_size > 0).
+        // Node returns null when the response has no body (e.g.,
+        // 204 No Content, 304 Not Modified). In practice the
+        // caller's 200-only status gate fires first, so this
+        // branch is rarely reached; we return an empty iterable
+        // as a defensive default so any downstream consumer that
+        // somehow gets here doesn't crash on `for await` over null.
         return {
           status: res.status,
           headers: res.headers,
