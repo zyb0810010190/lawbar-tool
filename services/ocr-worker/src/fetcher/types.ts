@@ -27,6 +27,14 @@ export const FETCHER_ERROR_CODES = Object.freeze({
   SIZE_CAP_EXCEEDED: "size_cap_exceeded",
   /** Submission's source.mime_type is not in the v1 allowlist. */
   MIME_UNSUPPORTED: "mime_unsupported",
+  /**
+   * Fetched bytes do not carry the magic-byte signature for the MIME
+   * type the submission declared. Post-read sniff catches a PDF or
+   * arbitrary content mislabeled as image/png or image/jpeg (audit
+   * 019e3a07 D2 Medium — anti-PDF boundary must be byte-level, not
+   * declaration-only).
+   */
+  MIME_SIGNATURE_MISMATCH: "mime_signature_mismatch",
 } as const);
 
 export type FetcherErrorCode =

@@ -7,8 +7,21 @@
 // Copying ~30 lines is the right trade-off; both sites have their own
 // tests covering the same containment semantics. If the semantics ever
 // diverge, that is a bug — keep both in sync.
+//
+// Intentional divergence from the bakeoff copy (audit 019e3a07 D3):
+// the bakeoff caller normalizes `root` before calling these guards;
+// the fetcher does NOT trust its caller to normalize. `fetchPageBytes`
+// runs `resolve(deps.allowedFileRoot)` once at entry and passes the
+// normalized value down. Containment helpers therefore assume an
+// already-normalized root, just like the bakeoff.
+//
+// Intentional divergence from the bakeoff copy (audit 019e3a07 D2/D3):
+// the bakeoff returns `{ realPath, stat }` from the realpath-contained
+// check; the fetcher returns only `realPath`. File-shape checks
+// (regular vs directory) and size checks run through an opened fd in
+// `fetchPageBytes` to close the TOCTOU window between stat and read.
 
-import { realpathSync, statSync, type Stats } from "node:fs";
+import { realpathSync } from "node:fs";
 import { isAbsolute, resolve, sep } from "node:path";
 
 import { FetcherError, FETCHER_ERROR_CODES } from "./types.js";
@@ -16,7 +29,10 @@ import { FetcherError, FETCHER_ERROR_CODES } from "./types.js";
 /**
  * Lexical containment: candidate must be a relative path that resolves
  * strictly INSIDE root (not equal to root, not outside). No filesystem
- * access.
+ * access. Returns the lexically-resolved absolute path on success.
+ *
+ * The caller MUST pass an already-normalized absolute `root` (see
+ * intentional-divergence note at the top of the file).
  */
 export function assertLexicallyContained(
   root: string,
@@ -48,17 +64,19 @@ export function assertLexicallyContained(
 
 /**
  * Real-path containment: the lexically-resolved candidate's real path
- * (following symlinks) must also be inside root, and the resolved
- * target must be a regular file (not a directory, FIFO, device, etc.).
+ * (following symlinks) must also be inside root. Returns the real path.
  *
- * Returns the real path and the stat result on success so the caller
- * can reuse them without re-stat'ing.
+ * Regular-file + size checks are intentionally NOT done here — they
+ * happen via fstat on an opened fd in `fetchPageBytes` so the
+ * stat→read TOCTOU window is closed (audit 019e3a07 D2 High).
+ *
+ * The caller MUST pass an already-normalized absolute `root`.
  */
-export function assertRealContainedRegularFile(
+export function assertRealContained(
   root: string,
   lexicalResolved: string,
   label: string,
-): { realPath: string; stat: Stats } {
+): string {
   let realRoot: string;
   try {
     realRoot = realpathSync.native(root);
@@ -91,30 +109,5 @@ export function assertRealContainedRegularFile(
       { code: FETCHER_ERROR_CODES.PATH_ESCAPE },
     );
   }
-  let stat: Stats;
-  try {
-    stat = statSync(realPath);
-  } catch (err) {
-    throw new FetcherError(
-      `${label} ${JSON.stringify(realPath)} cannot be stat'd: ${(err as Error).message}`,
-      { code: FETCHER_ERROR_CODES.FILE_NOT_FOUND },
-    );
-  }
-  if (!stat.isFile()) {
-    throw new FetcherError(
-      `${label} ${JSON.stringify(realPath)} is not a regular file (got ${describeFileType(stat)})`,
-      { code: FETCHER_ERROR_CODES.FILE_NOT_REGULAR },
-    );
-  }
-  return { realPath, stat };
-}
-
-function describeFileType(st: Stats): string {
-  if (st.isDirectory()) return "directory";
-  if (st.isSymbolicLink()) return "symlink";
-  if (st.isBlockDevice()) return "block device";
-  if (st.isCharacterDevice()) return "character device";
-  if (st.isFIFO()) return "fifo";
-  if (st.isSocket()) return "socket";
-  return "non-regular";
+  return realPath;
 }

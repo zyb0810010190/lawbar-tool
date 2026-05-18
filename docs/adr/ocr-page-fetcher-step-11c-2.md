@@ -161,37 +161,85 @@ Layer B — **real-path containment**:
 Both layers run before any read of file bytes. Failure throws with
 stable code `path_escape`.
 
-### §6 Size + MIME + hash gates
+### §6 Gate order — size + MIME + hash
 
-Order matters (each step is cheap-before-expensive):
+Order matters. Pre-I/O checks first (cheapest), then path-level
+containment, then fd-bound size + content checks (audit 019e3a07
+fixes — D2 High TOCTOU, D2 Medium MIME signature, D3 Medium root
+normalization):
 
-1. **Lex containment** (no I/O).
-2. **Real-path containment** (one `realpath` + one `stat`).
-3. **Regular-file check** (same `stat`).
-4. **`byte_size` match** — `stat.size` MUST equal
-   `submission.pages[0].source.byte_size`. The schema already guarantees
-   the source declares a `byte_size ≥ 1`; mismatch implies the file
-   was replaced or the submission lied. Throws `size_mismatch`.
-5. **Size cap** — `stat.size` MUST be ≤ 50 MB
-   (`MAX_PAGE_BYTES = 50 * 1024 * 1024`). Throws `size_cap_exceeded`.
-6. **MIME allowlist** — `submission.pages[0].source.mime_type` MUST be
-   in `["image/jpeg", "image/png"]`. Throws `mime_unsupported`. PDFs
-   stay rejected (ADR-11A.0 §8 anti-PDF policy). The MIME is taken
-   from the submission, not sniffed from bytes — sniffing is out of
-   scope v1.
-7. **Read bytes** — `readFile(realPath)`.
+**Pre-I/O (CPU only):**
+
+1. **N=1 page count** — defense in depth (`multi_page_unsupported`).
+2. **`allowedFileRoot` validity** — non-empty absolute string
+   (`file_root_unconfigured`). Validated BEFORE the `resolve()`
+   normalization below so an empty / relative root is surfaced with
+   the actionable code instead of silently being CWD-rooted.
+3. **`allowedFileRoot` normalization** — `resolve(deps.allowedFileRoot)`
+   once at entry, canonical form used everywhere downstream. Closes
+   the audit 019e3a07 D3 hole where a valid absolute root containing
+   `..` segments (e.g. `/tmp/root/../root`) would otherwise falsely
+   reject every legitimate in-root candidate.
+4. **`source.kind === "file"`** (`source_kind_unsupported`). MIME
+   allowlist check happens after kind admission so non-file kinds
+   surface with the more specific code.
+5. **Declared MIME allowlist** — `mime_type` MUST be in
+   `["image/jpeg", "image/png"]` (`mime_unsupported`). Cheap; runs
+   before any path I/O. PDFs stay rejected (ADR-11A.0 §8).
+
+**Path containment (one realpath syscall, no fd yet):**
+
+6. **Lex containment** — `path` is relative, resolves strictly inside
+   the normalized root (`path_escape`).
+7. **Real-path containment** — `realpathSync.native(lexicalResolved)`
+   inside `realpathSync.native(allowedRoot)`. Catches symlink escapes
+   (`path_escape`). Resolves transitively (symlink → symlink → file).
+
+**fd-bound checks + read (audit 019e3a07 D2 High TOCTOU fix):**
+
+8. **`open(realPath, "r")`** — failure with `ENOENT` is
+   `file_not_found` (file disappeared between realpath and open).
+9. **`fh.stat()`** — fstat on the SAME fd we just opened. The size
+   + regular-file checks below run against this `st`, and so does
+   the read. A path replacement after step 8 cannot substitute a
+   different inode under us.
+10. **Regular-file check** — `st.isFile()` MUST be true
+    (`file_not_regular`). Catches directories, FIFOs, sockets,
+    devices that opened-with-mode-`"r"` would otherwise accept.
+11. **`byte_size` match** — `st.size === source.byte_size`
+    (`size_mismatch`). Pinned BEFORE the cap check so the more
+    specific code wins when both could fire.
+12. **Size cap** — `st.size ≤ MAX_PAGE_BYTES = 50 * 1024 * 1024`
+    (`size_cap_exceeded`). Cap is **inclusive** (the test at exactly
+    50 MB passes; the test at 50 MB + 1 rejects).
+13. **`fh.readFile()`** — reads from the SAME fd. The bytes are the
+    inode's contents that step 9's fstat measured.
+14. **Sanity** — `bytes.byteLength === st.size` (`size_mismatch`
+    with a same-inode-rewrite-race message). With an fd-bound read
+    this is normally tautological; the assertion is a hard pin that
+    no future refactor reintroduces a stat→read split.
+15. **MIME signature sniff** — bytes MUST start with the magic-byte
+    signature for the declared MIME (`mime_signature_mismatch`).
+    PNG: `89 50 4E 47 0D 0A 1A 0A`. JPEG: `FF D8 FF`. Closes the
+    audit 019e3a07 D2 Medium hole where a PDF (or arbitrary
+    content) declared as `image/png` would otherwise be silently
+    forwarded to the engine.
+16. **`fh.close()`** in `finally` regardless of success or throw.
 
 No SHA-256 verification of fetched bytes in v1. The submission schema
 does not currently carry a content hash; adding one is a separate
 narrowing change with no current consumer. If a downstream consumer
 needs cryptographic integrity, that's a future ADR.
 
-**TOCTOU caveat**: there is a window between `stat` and `readFile`
-during which the file at `realPath` could be replaced. The threat
-model assumes the file root is owned by the worker process (not a
-multi-tenant shared volume); if that assumption changes, swap to
-`open(path) + fstat(fd) + read(fd)` for an atomic check-then-read.
-Documented here so the swap is straightforward.
+**Residual TOCTOU**: the fd-bound pattern closes the path-replacement
+race. The remaining residual is a **same-inode in-place rewrite** —
+an attacker holding write access to the fd's inode could replace
+bytes between step 9 and step 13. This requires write access to a
+file under a worker-owned root, which is out of v1 threat model. If
+the root is ever a multi-tenant or guest-writable volume, swap to
+`fh.read(buf, 0, st.size, 0)` against a pre-allocated buffer
+(eliminates even the in-place-rewrite race by binding the read to
+the size we already measured).
 
 ### §7 Stable error codes
 
@@ -200,15 +248,16 @@ Exported from the fetcher module via a registry analogous to
 
 ```ts
 export const FETCHER_ERROR_CODES = Object.freeze({
-  SOURCE_KIND_UNSUPPORTED: "source_kind_unsupported",
-  MULTI_PAGE_UNSUPPORTED:  "multi_page_unsupported",
-  FILE_ROOT_UNCONFIGURED:  "file_root_unconfigured",
-  PATH_ESCAPE:             "path_escape",
-  FILE_NOT_FOUND:          "file_not_found",
-  FILE_NOT_REGULAR:        "file_not_regular",
-  SIZE_MISMATCH:           "size_mismatch",
-  SIZE_CAP_EXCEEDED:       "size_cap_exceeded",
-  MIME_UNSUPPORTED:        "mime_unsupported",
+  SOURCE_KIND_UNSUPPORTED:  "source_kind_unsupported",
+  MULTI_PAGE_UNSUPPORTED:   "multi_page_unsupported",
+  FILE_ROOT_UNCONFIGURED:   "file_root_unconfigured",
+  PATH_ESCAPE:              "path_escape",
+  FILE_NOT_FOUND:           "file_not_found",
+  FILE_NOT_REGULAR:         "file_not_regular",
+  SIZE_MISMATCH:            "size_mismatch",
+  SIZE_CAP_EXCEEDED:        "size_cap_exceeded",
+  MIME_UNSUPPORTED:         "mime_unsupported",
+  MIME_SIGNATURE_MISMATCH:  "mime_signature_mismatch",
 } as const);
 
 export class FetcherError extends Error {
