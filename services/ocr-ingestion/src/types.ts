@@ -66,14 +66,36 @@ export interface IngestionEnvironment {
  * validator, not at the queue or worker, so the rejection is observable
  * before any I/O. `multi_page_unsupported` is the contract code for that
  * rejection class.
+ *
+ * Runtime-frozen with `Object.freeze` (not only TS `as const`) so the
+ * public branch tokens cannot be mutated by a misbehaving consumer at
+ * runtime. `as const` alone is a compile-time guarantee; consumers using
+ * the JS surface would still be able to reassign without the freeze.
  */
-export const INGESTION_ERROR_CODES = {
+export const INGESTION_ERROR_CODES = Object.freeze({
   MULTI_PAGE_UNSUPPORTED: "multi_page_unsupported",
-} as const;
+} as const);
 
 export type IngestionErrorCode =
   (typeof INGESTION_ERROR_CODES)[keyof typeof INGESTION_ERROR_CODES];
 
+/**
+ * Ingestion-layer error.
+ *
+ * Carries an optional stable `code` for caller-side branching (see
+ * `INGESTION_ERROR_CODES`). Class identity is observed across packages
+ * (the `instanceof IngestionError` check is part of the public contract);
+ * do NOT re-declare this class in another module — re-export by value.
+ *
+ * Cross-realm caveat: `structuredClone(err)` does NOT preserve the
+ * subclass identity (the clone becomes a plain `Error`) and drops the
+ * `code` own-property. For cross-boundary transport (worker_threads, IPC,
+ * web workers), serialize to a plain object with explicit `{ name,
+ * message, code }` rather than cloning the Error instance.
+ * Same-realm rethrow preserves both. `JSON.stringify(err)` preserves
+ * the `code` own-property (but discards the message + name, like any
+ * Error).
+ */
 export class IngestionError extends Error {
   /**
    * Optional stable code for caller-side branching. `undefined` means the

@@ -22,6 +22,11 @@ import {
 const DEFAULT_CONTRACT_VERSION = "1.0.0";
 const DEFAULT_OCR_LANGUAGES = ["zh-Hans", "en"];
 
+// ADR-11B §3: v1 caps OCR jobs at one page. NOT configurable — the
+// lease-renewal math in §3 assumes this. If v2 ever changes the policy,
+// update the ADR and this constant together.
+const MAX_V1_PAGES_PER_SUBMISSION = 1;
+
 const DEFAULT_OCR_OPTIONS = {
   languages: DEFAULT_OCR_LANGUAGES,
   detect_orientation: true,
@@ -73,13 +78,13 @@ export function createOcrSubmissionFromDocument(
   if (!Array.isArray(input.pages) || input.pages.length === 0) {
     throw new IngestionError("at least one page is required");
   }
-  // ADR-11B §3: v1 caps OCR jobs at N=1 page so lease-renewal math holds
+  // ADR-11B §3: v1 caps OCR jobs at one page so lease-renewal math holds
   // (no renewal needed). Multi-page submissions must be rejected here at
   // the validator, before any persistence or queue I/O, with a stable
   // contract code callers can branch on.
-  if (input.pages.length > 1) {
+  if (input.pages.length > MAX_V1_PAGES_PER_SUBMISSION) {
     throw new IngestionError(
-      `multi-page OCR submissions are not supported in v1 (received ${input.pages.length} pages; cap is 1 per ADR-11B §3)`,
+      `multi-page OCR submissions are not supported in v1 (received ${input.pages.length} pages; cap is ${MAX_V1_PAGES_PER_SUBMISSION} per ADR-11B §3)`,
       { code: INGESTION_ERROR_CODES.MULTI_PAGE_UNSUPPORTED },
     );
   }
