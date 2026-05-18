@@ -456,3 +456,125 @@ test("--help short-circuit returns queue=memory regardless of env", () => {
   assert.equal(cfg.help_requested, true);
   assert.equal(cfg.queue, "memory");
 });
+
+// ---------------------------------------------------------------------------
+// ADR-11C.3c — worker_kind + fetcher_file_root
+// ---------------------------------------------------------------------------
+
+test("worker_kind defaults to fake when OCR_WORKER unset", () => {
+  const cfg = parseOcrWorkerConfig({ env: {}, argv: [] });
+  assert.equal(cfg.worker_kind, "fake");
+  assert.equal(cfg.fetcher_file_root, undefined);
+});
+
+test("OCR_WORKER=fake explicitly opts into the fake worker", () => {
+  const cfg = parseOcrWorkerConfig({ env: { OCR_WORKER: "fake" }, argv: [] });
+  assert.equal(cfg.worker_kind, "fake");
+  assert.equal(cfg.fetcher_file_root, undefined);
+});
+
+test("OCR_WORKER=paddleocr-onnx with absolute OCR_FETCHER_FILE_ROOT parses cleanly", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: {
+      OCR_WORKER: "paddleocr-onnx",
+      OCR_FETCHER_FILE_ROOT: "/var/ocr/incoming",
+    },
+    argv: [],
+  });
+  assert.equal(cfg.worker_kind, "paddleocr-onnx");
+  assert.equal(cfg.fetcher_file_root, "/var/ocr/incoming");
+});
+
+test("OCR_WORKER=paddleocr-onnx without OCR_FETCHER_FILE_ROOT throws", () => {
+  assert.throws(
+    () => parseOcrWorkerConfig({ env: { OCR_WORKER: "paddleocr-onnx" }, argv: [] }),
+    (err) => /paddleocr-onnx requires fetcher_file_root/.test(err.message),
+  );
+});
+
+test("OCR_WORKER=paddleocr-onnx with relative OCR_FETCHER_FILE_ROOT throws", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: {
+          OCR_WORKER: "paddleocr-onnx",
+          OCR_FETCHER_FILE_ROOT: "relative/path",
+        },
+        argv: [],
+      }),
+    (err) => /must be an absolute path/.test(err.message),
+  );
+});
+
+test("OCR_WORKER=paddleocr-onnx with empty OCR_FETCHER_FILE_ROOT throws", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER: "paddleocr-onnx", OCR_FETCHER_FILE_ROOT: "" },
+        argv: [],
+      }),
+    (err) => /requires fetcher_file_root/.test(err.message),
+  );
+});
+
+test("--worker paddleocr-onnx --fetcher-file-root /abs/path parses", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: {},
+    argv: ["--worker", "paddleocr-onnx", "--fetcher-file-root", "/var/ocr/in"],
+  });
+  assert.equal(cfg.worker_kind, "paddleocr-onnx");
+  assert.equal(cfg.fetcher_file_root, "/var/ocr/in");
+});
+
+test("argv --worker overrides env OCR_WORKER", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: { OCR_WORKER: "paddleocr-onnx", OCR_FETCHER_FILE_ROOT: "/var/ocr" },
+    argv: ["--worker", "fake"],
+  });
+  assert.equal(cfg.worker_kind, "fake");
+  // fake doesn't require root, but the env value still propagates
+  // (harmless — the fake worker ignores it).
+  assert.equal(cfg.fetcher_file_root, "/var/ocr");
+});
+
+test("argv --fetcher-file-root overrides env OCR_FETCHER_FILE_ROOT", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: {
+      OCR_WORKER: "paddleocr-onnx",
+      OCR_FETCHER_FILE_ROOT: "/env/path",
+    },
+    argv: ["--fetcher-file-root", "/argv/path"],
+  });
+  assert.equal(cfg.worker_kind, "paddleocr-onnx");
+  assert.equal(cfg.fetcher_file_root, "/argv/path");
+});
+
+test("invalid --worker value rejects with actionable error", () => {
+  assert.throws(
+    () => parseOcrWorkerConfig({ env: {}, argv: ["--worker", "tesseract"] }),
+    (err) =>
+      /unknown worker kind.*tesseract/.test(err.message) &&
+      /"fake".*"paddleocr-onnx"/.test(err.message),
+  );
+});
+
+test("repeated --worker flag rejects", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: {},
+        argv: ["--worker", "fake", "--worker", "paddleocr-onnx"],
+      }),
+    (err) => /flag --worker repeated/.test(err.message),
+  );
+});
+
+test("--help short-circuit returns worker_kind=fake regardless of env", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: { OCR_WORKER: "paddleocr-onnx", OCR_FETCHER_FILE_ROOT: "/x" },
+    argv: ["--help"],
+  });
+  assert.equal(cfg.help_requested, true);
+  assert.equal(cfg.worker_kind, "fake");
+  assert.equal(cfg.fetcher_file_root, undefined);
+});

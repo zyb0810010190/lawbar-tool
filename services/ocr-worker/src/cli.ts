@@ -17,7 +17,6 @@
 //   1 — loop terminated with stop_reason="error"
 //   2 — config parse failure OR dep wiring failure (startup failure)
 
-import { processFakeOcrJob } from "ocr-worker-contract/testing";
 import {
   InMemoryOcrPersistence,
   openSqliteOcrPersistence,
@@ -40,7 +39,9 @@ import {
   type OcrCoordinatorLike,
   type OcrWorkerLoopSummary,
 } from "./workerLoop.js";
-import type { OcrJob, OcrJobQueueBackend, OcrWorker } from "./types.js";
+import { WORKER_REGISTRY } from "./registry.js";
+import { makeRealPaddleEngine } from "./engines/real-paddleocr-engine.js";
+import type { OcrJobQueueBackend, OcrWorker } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -238,16 +239,42 @@ export async function runOcrWorkerProcess(
 // Default deps factory
 // ---------------------------------------------------------------------------
 
-const defaultFakeWorker: OcrWorker = {
-  async process(job: OcrJob) {
-    return processFakeOcrJob(job.submission, {
-      scenario: job.scenario ?? "success",
-    });
-  },
-};
+/**
+ * Route the config's `worker_kind` to a concrete `OcrWorker` via
+ * WORKER_REGISTRY. Throws from this function (engine cold-load
+ * failure, missing fetcher root) bubble out of `buildDefaultDeps` and
+ * land at `runOcrWorkerProcess`'s top-level catch, which maps them
+ * to exit 2 (config fault) per ADR-11A.0 §10 + ADR-11C.3c §3.
+ */
+async function constructWorker(config: OcrWorkerConfig): Promise<OcrWorker> {
+  switch (config.worker_kind) {
+    case "fake":
+      return WORKER_REGISTRY.fake.load();
+    case "paddleocr-onnx": {
+      // Cross-validation: config parser already enforces this, but
+      // defense-in-depth — the registry's load() guard also requires
+      // a string, so a missing root would surface as a different
+      // (less actionable) error if it slipped past config parse.
+      if (config.fetcher_file_root === undefined) {
+        throw new OcrWorkerConfigError(
+          "internal: worker_kind=paddleocr-onnx with no fetcher_file_root after config parse",
+        );
+      }
+      // Cold load happens here. Failure (missing models, native-binary
+      // load failure, etc.) throws out of this function and maps to
+      // exit 2 at the bin's top-level catch.
+      const { engine, version } = await makeRealPaddleEngine();
+      return WORKER_REGISTRY["paddleocr-onnx"].load({
+        fetcher: { allowedFileRoot: config.fetcher_file_root },
+        engine,
+        engineVersion: version,
+      });
+    }
+  }
+}
 
 async function buildDefaultDeps(config: OcrWorkerConfig): Promise<OcrWorkerProcessDeps> {
-  const worker = defaultFakeWorker;
+  const worker = await constructWorker(config);
 
   if (config.persistence === "sqlite") {
     if (config.sqlite_path === undefined) {

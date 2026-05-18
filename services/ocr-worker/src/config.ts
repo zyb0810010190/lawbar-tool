@@ -7,7 +7,10 @@
 // Argv > env > defaults. Both `--flag=value` and `--flag value` forms are
 // accepted. Bare boolean flags (e.g. `--include-empty-outcomes`) imply true.
 
+import { isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
+
+import type { WorkerKey } from "./registry.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -16,9 +19,29 @@ import { randomUUID } from "node:crypto";
 export type OcrWorkerPersistenceKind = "memory" | "sqlite";
 export type OcrWorkerQueueKind = "memory" | "sqlite";
 
+const VALID_WORKER_KINDS: ReadonlySet<WorkerKey> = new Set<WorkerKey>([
+  "fake",
+  "paddleocr-onnx",
+]);
+
 export interface OcrWorkerConfig {
   /** Stable worker identity; passed to `claimNext`. */
   worker_id: string;
+  /**
+   * Which worker the bin loads from `WORKER_REGISTRY`. Default `"fake"`
+   * (preserves back-compat with the pre-11C.3c bin behavior). Production
+   * deployers MUST set `OCR_WORKER=paddleocr-onnx` explicitly; running
+   * fake in production is operator error (same class as forgetting any
+   * other env). The bin emits the chosen worker in its stderr config
+   * line so operators see what they got.
+   */
+  worker_kind: WorkerKey;
+  /**
+   * Absolute path under which every `file://` source path must resolve.
+   * Forwarded to `FetcherDeps.allowedFileRoot`. REQUIRED when
+   * `worker_kind === "paddleocr-onnx"`; unset for `"fake"`.
+   */
+  fetcher_file_root: string | undefined;
   /** Which persistence backend to construct in the default deps factory. */
   persistence: OcrWorkerPersistenceKind;
   /**
@@ -73,6 +96,8 @@ export interface ParseOcrWorkerConfigInput {
  *
  * Recognized argv flags (long form only):
  *   --worker-id <s>
+ *   --worker <fake|paddleocr-onnx>
+ *   --fetcher-file-root <absolute-path>
  *   --persistence <memory|sqlite>
  *   --queue <memory|sqlite>
  *   --sqlite-path <s>
@@ -83,6 +108,8 @@ export interface ParseOcrWorkerConfigInput {
  *
  * Recognized env keys:
  *   OCR_WORKER_ID
+ *   OCR_WORKER (= worker_kind; default "fake")
+ *   OCR_FETCHER_FILE_ROOT
  *   OCR_WORKER_PERSISTENCE
  *   OCR_WORKER_QUEUE
  *   OCR_WORKER_SQLITE_PATH
@@ -101,6 +128,8 @@ export function parseOcrWorkerConfig(
   if (argvFlags.help) {
     return {
       worker_id: pickString(argvFlags.values.workerId, env.OCR_WORKER_ID) ?? generateWorkerId(),
+      worker_kind: "fake",
+      fetcher_file_root: undefined,
       persistence: "memory",
       queue: "memory",
       sqlite_path: undefined,
@@ -173,8 +202,33 @@ export function parseOcrWorkerConfig(
   const workerId =
     pickString(argvFlags.values.workerId, env.OCR_WORKER_ID) ?? generateWorkerId();
 
+  // Worker kind: argv > env > default "fake" (ADR-11C.3c §1).
+  const workerKindRaw = pickString(argvFlags.values.worker, env.OCR_WORKER);
+  const workerKind = parseWorkerKind(workerKindRaw);
+
+  // Fetcher root: argv > env > undefined. Cross-validated below.
+  const fetcherFileRoot = pickString(
+    argvFlags.values.fetcherFileRoot,
+    env.OCR_FETCHER_FILE_ROOT,
+  );
+  if (workerKind === "paddleocr-onnx") {
+    if (fetcherFileRoot === undefined || fetcherFileRoot.length === 0) {
+      throw new OcrWorkerConfigError(
+        "worker=paddleocr-onnx requires fetcher_file_root " +
+          "(env OCR_FETCHER_FILE_ROOT or --fetcher-file-root)",
+      );
+    }
+    if (!isAbsolute(fetcherFileRoot)) {
+      throw new OcrWorkerConfigError(
+        `fetcher_file_root must be an absolute path (got ${JSON.stringify(fetcherFileRoot)})`,
+      );
+    }
+  }
+
   return {
     worker_id: workerId,
+    worker_kind: workerKind,
+    fetcher_file_root: fetcherFileRoot,
     persistence,
     queue,
     sqlite_path: sqlitePath,
@@ -183,6 +237,17 @@ export function parseOcrWorkerConfig(
     include_empty_outcomes: includeEmptyOutcomes,
     help_requested: false,
   };
+}
+
+function parseWorkerKind(raw: string | undefined): WorkerKey {
+  if (raw === undefined) return "fake";
+  if (!VALID_WORKER_KINDS.has(raw as WorkerKey)) {
+    throw new OcrWorkerConfigError(
+      `unknown worker kind ${JSON.stringify(raw)}; expected one of ` +
+        `${[...VALID_WORKER_KINDS].map((k) => JSON.stringify(k)).join(", ")}`,
+    );
+  }
+  return raw as WorkerKey;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +262,8 @@ interface ArgvParseResult {
    */
   values: {
     workerId?: string;
+    worker?: string;
+    fetcherFileRoot?: string;
     persistence?: string;
     queue?: string;
     sqlitePath?: string;
@@ -209,6 +276,8 @@ interface ArgvParseResult {
 
 const KNOWN_FLAGS: ReadonlyMap<string, keyof ArgvParseResult["values"] | "help"> = new Map([
   ["--worker-id", "workerId"],
+  ["--worker", "worker"],
+  ["--fetcher-file-root", "fetcherFileRoot"],
   ["--persistence", "persistence"],
   ["--queue", "queue"],
   ["--sqlite-path", "sqlitePath"],
