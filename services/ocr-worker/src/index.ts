@@ -63,3 +63,11 @@ export {
   type OcrWorkerProcessLike,
   type RunOcrWorkerProcessOptions,
 } from "./cli.js";
+export {
+  fetchPageBytes,
+  FetcherError,
+  FETCHER_ERROR_CODES,
+  type FetcherErrorCode,
+  type FetcherDeps,
+  type FetchedPage,
+} from "./fetcher/index.js";

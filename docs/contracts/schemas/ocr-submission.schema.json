@@ -181,6 +181,16 @@
             "byte_size": { "type": "integer", "minimum": 1, "maximum": 1048576 },
             "mime_type": { "type": "string", "minLength": 1 }
           }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "path", "byte_size", "mime_type"],
+          "properties": {
+            "kind":      { "const": "file" },
+            "path":      { "type": "string", "minLength": 1 },
+            "byte_size": { "type": "integer", "minimum": 1 },
+            "mime_type": { "type": "string", "minLength": 1 }
+          }
         }
       ]
     }

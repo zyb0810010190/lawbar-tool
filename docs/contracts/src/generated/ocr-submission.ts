@@ -46,6 +46,13 @@ export type Source =
       byte_size: number;
       mime_type?: string;
       [k: string]: unknown;
+    }
+  | {
+      kind: "file";
+      path: string;
+      byte_size: number;
+      mime_type: string;
+      [k: string]: unknown;
     };
 
 /**
