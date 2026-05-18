@@ -20,11 +20,21 @@
 // back-off. The single-shot shape lets every test pin time, queue
 // state, and persistence state explicitly.
 
-import { isTerminalState } from "ocr-worker-contract";
+import { randomUUID } from "node:crypto";
+
+import {
+  classifyOcrFailureForRetry,
+  isTerminalState,
+  RetryPolicyError,
+  validateOcrSubmission,
+} from "ocr-worker-contract";
 import type {
   OcrJobActor,
   OcrJobState,
   OcrResult,
+  OcrSubmission,
+  PartialFailure,
+  RetryPolicy,
   TransitionRecord,
 } from "ocr-worker-contract";
 
@@ -72,6 +82,14 @@ export type OcrCoordinatorOutcome =
   | "completed"
   | "completed_already_terminal"
   | "requeued"
+  // ADR-11F: transient failure with retry budget remaining — coordinator
+  // appended failed->queued and re-enqueued a fresh job with bumped
+  // submission.retry.attempt.
+  | "retried"
+  // ADR-11F: permanent failure OR transient with budget exhausted —
+  // coordinator appended failed->dead_lettered. terminal_state on the
+  // job record auto-refreshes to "dead_lettered" via persistence.
+  | "dead_lettered"
   | "persistence_failed"
   | "ack_failed"
   | "lease_lost";
@@ -103,6 +121,12 @@ export interface ProcessOneOcrQueueClaimOptions {
   worker_id: string;
   /** Deterministic clock for the coordinator-owned `queued→claimed` write. */
   now?: () => Date;
+  /**
+   * Transport-id generator for the requeued OcrJob (ADR-11F retry path).
+   * Default: `crypto.randomUUID()`. Tests inject a deterministic
+   * generator to assert the requeue produces a predictable id.
+   */
+  generateJobId?: () => string;
 }
 
 export interface OcrProcessingCoordinatorOptions
@@ -139,6 +163,7 @@ export async function processOneOcrQueueClaim(
 ): Promise<OcrCoordinatorResult> {
   const { queue, persistence, worker, worker_id } = opts;
   const now = opts.now ?? (() => new Date());
+  const generateJobId = opts.generateJobId ?? (() => randomUUID());
 
   // Step 1: claim
   const claim = await queue.claimNext(worker_id);
@@ -210,7 +235,7 @@ export async function processOneOcrQueueClaim(
     return await tryRequeueAs(queue, claim, "requeued", validation.reason);
   }
 
-  // Step 7: Step-10C-specific normalization
+  // Step 7: Step-10C/11F-specific normalization
   const norm = normalizeForStep10C(workerOutcome.statuses);
   if (!norm.ok) {
     return await tryRequeueAs(queue, claim, "requeued", norm.reason);
@@ -218,30 +243,232 @@ export async function processOneOcrQueueClaim(
   const transitionsToPersist = norm.transitions;
   const resultsToPersist: ReadonlyArray<OcrResult> = workerOutcome.results;
 
-  // Step 8: persist statuses + results via replay-safe primitives
+  // Step 7.5 (ADR-11F, B3): if the worker terminal is `failed`, the
+  // outcome MUST carry at least one failed result so the classifier has
+  // something to decide on. A failed-terminal with empty / non-failed
+  // results is an invalid worker output (contract validation is
+  // schema-only and does not enforce this coherence). Reject via
+  // requeue so the persisted state is not advanced into an
+  // un-classifiable shape.
+  const lastTransition = transitionsToPersist[transitionsToPersist.length - 1];
+  const isFailedTerminal =
+    lastTransition !== undefined && lastTransition.to === "failed";
+  if (isFailedTerminal) {
+    const hasFailedResult = resultsToPersist.some((r) => r.status === "failed");
+    if (!hasFailedResult) {
+      return await tryRequeueAs(
+        queue,
+        claim,
+        "requeued",
+        "worker emitted terminal_state='failed' with no result carrying status='failed'; cannot classify for retry",
+      );
+    }
+  }
+
+  // Step 7.6 (ADR-11F): pre-compute retry decision BEFORE persisting any
+  // results. If we will retry, the failed result for this attempt must
+  // NOT be written — persistence is keyed on (job_id, page_id) and the
+  // next attempt's result would collide. (Cross-validated against
+  // services/ocr-persistence/src/{inMemoryRepo.ts,sqlite/SqliteOcrPersistence.ts}
+  // result-conflict guards.)
+  let retryDecision: { kind: "retry" | "dead_letter"; reason: string } | null = null;
+  let validatedSubmission: OcrSubmission | null = null;
+  let validatedRetryPolicy: RetryPolicy | null = null;
+  if (isFailedTerminal) {
+    const submissionVerdict = validateOcrSubmission(claim.job.submission);
+    if (!submissionVerdict.ok) {
+      // Submission failed contract validation at the coordinator seam.
+      // Without a typed retry policy we cannot classify; refuse to
+      // advance persistence and surface for operator intervention.
+      return {
+        outcome: "persistence_failed",
+        job_id: claim.job_id,
+        statuses_persisted,
+        results_persisted: 0,
+        error: {
+          message:
+            `submission failed contract validation at retry seam: ${submissionVerdict.summary}`,
+        },
+      };
+    }
+    validatedSubmission = submissionVerdict.value;
+    // The generated OcrSubmission type widens `retry` to a bag of
+    // unknown properties (cross-schema invariants live in Ajv at
+    // runtime). The submission just passed validateOcrSubmission, so the
+    // runtime shape is RetryPolicy; assert that locally for the
+    // classifier call.
+    validatedRetryPolicy = validatedSubmission.retry as unknown as RetryPolicy;
+
+    for (const result of resultsToPersist) {
+      if (result.status !== "failed") continue;
+      // classifyOcrFailureForRetry throws RetryPolicyError on invalid
+      // numeric retry counters (B4). Schema validation does not catch
+      // attempt > max_attempts; map any throw to a documented outcome
+      // rather than letting it escape the coordinator.
+      let verdict;
+      try {
+        verdict = classifyOcrFailureForRetry({
+          status: result.status,
+          failure: (result.partial_failure ?? null) as PartialFailure | null,
+          retry: validatedRetryPolicy,
+        });
+      } catch (err) {
+        // Map the contract's documented retry-policy guard to a
+        // coordinator outcome. Unexpected errors (logic bugs, runtime
+        // failures) still propagate per the function's overall
+        // "fail fast on non-OcrQueueError" stance.
+        if (err instanceof RetryPolicyError) {
+          return {
+            outcome: "persistence_failed",
+            job_id: claim.job_id,
+            statuses_persisted,
+            results_persisted: 0,
+            error: {
+              message:
+                `retry classifier rejected submission retry policy: ${err.message}`,
+            },
+          };
+        }
+        throw err;
+      }
+      if (verdict.kind === "retry") {
+        retryDecision = { kind: "retry", reason: verdict.reason };
+        break;
+      }
+      if (verdict.kind === "dead_letter" && retryDecision === null) {
+        retryDecision = { kind: "dead_letter", reason: verdict.reason };
+      }
+    }
+  }
+  const isRetryDecision = retryDecision?.kind === "retry";
+
+  // Step 8: persist transitions (always) + results (skipped on retry).
+  //
+  // On the retry path the failed result for this attempt is discarded:
+  // persistence stores one OcrResult per (job_id, page_id), so writing
+  // it would collide with the next attempt's result. The worker
+  // transitions still go in — they are the audit trail of what
+  // happened — but the result body does not.
   let results_persisted = 0;
   try {
     for (const t of transitionsToPersist) {
       await persistence.appendOcrStatusOnce(claim.job_id, t);
       statuses_persisted++;
     }
-    for (const r of resultsToPersist) {
-      await persistence.saveOcrResultOnce(claim.job_id, r);
-      results_persisted++;
+    if (!isRetryDecision) {
+      for (const r of resultsToPersist) {
+        await persistence.saveOcrResultOnce(claim.job_id, r);
+        results_persisted++;
+      }
     }
   } catch (err) {
-    // ADR Decision 9: do NOT complete the claim on persistence conflict.
-    // We also do not requeue here — the divergence should stay visible
-    // (the lease will eventually expire and the queue will redeliver,
-    // at which point the terminal-skip path or replay-safe append will
-    // re-evaluate). Returning persistence_failed leaves the claim in
-    // active state on the queue, which is the documented behavior.
     return {
       outcome: "persistence_failed",
       job_id: claim.job_id,
       statuses_persisted,
       results_persisted,
       error: { message: `persistence write failed: ${errorMessage(err)}` },
+    };
+  }
+
+  // Step 8.5 (ADR-11F): coordinator-owned queue edge off `failed`.
+  if (retryDecision !== null) {
+    // Both validatedSubmission + validatedRetryPolicy are non-null by
+    // construction here (a non-null retryDecision means we entered the
+    // `isFailedTerminal` branch above and successfully validated the
+    // submission). Defensively assert to satisfy TS narrowing.
+    if (validatedSubmission === null || validatedRetryPolicy === null) {
+      throw new Error(
+        "internal: retryDecision set without validated submission/retry policy",
+      );
+    }
+    const nextState: OcrJobState =
+      retryDecision.kind === "retry" ? "queued" : "dead_lettered";
+    try {
+      await persistence.appendOcrStatusOnce(claim.job_id, {
+        from: "failed",
+        to: nextState,
+        controlled_by: "queue" as OcrJobActor,
+        at: now().toISOString(),
+        note: retryDecision.reason,
+      });
+      statuses_persisted++;
+    } catch (err) {
+      return {
+        outcome: "persistence_failed",
+        job_id: claim.job_id,
+        statuses_persisted,
+        results_persisted,
+        error: {
+          message:
+            `appendOcrStatusOnce(failed→${nextState}) failed: ${errorMessage(err)}`,
+        },
+      };
+    }
+
+    // Complete the current claim BEFORE enqueueing the retry. The queue
+    // dedupes on (job_id, canonical submission JSON), and the original
+    // claim is still active here with the old submission — re-enqueueing
+    // a bumped-attempt submission for the same job_id before completing
+    // would trip the queue's dedupe-conflict check. Completing first
+    // releases the active slot so the retry enqueue is a clean insert.
+    try {
+      await queue.completeClaim(claim);
+    } catch (err) {
+      if (err instanceof OcrQueueError) {
+        return {
+          outcome: mapQueueErrorToAckOutcome(err),
+          job_id: claim.job_id,
+          statuses_persisted,
+          results_persisted,
+          error: { code: err.code, message: err.message },
+        };
+      }
+      throw err;
+    }
+
+    if (retryDecision.kind === "retry") {
+      // Bump retry.attempt on a deep clone so we do not mutate the
+      // claim's in-memory submission. The generated type widens `retry`
+      // to a bag of unknown; re-assert RetryPolicy on the clone.
+      const nextSubmission: OcrSubmission = structuredClone(validatedSubmission);
+      const clonedRetry = nextSubmission.retry as unknown as RetryPolicy;
+      clonedRetry.attempt = validatedRetryPolicy.attempt + 1;
+      const nextJob: OcrJob = {
+        id: generateJobId(),
+        submission: nextSubmission,
+        enqueued_at: now().toISOString(),
+      };
+      try {
+        await queue.enqueue(nextJob);
+      } catch (err) {
+        // Persistence is the source of truth: failed→queued was already
+        // persisted and the original claim is already completed. The
+        // job is in `queued` state per persistence but has no queue
+        // row. Surface the enqueue failure so an operator can re-enqueue
+        // from persisted state; we explicitly do NOT roll back the
+        // transition (replay-safe append on a future re-enqueue keeps
+        // the chain coherent).
+        const code = err instanceof OcrQueueError ? err.code : undefined;
+        return {
+          outcome: "persistence_failed",
+          job_id: claim.job_id,
+          statuses_persisted,
+          results_persisted,
+          error: {
+            code,
+            message:
+              `failed→queued persisted but queue.enqueue(retry) failed: ${errorMessage(err)}`,
+          },
+        };
+      }
+    }
+
+    return {
+      outcome: retryDecision.kind === "retry" ? "retried" : "dead_lettered",
+      job_id: claim.job_id,
+      statuses_persisted,
+      results_persisted,
     };
   }
 
@@ -295,10 +522,11 @@ type NormalizationResult = NormalizationOk | NormalizationErr;
  *      lease-recovery, DLQ, or cancellation signal and must be rejected
  *      (not silently filtered).
  *   3. The remaining sequence must end at a worker terminal state
- *      admitted in Step 10C: `succeeded` or `partial_succeeded`.
- *      A worker outcome ending at `failed` is rejected because the next
- *      legal continuation (`failed → queued` / `failed → dead_lettered`)
- *      is queue-owned and out of Step 10C scope.
+ *      admitted in Step 10C/11F: `succeeded`, `partial_succeeded`, or
+ *      `failed`. Per ADR-11F the coordinator now owns the queue-controlled
+ *      continuation off `failed` (either `failed → queued` for retry or
+ *      `failed → dead_lettered` for dead-letter); the worker's
+ *      `processing → failed` edge stays worker-owned.
  */
 function normalizeForStep10C(
   statuses: ReadonlyArray<TransitionRecord>,
@@ -340,12 +568,16 @@ function normalizeForStep10C(
   if (last === undefined) {
     return { ok: false, reason: "internal: empty worker tail after normalization" };
   }
-  if (last.to !== "succeeded" && last.to !== "partial_succeeded") {
+  if (
+    last.to !== "succeeded" &&
+    last.to !== "partial_succeeded" &&
+    last.to !== "failed"
+  ) {
     return {
       ok: false,
       reason:
-        `worker outcome ends at '${last.to}'; Step 10C admits only ` +
-        `'succeeded' or 'partial_succeeded' worker-terminal outcomes`,
+        `worker outcome ends at '${last.to}'; Step 10C/11F admits only ` +
+        `'succeeded', 'partial_succeeded', or 'failed' worker-terminal outcomes`,
     };
   }
 
