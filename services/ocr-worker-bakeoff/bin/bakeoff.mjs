@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { makeTesseractCandidate } from "../dist/harnesses/tesseract.js";
+import { makePaddleOcrOnnxCandidate } from "../dist/harnesses/paddleocr-onnx.js";
 import { runBakeoff } from "../dist/runner.js";
 import { loadManifest, ManifestValidationError, collectLanguages } from "../dist/manifest.js";
 
@@ -70,15 +71,19 @@ const requiredLanguages = collectLanguages(fixtures, { role: args.role });
 // so the harness still has a sensible probe target.
 const probeLanguages = requiredLanguages.length > 0 ? requiredLanguages : ["eng"];
 
-const candidate = makeTesseractCandidate(fixturesRoot, {
+const tesseract = makeTesseractCandidate(fixturesRoot, {
+  required_languages: probeLanguages,
+});
+const paddleocrOnnx = makePaddleOcrOnnxCandidate(fixturesRoot, {
   required_languages: probeLanguages,
 });
 
 const report = await runBakeoff({
-  candidates: [candidate],
+  candidates: [tesseract, paddleocrOnnx],
   fixtures,
   roleFilter: args.role,
   fixturesRoot,
+  timeout_ms: 60_000,
 });
 
 process.stdout.write(JSON.stringify(report, null, 2) + "\n");

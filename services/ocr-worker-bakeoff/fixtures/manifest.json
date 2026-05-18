@@ -22,7 +22,117 @@
         "source_text": "hello bakeoff",
         "notes": "Rendered with ImageMagick 7.1.2-19 on macOS. Tesseract 5.5.2 (eng) reads this image verbatim as 'hello bakeoff' — CER = 0 against the authored source phrase."
       },
-      "notes": "First synthetic fixture; verifies the Tesseract harness end-to-end. The Chinese verdict corpus (≥5 active synthetic + ≥2 active real, per Q3 sign-off) is built in γ/δ once tesseract-lang / PaddleOCR / RapidOCR are in scope."
+      "notes": "First synthetic fixture; verifies the Tesseract harness end-to-end. The Chinese verdict corpus is built by the zh-* fixtures below."
+    },
+    {
+      "active": true,
+      "id": "zh-02-court-heading",
+      "role": "verdict",
+      "kind": "synthetic",
+      "category": "printed-chinese-heading",
+      "path": "synthetic/zh-02-court-heading.png",
+      "expected_text_path": "synthetic/zh-02-court-heading.txt",
+      "sha256": "eb456e6b27acda0ecd79cea057a2d880e3d302d5f9e68751bbfc0a44d3c47c94",
+      "expected_text_sha256": "1606371d07c1332c8f4083571de6c7b9429c67917de6d841331b03fce65b2a54",
+      "language": "zh-Hans",
+      "provenance": "Synthetic v1, simplified-Chinese court heading. Rendered offline via ImageMagick 7.1.2 on darwin-arm64 with Hiragino Sans GB; canonical bytes committed. CI never regenerates.",
+      "last_verified_at": "2026-05-18T00:00:00Z",
+      "render": {
+        "render_command": "magick -size 800x80 xc:white -font /System/Library/Fonts/Hiragino\\ Sans\\ GB.ttc -pointsize 44 -gravity center -annotate +0+0 '上海市浦东新区人民法院' zh-02-court-heading.png",
+        "font": "Hiragino Sans GB (/System/Library/Fonts/Hiragino Sans GB.ttc)",
+        "point_size": 44,
+        "canvas": "800x80",
+        "source_text": "上海市浦东新区人民法院",
+        "notes": "Court heading category — short, large display text. PaddleOCR-ONNX reads it verbatim (CER 0 against the authored source) on the 2026-05-18 host."
+      }
+    },
+    {
+      "active": true,
+      "id": "zh-03-case-number",
+      "role": "verdict",
+      "kind": "synthetic",
+      "category": "printed-chinese-case-number",
+      "path": "synthetic/zh-03-case-number.png",
+      "expected_text_path": "synthetic/zh-03-case-number.txt",
+      "sha256": "2c85dc524badbc0f26acac0b0707694d9d0fec1328ceea6981c39e8dd521629e",
+      "expected_text_sha256": "bdfe6e84774bc10cba35f1e67da00cef8b216075ea314efffd9b4a7a99ab4f12",
+      "language": "zh-Hans",
+      "provenance": "Synthetic v1, simplified-Chinese case number with half-width parentheses + ASCII digits + Chinese. Tests engine handling of half/full-width punctuation drift — PaddleOCR-ONNX returns full-width '（）' even though the authored source uses ASCII '()'.",
+      "last_verified_at": "2026-05-18T00:00:00Z",
+      "render": {
+        "render_command": "magick -size 800x80 xc:white -font /System/Library/Fonts/Hiragino\\ Sans\\ GB.ttc -pointsize 40 -gravity center -annotate +0+0 '(2025) 沪0115民初12345号' zh-03-case-number.png",
+        "font": "Hiragino Sans GB",
+        "point_size": 40,
+        "canvas": "800x80",
+        "source_text": "(2025) 沪0115民初12345号",
+        "notes": "Mixed half-width punctuation + digits + Chinese. CER non-zero is expected here for PaddleOCR-ONNX because the model emits full-width parens — this is honest engine signal for the ε verdict, not a fixture bug."
+      }
+    },
+    {
+      "active": true,
+      "id": "zh-04-judgment-paragraph",
+      "role": "verdict",
+      "kind": "synthetic",
+      "category": "printed-chinese-paragraph",
+      "path": "synthetic/zh-04-judgment-paragraph.png",
+      "expected_text_path": "synthetic/zh-04-judgment-paragraph.txt",
+      "sha256": "1d92c6fc61494f5c0ebb24b917b7436ae5e29ba600d8d4bb8bbf78cca0083327",
+      "expected_text_sha256": "86cae3cddcbdf28fdb64f34f6e6394f0553b59ee3c3d3f55efaae025a32679f3",
+      "language": "zh-Hans",
+      "provenance": "Synthetic v1, simplified-Chinese paragraph from a fictional judgment opinion. Tests engine handling of a single long line of pure Chinese including a colon (：) and period (。).",
+      "last_verified_at": "2026-05-18T00:00:00Z",
+      "render": {
+        "render_command": "magick -size 1200x80 xc:white -font /System/Library/Fonts/Hiragino\\ Sans\\ GB.ttc -pointsize 36 -gravity center -annotate +0+0 '本院经审理查明：被告于二零二五年五月签订合同。' zh-04-judgment-paragraph.png",
+        "font": "Hiragino Sans GB",
+        "point_size": 36,
+        "canvas": "1200x80",
+        "source_text": "本院经审理查明：被告于二零二五年五月签订合同。",
+        "notes": "Pure Chinese paragraph. PaddleOCR-ONNX reads it verbatim (CER 0)."
+      }
+    },
+    {
+      "active": true,
+      "id": "zh-05-party-row",
+      "role": "verdict",
+      "kind": "synthetic",
+      "category": "printed-chinese-party-row",
+      "path": "synthetic/zh-05-party-row.png",
+      "expected_text_path": "synthetic/zh-05-party-row.txt",
+      "sha256": "de4a5aeb30b2c9404509d564e082e2749d55495a093fe7af855affaa3ee88444",
+      "expected_text_sha256": "ced9eeb97fdcfc1444b76c109964e63b4859a8735c58138586ca11423b42868e",
+      "language": "zh-Hans",
+      "provenance": "Synthetic v1, simplified-Chinese party-list row with intentional double-space separator between fields. Tests engine handling of inter-field whitespace — the CER normative spec collapses whitespace runs, so this double-vs-single-space difference is normalized away.",
+      "last_verified_at": "2026-05-18T00:00:00Z",
+      "render": {
+        "render_command": "magick -size 800x80 xc:white -font /System/Library/Fonts/Hiragino\\ Sans\\ GB.ttc -pointsize 40 -gravity center -annotate +0+0 '原告：张三  被告：李四' zh-05-party-row.png",
+        "font": "Hiragino Sans GB",
+        "point_size": 40,
+        "canvas": "800x80",
+        "source_text": "原告：张三  被告：李四",
+        "notes": "Two parties separated by a double-space. PaddleOCR-ONNX returns no inter-party space; the CER normalization (whitespace collapse) makes this a CER-0 match against the authored source."
+      }
+    },
+    {
+      "active": true,
+      "id": "zh-06-mixed-cjk-latin",
+      "role": "verdict",
+      "kind": "synthetic",
+      "category": "printed-chinese-mixed",
+      "path": "synthetic/zh-06-mixed-cjk-latin.png",
+      "expected_text_path": "synthetic/zh-06-mixed-cjk-latin.txt",
+      "sha256": "a8152b26cc52a0f67d4de6b348b85daf5602216cb483c0ca15fafefa85ce636e",
+      "expected_text_sha256": "ae8acffe9b0c1ddf32b0b66123843b5719a29e7eed4f1a5f7cf28df461f0be02",
+      "language": "zh-Hans",
+      "provenance": "Synthetic v1, simplified-Chinese case-number label with mixed CJK + Latin digits + half-width parentheses, no inter-token space. Tests the engine's handling of mixed-script tokenization adjacent to punctuation.",
+      "last_verified_at": "2026-05-18T00:00:00Z",
+      "render": {
+        "render_command": "magick -size 1200x80 xc:white -font /System/Library/Fonts/Hiragino\\ Sans\\ GB.ttc -pointsize 36 -gravity center -annotate +0+0 '案件编号：(2025)沪0115民初12345号' zh-06-mixed-cjk-latin.png",
+        "font": "Hiragino Sans GB",
+        "point_size": 36,
+        "canvas": "1200x80",
+        "source_text": "案件编号：(2025)沪0115民初12345号",
+        "notes": "PaddleOCR-ONNX returns '（' (full-width) for the opening paren but keeps ')' (half-width). Asymmetric punctuation drift is realistic engine signal for ε."
+      }
     },
     {
       "active": false,
@@ -32,8 +142,8 @@
       "path": "synthetic/01-printed-chinese.png",
       "expected_text_path": "synthetic/01-printed-chinese.txt",
       "language": "zh-Hans",
-      "reason": "α ships engine-free; Chinese verdict fixtures land in γ/δ. Tesseract baseline (β) uses an English smoke fixture (01-hello-bakeoff) because chi_sim isn't installed locally (`brew install tesseract-lang` required for Chinese coverage).",
-      "notes": "Slot reserved. Per Q3 sign-off the bakeoff verdict (ε) requires ≥5 active synthetic + ≥2 active real Chinese-pleading fixtures; γ/δ earn them once the respective engines + language packs are in scope."
+      "reason": "Reserved slot for a Tesseract-chi_sim coverage fixture. Will be promoted to active once `brew install tesseract-lang` is run locally (Tesseract's β harness probes for chi_sim and currently returns missing_model for every zh-Hans verdict fixture above).",
+      "notes": "δ PaddleOCR-ONNX already covers the active zh-* verdict fixtures; this placeholder is specifically for the Tesseract baseline to compete on Chinese once its language pack is installed."
     }
   ]
 }
