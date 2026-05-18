@@ -53,9 +53,41 @@ export interface IngestionEnvironment {
   contractVersion?: string;
 }
 
+/**
+ * Stable, contract-relevant error codes the ingestion layer raises. Callers
+ * (web app, batch importer) can branch on these without parsing the human
+ * message. Add a new entry here when a NEW caller actually needs to branch
+ * on a NEW class of rejection — codes are part of the public ingestion
+ * surface and once exported MUST NOT be renamed or removed without a
+ * coordinated change.
+ *
+ * Rationale: ADR-11B §3 caps OCR jobs at N=1 page for v1 (no lease
+ * renewal). Multi-page submissions must be rejected at the ingestion
+ * validator, not at the queue or worker, so the rejection is observable
+ * before any I/O. `multi_page_unsupported` is the contract code for that
+ * rejection class.
+ */
+export const INGESTION_ERROR_CODES = {
+  MULTI_PAGE_UNSUPPORTED: "multi_page_unsupported",
+} as const;
+
+export type IngestionErrorCode =
+  (typeof INGESTION_ERROR_CODES)[keyof typeof INGESTION_ERROR_CODES];
+
 export class IngestionError extends Error {
-  constructor(message: string) {
+  /**
+   * Optional stable code for caller-side branching. `undefined` means the
+   * error class is internal / not contract-relevant; callers should only
+   * branch on errors whose code is present and listed in
+   * `INGESTION_ERROR_CODES`.
+   */
+  readonly code?: IngestionErrorCode;
+
+  constructor(message: string, options?: { code?: IngestionErrorCode }) {
     super(message);
     this.name = "IngestionError";
+    if (options?.code !== undefined) {
+      this.code = options.code;
+    }
   }
 }

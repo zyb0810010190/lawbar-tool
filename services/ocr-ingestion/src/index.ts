@@ -8,6 +8,8 @@ export {
 } from "./ingest.js";
 export {
   IngestionError,
+  INGESTION_ERROR_CODES,
+  type IngestionErrorCode,
   type DocumentIngestionInput,
   type IngestionPage,
   type IngestionEnvironment,

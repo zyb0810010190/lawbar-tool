@@ -110,38 +110,10 @@ function makeOnePageInput() {
   };
 }
 
-function makeTwoPageInput() {
-  return {
-    tenant_id: "01jrk8m4q4xv2v8d4d4ymf5tnt",
-    document_id: "01jrk8m4q4xv2v8d4d4ymf5doc",
-    submitted_by: "user_01jrk8m4q4xv2v8d4d4ymf5usr",
-    pages: [
-      {
-        page_id: "01jrk8m4q4xv2v8d4d4ymf5p01",
-        page_number: 1,
-        source: {
-          kind: "s3",
-          bucket: "ocr-ingest-prod",
-          key: "tenant/01jrk/doc/01jrk/page-001.png",
-          byte_size: 1,
-          mime_type: "image/png",
-        },
-      },
-      {
-        page_id: "01jrk8m4q4xv2v8d4d4ymf5p02",
-        page_number: 2,
-        source: {
-          kind: "s3",
-          bucket: "ocr-ingest-prod",
-          key: "tenant/01jrk/doc/01jrk/page-002.png",
-          byte_size: 1,
-          mime_type: "image/png",
-        },
-      },
-    ],
-    metadata: { trace_id: "step-10f-partial" },
-  };
-}
+// `makeTwoPageInput` was deleted with the partial-failure E2E test at the
+// N=1-cap migration (ADR-11B §3). It was only consumed by that test; the
+// `success` scenario uses `makeOnePageInput` above. No production code path
+// references it.
 
 // ---------------------------------------------------------------------------
 // Scenario 1 — success
@@ -228,75 +200,32 @@ test("10F success: ingest -> persistence.createOcrJob -> adapter.enqueue -> runO
 // ---------------------------------------------------------------------------
 // Scenario 2 — partial_failure (requires >= 2 pages)
 // ---------------------------------------------------------------------------
-
-test("10F partial: 2-page submission via runtime entrypoint -> partial_succeeded; review surfaces 1 succeeded + 1 failed page", async () => {
-  const persistence = new InMemoryOcrPersistence();
-  const queue = new InMemoryOcrQueue();
-  const proc = makeFakeProcess();
-
-  const submission = createOcrSubmissionFromDocument(makeTwoPageInput());
-  await persistence.createOcrJob(submission);
-
-  const adapter = new OcrJobAdapter({ backend: queue });
-  await adapter.enqueueOcrJob(submission, { scenario: "partial_failure" });
-
-  const code = await runOcrWorkerProcess({
-    argv: [],
-    env: {
-      OCR_WORKER_MAX_ITERATIONS: "1",
-      OCR_WORKER_IDLE_DELAY_MS: "0",
-    },
-    process: proc,
-    buildDeps: async () => ({
-      queue,
-      persistence,
-      worker: fakeWorker,
-      cleanup: undefined,
-    }),
-  });
-  assert.equal(code, 0, `expected exit 0, got ${code}; stderr=${proc.stderr_buf.join("")}`);
-
-  const summary = lastStdoutJson(proc);
-  assert.equal(summary.stop_reason, "max_iterations");
-  assert.equal(summary.outcomes.completed, 1);
-
-  // Repo terminal-state spelling: `partial_succeeded` (NOT
-  // `partially_failed`). Pinned by ocr-status.schema.json + transitions.ts
-  // + fake-worker.ts.
-  const ingestionSummary = await summarizeOcrIngestionOutcome(
-    persistence,
-    submission.job_id,
-  );
-  assert.ok(ingestionSummary, "expected an ingestion summary");
-  assert.equal(ingestionSummary.terminal_state, "partial_succeeded");
-  assert.equal(ingestionSummary.is_terminal, true);
-  assert.equal(ingestionSummary.total_pages, 2);
-  assert.equal(ingestionSummary.succeeded_pages, 1);
-  assert.equal(ingestionSummary.failed_pages, 1);
-  assert.equal(ingestionSummary.pending_pages, 0);
-
-  // Read each page through the review layer. Fake worker convention:
-  // first page succeeds, the rest fail.
-  const succeededPage = await getReviewableOcrPage(persistence, {
-    job_id: submission.job_id,
-    page_id: submission.pages[0].page_id,
-  });
-  assert.ok(succeededPage);
-  assert.equal(succeededPage.outcome, "succeeded");
-
-  const failedPage = await getReviewableOcrPage(persistence, {
-    job_id: submission.job_id,
-    page_id: submission.pages[1].page_id,
-  });
-  assert.ok(failedPage, "expected the failed page to be reviewable");
-  assert.equal(failedPage.outcome, "failed");
-  assert.ok(
-    failedPage.partial_failure !== null && failedPage.partial_failure !== undefined,
-    "expected partial_failure detail to be populated on the failed page",
-  );
-  assert.ok(typeof failedPage.partial_failure.code === "string");
-  assert.ok(typeof failedPage.partial_failure.message === "string");
-});
+//
+// `10F partial: 2-page submission via runtime entrypoint -> partial_succeeded;
+// review surfaces 1 succeeded + 1 failed page` was removed at the N=1-cap
+// migration (ADR-11B §3 + `multi_page_unsupported` guard in
+// createOcrSubmissionFromDocument).
+//
+// Reason: the test routed the submission through
+// `createOcrSubmissionFromDocument` (line 237 in the prior revision), which
+// now hard-rejects pages.length > 1. The fake-worker `partial_failure`
+// scenario explicitly requires >= 2 pages to produce mixed succeeded/failed
+// outputs, so this integration scenario is unreachable in v1.
+//
+// What is still covered elsewhere:
+//   - The partial_succeeded *coordinator* edge is asserted at
+//     services/ocr-worker/tests/coordinator.test.mjs and
+//     services/ocr-worker/tests/adapter.test.mjs via
+//     `makeMultiPageSubmission(2)`, which bypasses the ingestion validator
+//     (the worker-layer integration is a queue-fixture concern, not an
+//     ingestion concern).
+//   - The runtime entrypoint's `success` integration path is still asserted
+//     in this file (Scenario 1).
+//   - Per-page `failed` outcome surfaced through review is asserted in
+//     review.test.mjs via direct persistence seeding.
+//
+// If multi-page submission is reintroduced post-v1, restore this E2E test
+// alongside that reversal.
 
 // ---------------------------------------------------------------------------
 // Scenario 3 — empty queue

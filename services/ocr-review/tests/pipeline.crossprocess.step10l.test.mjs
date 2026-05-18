@@ -202,23 +202,10 @@ function singlePageInput() {
   };
 }
 
-function twoPageInput() {
-  return {
-    tenant_id: TENANT,
-    document_id: DOCUMENT,
-    document_revision: 1,
-    submitted_by: "user_01jrk8m4q4xv2v8d4d4ymf5usr",
-    pages: [
-      { page_id: PAGE_1, page_number: 1, source: { ...sampleSource } },
-      {
-        page_id: PAGE_2,
-        page_number: 2,
-        source: { ...sampleSource, key: "tenant/01jrk/doc/01jrk/page-002.png" },
-      },
-    ],
-    metadata: { trace_id: "10l-partial" },
-  };
-}
+// `twoPageInput` was deleted with the partial_failure cross-process test
+// at the N=1-cap migration (ADR-11B §3). It was only consumed by that
+// test; the `success` scenario uses `singlePageInput` above. No production
+// code path references it.
 
 function deterministicEnv() {
   let n = 0;
@@ -357,25 +344,22 @@ test(
     }),
 );
 
-test(
-  "10L: partial_failure scenario — terminal_state=partial_succeeded, mixed page results",
-  { timeout: 20_000 },
-  () =>
-    runCrossProcessCase({
-      input: twoPageInput,
-      // R6: scenario must flow through ingest opts; without it the fake
-      // worker default-runs as success.
-      scenario: "partial_failure",
-      workerId: "10l-partial-worker",
-      expectedTerminalState: "partial_succeeded",
-      expectedResults: [
-        { page_number: 1, status: "succeeded" },
-        { page_number: 2, status: "failed", hasPartialFailure: true },
-      ],
-      expectedEdges: [
-        "queue:queued->claimed",
-        "worker:claimed->processing",
-        "worker:processing->partial_succeeded",
-      ],
-    }),
-);
+// `10L: partial_failure scenario — terminal_state=partial_succeeded, mixed
+// page results` was removed at the N=1-cap migration (ADR-11B §3 +
+// `multi_page_unsupported` guard in createOcrSubmissionFromDocument).
+//
+// Reason: the case fed a 2-page input through the cross-process ingestion
+// path (`twoPageInput` -> `ingestDocumentForOcr`), which now hard-rejects
+// pages.length > 1. The fake-worker `partial_failure` scenario explicitly
+// requires >= 2 pages to produce mixed succeeded/failed outputs, so this
+// cross-process partial path is unreachable in v1.
+//
+// What is still covered: the cross-process *success* path is asserted by
+// the case above (`10L: success scenario`), proving the runtime entrypoint
+// + cross-process queue + persistence + status replay still wire end-to-end
+// under the N=1 cap. The partial_succeeded coordinator edge is asserted in
+// services/ocr-worker tests via `makeMultiPageSubmission(2)` which bypasses
+// ingestion.
+//
+// If multi-page submission returns post-v1, restore this test alongside
+// that reversal.

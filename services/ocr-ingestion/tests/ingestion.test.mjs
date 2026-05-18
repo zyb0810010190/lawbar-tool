@@ -11,6 +11,7 @@ import {
   createOcrSubmissionFromDocument,
   ingestDocumentForOcr,
   IngestionError,
+  INGESTION_ERROR_CODES,
 } from "../dist/index.js";
 import { drainOcrPipelineForTesting } from "../dist/testing/drainPipeline.js";
 import {
@@ -134,7 +135,7 @@ test("createOcrSubmissionFromDocument: single-page document yields contract-vali
   assert.equal(sub.rerun.is_rerun, false);
 });
 
-test("createOcrSubmissionFromDocument: multi-page document yields contract-valid submission", () => {
+test("createOcrSubmissionFromDocument: multi-page submission is rejected with multi_page_unsupported (ADR-11B §3)", () => {
   const env = makeEnv();
   const input = baseInput();
   input.pages = [
@@ -150,17 +151,51 @@ test("createOcrSubmissionFromDocument: multi-page document yields contract-valid
       },
     },
   ];
-  const sub = createOcrSubmissionFromDocument(input, env);
-  const v = validateOcrSubmission(sub);
-  assert.equal(v.ok, true, v.ok ? "" : v.summary);
-  assert.equal(sub.pages.length, 2);
-  assert.deepEqual(
-    sub.pages.map((p) => p.page_number),
-    [1, 2],
+  assert.throws(
+    () => createOcrSubmissionFromDocument(input, env),
+    (err) =>
+      err instanceof IngestionError &&
+      err.code === INGESTION_ERROR_CODES.MULTI_PAGE_UNSUPPORTED &&
+      /not supported in v1/i.test(err.message) &&
+      /2 pages/.test(err.message),
   );
-  assert.deepEqual(
-    sub.pages.map((p) => p.source.kind),
-    ["s3", "https"],
+});
+
+test("createOcrSubmissionFromDocument: 3+ pages also rejected with multi_page_unsupported", () => {
+  const env = makeEnv();
+  const input = baseInput();
+  input.pages = [
+    { page_id: PAGE_1, page_number: 1, source: { ...sampleSource } },
+    { page_id: PAGE_2, page_number: 2, source: { ...sampleSource } },
+    {
+      page_id: "01jrk8m4q4xv2v8d4d4ymf5p03",
+      page_number: 3,
+      source: { ...sampleSource },
+    },
+  ];
+  assert.throws(
+    () => createOcrSubmissionFromDocument(input, env),
+    (err) =>
+      err instanceof IngestionError &&
+      err.code === INGESTION_ERROR_CODES.MULTI_PAGE_UNSUPPORTED &&
+      /3 pages/.test(err.message),
+  );
+});
+
+test("createOcrSubmissionFromDocument: 0 pages rejected with the existing 'at least one' message (no code)", () => {
+  // Backward-compat: the empty-pages rejection class predates IngestionErrorCode
+  // and no caller branches on it via code. We keep the un-coded form so existing
+  // callers depending only on the message text continue to work; if a caller
+  // ever needs to branch on it, add a code entry then.
+  const env = makeEnv();
+  const input = baseInput();
+  input.pages = [];
+  assert.throws(
+    () => createOcrSubmissionFromDocument(input, env),
+    (err) =>
+      err instanceof IngestionError &&
+      err.code === undefined &&
+      /at least one page is required/.test(err.message),
   );
 });
 
@@ -327,27 +362,19 @@ test("ingestDocumentForOcr: enqueues + drained pipeline produces succeeded lifec
   assert.equal(results[0].result.status, "succeeded");
 });
 
-test("ingestDocumentForOcr: partial_failure is persisted with mixed page results after drain", async () => {
-  const deps = makeDeps("partial_failure");
-  // partial_failure scenario emits one result per submitted page (first page
-  // succeeds, the rest fail) and therefore requires a multi-page submission.
-  // The fake worker rejects single-page partial_failure submissions explicitly.
-  const input = baseInput();
-  input.pages = [
-    { page_id: PAGE_1, page_number: 1, source: { ...sampleSource } },
-    {
-      page_id: PAGE_2,
-      page_number: 2,
-      source: { ...sampleSource, key: "tenant/01jrk/doc/01jrk/page-002.png" },
-    },
-  ];
-  const { job, results } = await runPipelineToTerminal(input, deps);
-
-  assert.equal(job.terminal_state, "partial_succeeded");
-  assert.equal(results.length, 2);
-  const pageStatuses = results.map((r) => r.result.status).sort();
-  assert.deepEqual(pageStatuses, ["failed", "succeeded"]);
-});
+// `ingestDocumentForOcr: partial_failure is persisted with mixed page results
+// after drain` has been removed at the N=1-cap migration (ADR-11B §3 +
+// the multi_page_unsupported guard in createOcrSubmissionFromDocument).
+// Reason: the fake-worker `partial_failure` scenario emits one result per
+// submitted page and explicitly rejects single-page submissions, so it can
+// no longer be exercised through the ingestion seam. The scenario's
+// per-page-mix behaviour is still asserted at the contract layer
+// (`docs/contracts/tests/fake-worker.test.mjs`), and the
+// `partial_failure_lifecycle` worker-side coordinator path is still asserted
+// in `services/ocr-worker/tests/coordinator.test.mjs`. The mixed-page-result
+// assertion formerly here is not lost, just relocated to the layers that
+// can legitimately reach the scenario. If multi-page submission returns
+// post-v1, restore the ingestion-end test alongside that reversal.
 
 // 10K test-migration note: the previous ingestion tests for the
 // `permanent_failure` and `transient_then_success` fake scenarios asserted

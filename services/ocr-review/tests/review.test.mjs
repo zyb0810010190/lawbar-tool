@@ -427,45 +427,17 @@ test("summarizeOcrIngestionOutcome: end-to-end success via ingest+drain -> 1 suc
   assert.deepEqual([...s.pending_page_ids], []);
 });
 
-test("summarizeOcrIngestionOutcome: partial_failure via ingest+drain -> mixed succeeded/failed page counts and ids", async () => {
-  const persistence = new InMemoryOcrPersistence();
-  const queueBackend = new InMemoryOcrQueue();
-  const queueAdapter = new OcrJobAdapter({ backend: queueBackend });
-  const enqueued = await ingestAndDrain(
-    {
-      tenant_id: "01jrk8m4q4xv2v8d4d4ymf5tnt",
-      document_id: "01jrk8m4q4xv2v8d4d4ymf5doc",
-      submitted_by: "user_01jrk8m4q4xv2v8d4d4ymf5usr",
-      pages: [
-        {
-          page_id: "01jrk8m4q4xv2v8d4d4ymf5p01",
-          page_number: 1,
-          source: {
-            kind: "s3", bucket: "b", key: "tenant/01jrk/doc/01jrk/page-001.png",
-            byte_size: 1, mime_type: "image/png",
-          },
-        },
-        {
-          page_id: "01jrk8m4q4xv2v8d4d4ymf5p02",
-          page_number: 2,
-          source: {
-            kind: "s3", bucket: "b", key: "tenant/01jrk/doc/01jrk/page-002.png",
-            byte_size: 1, mime_type: "image/png",
-          },
-        },
-      ],
-    },
-    { persistence, queueAdapter, queueBackend, scenario: "partial_failure" },
-  );
-  const s = await summarizeOcrIngestionOutcome(persistence, enqueued.job.job_id);
-  assert.equal(s.total_pages, 2);
-  assert.equal(s.succeeded_pages, 1);
-  assert.equal(s.failed_pages, 1);
-  assert.equal(s.pending_pages, 0);
-  assert.deepEqual([...s.failed_page_ids], ["01jrk8m4q4xv2v8d4d4ymf5p02"]);
-  assert.equal(s.terminal_state, "partial_succeeded");
-  assert.equal(s.dead_lettered, false);
-});
+// `summarizeOcrIngestionOutcome: partial_failure via ingest+drain` was
+// removed at the N=1-cap migration (ADR-11B §3 +
+// `multi_page_unsupported` guard in createOcrSubmissionFromDocument).
+// Reason: the fake-worker `partial_failure` scenario requires >=2 pages
+// to produce mixed succeeded/failed outputs, so the test's "1 succeeded
+// + 1 failed" page counts are unreachable in v1 via ingestion. The
+// `summarizeOcrIngestionOutcome` shape itself is still exercised on
+// single-page success (see the prior `success` summary tests in this
+// file) and on `dead_lettered` via direct persistence seeding (see the
+// next test). If multi-page ingest returns post-v1, restore this test
+// alongside the reversal.
 
 test("summarizeOcrIngestionOutcome: dead_lettered terminal state -> dead_lettered true, retry_count 0", async () => {
   // 10K migration: 10C coordinator rejects the `permanent_failure` fake

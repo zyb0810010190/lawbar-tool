@@ -14,6 +14,7 @@ import {
 
 import {
   IngestionError,
+  INGESTION_ERROR_CODES,
   type DocumentIngestionInput,
   type IngestionEnvironment,
 } from "./types.js";
@@ -71,6 +72,16 @@ export function createOcrSubmissionFromDocument(
   requireNonEmptyString(input.submitted_by, "submitted_by");
   if (!Array.isArray(input.pages) || input.pages.length === 0) {
     throw new IngestionError("at least one page is required");
+  }
+  // ADR-11B §3: v1 caps OCR jobs at N=1 page so lease-renewal math holds
+  // (no renewal needed). Multi-page submissions must be rejected here at
+  // the validator, before any persistence or queue I/O, with a stable
+  // contract code callers can branch on.
+  if (input.pages.length > 1) {
+    throw new IngestionError(
+      `multi-page OCR submissions are not supported in v1 (received ${input.pages.length} pages; cap is 1 per ADR-11B §3)`,
+      { code: INGESTION_ERROR_CODES.MULTI_PAGE_UNSUPPORTED },
+    );
   }
   for (const [i, p] of input.pages.entries()) {
     requireNonEmptyString(p?.page_id, `pages[${i}].page_id`);
