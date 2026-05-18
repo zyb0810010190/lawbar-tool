@@ -61,7 +61,8 @@ import type { OcrResult } from "ocr-worker-contract";
 
 export type EngineLine = {
   readonly text: string;
-  readonly mean: number;            // [0, 1]
+  readonly mean?: number | null;    // engine-side may omit / be null;
+                                    // mapper normalizes per §2
   readonly box?: ReadonlyArray<readonly [number, number]>;
 };
 

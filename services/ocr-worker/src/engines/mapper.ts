@@ -140,19 +140,19 @@ function buildPageMetrics(
   timing: MapperTiming,
   geometry: MapperPageGeometry,
 ): MapperPageMetrics {
-  const out: Record<string, number> = {
+  let out: MapperPageMetrics = {
     processing_duration_ms: timing.processing_duration_ms,
   };
   if (timing.queued_duration_ms !== undefined) {
-    out.queued_duration_ms = timing.queued_duration_ms;
+    out = { ...out, queued_duration_ms: timing.queued_duration_ms };
   }
   if (geometry.page_width_px !== undefined) {
-    out.page_width_px = geometry.page_width_px;
+    out = { ...out, page_width_px: geometry.page_width_px };
   }
   if (geometry.page_height_px !== undefined) {
-    out.page_height_px = geometry.page_height_px;
+    out = { ...out, page_height_px: geometry.page_height_px };
   }
-  return out as MapperPageMetrics;
+  return out;
 }
 
 export function mapEngineLinesToOcrResult(input: MapperInput): OcrResult {

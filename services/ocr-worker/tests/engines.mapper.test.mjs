@@ -238,7 +238,7 @@ test("engine metadata pinned: name=paddleocr-onnx, version carries +model-set", 
   assert.match(result.engine.version, /^\d+\.\d+\.\d+\+/);
 });
 
-test("partial_failure is explicitly null on succeeded (allOf clause requires it)", () => {
+test("partial_failure is explicitly null on succeeded (mapper invariant; stronger than schema's when-present-only constraint)", () => {
   const result = mapEngineLinesToOcrResult(makeInput({ lines: [] }));
   assertValidResult(result);
   assert.equal(result.partial_failure, null);
