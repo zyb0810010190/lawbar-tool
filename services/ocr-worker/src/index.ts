@@ -83,3 +83,9 @@ export {
   type EnginePort,
   type PaddleOcrOnnxAdapterDeps,
 } from "./engines/paddleocr-onnx.js";
+export {
+  makeRealPaddleEngine,
+  RAW_ENGINE_PKG_VERSION,
+  type MakeRealPaddleEngineOptions,
+  type RealPaddleEngine,
+} from "./engines/real-paddleocr-engine.js";
