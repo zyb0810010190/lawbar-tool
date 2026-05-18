@@ -66,21 +66,37 @@ The dispatch table grows by one row per future 11D step.
 Pure (no I/O beyond CPU-bound base64 decode). Sequence:
 
 1. **Base64 decode**: `Buffer.from(source.base64, "base64")`. Node's
-   default base64 decoder skips invalid characters silently — but
-   the schema's pattern already enforces `[A-Za-z0-9+/=\\n\\r]` at
-   the envelope layer, so any input that reaches the fetcher has
-   already been character-validated. Defense-in-depth: the size
-   check below catches any decoder weirdness.
+   default base64 decoder is PERMISSIVE — it accepts non-canonical
+   inputs (extra padding, mixed whitespace, lowercase padding) and
+   silently filters invalid characters. The schema's pattern enforces
+   only the character ALPHABET (`[A-Za-z0-9+/=\\n\\r]`) at the
+   envelope layer; it does NOT enforce canonical encoding (correct
+   padding count, output length matches `4 * ceil(N / 3)`). The
+   fetcher does NOT add a strict canonicality check; instead the
+   load-bearing gate is step 2 below, which catches the case where
+   a malformed encoding decodes to a length other than the caller
+   declared. Audit 019e3ad6 D1 Medium: this caveat is documented
+   honestly here and in the code so future readers don't expect a
+   stronger guarantee than is enforced.
 
-2. **Declared byte_size match**: `decoded.byteLength === source.byte_size`
-   or throw `size_mismatch`. This pins the submission contract:
-   the caller said how many bytes the decoded payload would be;
-   if it disagrees, something is wrong upstream.
+2. **Inline-specific size cap**: `decoded.byteLength <= 1 MB`
+   (`MAX_INLINE_BYTES`). Mirrors the schema's
+   `inline.byte_size.maximum` so a schema-bypassed inline payload
+   still fails at the fetcher rather than being processed up to the
+   wider 50 MB file cap. Audit 019e3ad6 D5 Medium fix. Checked
+   BEFORE the byte_size match so a bypassed-and-huge payload
+   rejects with the more specific cap code, not a confusing
+   "mismatch" message.
 
-3. **Size cap**: `decoded.byteLength <= MAX_PAGE_BYTES` (50 MB,
-   the fetcher's cap). The schema's inline cap (1 MB) is the
-   tighter bound and is enforced at envelope validation; the
-   fetcher's check is defense-in-depth in case schema is bypassed.
+3. **Declared byte_size match**: `decoded.byteLength === source.byte_size`
+   or throw `size_mismatch`. Pins the submission contract: the
+   caller said how many bytes the decoded payload would be; if it
+   disagrees, something is wrong upstream (or the base64 is
+   malformed — see step 1 honest-caveat note).
+
+4. **Wide-bound size cap (50 MB)**: defense-in-depth in case the
+   inline-specific cap above ever widens. Cheap; same constant as
+   the file path.
 
 4. **MIME allowlist**: `source.mime_type` in
    `{"image/jpeg", "image/png"}` or throw `mime_unsupported`.
@@ -93,6 +109,12 @@ Pure (no I/O beyond CPU-bound base64 decode). Sequence:
 
 6. Return `{ bytes: decoded, mimeType: source.mime_type,
    sizeBytes: decoded.byteLength }`.
+
+Step order rationale: gates are ordered cheap-before-expensive plus
+specific-before-general. The MIME allowlist runs before decode (no
+need to base64-decode 1 MB just to reject as PDF). The inline cap
+runs before the byte_size match so an oversized bypass surfaces
+with the more actionable code.
 
 No path-containment checks (no path). No file_root_unconfigured
 check (inline doesn't read the disk). No fd-bound open/fstat/read
@@ -182,6 +204,15 @@ caller needs inline-only deployment.
   observed adds surface without coverage. The `size_mismatch`
   check catches the case where filtering produces fewer bytes
   than declared.
+- **Strict canonical base64 validation before decode** (audit
+  019e3ad6 D1 Medium follow-up) — would require either a regex
+  matching the strict 4-char-group form or a round-trip re-encode
+  check after decode. Either adds ~20 LOC of code that mostly
+  defends against a class of attack with no clear v1 attack
+  surface (the schema validator at the envelope already gates the
+  alphabet; malicious payloads that lie about byte_size are
+  caught by the size-mismatch check anyway). Defer until a real
+  caller needs to round-trip the inline payload byte-for-byte.
 - **Reject inline for paddleocr-onnx worker** — there's no
   technical reason; inline bytes flow through the same temp-file
   bridge as file:// bytes.

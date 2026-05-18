@@ -1,9 +1,10 @@
 // Page fetcher: turn an OcrSubmission's source field into bytes for
-// the engine. See ADR-11C.2 for every gate pinned here.
+// the engine. See ADR-11C.2 (file path) + ADR-11D.1 (inline path).
 //
-// v1 supports `kind: "file"` only. s3 / https / inline are rejected at
-// the boundary with stable code `source_kind_unsupported`. ADR-11C.2 §1
-// explains why this lives in the fetcher rather than the ingestion
+// v1 admission set: `kind: "file"` (ADR-11C.2) + `kind: "inline"`
+// (ADR-11D.1). `s3` and `https` continue to reject at the boundary
+// with stable code `source_kind_unsupported`; ADR-11C.2 §1 explains
+// why kind admission lives in the fetcher rather than the ingestion
 // validator (vocabulary stays open; admission policy is engine-local).
 //
 // TOCTOU posture (audit 019e3a07 D2 High): the fetcher uses an
@@ -39,6 +40,16 @@ import {
  * amending the ADR. Cap is inclusive (a 50 MB exact file passes).
  */
 const MAX_PAGE_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Maximum bytes for an INLINE submission. Mirrors the schema's
+ * `inline.byte_size.maximum` (1 MB) so an envelope-bypass attempt
+ * still fails at the fetcher. Audit 019e3ad6 D5 Medium fix: the
+ * fetcher's 50 MB cap is the file-path bound; without an inline-
+ * specific cap, a schema-bypassed inline payload up to 50 MB would
+ * be accepted, widening the effective contract.
+ */
+const MAX_INLINE_BYTES = 1 * 1024 * 1024;
 
 /**
  * MIME allowlist for v1. Pinned by ADR-11C.2 §6 + ADR-11A.0 §8
@@ -286,26 +297,48 @@ async function fetchFromInline(
     );
   }
 
-  // Node's base64 decoder silently filters invalid characters. The
-  // schema's `base64` pattern already enforces the alphabet at the
-  // envelope layer; if invalid characters somehow reach here, the
-  // size-mismatch check below catches the discrepancy between the
-  // caller's declared byte_size and the decoded length.
+  // Honest base64 caveat (audit 019e3ad6 D1 Medium): Node's
+  // `Buffer.from(s, "base64")` is permissive — it accepts
+  // non-canonical inputs (extra padding, mixed whitespace, lowercase
+  // padding) and silently filters invalid characters. The schema's
+  // `base64` pattern enforces only the character ALPHABET at the
+  // envelope layer; it does NOT enforce canonical encoding (correct
+  // padding count, output length matches `4 * ceil(N / 3)`).
+  //
+  // So the actual gate here is the size-mismatch check below: a
+  // schema-bypassed caller can send malformed-but-decodable base64
+  // (e.g., dropped a char or two), but if the decoded length doesn't
+  // match the declared `byte_size`, we reject. If they ALSO lie
+  // about `byte_size` consistently, the signature sniff catches
+  // bytes that don't look like the declared MIME. Defense-in-depth
+  // is the pattern; strict base64 canonicality is NOT enforced.
   const bytes = Buffer.from(source.base64, "base64");
 
-  // Declared byte_size must match decoded length. This is the contract
-  // pin: the caller asserted how many bytes they sent; if the decoded
-  // length disagrees, the submission is corrupt.
+  // Pre-check decoded size against the inline cap BEFORE doing other
+  // work on it. This is the schema-mirror defense (audit 019e3ad6 D5
+  // Medium): without this, a schema-bypassed inline up to 50 MB would
+  // pass through.
+  if (bytes.byteLength > MAX_INLINE_BYTES) {
+    throw new FetcherError(
+      `inline decoded length ${bytes.byteLength} bytes exceeds the ${MAX_INLINE_BYTES} byte inline cap (schema's inline.byte_size.maximum)`,
+      { code: FETCHER_ERROR_CODES.SIZE_CAP_EXCEEDED },
+    );
+  }
+
+  // Declared byte_size must match decoded length. Contract pin: the
+  // caller asserted how many bytes they sent; if the decoded length
+  // disagrees, the submission is corrupt (or the base64 is malformed
+  // per the honest-caveat note above).
   if (bytes.byteLength !== source.byte_size) {
     throw new FetcherError(
-      `inline decoded length ${bytes.byteLength} bytes disagrees with submission's source.byte_size ${source.byte_size}`,
+      `inline decoded length ${bytes.byteLength} bytes disagrees with submission's source.byte_size ${source.byte_size} ` +
+        `(check that source.base64 is well-formed canonical base64)`,
       { code: FETCHER_ERROR_CODES.SIZE_MISMATCH },
     );
   }
 
-  // Size cap. The schema's inline cap is 1 MB; this 50 MB fetcher cap
-  // is the larger bound and the schema's check is the tighter binding
-  // constraint. Defense-in-depth in case schema validation is bypassed.
+  // Wide-bound size cap (50 MB) — defense-in-depth in case the
+  // narrower inline cap above ever loosens.
   if (bytes.byteLength > MAX_PAGE_BYTES) {
     throw new FetcherError(
       `inline decoded length ${bytes.byteLength} bytes exceeds the ${MAX_PAGE_BYTES} byte per-page cap`,

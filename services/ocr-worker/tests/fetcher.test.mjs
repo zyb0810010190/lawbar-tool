@@ -714,6 +714,34 @@ test('inline: file_root_unconfigured is NOT thrown — inline doesn\'t need a ro
   assert.equal(result.sizeBytes, bytes.length);
 });
 
+test('inline: schema-bypass payload > 1 MB rejected with size_cap_exceeded (audit 019e3ad6 D5 M)', async () => {
+  // Construct a 1 MB + 1 byte payload. The schema's inline.byte_size
+  // maximum is 1 MB; the fetcher mirrors that cap so a schema-bypass
+  // attempt still fails at the fetcher boundary. Without this, a
+  // bypassed inline up to 50 MB (the file cap) would be accepted.
+  const MAX_INLINE = 1 * 1024 * 1024;
+  // PNG header followed by zero-padding to push past 1 MB.
+  const payload = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.alloc(MAX_INLINE - 8 + 1, 0), // exactly MAX_INLINE + 1 total
+  ]);
+  assert.equal(payload.length, MAX_INLINE + 1);
+  const submission = makeSubmission({
+    source: {
+      kind: 'inline',
+      base64: payload.toString('base64'),
+      byte_size: payload.length,
+      mime_type: 'image/png',
+    },
+  });
+  await withTempRoot(async (root) => {
+    await assertFetcherError(
+      fetchPageBytes(submission, { allowedFileRoot: root }),
+      FETCHER_ERROR_CODES.SIZE_CAP_EXCEEDED,
+    );
+  });
+});
+
 test('s3 source kind: still rejected with source_kind_unsupported (admission set: file, inline)', async () => {
   await withTempRoot(async (root) => {
     const submission = makeSubmission({
