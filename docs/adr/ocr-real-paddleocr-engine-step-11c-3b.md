@@ -56,31 +56,18 @@ User decisions already locked (this session):
 `services/ocr-worker/src/engines/real-paddleocr-engine.ts`:
 
 ```ts
-import Ocr from "@gutenye/ocr-node";
 import type { EnginePort } from "./paddleocr-onnx.js";
-
-export interface MakeRealPaddleEngineOptions {
-  /**
-   * Optional override for model paths. v1 leaves this undefined to
-   * use the bundled `@gutenye/ocr-models` default
-   * (`ch_PP-OCRv4_det_infer.onnx` + `ch_PP-OCRv4_rec_infer.onnx`).
-   * The bin in 11C.3c does NOT expose this via env yet.
-   */
-  readonly models?: {
-    detectionPath: string;
-    recognitionPath: string;
-    dictionaryPath: string;
-  };
-}
 
 export interface RealPaddleEngine {
   readonly engine: EnginePort;
-  readonly version: string; // `<pkg-version>+<model-set>`
+  readonly version: string; // `<engine-pkg>+<model-set>@<models-pkg>`
 }
 
-export function makeRealPaddleEngine(
-  options?: MakeRealPaddleEngineOptions,
-): Promise<RealPaddleEngine>;
+// No options for v1 (audit 019e3a4c D2 fix): the model-set is
+// pinned to the @gutenye/ocr-models defaults. When override use
+// cases land, options MUST require a validated model-root +
+// digest, not raw paths.
+export function makeRealPaddleEngine(): Promise<RealPaddleEngine>;
 ```
 
 The factory returns BOTH the engine and the version string in one
@@ -92,15 +79,18 @@ package it pins.
 and asserts the runtime return shape against the EnginePort
 contract:
 
-- `Array.isArray(returned)` — fall through to the adapter's
-  `sanitizeEngineLines` for any internal-shape concerns.
-- Returns `ReadonlyArray<EngineLine>` (structural match: each entry
-  has `text: string`; `mean?: number`; `box?: number[][]`).
+- `Array.isArray(returned)` — throws `TypeError` if not.
+- For each element: `typeof line === "object"` and
+  `typeof line.text === "string"`.
 
-The wrapper does NOT do additional validation here — the adapter's
-hostile-engine boundary (ADR-11C.3a §6 fix) is the right place for
-that, and re-running the same check at every detect would be
-redundant.
+The factory enforces this at its own seam because it publicly
+re-exports an `EnginePort`-typed return: a direct consumer of the
+factory (not just the adapter) must get the type-level guarantee
+the interface promises. The adapter's own `sanitizeEngineLines`
+(ADR-11C.3a §6) re-checks the same invariants — intentional
+defense-in-depth (audit 019e3a4c D4 fix). The cost is one
+`Array.isArray` + one `typeof` per line, far cheaper than the OCR
+call itself.
 
 ### §2 Cold load runs INSIDE the factory (paid once per bin)
 
@@ -131,26 +121,36 @@ B. Lazy cold load on first `detect()` call. Failure surfaces
 
 ### §3 Engine version string
 
-`<pkg-version>+<model-set>` per ADR-11A.5
-`engine.version` rule. Specifically:
+Format: `<engine-pkg>+<model-set>@<models-pkg>` — extended over the
+plain `<pkg>+<model-set>` of ADR-11A.5 per audit 019e3a4c D8 fix:
+the bundled model bytes come from a SEPARATE transitive package
+(`@gutenye/ocr-models`), and recording only the engine wrapper
+version would let two runs with different inference outputs (because
+the model was swapped under the wrapper) report identical
+`engine.version` strings. Provenance demands both halves.
 
-- `pkg-version` is read from
-  `@gutenye/ocr-node/package.json#version` via static
-  `import ... with { type: "json" }`. The import attribute is
-  Node ≥22 and matches the contract package's existing pattern
-  (`docs/contracts/src/testing/fake-worker.ts:18-19`).
-- `model-set` is the hardcoded string `ch_PP-OCRv4` when the
-  factory is called with the default model paths
-  (`options.models === undefined`). When a caller overrides
-  `options.models`, the model-set string becomes `custom` —
-  the override path is intentionally opaque about which model
-  it is, since the caller knows.
+Hardcoded constants in `real-paddleocr-engine.ts`:
+- `ENGINE_PKG_VERSION = "1.4.8"`
+- `MODELS_PKG_VERSION = "1.4.2"`
+- `DEFAULT_MODEL_SET = "ch_PP-OCRv4"`
 
-Result for v1 default deployment: `1.4.8+ch_PP-OCRv4`.
+Why hardcoded (NOT static JSON import): `@gutenye/ocr-node`'s
+`exports` field does not expose `./package.json` as a subpath, so
+neither `import pkg from "@gutenye/ocr-node/package.json"` nor
+`createRequire(...).resolve("@gutenye/ocr-node/package.json")` is
+portable. The same restriction applies to `@gutenye/ocr-models`.
+Two drift tests in
+`tests/engines.real-paddleocr-engine.test.mjs` read each installed
+manifest from disk and assert equality, so an upgrade that bumps
+either dep but forgets to bump the constant fails fast at test
+time with an actionable error message.
 
-If a future ADR adds a parameterized model-set selector, this
-function gets a new branch but the string format stays stable
-for downstream consumers (audit log, search, review UI).
+Result for v1 default deployment: `1.4.8+ch_PP-OCRv4@1.4.2`.
+
+No public override surface for the model set in v1 (audit 019e3a4c
+D2 fix): the `options.models` field was removed entirely. When an
+override use case lands, overrides MUST flow through an allowlist +
+digest check rather than raw caller-supplied paths.
 
 ### §4 No registry change
 

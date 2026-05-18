@@ -4,6 +4,20 @@
 // from cli.test.mjs. They spawn `bin/ocr-worker.mjs` as a real Node
 // child process and observe its real stdout/stderr/exitCode/signals.
 //
+// NOTE on test runner concurrency (audit 019e3a4c D9 L):
+// `services/ocr-worker/package.json#scripts.test` runs `node --test`
+// with `--test-concurrency=1`. The SIGINT idle-loop test below uses a
+// `waitForLiveChild` liveness gate (`stableTicks * pollMs = 100ms`)
+// that is fragile under host load: when other heavy test files
+// (mkdtemp + writeFile + spawn) run concurrently with this one, the
+// bin's `installShutdownHandlers` can miss the `100ms` window before
+// SIGINT arrives, and Node's default SIGINT action terminates the
+// process before the worker's graceful exit fires. The deterministic
+// fix is sequential test execution. A real readiness-protocol fix
+// (worker bin emits a "READY" marker on stdout; test polls for it)
+// would let the suite run concurrently again — that's separate
+// bin-shaped work tracked outside ADR-11C.3b.
+//
 // The whole point of 10G is to prove:
 //   - real `process.argv` flows into config parsing,
 //   - real `process.env` flows into config parsing,

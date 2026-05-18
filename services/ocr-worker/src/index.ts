@@ -85,7 +85,9 @@ export {
 } from "./engines/paddleocr-onnx.js";
 export {
   makeRealPaddleEngine,
+  buildEngineVersion,
   RAW_ENGINE_PKG_VERSION,
-  type MakeRealPaddleEngineOptions,
+  RAW_MODELS_PKG_VERSION,
+  RAW_DEFAULT_MODEL_SET,
   type RealPaddleEngine,
 } from "./engines/real-paddleocr-engine.js";
