@@ -117,24 +117,28 @@ export interface ParseOcrWorkerConfigInput {
  *   --worker-id <s>
  *   --worker <fake|paddleocr-onnx>
  *   --fetcher-file-root <absolute-path>
+ *   --https-hosts <h1,h2,...>
  *   --persistence <memory|sqlite>
  *   --queue <memory|sqlite>
  *   --sqlite-path <s>
  *   --idle-delay-ms <int>
  *   --max-iterations <int>
  *   --include-empty-outcomes [bool]
+ *   --log-outcomes [bool]
  *   --help
  *
  * Recognized env keys:
  *   OCR_WORKER_ID
  *   OCR_WORKER (= worker_kind; default "fake")
  *   OCR_FETCHER_FILE_ROOT
+ *   OCR_FETCHER_HTTPS_HOSTS
  *   OCR_WORKER_PERSISTENCE
  *   OCR_WORKER_QUEUE
  *   OCR_WORKER_SQLITE_PATH
  *   OCR_WORKER_IDLE_DELAY_MS
  *   OCR_WORKER_MAX_ITERATIONS
  *   OCR_WORKER_INCLUDE_EMPTY_OUTCOMES
+ *   OCR_LOG_OUTCOMES
  */
 export function parseOcrWorkerConfig(
   input: ParseOcrWorkerConfigInput,

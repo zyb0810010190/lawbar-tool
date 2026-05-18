@@ -188,7 +188,18 @@ export interface ToCoordinatorEventOptions {
   at?: string;
 }
 
-const SEVERITY: Record<OcrCoordinatorOutcome, OcrCoordinatorEventSeverity> = {
+/**
+ * Single source of truth for advisory severity per outcome. Spreading
+ * `SEVERITY[outcome]` into the event keeps the switch arms from drifting
+ * away from this table — audit L4 collapsed the prior dual-encoding
+ * (map + per-arm literal) into this single map.
+ */
+// `as const satisfies` pins each value to its literal type ("info" /
+// "warn") so the switch arms can spread `base` and still satisfy the
+// per-variant literal-typed severity on each OcrCoordinatorEvent
+// variant. Without the `as const`, the map's value type would widen to
+// the union and break the discriminated-union narrowing.
+const SEVERITY = {
   empty: "info",
   completed: "info",
   completed_already_terminal: "info",
@@ -198,7 +209,7 @@ const SEVERITY: Record<OcrCoordinatorOutcome, OcrCoordinatorEventSeverity> = {
   persistence_failed: "warn",
   ack_failed: "warn",
   lease_lost: "warn",
-};
+} as const satisfies Record<OcrCoordinatorOutcome, OcrCoordinatorEventSeverity>;
 
 /**
  * Convert a coordinator result into a structured event. The mapping is
@@ -208,70 +219,79 @@ const SEVERITY: Record<OcrCoordinatorOutcome, OcrCoordinatorEventSeverity> = {
  * for the failure variants. The coordinator's error messages are
  * already sanitized per the fetcher message-sanitization rules
  * (ADR-11D); this module does not re-sanitize.
+ *
+ * **Invariant checks (audit L2).** Each variant verifies the coordinator
+ * actually populated the fields the contract requires for that outcome
+ * (counts on completed/retried/dead_lettered/etc; error.message on
+ * failure variants). A coordinator that drops one of these is a bug, not
+ * a "report 0 and move on" situation — silent fabrication would mask the
+ * bug in operator telemetry.
  */
 export function toCoordinatorEvent(
   result: OcrCoordinatorResult,
   options: ToCoordinatorEventOptions = {},
 ): OcrCoordinatorEvent {
   const at = options.at ?? new Date().toISOString();
+  // Carry only the outcome-agnostic envelope here; severity is pulled
+  // per-arm from SEVERITY so its literal type narrows to the variant's
+  // expected "info" | "warn" without per-arm hardcoding (audit L4).
   const base = {
     schema_version: OCR_COORDINATOR_EVENT_SCHEMA_VERSION,
     at,
-    severity: SEVERITY[result.outcome],
   } as const;
 
   switch (result.outcome) {
     case "empty":
-      return { ...base, type: "empty", severity: "info" };
+      return { ...base, type: "empty", severity: SEVERITY.empty };
     case "completed":
       return {
         ...base,
         type: "completed",
-        severity: "info",
+        severity: SEVERITY.completed,
         job_id: requireJobId(result),
-        statuses_persisted: result.statuses_persisted ?? 0,
-        results_persisted: result.results_persisted ?? 0,
+        statuses_persisted: requirePersistCount(result, "statuses_persisted"),
+        results_persisted: requirePersistCount(result, "results_persisted"),
       };
     case "completed_already_terminal":
       return {
         ...base,
         type: "completed_already_terminal",
-        severity: "info",
+        severity: SEVERITY.completed_already_terminal,
         job_id: requireJobId(result),
       };
     case "requeued":
       return {
         ...base,
         type: "requeued",
-        severity: "info",
+        severity: SEVERITY.requeued,
         job_id: requireJobId(result),
-        reason: result.error?.message ?? "no reason recorded",
+        reason: requireErrorMessage(result, "requeued.reason"),
       };
     case "retried":
       return {
         ...base,
         type: "retried",
-        severity: "info",
+        severity: SEVERITY.retried,
         job_id: requireJobId(result),
-        statuses_persisted: result.statuses_persisted ?? 0,
-        results_persisted: result.results_persisted ?? 0,
+        statuses_persisted: requirePersistCount(result, "statuses_persisted"),
+        results_persisted: requirePersistCount(result, "results_persisted"),
       };
     case "dead_lettered":
       return {
         ...base,
         type: "dead_lettered",
-        severity: "warn",
+        severity: SEVERITY.dead_lettered,
         job_id: requireJobId(result),
-        statuses_persisted: result.statuses_persisted ?? 0,
-        results_persisted: result.results_persisted ?? 0,
+        statuses_persisted: requirePersistCount(result, "statuses_persisted"),
+        results_persisted: requirePersistCount(result, "results_persisted"),
       };
     case "persistence_failed": {
       const event: OcrCoordinatorPersistenceFailedEvent = {
         ...base,
         type: "persistence_failed",
-        severity: "warn",
+        severity: SEVERITY.persistence_failed,
         job_id: requireJobId(result),
-        message: result.error?.message ?? "no message recorded",
+        message: requireErrorMessage(result, "persistence_failed.message"),
       };
       if (result.error?.code !== undefined) {
         event.queue_error_code = result.error.code;
@@ -282,9 +302,9 @@ export function toCoordinatorEvent(
       const event: OcrCoordinatorAckFailedEvent = {
         ...base,
         type: "ack_failed",
-        severity: "warn",
+        severity: SEVERITY.ack_failed,
         job_id: requireJobId(result),
-        message: result.error?.message ?? "no message recorded",
+        message: requireErrorMessage(result, "ack_failed.message"),
       };
       if (result.error?.code !== undefined) {
         event.queue_error_code = result.error.code;
@@ -295,9 +315,9 @@ export function toCoordinatorEvent(
       return {
         ...base,
         type: "lease_lost",
-        severity: "warn",
+        severity: SEVERITY.lease_lost,
         job_id: requireJobId(result),
-        message: result.error?.message ?? "no message recorded",
+        message: requireErrorMessage(result, "lease_lost.message"),
       };
     default: {
       const _exhaustive: never = result.outcome;
@@ -329,4 +349,46 @@ function requireJobId(result: OcrCoordinatorResult): string {
     );
   }
   return result.job_id;
+}
+
+/**
+ * Pull a persisted-count field (statuses_persisted / results_persisted)
+ * off the result, throwing if missing. The coordinator's
+ * completed / retried / dead_lettered / persistence_failed / ack_failed
+ * / lease_lost paths all set these explicitly (a value of 0 when no
+ * writes ran is still a value); `undefined` means the coordinator
+ * skipped setting them — a contract regression worth flagging instead
+ * of fabricating.
+ */
+function requirePersistCount(
+  result: OcrCoordinatorResult,
+  field: "statuses_persisted" | "results_persisted",
+): number {
+  const value = result[field];
+  if (typeof value !== "number") {
+    throw new Error(
+      `coordinator outcome '${result.outcome}' produced no ${field}; cannot build event`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Pull `result.error.message` off the result, throwing if missing.
+ * Every coordinator failure variant (requeued / persistence_failed /
+ * ack_failed / lease_lost) sets `error.message` explicitly via its
+ * helper or inline return; `undefined` means the coordinator dropped
+ * the diagnostic that operators rely on to triage.
+ */
+function requireErrorMessage(
+  result: OcrCoordinatorResult,
+  fieldLabel: string,
+): string {
+  const message = result.error?.message;
+  if (typeof message !== "string" || message.length === 0) {
+    throw new Error(
+      `coordinator outcome '${result.outcome}' produced no ${fieldLabel}; cannot build event`,
+    );
+  }
+  return message;
 }

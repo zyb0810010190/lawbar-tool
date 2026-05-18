@@ -207,6 +207,14 @@ export interface OcrPersistence {
    * submission for `jobId`. Returns `null` when no pending retry is
    * recorded (the common case). Throws `OcrPersistenceError` only for
    * unknown `jobId` — a known job with no pending row returns `null`.
+   *
+   * Note: production code currently reads the pending row via
+   * `getOcrJob().pending_retry_submission` to avoid a second round-trip
+   * during the coordinator's Step 2. This method exists as the
+   * symmetric peer of `setOcrPendingRetry` / `clearOcrPendingRetry` so
+   * the interface is complete (each write has a matching point read),
+   * and so the conformance harness can exercise the read path
+   * independently of `getOcrJob`'s aggregate shape.
    */
   getOcrPendingRetry(jobId: string): Promise<OcrSubmission | null>;
 

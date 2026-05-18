@@ -195,12 +195,29 @@ test("ADR-11F/11G/observability runtime e2e: transient → retry → success, ob
     `expected exit 0, got ${code}; stderr=${proc.stderr_buf.join("")}`,
   );
 
-  // 4. Parse the streamed observability events (every line except the
-  //    final summary JSON is an OcrCoordinatorEvent).
-  const lines = stdoutLines(proc);
-  assert.ok(lines.length >= 2, `expected at least 2 stdout lines, got ${lines.length}`);
-  const summary = JSON.parse(lines[lines.length - 1]);
-  const events = lines.slice(0, -1).map((l) => JSON.parse(l));
+  // 4. Parse the streamed observability events. With --log-outcomes /
+  //    OCR_LOG_OUTCOMES=1, stdout is the homogeneous per-iteration event
+  //    stream and the OcrWorkerLoopSummary goes to stderr (audit L1 —
+  //    keeps the stdout schema stable for downstream consumers).
+  const events = stdoutLines(proc).map((l) => JSON.parse(l));
+  assert.ok(events.length >= 2, `expected at least 2 event lines on stdout, got ${events.length}`);
+  // Summary lives on stderr in log-outcomes mode. The stderr buffer may
+  // also contain unrelated log lines (e.g. config echo); the summary is
+  // the unique line that parses as JSON with a `stop_reason` field.
+  const stderrJsonLines = proc.stderr_buf
+    .join("")
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        return null;
+      }
+    })
+    .filter((v) => v !== null && typeof v === "object" && "stop_reason" in v);
+  assert.equal(stderrJsonLines.length, 1, "expected exactly one summary line on stderr");
+  const summary = stderrJsonLines[0];
 
   // 5. The retry sequence: at least one `retried` event, exactly one
   //    `completed` event, in that order. The loop may emit additional

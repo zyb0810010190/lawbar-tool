@@ -255,16 +255,65 @@ test("exhaustiveness: every coordinator outcome maps to an event with a known se
     "ack_failed",
     "lease_lost",
   ];
+  // Build a minimally-valid result for each outcome that satisfies the
+  // L2 invariant checks (per-outcome required fields).
+  const buildResult = (outcome) => {
+    switch (outcome) {
+      case "empty":
+        return { outcome };
+      case "completed":
+      case "retried":
+      case "dead_lettered":
+        return { outcome, job_id: JOB_ID, statuses_persisted: 0, results_persisted: 0 };
+      case "completed_already_terminal":
+        return { outcome, job_id: JOB_ID };
+      case "requeued":
+        return { outcome, job_id: JOB_ID, error: { message: "exhaustiveness probe" } };
+      case "persistence_failed":
+      case "ack_failed":
+      case "lease_lost":
+        return { outcome, job_id: JOB_ID, error: { message: "exhaustiveness probe" } };
+      default:
+        throw new Error(`test bug: no fixture for outcome ${outcome}`);
+    }
+  };
   for (const outcome of outcomes) {
-    const result =
-      outcome === "empty"
-        ? { outcome }
-        : { outcome, job_id: JOB_ID, statuses_persisted: 0, results_persisted: 0 };
-    const event = toCoordinatorEvent(result, { at: FIXED_AT });
+    const event = toCoordinatorEvent(buildResult(outcome), { at: FIXED_AT });
     assert.equal(event.type, outcome);
     assert.ok(
       event.severity === "info" || event.severity === "warn",
       `unexpected severity for ${outcome}: ${event.severity}`,
     );
   }
+});
+
+// L2 invariant-guard regression coverage.
+
+test("L2: completed outcome without statuses_persisted throws (not silent 0)", () => {
+  assert.throws(
+    () =>
+      toCoordinatorEvent(
+        { outcome: "completed", job_id: JOB_ID, results_persisted: 1 },
+        { at: FIXED_AT },
+      ),
+    /produced no statuses_persisted/,
+  );
+});
+
+test("L2: requeued outcome without error.message throws (not 'no reason recorded')", () => {
+  assert.throws(
+    () => toCoordinatorEvent({ outcome: "requeued", job_id: JOB_ID }, { at: FIXED_AT }),
+    /produced no requeued.reason/,
+  );
+});
+
+test("L2: persistence_failed outcome with empty error.message throws", () => {
+  assert.throws(
+    () =>
+      toCoordinatorEvent(
+        { outcome: "persistence_failed", job_id: JOB_ID, error: { message: "" } },
+        { at: FIXED_AT },
+      ),
+    /produced no persistence_failed.message/,
+  );
 });

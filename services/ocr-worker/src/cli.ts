@@ -277,7 +277,19 @@ export async function runOcrWorkerProcess(
   // 5. Cleanup + summary log
   await safeCleanup(deps.cleanup, writeErr);
   installed?.uninstall();
-  writeOut(JSON.stringify(summary) + "\n");
+  // Audit L1: when --log-outcomes is on, stdout is the per-event stream
+  // (homogeneous OcrCoordinatorEvent schema). Mixing in the
+  // OcrWorkerLoopSummary as the final stdout line would break consumers
+  // parsing each line as an event. Route the summary to stderr in that
+  // mode; default (no streaming) keeps the prior behavior of writing
+  // the summary to stdout, since no test or consumer was expecting an
+  // event stream in that configuration.
+  const summaryLine = JSON.stringify(summary) + "\n";
+  if (config.log_outcomes) {
+    writeErr(summaryLine);
+  } else {
+    writeOut(summaryLine);
+  }
 
   // 6. Exit-code mapping
   switch (summary.stop_reason) {
