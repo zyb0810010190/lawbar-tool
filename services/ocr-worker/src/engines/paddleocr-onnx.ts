@@ -95,6 +95,37 @@ export interface PaddleOcrOnnxAdapterDeps {
 export const ENGINE_FAILED_CODE = "engine_failed";
 
 /**
+ * Retry classification table per ADR-11E §1 + §5. Codes in this
+ * Set are TRANSIENT (worth retrying); every other code is
+ * PERMANENT (default). Membership-or-default keeps the table
+ * fail-safe: a new code that's forgotten in the classification
+ * degrades to permanent (no retry storms).
+ *
+ * The data layer (this set) is wired into
+ * `assembleFailedOutcome`; the behavior layer (coordinator
+ * inspecting `is_transient` + driving `failed -> queued`) lands
+ * in ADR-11F. v1 sets the bit correctly even though no consumer
+ * acts on it yet.
+ */
+const TRANSIENT_FETCHER_CODES: ReadonlySet<string> = new Set<string>([
+  FETCHER_ERROR_CODES.HTTPS_SERVER_ERROR_5XX,
+  FETCHER_ERROR_CODES.HTTPS_TIMEOUT,
+  FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR,
+  ENGINE_FAILED_CODE,
+]);
+
+/**
+ * Classify a fetcher/engine error code as transient (retry can
+ * succeed) or permanent (retry pointless). See ADR-11E §1 for
+ * the full map.
+ */
+export function classifyFetcherError(
+  code: string,
+): "transient" | "permanent" {
+  return TRANSIENT_FETCHER_CODES.has(code) ? "transient" : "permanent";
+}
+
+/**
  * Stable, result-facing messages for each rejection code. Substituted
  * for the raw FetcherError.message before the message lands in
  * OcrResult.partial_failure.message (audit 019e3a2e D2 Medium —
@@ -126,7 +157,8 @@ const SANITIZED_FETCHER_MESSAGES: Readonly<Record<FetcherErrorCode, string>> =
     host_not_allowlisted: "Source URL host is not in the configured allowlist.",
     host_resolves_to_private_ip: "Source URL host resolves to a private / loopback address.",
     redirect_unsupported: "Source URL returned a redirect; v1 does not follow redirects.",
-    https_status_not_ok: "Source URL responded with a non-200 status.",
+    https_client_error_4xx: "Source URL responded with a 4xx client error.",
+    https_server_error_5xx: "Source URL responded with a 5xx server error.",
     https_timeout: "Source URL fetch timed out.",
     https_network_error: "Source URL fetch failed with a network error.",
     content_hash_mismatch: "Fetched bytes do not match the declared expected_sha256.",
@@ -333,7 +365,10 @@ function assembleFailedOutcome(input: FailedOutcomeInput): OcrJobOutcome {
     partial_failure: {
       code: input.code,
       message: input.message,
-      is_transient: false,
+      // ADR-11E §1: classify per code. Previously hardcoded false;
+      // now the data layer carries the retry signal. Behavior layer
+      // (coordinator requeue) lands in ADR-11F.
+      is_transient: classifyFetcherError(input.code) === "transient",
       attempted_count: 1,
     },
     metadata: structuredClone(submission.metadata),

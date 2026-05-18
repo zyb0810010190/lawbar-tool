@@ -549,17 +549,28 @@ async function fetchFromHttps(
       throw wrapTimeoutError(err);
     }
 
-    // Status check.
+    // Status check. Split per ADR-11E §2: 4xx (caller-side server
+    // response) is permanent; 5xx (server hiccup) is transient.
+    // The code itself carries the classification.
     if (response.status >= 300 && response.status < 400) {
       throw new FetcherError(
         `response status ${response.status} is a redirect; v1 does not follow redirects`,
         { code: FETCHER_ERROR_CODES.REDIRECT_UNSUPPORTED },
       );
     }
+    if (response.status >= 500 && response.status < 600) {
+      throw new FetcherError(
+        `response status ${response.status} is a 5xx server error`,
+        { code: FETCHER_ERROR_CODES.HTTPS_SERVER_ERROR_5XX },
+      );
+    }
     if (response.status !== 200) {
+      // 4xx + 1xx + 2xx-non-200 (204, 206) + 6xx+ all classify as
+      // client-error-shaped (permanent). The 5xx range is handled
+      // separately above.
       throw new FetcherError(
         `response status ${response.status} is not 200`,
-        { code: FETCHER_ERROR_CODES.HTTPS_STATUS_NOT_OK },
+        { code: FETCHER_ERROR_CODES.HTTPS_CLIENT_ERROR_4XX },
       );
     }
 

@@ -80,6 +80,7 @@ export {
   processPaddleOcrOnnxJob,
   makePaddleOcrOnnxWorker,
   ENGINE_FAILED_CODE,
+  classifyFetcherError,
   type EnginePort,
   type PaddleOcrOnnxAdapterDeps,
 } from "./engines/paddleocr-onnx.js";

@@ -52,8 +52,19 @@ export const FETCHER_ERROR_CODES = Object.freeze({
   HOST_RESOLVES_TO_PRIVATE_IP: "host_resolves_to_private_ip",
   /** Response was 3xx; v1 does not follow redirects. */
   REDIRECT_UNSUPPORTED: "redirect_unsupported",
-  /** Response status was not 200. */
-  HTTPS_STATUS_NOT_OK: "https_status_not_ok",
+  /**
+   * Response status was 4xx (or any other non-200, non-3xx, non-5xx
+   * code). Classified as PERMANENT per ADR-11E §1: client errors
+   * (404, 401, 403, etc.) don't change on retry.
+   */
+  HTTPS_CLIENT_ERROR_4XX: "https_client_error_4xx",
+  /**
+   * Response status was 5xx. Classified as TRANSIENT per ADR-11E
+   * §1: server hiccups often resolve on retry. Split from the
+   * earlier `https_status_not_ok` code so the classification can
+   * be carried by the code itself.
+   */
+  HTTPS_SERVER_ERROR_5XX: "https_server_error_5xx",
   /** Fetch timed out (AbortController fired). */
   HTTPS_TIMEOUT: "https_timeout",
   /** Generic network error (connection refused, DNS failure, etc). */

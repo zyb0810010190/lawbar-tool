@@ -391,7 +391,7 @@ test("3xx response rejected with redirect_unsupported", async () => {
   );
 });
 
-test("non-200 status (404) rejected with https_status_not_ok", async () => {
+test("non-200 status 404 rejected with https_client_error_4xx (ADR-11E §2 split)", async () => {
   const submission = makeSubmission();
   await assertFetcherError(
     fetchPageBytes(submission, deps({
@@ -401,11 +401,23 @@ test("non-200 status (404) rejected with https_status_not_ok", async () => {
         body: syntheticBody(Buffer.from("not found")),
       }),
     })),
-    FETCHER_ERROR_CODES.HTTPS_STATUS_NOT_OK,
+    FETCHER_ERROR_CODES.HTTPS_CLIENT_ERROR_4XX,
   );
 });
 
-test("non-200 status (500) rejected with https_status_not_ok", async () => {
+test("non-200 status 401 rejected with https_client_error_4xx", async () => {
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport({
+        status: 401, headers: new Headers(), body: syntheticBody(Buffer.from("unauthorized")),
+      }),
+    })),
+    FETCHER_ERROR_CODES.HTTPS_CLIENT_ERROR_4XX,
+  );
+});
+
+test("non-200 status 500 rejected with https_server_error_5xx (transient)", async () => {
   const submission = makeSubmission();
   await assertFetcherError(
     fetchPageBytes(submission, deps({
@@ -413,7 +425,33 @@ test("non-200 status (500) rejected with https_status_not_ok", async () => {
         status: 500, headers: new Headers(), body: syntheticBody(Buffer.from("oops")),
       }),
     })),
-    FETCHER_ERROR_CODES.HTTPS_STATUS_NOT_OK,
+    FETCHER_ERROR_CODES.HTTPS_SERVER_ERROR_5XX,
+  );
+});
+
+test("non-200 status 503 rejected with https_server_error_5xx", async () => {
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport({
+        status: 503, headers: new Headers(), body: syntheticBody(Buffer.from("busy")),
+      }),
+    })),
+    FETCHER_ERROR_CODES.HTTPS_SERVER_ERROR_5XX,
+  );
+});
+
+test("non-200 status 204 (no content) rejected with https_client_error_4xx (caller-error-shaped)", async () => {
+  // 204 has no body to OCR; treat as caller error (sent a URL
+  // that doesn't return content).
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport({
+        status: 204, headers: new Headers(), body: syntheticBody(Buffer.alloc(0)),
+      }),
+    })),
+    FETCHER_ERROR_CODES.HTTPS_CLIENT_ERROR_4XX,
   );
 });
 
