@@ -50,35 +50,63 @@ async function loadFakeWorker(): Promise<OcrWorker> {
   };
 }
 
+/**
+ * Real runtime type guard for the no-arg form of `load`. Audit
+ * 019e3a2e D4: a shallow presence check + cast lets `{ engineVersion:
+ * "" }` or `engine` without a callable `detect` through to the
+ * adapter, where it eventually crashes deeper. We narrow up front
+ * so the un-wired vs malformed-deps split is observable here.
+ */
+function isPaddleOcrOnnxAdapterDeps(value: unknown): value is PaddleOcrOnnxAdapterDeps {
+  if (value === null || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  if (typeof v.engineVersion !== "string" || v.engineVersion.length === 0) return false;
+  if (v.fetcher === null || typeof v.fetcher !== "object") return false;
+  const engine = v.engine;
+  if (engine === null || typeof engine !== "object") return false;
+  if (typeof (engine as { detect?: unknown }).detect !== "function") return false;
+  return true;
+}
+
 async function loadPaddleOcrOnnxWorker(deps?: unknown): Promise<OcrWorker> {
-  if (
-    deps === undefined ||
-    deps === null ||
-    typeof deps !== "object" ||
-    !("fetcher" in deps) ||
-    !("engine" in deps) ||
-    !("engineVersion" in deps)
-  ) {
+  if (!isPaddleOcrOnnxAdapterDeps(deps)) {
     throw new Error(
       "WORKER_REGISTRY[\"paddleocr-onnx\"].load is not yet wired with " +
         "default deps; in 11C.3a callers must construct " +
-        "PaddleOcrOnnxAdapterDeps and call makePaddleOcrOnnxWorker " +
-        "directly. The no-arg factory ships in 11C.3b.",
+        "PaddleOcrOnnxAdapterDeps (with non-empty engineVersion, object " +
+        "fetcher, and callable engine.detect) and call " +
+        "makePaddleOcrOnnxWorker directly. The no-arg factory ships in 11C.3b.",
     );
   }
-  return makePaddleOcrOnnxWorker(deps as PaddleOcrOnnxAdapterDeps);
+  return makePaddleOcrOnnxWorker(deps);
 }
 
 /**
- * Frozen registry. Runtime-frozen (not just `as const`) so a
- * misbehaving consumer cannot mutate the public-surface entries.
- * Same defense as `INGESTION_ERROR_CODES` + `FETCHER_ERROR_CODES`.
+ * Deep-freeze the registry: Object.freeze stops top-level
+ * re-assignment, but nested entries stay mutable without a recursive
+ * pass (audit 019e3a2e D4). A misbehaving consumer could otherwise
+ * swap `WORKER_REGISTRY.fake.load` for arbitrary code.
+ */
+function deepFreeze<T>(o: T): T {
+  if (o !== null && typeof o === "object" && !Object.isFrozen(o)) {
+    Object.freeze(o);
+    for (const key of Object.keys(o as object)) {
+      deepFreeze((o as Record<string, unknown>)[key]);
+    }
+  }
+  return o;
+}
+
+/**
+ * Frozen registry. Deep-frozen so neither the map itself nor its
+ * entries can be mutated at runtime. Matches the defense pattern in
+ * `INGESTION_ERROR_CODES` + `FETCHER_ERROR_CODES`.
  */
 export const WORKER_REGISTRY: Readonly<Record<WorkerKey, WorkerEntry>>
-  = Object.freeze({
-    fake: { name: "fake", load: loadFakeWorker },
+  = deepFreeze({
+    fake: { name: "fake" as const, load: loadFakeWorker },
     "paddleocr-onnx": {
-      name: "paddleocr-onnx",
+      name: "paddleocr-onnx" as const,
       load: loadPaddleOcrOnnxWorker,
     },
   });

@@ -9,7 +9,6 @@ import {
   mkdtemp,
   writeFile,
   rm,
-  readdir,
   stat as fsStat,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -206,7 +205,13 @@ test("temp file is cleaned up after engine throws", async () => {
     );
     assert.equal(outcome.terminal_state, "failed");
     assert.equal(outcome.results[0].partial_failure.code, ENGINE_FAILED_CODE);
-    assert.match(outcome.results[0].partial_failure.message, /simulated engine crash/);
+    // Sanitized message — raw "simulated engine crash" does NOT travel
+    // into the result; only the stable, code-keyed text does. Audit
+    // 019e3a2e D2 Medium fix.
+    assert.equal(
+      outcome.results[0].partial_failure.message,
+      "OCR engine failed to process the image.",
+    );
     await assert.rejects(fsStat(capturedPath), /ENOENT/);
   });
 });
@@ -367,6 +372,211 @@ test("WORKER_REGISTRY.paddleocr-onnx.load(deps) returns OcrWorker with adapter w
       source: makeFileSource({ path: "page.png", mime_type: "image/png", byte_size: PNG_HEADER.length }),
     }));
     assert.equal(outcome.terminal_state, "succeeded");
+  });
+});
+
+// --- audit 019e3a2e fix coverage ------------------------------------------
+
+test("D3 H: success path echoes submission.metadata unchanged", async () => {
+  await withTempRoot(async (root) => {
+    await writeFile(join(root, "page.png"), PNG_HEADER);
+    const engine = { async detect() { return [{ text: "x", mean: 0.5 }]; } };
+    const sub = makeSubmission({
+      source: makeFileSource({ path: "page.png", mime_type: "image/png", byte_size: PNG_HEADER.length }),
+    });
+    sub.metadata = {
+      trace_id: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+      filing_ref: "court-filing-2025-hu-min-12345",
+      nested: { tags: ["a", "b"], n: 42 },
+    };
+    const outcome = await processPaddleOcrOnnxJob(
+      { id: "t", submission: sub, enqueued_at: "2026-05-18T10:00:00.000Z" },
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion },
+    );
+    assert.equal(outcome.terminal_state, "succeeded");
+    assert.deepEqual(outcome.results[0].metadata, sub.metadata);
+    // Defensive clone — mutating the source metadata after the call
+    // must NOT leak into the result.
+    sub.metadata.trace_id = "MUTATED";
+    assert.notEqual(outcome.results[0].metadata.trace_id, "MUTATED");
+  });
+});
+
+test("D3 H: failed path also echoes submission.metadata", async () => {
+  await withTempRoot(async (root) => {
+    const engine = { async detect() { throw new Error("should not be called"); } };
+    const sub = makeSubmission({
+      source: { kind: "s3", bucket: "b", key: "k", byte_size: 1, mime_type: "image/png" },
+    });
+    sub.metadata = { trace_id: "trace-xyz", tags: ["audit"] };
+    const outcome = await processPaddleOcrOnnxJob(
+      { id: "t", submission: sub, enqueued_at: "2026-05-18T10:00:00.000Z" },
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion },
+    );
+    assert.equal(outcome.terminal_state, "failed");
+    assert.deepEqual(outcome.results[0].metadata, sub.metadata);
+  });
+});
+
+test("D3 H: engine returns non-array -> engine_failed (no mapper crash)", async () => {
+  await withTempRoot(async (root) => {
+    await writeFile(join(root, "page.png"), PNG_HEADER);
+    const engine = { async detect() { return null; } };
+    const outcome = await processPaddleOcrOnnxJob(
+      makeJob({ source: makeFileSource({ path: "page.png", mime_type: "image/png", byte_size: PNG_HEADER.length }) }),
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion },
+    );
+    assert.equal(outcome.terminal_state, "failed");
+    assert.equal(outcome.results[0].partial_failure.code, ENGINE_FAILED_CODE);
+  });
+});
+
+test("D3 H: engine returns array with non-string text -> engine_failed", async () => {
+  await withTempRoot(async (root) => {
+    await writeFile(join(root, "page.png"), PNG_HEADER);
+    const engine = { async detect() { return [{ text: 42, mean: 0.5 }]; } };
+    const outcome = await processPaddleOcrOnnxJob(
+      makeJob({ source: makeFileSource({ path: "page.png", mime_type: "image/png", byte_size: PNG_HEADER.length }) }),
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion },
+    );
+    assert.equal(outcome.terminal_state, "failed");
+    assert.equal(outcome.results[0].partial_failure.code, ENGINE_FAILED_CODE);
+  });
+});
+
+test("D3 H: engine returns array with non-object element -> engine_failed", async () => {
+  await withTempRoot(async (root) => {
+    await writeFile(join(root, "page.png"), PNG_HEADER);
+    const engine = { async detect() { return ["just a string"]; } };
+    const outcome = await processPaddleOcrOnnxJob(
+      makeJob({ source: makeFileSource({ path: "page.png", mime_type: "image/png", byte_size: PNG_HEADER.length }) }),
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion },
+    );
+    assert.equal(outcome.terminal_state, "failed");
+    assert.equal(outcome.results[0].partial_failure.code, ENGINE_FAILED_CODE);
+  });
+});
+
+test("D2 M: sanitized partial_failure.message for fetcher errors (no path leak into result)", async () => {
+  await withTempRoot(async (root) => {
+    const engine = { async detect() { throw new Error("should not be called"); } };
+    const outcome = await processPaddleOcrOnnxJob(
+      makeJob({
+        source: makeFileSource({ path: "/etc/passwd", mime_type: "image/png", byte_size: 1 }),
+      }),
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion },
+    );
+    assert.equal(outcome.results[0].partial_failure.code, FETCHER_ERROR_CODES.PATH_ESCAPE);
+    // The fetcher's raw message would have contained "/etc/passwd" + the
+    // resolved allowed-root path. The sanitized result must not.
+    const msg = outcome.results[0].partial_failure.message;
+    assert.equal(msg, "Source path failed containment check.");
+    assert.equal(msg.includes("/etc/passwd"), false);
+    assert.equal(msg.includes(root), false);
+  });
+});
+
+test("D7: full status-chain sequence validates as a chain (not just edge-by-edge)", async () => {
+  await withTempRoot(async (root) => {
+    await writeFile(join(root, "page.png"), PNG_HEADER);
+    const engine = { async detect() { return [{ text: "x", mean: 1.0 }]; } };
+    const outcome = await processPaddleOcrOnnxJob(
+      makeJob({ source: makeFileSource({ path: "page.png", mime_type: "image/png", byte_size: PNG_HEADER.length }) }),
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion },
+    );
+    const { validateOcrStatusTransitionSequence } = await import("ocr-worker-contract");
+    const v = validateOcrStatusTransitionSequence({
+      job_id: outcome.job_id,
+      transitions: outcome.statuses,
+    });
+    assert.equal(v.ok, true, v.ok ? "" : v.summary);
+  });
+});
+
+test("D2 L: temp file mode is 0o600", async () => {
+  await withTempRoot(async (root) => {
+    await writeFile(join(root, "page.png"), PNG_HEADER);
+    let capturedPath;
+    let capturedMode;
+    const engine = {
+      async detect(imagePath) {
+        capturedPath = imagePath;
+        const st = await fsStat(imagePath);
+        capturedMode = st.mode & 0o777;
+        return [{ text: "x", mean: 1.0 }];
+      },
+    };
+    await processPaddleOcrOnnxJob(
+      makeJob({ source: makeFileSource({ path: "page.png", mime_type: "image/png", byte_size: PNG_HEADER.length }) }),
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion },
+    );
+    assert.ok(capturedPath, "engine should have been called");
+    // POSIX umask can mask further but never adds; 0o600 means the file
+    // permission bits are exactly user-rw, no group/other access. We
+    // accept 0o600 exactly OR the value after a more-restrictive umask
+    // (any subset of 0o600).
+    assert.equal(capturedMode & 0o077, 0, `expected no group/other bits; mode=0o${capturedMode.toString(8)}`);
+    assert.ok((capturedMode & 0o600) === 0o600 || (capturedMode & 0o400) === 0o400,
+      `expected user-readable; mode=0o${capturedMode.toString(8)}`);
+  });
+});
+
+test("D4 M: WORKER_REGISTRY is deep-frozen (entries are immutable too)", () => {
+  // Top-level: already covered above.
+  // Entry-level: nested .load and .name must be immutable.
+  assert.throws(() => { WORKER_REGISTRY.fake.load = async () => null; }, TypeError);
+  assert.throws(() => { WORKER_REGISTRY.fake.name = "evil"; }, TypeError);
+  assert.throws(() => { WORKER_REGISTRY["paddleocr-onnx"].load = async () => null; }, TypeError);
+});
+
+test("D4 M: paddleocr-onnx.load with engineVersion='' rejected (real type guard)", async () => {
+  await withTempRoot(async (root) => {
+    const engine = { async detect() { return []; } };
+    await assert.rejects(
+      WORKER_REGISTRY["paddleocr-onnx"].load({
+        fetcher: { allowedFileRoot: root },
+        engine,
+        engineVersion: "",
+      }),
+      /not yet wired|non-empty engineVersion/i,
+    );
+  });
+});
+
+test("D4 M: paddleocr-onnx.load with engine.detect not a function rejected", async () => {
+  await withTempRoot(async (root) => {
+    await assert.rejects(
+      WORKER_REGISTRY["paddleocr-onnx"].load({
+        fetcher: { allowedFileRoot: root },
+        engine: { detect: "not a function" },
+        engineVersion: baseEngineVersion,
+      }),
+      /not yet wired/i,
+    );
+  });
+});
+
+test("D3 M: processing_duration_ms is non-negative even with backward wall clock", async () => {
+  await withTempRoot(async (root) => {
+    await writeFile(join(root, "page.png"), PNG_HEADER);
+    let n = 0;
+    // Wall clock that goes BACKWARDS — if duration used clock(), it
+    // would produce a negative value. performance.now() is monotonic
+    // so we stay non-negative.
+    const backwardClock = () => {
+      const t = new Date(Date.UTC(2030, 0, 1, 0, 0, 60 - n));
+      n += 1;
+      return t;
+    };
+    const engine = { async detect() { return [{ text: "x", mean: 1.0 }]; } };
+    const outcome = await processPaddleOcrOnnxJob(
+      makeJob({ source: makeFileSource({ path: "page.png", mime_type: "image/png", byte_size: PNG_HEADER.length }) }),
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion, now: backwardClock },
+    );
+    assert.ok(
+      outcome.results[0].page_metrics.processing_duration_ms >= 0,
+      `expected duration >= 0, got ${outcome.results[0].page_metrics.processing_duration_ms}`,
+    );
   });
 });
 

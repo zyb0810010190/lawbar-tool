@@ -105,10 +105,22 @@ the factory, not the adapter.
 export interface PaddleOcrOnnxAdapterDeps {
   readonly fetcher: FetcherDeps;
   readonly engine: EnginePort;
-  /** Default: `() => new Date()`. */
+  /**
+   * Wall clock for TransitionRecord.at + OcrResult.completed_at.
+   * Default: `() => new Date()`.
+   *
+   * NOTE (audit 019e3a2e D3 Medium): NOT used for
+   * `processing_duration_ms`. Duration uses `performance.now()` so a
+   * wall-clock backward adjustment cannot produce a negative duration.
+   */
   readonly now?: () => Date;
-  /** Override the engine.version string. Default: env-derived in 11C.3c. */
-  readonly engineVersion?: string;
+  /**
+   * Engine version string for `OcrResult.engine.version`. Format
+   * `<pkg-version>+<model-set>` per ADR-11A.5. Required — the
+   * registry's no-arg `load()` form rejects missing / empty values
+   * with a real type guard rather than a cast.
+   */
+  readonly engineVersion: string;
 }
 ```
 
@@ -201,9 +213,9 @@ Why (A):
 - Temp file is in `os.tmpdir()` (worker-owned) with `mkdtemp`'s
   randomized suffix; no path-collision risk.
 
-Cost: one synchronous write (≤ 50 MB) + one delete per job. Under
-the v1 throughput envelope (single-page jobs, sub-second engine
-detect), negligible.
+Cost: one async `writeFile` (≤ 50 MB, mode `0o600` per ADR-11A.0 §7)
++ one async `rm` per job. Under the v1 throughput envelope (N=1
+single-page jobs, sub-second engine detect), negligible.
 
 Cleanup invariant: the temp file is deleted in a `finally` that runs
 regardless of fetcher / engine / mapper outcome. Test pins it.
