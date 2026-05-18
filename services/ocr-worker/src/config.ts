@@ -42,6 +42,16 @@ export interface OcrWorkerConfig {
    * `worker_kind === "paddleocr-onnx"`; unset for `"fake"`.
    */
   fetcher_file_root: string | undefined;
+  /**
+   * Set of exact-match host strings the fetcher will resolve for
+   * `kind: "https"` submissions. Lower-cased on parse. `undefined`
+   * or empty → every https fetch throws `host_not_allowlisted`
+   * (fail-closed). Optional even when worker_kind=paddleocr-onnx,
+   * because some deployments use only file/inline sources.
+   * Read from `OCR_FETCHER_HTTPS_HOSTS` (comma-separated) or
+   * `--https-hosts`.
+   */
+  fetcher_https_hosts: ReadonlySet<string> | undefined;
   /** Which persistence backend to construct in the default deps factory. */
   persistence: OcrWorkerPersistenceKind;
   /**
@@ -130,6 +140,7 @@ export function parseOcrWorkerConfig(
       worker_id: pickString(argvFlags.values.workerId, env.OCR_WORKER_ID) ?? generateWorkerId(),
       worker_kind: "fake",
       fetcher_file_root: undefined,
+      fetcher_https_hosts: undefined,
       persistence: "memory",
       queue: "memory",
       sqlite_path: undefined,
@@ -219,6 +230,15 @@ export function parseOcrWorkerConfig(
   );
   const fetcherFileRoot = parseFetcherFileRoot(fetcherFileRootRaw, workerKind);
 
+  // ADR-11D.2: parse OCR_FETCHER_HTTPS_HOSTS into a Set of lowercase
+  // host strings. Empty / missing → undefined (fetcher fails closed
+  // for any https submission).
+  const httpsHostsRaw = pickRaw(
+    argvFlags.values.httpsHosts,
+    env.OCR_FETCHER_HTTPS_HOSTS,
+  );
+  const fetcherHttpsHosts = parseHttpsHosts(httpsHostsRaw);
+
   // ADR-11A.0 §10 production fail-closed. Evaluated AFTER worker kind
   // resolves but BEFORE any deps construction; throws OcrWorkerConfigError
   // which maps to exit 2 at the bin's top-level catch.
@@ -228,6 +248,7 @@ export function parseOcrWorkerConfig(
     worker_id: workerId,
     worker_kind: workerKind,
     fetcher_file_root: fetcherFileRoot,
+    fetcher_https_hosts: fetcherHttpsHosts,
     persistence,
     queue,
     sqlite_path: sqlitePath,
@@ -257,6 +278,37 @@ function parseWorkerKind(raw: string | undefined): WorkerKey {
     );
   }
   return raw as WorkerKey;
+}
+
+function parseHttpsHosts(raw: string | undefined): ReadonlySet<string> | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === "") {
+    // Same omitted-vs-empty rule as the worker selector: explicit
+    // empty is a config error.
+    throw new OcrWorkerConfigError(
+      "OCR_FETCHER_HTTPS_HOSTS (or --https-hosts) must not be empty; " +
+        "omit the env/flag entirely or supply a comma-separated host list",
+    );
+  }
+  const hosts = raw
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter((h) => h.length > 0);
+  if (hosts.length === 0) {
+    throw new OcrWorkerConfigError(
+      `OCR_FETCHER_HTTPS_HOSTS contained no non-empty host entries (got ${JSON.stringify(raw)})`,
+    );
+  }
+  // Sanity: reject scheme/path syntax that suggests the operator
+  // pasted a full URL by mistake.
+  for (const h of hosts) {
+    if (h.includes("://") || h.includes("/")) {
+      throw new OcrWorkerConfigError(
+        `OCR_FETCHER_HTTPS_HOSTS entry ${JSON.stringify(h)} looks like a URL; supply host only`,
+      );
+    }
+  }
+  return new Set(hosts);
 }
 
 function parseFetcherFileRoot(
@@ -345,6 +397,7 @@ interface ArgvParseResult {
     workerId?: string;
     worker?: string;
     fetcherFileRoot?: string;
+    httpsHosts?: string;
     persistence?: string;
     queue?: string;
     sqlitePath?: string;
@@ -359,6 +412,7 @@ const KNOWN_FLAGS: ReadonlyMap<string, keyof ArgvParseResult["values"] | "help">
   ["--worker-id", "workerId"],
   ["--worker", "worker"],
   ["--fetcher-file-root", "fetcherFileRoot"],
+  ["--https-hosts", "httpsHosts"],
   ["--persistence", "persistence"],
   ["--queue", "queue"],
   ["--sqlite-path", "sqlitePath"],

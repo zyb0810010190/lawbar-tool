@@ -108,6 +108,10 @@ Flags:
                                       omit entirely to take the default.
   --fetcher-file-root <abs-path>      Allowed root for file:// page sources;
                                       REQUIRED when --worker=paddleocr-onnx.
+  --https-hosts <h1,h2,...>           Comma-separated host allowlist for
+                                      https:// page sources. Missing -> all
+                                      https submissions reject as
+                                      host_not_allowlisted.
   --persistence <memory|sqlite>       Persistence backend (default: memory)
   --queue <memory|sqlite>             Queue backend (default: memory)
                                       sqlite requires --persistence=sqlite;
@@ -120,6 +124,7 @@ Flags:
 
 Environment variables (argv flags take precedence):
   OCR_WORKER_ID, OCR_WORKER, OCR_FETCHER_FILE_ROOT,
+  OCR_FETCHER_HTTPS_HOSTS,
   OCR_WORKER_PERSISTENCE, OCR_WORKER_QUEUE,
   OCR_WORKER_SQLITE_PATH, OCR_WORKER_IDLE_DELAY_MS,
   OCR_WORKER_MAX_ITERATIONS, OCR_WORKER_INCLUDE_EMPTY_OUTCOMES
@@ -179,6 +184,7 @@ export async function runOcrWorkerProcess(
         worker_id: config.worker_id,
         worker_kind: config.worker_kind,
         fetcher_file_root: config.fetcher_file_root ?? null,
+        fetcher_https_hosts_count: config.fetcher_https_hosts?.size ?? 0,
         persistence: config.persistence,
         queue: config.queue,
         sqlite_path: config.sqlite_path ?? null,
@@ -318,7 +324,10 @@ async function constructWorker(config: OcrWorkerConfig): Promise<OcrWorker> {
       // exit 2 at the bin's top-level catch.
       const { engine, version } = await makeRealPaddleEngine();
       return WORKER_REGISTRY["paddleocr-onnx"].load({
-        fetcher: { allowedFileRoot: config.fetcher_file_root },
+        fetcher: {
+          allowedFileRoot: config.fetcher_file_root,
+          allowedHttpsHosts: config.fetcher_https_hosts,
+        },
         engine,
         engineVersion: version,
       });

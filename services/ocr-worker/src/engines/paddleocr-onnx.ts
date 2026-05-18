@@ -117,6 +117,18 @@ const SANITIZED_FETCHER_MESSAGES: Readonly<Record<FetcherErrorCode, string>> =
     size_cap_exceeded: "Source file exceeds the per-page size cap.",
     mime_unsupported: "Source mime_type is not in the v1 allowlist.",
     mime_signature_mismatch: "Source bytes do not match the declared mime_type signature.",
+    // ADR-11D.2 https codes — same path-redaction posture as file codes:
+    // operator log carries the raw URL/host; the durable result envelope
+    // gets the sanitized message only.
+    http_scheme_unsupported: "Source URL scheme is not allowed (https:// only).",
+    url_expired: "Source URL has expired.",
+    host_not_allowlisted: "Source URL host is not in the configured allowlist.",
+    host_resolves_to_private_ip: "Source URL host resolves to a private / loopback address.",
+    redirect_unsupported: "Source URL returned a redirect; v1 does not follow redirects.",
+    https_status_not_ok: "Source URL responded with a non-200 status.",
+    https_timeout: "Source URL fetch timed out.",
+    https_network_error: "Source URL fetch failed with a network error.",
+    content_hash_mismatch: "Fetched bytes do not match the declared expected_sha256.",
   });
 
 const ENGINE_FAILED_MESSAGE = "OCR engine failed to process the image.";

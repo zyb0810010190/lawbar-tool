@@ -686,3 +686,74 @@ test("NODE_ENV=development + OCR_WORKER_REQUIRE_REAL unset + worker=fake passes 
   });
   assert.equal(cfg.worker_kind, "fake");
 });
+
+// --- ADR-11D.2 OCR_FETCHER_HTTPS_HOSTS -------------------------------------
+
+test("OCR_FETCHER_HTTPS_HOSTS unset -> fetcher_https_hosts undefined", () => {
+  const cfg = parseOcrWorkerConfig({ env: {}, argv: [] });
+  assert.equal(cfg.fetcher_https_hosts, undefined);
+});
+
+test("OCR_FETCHER_HTTPS_HOSTS=a.example.com -> Set with one entry", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: { OCR_FETCHER_HTTPS_HOSTS: "a.example.com" },
+    argv: [],
+  });
+  assert.ok(cfg.fetcher_https_hosts instanceof Set);
+  assert.equal(cfg.fetcher_https_hosts.size, 1);
+  assert.ok(cfg.fetcher_https_hosts.has("a.example.com"));
+});
+
+test("OCR_FETCHER_HTTPS_HOSTS supports comma-separated lists with whitespace tolerance", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: { OCR_FETCHER_HTTPS_HOSTS: "a.example.com, b.example.com,c.example.com" },
+    argv: [],
+  });
+  assert.equal(cfg.fetcher_https_hosts.size, 3);
+  assert.ok(cfg.fetcher_https_hosts.has("a.example.com"));
+  assert.ok(cfg.fetcher_https_hosts.has("b.example.com"));
+  assert.ok(cfg.fetcher_https_hosts.has("c.example.com"));
+});
+
+test("OCR_FETCHER_HTTPS_HOSTS lowercases mixed-case hosts", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: { OCR_FETCHER_HTTPS_HOSTS: "A.Example.COM,B.example.com" },
+    argv: [],
+  });
+  assert.ok(cfg.fetcher_https_hosts.has("a.example.com"));
+  assert.ok(cfg.fetcher_https_hosts.has("b.example.com"));
+});
+
+test("OCR_FETCHER_HTTPS_HOSTS='' (explicit empty) rejected per ADR-11A.0 §10 pattern", () => {
+  assert.throws(
+    () => parseOcrWorkerConfig({ env: { OCR_FETCHER_HTTPS_HOSTS: "" }, argv: [] }),
+    (err) => /OCR_FETCHER_HTTPS_HOSTS.*must not be empty/.test(err.message),
+  );
+});
+
+test("OCR_FETCHER_HTTPS_HOSTS=',,' (only separators) rejected", () => {
+  assert.throws(
+    () => parseOcrWorkerConfig({ env: { OCR_FETCHER_HTTPS_HOSTS: ",, ," }, argv: [] }),
+    (err) => /no non-empty host entries/.test(err.message),
+  );
+});
+
+test("OCR_FETCHER_HTTPS_HOSTS with URL-shaped entry rejected (operator paste error)", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_FETCHER_HTTPS_HOSTS: "https://example.com/path" },
+        argv: [],
+      }),
+    (err) => /looks like a URL.*supply host only/.test(err.message),
+  );
+});
+
+test("--https-hosts argv flag overrides env OCR_FETCHER_HTTPS_HOSTS", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: { OCR_FETCHER_HTTPS_HOSTS: "env.example.com" },
+    argv: ["--https-hosts", "argv.example.com"],
+  });
+  assert.ok(cfg.fetcher_https_hosts.has("argv.example.com"));
+  assert.equal(cfg.fetcher_https_hosts.has("env.example.com"), false);
+});

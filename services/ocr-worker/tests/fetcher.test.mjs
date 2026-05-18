@@ -154,17 +154,9 @@ test("s3 source rejected with source_kind_unsupported", async () => {
   });
 });
 
-test("https source rejected with source_kind_unsupported", async () => {
-  await withTempRoot(async (root) => {
-    const submission = makeSubmission({
-      source: { kind: "https", url: "https://example.test/p.png", byte_size: 1, mime_type: "image/png" },
-    });
-    await assertFetcherError(
-      fetchPageBytes(submission, { allowedFileRoot: root }),
-      FETCHER_ERROR_CODES.SOURCE_KIND_UNSUPPORTED,
-    );
-  });
-});
+// https source kind is now admitted (ADR-11D.2). This test was
+// previously a `source_kind_unsupported` reject; replaced by the
+// happy-path + negative-path https tests further down.
 
 // Inline source kind is now admitted (ADR-11D.1). This test was
 // previously a `source_kind_unsupported` reject; replaced by the

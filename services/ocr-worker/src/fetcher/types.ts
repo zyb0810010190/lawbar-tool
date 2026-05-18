@@ -35,6 +35,25 @@ export const FETCHER_ERROR_CODES = Object.freeze({
    * declaration-only).
    */
   MIME_SIGNATURE_MISMATCH: "mime_signature_mismatch",
+  // --- ADR-11D.2 https source codes ---------------------------------
+  /** url.protocol is not "https:" (schema-bypass defense). */
+  HTTP_SCHEME_UNSUPPORTED: "http_scheme_unsupported",
+  /** source.url_expires_at is in the past per deps.now(). */
+  URL_EXPIRED: "url_expired",
+  /** url.host (lower-cased) not in deps.allowedHttpsHosts. */
+  HOST_NOT_ALLOWLISTED: "host_not_allowlisted",
+  /** DNS resolved the host to a private / loopback / link-local IP. */
+  HOST_RESOLVES_TO_PRIVATE_IP: "host_resolves_to_private_ip",
+  /** Response was 3xx; v1 does not follow redirects. */
+  REDIRECT_UNSUPPORTED: "redirect_unsupported",
+  /** Response status was not 200. */
+  HTTPS_STATUS_NOT_OK: "https_status_not_ok",
+  /** Fetch timed out (AbortController fired). */
+  HTTPS_TIMEOUT: "https_timeout",
+  /** Generic network error (connection refused, DNS failure, etc). */
+  HTTPS_NETWORK_ERROR: "https_network_error",
+  /** Fetched bytes' SHA-256 disagrees with source.expected_sha256. */
+  CONTENT_HASH_MISMATCH: "content_hash_mismatch",
 } as const);
 
 export type FetcherErrorCode =
@@ -67,11 +86,57 @@ export class FetcherError extends Error {
 export interface FetcherDeps {
   /**
    * Absolute path under which every `file://` source path must resolve.
-   * Read once at bin startup from `OCR_FETCHER_FILE_ROOT` (deferred to
-   * ADR-11C.3). The fetcher itself does NOT read `process.env` —
-   * keeping that side-effect on the bin seam preserves testability.
+   * Read once at bin startup from `OCR_FETCHER_FILE_ROOT`. The fetcher
+   * itself does NOT read `process.env` — keeping that side-effect on
+   * the bin seam preserves testability.
+   *
+   * Optional in the type to allow inline- or https-only deployments,
+   * but the file path's own validation throws `file_root_unconfigured`
+   * if reached without a non-empty absolute path.
    */
   readonly allowedFileRoot: string;
+  /**
+   * Set of exact-match host strings the fetcher will resolve for
+   * `kind: "https"` submissions. Lower-cased on parse. Empty/missing
+   * → every https fetch throws `host_not_allowlisted` (fail-closed).
+   * Read at bin startup from `OCR_FETCHER_HTTPS_HOSTS` (ADR-11D.2 §1).
+   */
+  readonly allowedHttpsHosts?: ReadonlySet<string>;
+  /**
+   * Transport seam for https fetches. Production uses Node's
+   * built-in fetch wrapped in `makeNodeFetchHttpsTransport()`; tests
+   * inject a stub that returns canned `HttpsTransportResponse`s.
+   * Default is constructed lazily by the fetcher when missing.
+   */
+  readonly httpsTransport?: HttpsTransport;
+  /**
+   * Clock for `url_expires_at` comparisons. Defaults to
+   * `() => new Date()`. Tests inject a fixed clock to pin
+   * expiry-edge behavior.
+   */
+  readonly now?: () => Date;
+}
+
+// ---------------------------------------------------------------------
+// https transport (ADR-11D.2)
+// ---------------------------------------------------------------------
+
+export interface HttpsTransport {
+  fetch(
+    url: URL,
+    init: { signal: AbortSignal },
+  ): Promise<HttpsTransportResponse>;
+}
+
+export interface HttpsTransportResponse {
+  readonly status: number;
+  readonly headers: Headers;
+  /**
+   * Async iterable of byte chunks. The fetcher consumes this while
+   * enforcing the per-page size cap, so a malicious unbounded stream
+   * is aborted before it exhausts memory.
+   */
+  readonly body: AsyncIterable<Uint8Array>;
 }
 
 export interface FetchedPage {

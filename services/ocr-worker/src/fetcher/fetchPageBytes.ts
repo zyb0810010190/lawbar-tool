@@ -16,6 +16,9 @@
 // fd's inode and is out of v1 threat model (the file root is
 // worker-owned).
 
+import { createHash } from "node:crypto";
+import { lookup as dnsLookupCallback } from "node:dns";
+import { promisify } from "node:util";
 import { open } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 
@@ -26,11 +29,16 @@ import {
   FETCHER_ERROR_CODES,
   type FetchedPage,
   type FetcherDeps,
+  type HttpsTransport,
 } from "./types.js";
 import {
   assertLexicallyContained,
   assertRealContained,
 } from "./pathContainment.js";
+import { isPrivateIp } from "./privateIp.js";
+import { makeNodeFetchHttpsTransport } from "./httpsTransport.js";
+
+const dnsLookupAll = promisify(dnsLookupCallback);
 
 /**
  * Maximum bytes per page. Pinned by ADR-11C.2 §6.
@@ -50,6 +58,13 @@ const MAX_PAGE_BYTES = 50 * 1024 * 1024;
  * be accepted, widening the effective contract.
  */
 const MAX_INLINE_BYTES = 1 * 1024 * 1024;
+
+/**
+ * Overall fetch timeout for `https` sources. The AbortController
+ * fires after this duration regardless of which phase (connect /
+ * headers / body) is in progress. Pinned by ADR-11D.2 §6.
+ */
+const HTTPS_FETCH_TIMEOUT_MS = 30_000;
 
 /**
  * MIME allowlist for v1. Pinned by ADR-11C.2 §6 + ADR-11A.0 §8
@@ -113,10 +128,12 @@ export async function fetchPageBytes(
       return fetchFromFile(source, deps);
     case "inline":
       return fetchFromInline(source);
+    case "https":
+      return fetchFromHttps(source, deps);
     default:
       throw new FetcherError(
         `source kind ${JSON.stringify((source as { kind: string }).kind)} is not supported in v1 ` +
-          `(admitted: "file", "inline"; see ADR-11D.1 §1 + ADR-11C.2 §1)`,
+          `(admitted: "file", "inline", "https"; see ADR-11C.2 §1 + ADR-11D.1 §1 + ADR-11D.2 §1)`,
         { code: FETCHER_ERROR_CODES.SOURCE_KIND_UNSUPPORTED },
       );
   }
@@ -351,6 +368,232 @@ async function fetchFromInline(
   if (!bytesMatchDeclaredMime(bytes, declaredMime)) {
     throw new FetcherError(
       `inline bytes do not carry a valid ${declaredMime} signature (declared MIME does not match content)`,
+      { code: FETCHER_ERROR_CODES.MIME_SIGNATURE_MISMATCH },
+    );
+  }
+
+  return {
+    bytes,
+    mimeType: declaredMime,
+    sizeBytes: bytes.byteLength,
+  };
+}
+
+// ---------------------------------------------------------------------
+// https path — ADR-11D.2
+// ---------------------------------------------------------------------
+
+async function fetchFromHttps(
+  source: Extract<OcrSubmission["pages"][number]["source"], { kind: "https" }>,
+  deps: FetcherDeps,
+): Promise<FetchedPage> {
+  // §1 step 1 — parse the URL. WHATWG URL constructor throws
+  // TypeError on malformed input; surface that as
+  // https_network_error (pre-network, but the same "we can't even
+  // start" semantic).
+  let url: URL;
+  try {
+    url = new URL(source.url);
+  } catch (err) {
+    throw new FetcherError(
+      `source.url is not a parseable URL: ${(err as Error).message}`,
+      { code: FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR },
+    );
+  }
+
+  // §1 step 2 — HTTPS only. Schema's pattern already enforces this;
+  // defense-in-depth against schema bypass.
+  if (url.protocol !== "https:") {
+    throw new FetcherError(
+      `source.url scheme ${JSON.stringify(url.protocol)} is not supported (https: only)`,
+      { code: FETCHER_ERROR_CODES.HTTP_SCHEME_UNSUPPORTED },
+    );
+  }
+
+  // §1 step 3 — expiry check. Only fires when source.url_expires_at
+  // is present; absent → caller opted out.
+  const clock = deps.now ?? (() => new Date());
+  if (source.url_expires_at !== undefined) {
+    const expiresAt = new Date(source.url_expires_at);
+    if (Number.isNaN(expiresAt.getTime())) {
+      throw new FetcherError(
+        `source.url_expires_at is not a valid date: ${JSON.stringify(source.url_expires_at)}`,
+        { code: FETCHER_ERROR_CODES.URL_EXPIRED },
+      );
+    }
+    if (expiresAt.getTime() <= clock().getTime()) {
+      throw new FetcherError(
+        `source.url_expires_at is in the past`,
+        { code: FETCHER_ERROR_CODES.URL_EXPIRED },
+      );
+    }
+  }
+
+  // §1 step 4 — host allowlist. Match on `hostname` (no port) so
+  // operators allowlist `signed.example.com`, not
+  // `signed.example.com:443`. Fail closed when the allowlist is
+  // absent or empty: an https deployment without
+  // OCR_FETCHER_HTTPS_HOSTS configured rejects every https source.
+  const host = url.hostname.toLowerCase();
+  const allowlist = deps.allowedHttpsHosts;
+  if (allowlist === undefined || allowlist.size === 0 || !allowlist.has(host)) {
+    throw new FetcherError(
+      `source.url host ${JSON.stringify(host)} is not in the configured allowlist`,
+      { code: FETCHER_ERROR_CODES.HOST_NOT_ALLOWLISTED },
+    );
+  }
+
+  // §1 step 5 — declared MIME allowlist before network I/O. Schema
+  // lists mime_type optional on https; fetcher requires it (same
+  // pattern as inline).
+  const declaredMime = source.mime_type;
+  if (typeof declaredMime !== "string" || declaredMime.length === 0) {
+    throw new FetcherError(
+      `https source.mime_type is required for v1 (schema lists it as optional but the fetcher needs a declared MIME)`,
+      { code: FETCHER_ERROR_CODES.MIME_UNSUPPORTED },
+    );
+  }
+  if (!ALLOWED_MIME_TYPES.has(declaredMime)) {
+    throw new FetcherError(
+      `mime_type ${JSON.stringify(declaredMime)} is not in the v1 allowlist (${[...ALLOWED_MIME_TYPES].join(", ")})`,
+      { code: FETCHER_ERROR_CODES.MIME_UNSUPPORTED },
+    );
+  }
+
+  // §1 step 6 — DNS lookup ALL addresses; every one must pass the
+  // private-IP block. Catches DNS-rebinding + misconfigured-allowlist.
+  let addresses: ReadonlyArray<{ address: string; family: number }>;
+  try {
+    addresses = (await dnsLookupAll(url.hostname, { all: true })) as ReadonlyArray<{
+      address: string;
+      family: number;
+    }>;
+  } catch (err) {
+    throw new FetcherError(
+      `DNS lookup for ${JSON.stringify(url.hostname)} failed: ${(err as Error).message}`,
+      { code: FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR },
+    );
+  }
+  if (addresses.length === 0) {
+    throw new FetcherError(
+      `DNS lookup for ${JSON.stringify(url.hostname)} returned no addresses`,
+      { code: FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR },
+    );
+  }
+  for (const a of addresses) {
+    if (isPrivateIp(a.address)) {
+      throw new FetcherError(
+        `host ${JSON.stringify(url.hostname)} resolves to a private / loopback address (${a.address})`,
+        { code: FETCHER_ERROR_CODES.HOST_RESOLVES_TO_PRIVATE_IP },
+      );
+    }
+  }
+
+  // §1 step 7 — fetch with timeout + manual redirects.
+  const transport: HttpsTransport = deps.httpsTransport ?? makeNodeFetchHttpsTransport();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HTTPS_FETCH_TIMEOUT_MS);
+  let response;
+  try {
+    response = await transport.fetch(url, { signal: controller.signal });
+  } catch (err) {
+    if ((err as { name?: string }).name === "AbortError" || controller.signal.aborted) {
+      throw new FetcherError(
+        `fetch timed out after ${HTTPS_FETCH_TIMEOUT_MS}ms`,
+        { code: FETCHER_ERROR_CODES.HTTPS_TIMEOUT },
+      );
+    }
+    throw new FetcherError(
+      `fetch failed: ${(err as Error).message}`,
+      { code: FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  // §1 step 8 — status check. 3xx (redirects) get their own code so
+  // operators see the contract intent; everything else non-200 is
+  // https_status_not_ok.
+  if (response.status >= 300 && response.status < 400) {
+    throw new FetcherError(
+      `response status ${response.status} is a redirect; v1 does not follow redirects`,
+      { code: FETCHER_ERROR_CODES.REDIRECT_UNSUPPORTED },
+    );
+  }
+  if (response.status !== 200) {
+    throw new FetcherError(
+      `response status ${response.status} is not 200`,
+      { code: FETCHER_ERROR_CODES.HTTPS_STATUS_NOT_OK },
+    );
+  }
+
+  // §1 step 9 — early Content-Length cap. Saves us streaming a huge
+  // response just to reject after the fact.
+  const cl = response.headers.get("content-length");
+  if (cl !== null) {
+    const declared = Number.parseInt(cl, 10);
+    if (Number.isFinite(declared) && declared > MAX_PAGE_BYTES) {
+      throw new FetcherError(
+        `response Content-Length ${declared} bytes exceeds the ${MAX_PAGE_BYTES} byte per-page cap`,
+        { code: FETCHER_ERROR_CODES.SIZE_CAP_EXCEEDED },
+      );
+    }
+  }
+
+  // §1 step 10 — stream-read with running-cap enforcement. Buffers a
+  // running total; aborts if the cap is crossed.
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for await (const chunk of response.body) {
+      total += chunk.byteLength;
+      if (total > MAX_PAGE_BYTES) {
+        throw new FetcherError(
+          `response body exceeded the ${MAX_PAGE_BYTES} byte per-page cap mid-stream`,
+          { code: FETCHER_ERROR_CODES.SIZE_CAP_EXCEEDED },
+        );
+      }
+      chunks.push(chunk);
+    }
+  } catch (err) {
+    if (err instanceof FetcherError) throw err;
+    if ((err as { name?: string }).name === "AbortError") {
+      throw new FetcherError(
+        `body read timed out after ${HTTPS_FETCH_TIMEOUT_MS}ms`,
+        { code: FETCHER_ERROR_CODES.HTTPS_TIMEOUT },
+      );
+    }
+    throw new FetcherError(
+      `body read failed: ${(err as Error).message}`,
+      { code: FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR },
+    );
+  }
+  const bytes = Buffer.concat(chunks, total);
+
+  // §1 step 11 — size_mismatch vs declared byte_size.
+  if (bytes.byteLength !== source.byte_size) {
+    throw new FetcherError(
+      `fetched length ${bytes.byteLength} bytes disagrees with submission's source.byte_size ${source.byte_size}`,
+      { code: FETCHER_ERROR_CODES.SIZE_MISMATCH },
+    );
+  }
+
+  // §1 step 12 — expected_sha256 verification when present.
+  if (source.expected_sha256 !== undefined) {
+    const actual = createHash("sha256").update(bytes).digest("hex");
+    const expected = source.expected_sha256.toLowerCase();
+    if (actual !== expected) {
+      throw new FetcherError(
+        `fetched bytes' SHA-256 does not match source.expected_sha256`,
+        { code: FETCHER_ERROR_CODES.CONTENT_HASH_MISMATCH },
+      );
+    }
+  }
+
+  // §1 step 13 — MIME signature sniff. Same as file/inline.
+  if (!bytesMatchDeclaredMime(bytes, declaredMime)) {
+    throw new FetcherError(
+      `fetched bytes do not carry a valid ${declaredMime} signature (declared MIME does not match content)`,
       { code: FETCHER_ERROR_CODES.MIME_SIGNATURE_MISMATCH },
     );
   }
