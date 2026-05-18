@@ -331,13 +331,44 @@ export async function processOneOcrQueueClaim(
         }
         throw err;
       }
-      if (verdict.kind === "retry") {
-        retryDecision = { kind: "retry", reason: verdict.reason };
-        break;
+      switch (verdict.kind) {
+        case "retry":
+          retryDecision = { kind: "retry", reason: verdict.reason };
+          break;
+        case "dead_letter":
+          if (retryDecision === null) {
+            retryDecision = { kind: "dead_letter", reason: verdict.reason };
+          }
+          break;
+        case "not_failed":
+          // Unreachable today — we gate the classifier call on
+          // result.status === "failed", and the contract returns
+          // not_failed only when status !== "failed". Refuse to fall
+          // through if a future contract change breaks that invariant:
+          // a `failed` terminal with no recoverable verdict would
+          // strand the job in non-terminal `failed` after the normal
+          // completion path.
+          return {
+            outcome: "persistence_failed",
+            job_id: claim.job_id,
+            statuses_persisted,
+            results_persisted: 0,
+            error: {
+              message:
+                "retry classifier returned 'not_failed' for a result with status='failed' — contract invariant broken",
+            },
+          };
+        default: {
+          // Exhaustiveness guard: if RetryDecision gains a new variant
+          // upstream, force a compile-time error here instead of
+          // silently completing as `failed`.
+          const _exhaustive: never = verdict;
+          throw new Error(
+            `unhandled retry classifier verdict kind: ${JSON.stringify(_exhaustive)}`,
+          );
+        }
       }
-      if (verdict.kind === "dead_letter" && retryDecision === null) {
-        retryDecision = { kind: "dead_letter", reason: verdict.reason };
-      }
+      if (retryDecision?.kind === "retry") break;
     }
   }
   const isRetryDecision = retryDecision?.kind === "retry";
