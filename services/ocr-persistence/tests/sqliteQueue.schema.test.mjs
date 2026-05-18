@@ -1,14 +1,17 @@
-// Step 10I-B1 — schema v2 migration tests for the SQLite OCR queue.
+// Step 10I-B1 + ADR-11G — schema v3 migration tests for the SQLite OCR
+// persistence + queue store.
 //
 // What this pins:
-//   - empty DB → applySchema brings it to v2 in one call
+//   - empty DB → applySchema brings it to v3 in one call
 //   - v1-only DB (already migrated by an earlier 9-era persistence) is
 //     upgraded additively without touching v1 tables/data
-//   - v2 → v2 is idempotent (no spurious rows, no clock samples)
-//   - v3-on-disk is REFUSED before any mutation (newer-version guard)
+//   - v3 → v3 is idempotent (no spurious rows, no clock samples)
+//   - v4-on-disk is REFUSED before any mutation (newer-version guard)
 //   - queue tables and the partial-unique active-job_id index exist
 //   - queue tables carry NO foreign key to ocr_jobs (queue lifecycle is
 //     independent of persistence by design)
+//   - ADR-11G: ocr_jobs has the nullable pending_retry_submission_json
+//     column after v3
 //   - openSqliteOcrQueue applies WAL and a non-zero busy_timeout
 //
 // All tests use file-backed temp DBs where restart-style behavior is
@@ -33,22 +36,22 @@ function tmpDbPath() {
   return { path: join(dir, "queue.sqlite"), dir };
 }
 
-test("CURRENT_SCHEMA_VERSION is 2", () => {
-  assert.equal(CURRENT_SCHEMA_VERSION, 2);
+test("CURRENT_SCHEMA_VERSION is 3", () => {
+  assert.equal(CURRENT_SCHEMA_VERSION, 3);
 });
 
-test("applySchema on empty DB applies v1 then v2 in one call", () => {
+test("applySchema on empty DB applies v1, v2, v3 in one call", () => {
   const db = new Database(":memory:");
   try {
     const v = applySchema(db);
-    assert.equal(v, 2);
+    assert.equal(v, 3);
 
     const rows = db
       .prepare("SELECT version FROM schema_version ORDER BY version ASC")
       .all();
     assert.deepEqual(
       rows.map((r) => r.version),
-      [1, 2],
+      [1, 2, 3],
     );
 
     // v1 tables present.
@@ -62,12 +65,22 @@ test("applySchema on empty DB applies v1 then v2 in one call", () => {
     // v2 tables present.
     assert.ok(tableNames.includes("ocr_queue_jobs"));
     assert.ok(tableNames.includes("ocr_queue_receipts"));
+
+    // v3 column on ocr_jobs.
+    const cols = db
+      .prepare("PRAGMA table_info(ocr_jobs)")
+      .all()
+      .map((r) => r.name);
+    assert.ok(
+      cols.includes("pending_retry_submission_json"),
+      "ADR-11G: ocr_jobs must carry pending_retry_submission_json after v3",
+    );
   } finally {
     db.close();
   }
 });
 
-test("applySchema on a v1-only DB is upgraded additively to v2", () => {
+test("applySchema on a v1-only DB is upgraded additively to v3", () => {
   // Simulate a Step-9-era DB: only the v1 statements applied, schema_version
   // row carries 1.
   const db = new Database(":memory:");
@@ -93,14 +106,14 @@ test("applySchema on a v1-only DB is upgraded additively to v2", () => {
     `);
 
     const v = applySchema(db);
-    assert.equal(v, 2);
+    assert.equal(v, 3);
 
-    // v1 row still 1; v2 row added; v1 data preserved.
+    // v1 row still 1; v2 + v3 rows added; v1 data preserved.
     const versions = db
       .prepare("SELECT version FROM schema_version ORDER BY version ASC")
       .all()
       .map((r) => r.version);
-    assert.deepEqual(versions, [1, 2]);
+    assert.deepEqual(versions, [1, 2, 3]);
 
     const jobRow = db
       .prepare("SELECT job_id FROM ocr_jobs WHERE job_id = 'j1'")
@@ -121,7 +134,7 @@ test("applySchema on a v1-only DB is upgraded additively to v2", () => {
   }
 });
 
-test("applySchema is idempotent at v2 (no extra rows, no clock samples)", () => {
+test("applySchema is idempotent at v3 (no extra rows, no clock samples)", () => {
   const db = new Database(":memory:");
   try {
     let calls = 0;
@@ -148,18 +161,19 @@ test("applySchema is idempotent at v2 (no extra rows, no clock samples)", () => 
   }
 });
 
-test("applySchema refuses a v3-on-disk DB before any mutation", () => {
+test("applySchema refuses a v4-on-disk DB before any mutation", () => {
   const db = new Database(":memory:");
   try {
-    // Pretend the DB was migrated by a future build to v3.
+    // Pretend the DB was migrated by a future build to v4.
     db.exec(`
       CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
       INSERT INTO schema_version (version, applied_at) VALUES (1, '2026-01-01T00:00:00Z');
       INSERT INTO schema_version (version, applied_at) VALUES (2, '2026-01-02T00:00:00Z');
       INSERT INTO schema_version (version, applied_at) VALUES (3, '2026-01-03T00:00:00Z');
-      -- Simulate a v3-only marker table whose presence we will assert is
+      INSERT INTO schema_version (version, applied_at) VALUES (4, '2026-01-04T00:00:00Z');
+      -- Simulate a v4-only marker table whose presence we will assert is
       -- left untouched after the refusal.
-      CREATE TABLE __future_v3_marker (id INTEGER);
+      CREATE TABLE __future_v4_marker (id INTEGER);
     `);
 
     assert.throws(
@@ -167,19 +181,17 @@ test("applySchema refuses a v3-on-disk DB before any mutation", () => {
       (err) =>
         err instanceof Error &&
         /newer than supported/.test(err.message) &&
-        /3/.test(err.message),
+        /4/.test(err.message),
       "applySchema must throw before mutating a newer-version DB",
     );
 
     // Refusal is pre-mutation — schema_version contents are unchanged and
-    // no rollback half-state was left behind. Specifically, no v1/v2 DDL
-    // ran (the marker table is still alone in user-table space alongside
-    // schema_version).
+    // no rollback half-state was left behind.
     const versions = db
       .prepare("SELECT version FROM schema_version ORDER BY version ASC")
       .all()
       .map((r) => r.version);
-    assert.deepEqual(versions, [1, 2, 3]);
+    assert.deepEqual(versions, [1, 2, 3, 4]);
 
     const tables = db
       .prepare(
@@ -187,7 +199,7 @@ test("applySchema refuses a v3-on-disk DB before any mutation", () => {
       )
       .all()
       .map((r) => r.name);
-    assert.deepEqual(tables, ["__future_v3_marker", "schema_version"]);
+    assert.deepEqual(tables, ["__future_v4_marker", "schema_version"]);
   } finally {
     db.close();
   }

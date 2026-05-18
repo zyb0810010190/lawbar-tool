@@ -146,6 +146,23 @@ class FakePersistence {
     byPage.set(result.page_id, stored);
     return stored;
   }
+  // ADR-11G outbox surface. The existing coordinator.test.mjs suite
+  // never exercises the failed-terminal retry path, so these are no-op
+  // stubs satisfying the OcrPersistencePort interface.
+  async setOcrPendingRetry(jobId, submission) {
+    if (!this.jobs.has(jobId)) this.jobs.set(jobId, {});
+    this.jobs.get(jobId).pending_retry_submission = structuredClone(submission);
+  }
+  async getOcrPendingRetry(jobId) {
+    const j = this.jobs.get(jobId);
+    return j?.pending_retry_submission
+      ? structuredClone(j.pending_retry_submission)
+      : null;
+  }
+  async clearOcrPendingRetry(jobId) {
+    const j = this.jobs.get(jobId);
+    if (j) delete j.pending_retry_submission;
+  }
 }
 
 function canonicalize(value) {

@@ -58,8 +58,19 @@ import {
  * this port structurally — TypeScript checks it at the seam.
  */
 export interface OcrPersistencePort {
-  /** Returns `null` if no job record exists for this `job_id`. */
-  getOcrJob(jobId: string): Promise<{ terminal_state?: OcrJobState } | null>;
+  /**
+   * Returns `null` if no job record exists for this `job_id`. The
+   * `pending_retry_submission` field carries the ADR-11G outbox row
+   * (the durable next-attempt submission written before completeClaim);
+   * when present, the coordinator uses it as the authoritative input
+   * for this turn, overriding `claim.job.submission`.
+   */
+  getOcrJob(jobId: string): Promise<
+    {
+      terminal_state?: OcrJobState;
+      pending_retry_submission?: OcrSubmission;
+    } | null
+  >;
   /** Idempotent transition append. Throws on conflicting replay. */
   appendOcrStatusOnce(
     jobId: string,
@@ -67,6 +78,22 @@ export interface OcrPersistencePort {
   ): Promise<unknown>;
   /** Idempotent per-page result write. Throws on conflicting replay. */
   saveOcrResultOnce(jobId: string, result: unknown): Promise<unknown>;
+  /**
+   * ADR-11G pending-retry outbox. Write the bumped next-attempt
+   * submission durably BEFORE the coordinator completes the current
+   * claim, so an ack failure (lease_expired / stale_receipt /
+   * ack_failed) between `failed → queued` and the retry enqueue does
+   * not strand `retry.attempt` at its prior value on redelivery.
+   * Idempotent overwrite of any prior pending row.
+   */
+  setOcrPendingRetry(jobId: string, submission: unknown): Promise<void>;
+  /**
+   * ADR-11G pending-retry outbox. Clear the pending row after the
+   * retry has been successfully enqueued, OR when a non-retry terminal
+   * is reached, so a stale pending submission does not outlive the
+   * job it described.
+   */
+  clearOcrPendingRetry(jobId: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,7 +198,7 @@ export async function processOneOcrQueueClaim(
     return { outcome: "empty" };
   }
 
-  // Step 2: read persisted job record
+  // Step 2: read persisted job record (including ADR-11G pending-retry).
   const record = await persistence.getOcrJob(claim.job_id);
   if (record === null) {
     // ADR Decision 8 third bullet (B2): no persisted job record. Refuse to
@@ -185,10 +212,34 @@ export async function processOneOcrQueueClaim(
     );
   }
 
-  // Step 3: terminal redelivery short-circuit
+  // Step 3: terminal redelivery short-circuit. If a stale pending-retry
+  // row outlived its job (operator action, clear-failure on a prior turn),
+  // clear it best-effort so it does not strand. The terminal short-circuit
+  // path is the only legitimate place an outbox row can be stale.
   if (record.terminal_state !== undefined && isTerminalState(record.terminal_state)) {
+    if (record.pending_retry_submission !== undefined) {
+      try {
+        await persistence.clearOcrPendingRetry(claim.job_id);
+      } catch {
+        // Best-effort cleanup. The terminal short-circuit must complete
+        // the claim regardless; a stale outbox row is recoverable.
+      }
+    }
     return await tryCompleteAlreadyTerminal(queue, claim);
   }
+
+  // ADR-11G: if a pending-retry submission is durable, it is the
+  // authoritative input for this turn. The queue may have redelivered
+  // the original submission (e.g. ack-failure replay) — using the
+  // persisted bumped submission is how `retry.attempt` actually
+  // advances across redelivery.
+  const effectiveClaim =
+    record.pending_retry_submission !== undefined
+      ? {
+          ...claim,
+          job: { ...claim.job, submission: record.pending_retry_submission },
+        }
+      : claim;
 
   // Step 4: persist coordinator-owned queued→claimed
   let statuses_persisted = 0;
@@ -217,9 +268,12 @@ export async function processOneOcrQueueClaim(
   }
 
   // Step 5: run worker. Any throw → requeue, no terminal persistence.
+  // The worker sees `effectiveClaim.job`, which carries the pending-retry
+  // submission when one exists. Binding validation in Step 6 likewise
+  // uses the effective claim so submission ↔ result page bindings match.
   let workerOutcome: Awaited<ReturnType<OcrWorker["process"]>>;
   try {
-    workerOutcome = await worker.process(claim.job);
+    workerOutcome = await worker.process(effectiveClaim.job);
   } catch (err) {
     return await tryRequeueAs(
       queue,
@@ -230,7 +284,7 @@ export async function processOneOcrQueueClaim(
   }
 
   // Step 6: contract + binding validation
-  const validation = validateWorkerOutcomeContract(workerOutcome, claim.job);
+  const validation = validateWorkerOutcomeContract(workerOutcome, effectiveClaim.job);
   if (!validation.ok) {
     return await tryRequeueAs(queue, claim, "requeued", validation.reason);
   }
@@ -275,7 +329,10 @@ export async function processOneOcrQueueClaim(
   let validatedSubmission: OcrSubmission | null = null;
   let validatedRetryPolicy: RetryPolicy | null = null;
   if (isFailedTerminal) {
-    const submissionVerdict = validateOcrSubmission(claim.job.submission);
+    // Use the effective submission (pending-retry if present, else the
+    // queue's payload) so the classifier reads the bumped retry policy
+    // and budget advancement actually happens across redelivery.
+    const submissionVerdict = validateOcrSubmission(effectiveClaim.job.submission);
     if (!submissionVerdict.ok) {
       // Submission failed contract validation at the coordinator seam.
       // Without a typed retry policy we cannot classify; refuse to
@@ -437,6 +494,37 @@ export async function processOneOcrQueueClaim(
       };
     }
 
+    // ADR-11G outbox write — durably record the bumped next-attempt
+    // submission BEFORE completing the claim. If completeClaim then
+    // fails, the lease will eventually expire and the queue will
+    // redeliver the original job; Step 2 of the next coordinator turn
+    // reads this row and runs the bumped submission, so `retry.attempt`
+    // actually advances across the ack-failure path (B2 closure).
+    //
+    // For dead-letter, we skip the pending-retry write — there is no
+    // next attempt — and we explicitly clear any stale row after the
+    // claim completes (a previous turn may have written one).
+    let nextSubmission: OcrSubmission | null = null;
+    if (retryDecision.kind === "retry") {
+      nextSubmission = structuredClone(validatedSubmission);
+      const clonedRetry = nextSubmission.retry as unknown as RetryPolicy;
+      clonedRetry.attempt = validatedRetryPolicy.attempt + 1;
+      try {
+        await persistence.setOcrPendingRetry(claim.job_id, nextSubmission);
+      } catch (err) {
+        return {
+          outcome: "persistence_failed",
+          job_id: claim.job_id,
+          statuses_persisted,
+          results_persisted,
+          error: {
+            message:
+              `setOcrPendingRetry failed: ${errorMessage(err)}`,
+          },
+        };
+      }
+    }
+
     // Complete the current claim BEFORE enqueueing the retry. The queue
     // dedupes on (job_id, canonical submission JSON), and the original
     // claim is still active here with the old submission — re-enqueueing
@@ -447,6 +535,8 @@ export async function processOneOcrQueueClaim(
       await queue.completeClaim(claim);
     } catch (err) {
       if (err instanceof OcrQueueError) {
+        // Pending-retry row (if we wrote one) stays — that is the whole
+        // point of the outbox. Redelivery reads it via Step 2.
         return {
           outcome: mapQueueErrorToAckOutcome(err),
           job_id: claim.job_id,
@@ -458,13 +548,7 @@ export async function processOneOcrQueueClaim(
       throw err;
     }
 
-    if (retryDecision.kind === "retry") {
-      // Bump retry.attempt on a deep clone so we do not mutate the
-      // claim's in-memory submission. The generated type widens `retry`
-      // to a bag of unknown; re-assert RetryPolicy on the clone.
-      const nextSubmission: OcrSubmission = structuredClone(validatedSubmission);
-      const clonedRetry = nextSubmission.retry as unknown as RetryPolicy;
-      clonedRetry.attempt = validatedRetryPolicy.attempt + 1;
+    if (retryDecision.kind === "retry" && nextSubmission !== null) {
       const nextJob: OcrJob = {
         id: generateJobId(),
         submission: nextSubmission,
@@ -473,13 +557,11 @@ export async function processOneOcrQueueClaim(
       try {
         await queue.enqueue(nextJob);
       } catch (err) {
-        // Persistence is the source of truth: failed→queued was already
-        // persisted and the original claim is already completed. The
-        // job is in `queued` state per persistence but has no queue
-        // row. Surface the enqueue failure so an operator can re-enqueue
-        // from persisted state; we explicitly do NOT roll back the
-        // transition (replay-safe append on a future re-enqueue keeps
-        // the chain coherent).
+        // Enqueue failed AFTER the claim was completed. The pending
+        // row + persisted failed→queued together describe the intended
+        // next attempt for operator-driven recovery. Do NOT clear the
+        // pending row; it is the only durable record of the bumped
+        // submission.
         const code = err instanceof OcrQueueError ? err.code : undefined;
         return {
           outcome: "persistence_failed",
@@ -492,6 +574,22 @@ export async function processOneOcrQueueClaim(
               `failed→queued persisted but queue.enqueue(retry) failed: ${errorMessage(err)}`,
           },
         };
+      }
+      // Best-effort clear: the next attempt has been enqueued, so the
+      // pending row's role is over. A clear failure here leaves a stale
+      // row that the NEXT successful coordinator turn will overwrite or
+      // the terminal short-circuit (Step 3) will clean up.
+      try {
+        await persistence.clearOcrPendingRetry(claim.job_id);
+      } catch {
+        // Swallow: see comment above.
+      }
+    } else if (retryDecision.kind === "dead_letter") {
+      // Clear any stale pending-retry row left from an earlier turn.
+      try {
+        await persistence.clearOcrPendingRetry(claim.job_id);
+      } catch {
+        // Best-effort cleanup; dead-letter is terminal regardless.
       }
     }
 
@@ -518,6 +616,17 @@ export async function processOneOcrQueueClaim(
       };
     }
     throw err;
+  }
+
+  // ADR-11G terminal cleanup: a succeeded / partial_succeeded outcome
+  // resolves the job; any pending-retry row (left over from a prior
+  // retried attempt) is now stale.
+  if (record.pending_retry_submission !== undefined) {
+    try {
+      await persistence.clearOcrPendingRetry(claim.job_id);
+    } catch {
+      // Best-effort — the claim is already completed.
+    }
   }
 
   return {

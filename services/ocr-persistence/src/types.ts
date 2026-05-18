@@ -58,6 +58,17 @@ export interface OcrJobRecord {
    * status is appended. Updated atomically with each `appendOcrStatus` call.
    */
   terminal_state?: OcrJobState;
+  /**
+   * ADR-11G outbox row: the durable next-attempt submission written by
+   * the coordinator BEFORE completeClaim, so an ack-failure between
+   * persisted `failed → queued` and the retry enqueue does not lose the
+   * bumped `retry.attempt`. Cleared on `succeeded` / `partial_succeeded`
+   * / `dead_lettered` terminals. Undefined when no retry is pending.
+   *
+   * NOT the same as `submission` — that field carries the verbatim
+   * original-attempt payload and is immutable post-create.
+   */
+  pending_retry_submission?: OcrSubmission;
 }
 
 /** A single status transition, persisted with chain-position metadata. */
@@ -177,6 +188,34 @@ export interface OcrPersistence {
   listOcrReviewPageRows(
     query: ListOcrReviewPageRowsQuery,
   ): Promise<ListOcrReviewPageRowsPage>;
+
+  /**
+   * ADR-11G pending-retry outbox. Set the durable next-attempt
+   * submission for `jobId`. Validates the submission against the
+   * contract. Idempotent overwrite: re-writing the same submission is
+   * a no-op (canonical equality on the validated payload); writing a
+   * different submission replaces the prior pending row.
+   *
+   * Throws `OcrPersistenceError` for unknown `jobId` or invalid
+   * submission. Does NOT mutate `submission` (verbatim original) or
+   * `terminal_state`.
+   */
+  setOcrPendingRetry(jobId: string, submission: unknown): Promise<void>;
+
+  /**
+   * ADR-11G pending-retry outbox. Read the durable next-attempt
+   * submission for `jobId`. Returns `null` when no pending retry is
+   * recorded (the common case). Throws `OcrPersistenceError` only for
+   * unknown `jobId` — a known job with no pending row returns `null`.
+   */
+  getOcrPendingRetry(jobId: string): Promise<OcrSubmission | null>;
+
+  /**
+   * ADR-11G pending-retry outbox. Clear the pending row for `jobId`.
+   * No-op when the row is already cleared. Throws
+   * `OcrPersistenceError` for unknown `jobId`.
+   */
+  clearOcrPendingRetry(jobId: string): Promise<void>;
 
   /**
    * Step 10K atomic ingest seam. Optional. Atomically writes both the

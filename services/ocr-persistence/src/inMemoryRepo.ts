@@ -283,6 +283,54 @@ export class InMemoryOcrPersistence implements OcrPersistence {
     return rec ? structuredClone(rec) : null;
   }
 
+  async setOcrPendingRetry(
+    jobId: string,
+    submission: unknown,
+  ): Promise<void> {
+    const job = this.jobs.get(jobId);
+    if (job === undefined) {
+      throw new OcrPersistenceError(
+        `unknown job for setOcrPendingRetry: ${jobId}`,
+      );
+    }
+    const v = validateOcrSubmission(submission);
+    if (!v.ok) {
+      throw new OcrPersistenceError(
+        `invalid pending-retry submission for ${jobId}: ${v.summary}`,
+      );
+    }
+    // Idempotent overwrite — re-writing the same payload is a no-op.
+    if (
+      job.pending_retry_submission !== undefined &&
+      deepEquals(job.pending_retry_submission, v.value)
+    ) {
+      return;
+    }
+    job.pending_retry_submission = structuredClone(v.value);
+  }
+
+  async getOcrPendingRetry(jobId: string): Promise<OcrSubmission | null> {
+    const job = this.jobs.get(jobId);
+    if (job === undefined) {
+      throw new OcrPersistenceError(
+        `unknown job for getOcrPendingRetry: ${jobId}`,
+      );
+    }
+    return job.pending_retry_submission
+      ? structuredClone(job.pending_retry_submission)
+      : null;
+  }
+
+  async clearOcrPendingRetry(jobId: string): Promise<void> {
+    const job = this.jobs.get(jobId);
+    if (job === undefined) {
+      throw new OcrPersistenceError(
+        `unknown job for clearOcrPendingRetry: ${jobId}`,
+      );
+    }
+    delete job.pending_retry_submission;
+  }
+
   async listOcrJobStatuses(jobId: string): Promise<OcrStatusEvent[]> {
     // Slice + deep-clone so callers cannot mutate internal state.
     return (this.statuses.get(jobId) ?? []).map((e) => structuredClone(e));

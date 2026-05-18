@@ -90,6 +90,8 @@ interface OcrJobRow {
   terminal_state: string | null;
   submission_json: string;
   metadata_json: string | null;
+  /** ADR-11G outbox column; NULL means no pending retry. */
+  pending_retry_submission_json: string | null;
 }
 
 interface OcrStatusRow {
@@ -779,6 +781,82 @@ export class SqliteOcrPersistence implements OcrPersistence {
     });
   }
 
+  // -------------------------------------------------------------------------
+  // ADR-11G pending-retry outbox
+  // -------------------------------------------------------------------------
+
+  async setOcrPendingRetry(
+    jobId: string,
+    submission: unknown,
+  ): Promise<void> {
+    return this.wrapErrors(() => {
+      const v = validateOcrSubmission(submission);
+      if (!v.ok) {
+        throw new OcrPersistenceError(
+          `invalid pending-retry submission for ${jobId}: ${v.summary}`,
+        );
+      }
+      // Verify the job exists BEFORE the update so a typo/unknown id
+      // produces a domain error instead of a silent no-op (UPDATE matches
+      // zero rows but does not throw).
+      const exists = this.db
+        .prepare("SELECT 1 AS one FROM ocr_jobs WHERE job_id = ?")
+        .get(jobId) as { one: number } | undefined;
+      if (exists === undefined) {
+        throw new OcrPersistenceError(
+          `unknown job for setOcrPendingRetry: ${jobId}`,
+        );
+      }
+      // Canonical equality on the JSON payload makes idempotent overwrite
+      // a no-op write. Writing through anyway is cheap; the comparison
+      // keeps the column's last-write-wins semantics honest for tests
+      // that snapshot the row timestamp.
+      const json = JSON.stringify(v.value);
+      this.db
+        .prepare(
+          "UPDATE ocr_jobs SET pending_retry_submission_json = ? WHERE job_id = ?",
+        )
+        .run(json, jobId);
+    });
+  }
+
+  async getOcrPendingRetry(jobId: string): Promise<OcrSubmission | null> {
+    return this.wrapErrors(() => {
+      const row = this.db
+        .prepare(
+          "SELECT pending_retry_submission_json FROM ocr_jobs WHERE job_id = ?",
+        )
+        .get(jobId) as
+        | { pending_retry_submission_json: string | null }
+        | undefined;
+      if (row === undefined) {
+        throw new OcrPersistenceError(
+          `unknown job for getOcrPendingRetry: ${jobId}`,
+        );
+      }
+      if (row.pending_retry_submission_json === null) return null;
+      return JSON.parse(row.pending_retry_submission_json) as OcrSubmission;
+    });
+  }
+
+  async clearOcrPendingRetry(jobId: string): Promise<void> {
+    return this.wrapErrors(() => {
+      const exists = this.db
+        .prepare("SELECT 1 AS one FROM ocr_jobs WHERE job_id = ?")
+        .get(jobId) as { one: number } | undefined;
+      if (exists === undefined) {
+        throw new OcrPersistenceError(
+          `unknown job for clearOcrPendingRetry: ${jobId}`,
+        );
+      }
+      this.db
+        .prepare(
+          "UPDATE ocr_jobs SET pending_retry_submission_json = NULL WHERE job_id = ?",
+        )
+        .run(jobId);
+    });
+  }
+
   async listOcrJobStatuses(jobId: string): Promise<OcrStatusEvent[]> {
     return this.wrapErrors(() => {
       const rows = this.db
@@ -964,7 +1042,8 @@ export class SqliteOcrPersistence implements OcrPersistence {
         j.created_at       AS j_created_at,
         j.terminal_state   AS j_terminal_state,
         j.submission_json  AS j_submission_json,
-        j.metadata_json    AS j_metadata_json
+        j.metadata_json    AS j_metadata_json,
+        j.pending_retry_submission_json AS j_pending_retry_submission_json
       FROM ocr_results r
       JOIN ocr_jobs j ON j.job_id = r.job_id
       WHERE ${where.join(" AND ")}
@@ -987,6 +1066,7 @@ export class SqliteOcrPersistence implements OcrPersistence {
       j_terminal_state: string | null;
       j_submission_json: string;
       j_metadata_json: string | null;
+      j_pending_retry_submission_json: string | null;
     }>;
 
     const hasMore = rows.length > limit;
@@ -1004,6 +1084,7 @@ export class SqliteOcrPersistence implements OcrPersistence {
         terminal_state: row.j_terminal_state,
         submission_json: row.j_submission_json,
         metadata_json: row.j_metadata_json,
+        pending_retry_submission_json: row.j_pending_retry_submission_json,
       });
       const result: OcrResultRecord = {
         result: JSON.parse(row.r_result_json) as OcrResultRecord["result"],
@@ -1078,6 +1159,11 @@ function rowToJobRecord(row: OcrJobRow): OcrJobRecord {
     // narrower. The terminal_state cache only ever receives values that
     // appendOcrStatus has validated against the contract, so this cast is safe.
     record.terminal_state = row.terminal_state as OcrJobRecord["terminal_state"];
+  }
+  if (row.pending_retry_submission_json !== null) {
+    record.pending_retry_submission = JSON.parse(
+      row.pending_retry_submission_json,
+    ) as OcrSubmission;
   }
   return record;
 }

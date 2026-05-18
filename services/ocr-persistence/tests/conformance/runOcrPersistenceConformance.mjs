@@ -1600,4 +1600,150 @@ export function runOcrPersistenceConformance({
       );
     });
   });
+
+  // =====================================================================
+  // ADR-11G pending-retry outbox
+  // =====================================================================
+
+  T("setOcrPendingRetry: throws OcrPersistenceError for unknown job_id", async () => {
+    await withImpl(async (repo) => {
+      await assert.rejects(
+        () => repo.setOcrPendingRetry("01jrkmissingxxxxxxxxxxxxxx", baseSubmission),
+        (err) => err instanceof OcrPersistenceError && /unknown job/i.test(err.message),
+      );
+    });
+  });
+
+  T("getOcrPendingRetry: throws OcrPersistenceError for unknown job_id", async () => {
+    await withImpl(async (repo) => {
+      await assert.rejects(
+        () => repo.getOcrPendingRetry("01jrkmissingxxxxxxxxxxxxxx"),
+        (err) => err instanceof OcrPersistenceError && /unknown job/i.test(err.message),
+      );
+    });
+  });
+
+  T("clearOcrPendingRetry: throws OcrPersistenceError for unknown job_id", async () => {
+    await withImpl(async (repo) => {
+      await assert.rejects(
+        () => repo.clearOcrPendingRetry("01jrkmissingxxxxxxxxxxxxxx"),
+        (err) => err instanceof OcrPersistenceError && /unknown job/i.test(err.message),
+      );
+    });
+  });
+
+  T("setOcrPendingRetry: rejects invalid submission", async () => {
+    await withImpl(async (repo) => {
+      await repo.createOcrJob(baseSubmission);
+      await assert.rejects(
+        () => repo.setOcrPendingRetry(baseSubmission.job_id, { not: "valid" }),
+        (err) =>
+          err instanceof OcrPersistenceError &&
+          /invalid pending-retry submission/i.test(err.message),
+      );
+      // Failed write leaves the slot empty.
+      assert.equal(
+        await repo.getOcrPendingRetry(baseSubmission.job_id),
+        null,
+      );
+    });
+  });
+
+  T("getOcrPendingRetry: returns null when no pending retry is set", async () => {
+    await withImpl(async (repo) => {
+      await repo.createOcrJob(baseSubmission);
+      assert.equal(
+        await repo.getOcrPendingRetry(baseSubmission.job_id),
+        null,
+      );
+    });
+  });
+
+  T("setOcrPendingRetry + getOcrPendingRetry: round-trip stores bumped submission", async () => {
+    await withImpl(async (repo) => {
+      await repo.createOcrJob(baseSubmission);
+      const bumped = clone(baseSubmission);
+      bumped.retry = { ...bumped.retry, attempt: bumped.retry.attempt + 1 };
+      await repo.setOcrPendingRetry(baseSubmission.job_id, bumped);
+
+      const got = await repo.getOcrPendingRetry(baseSubmission.job_id);
+      assert.ok(got !== null);
+      assert.equal(got.retry.attempt, baseSubmission.retry.attempt + 1);
+      // The original submission field is untouched.
+      const job = await repo.getOcrJob(baseSubmission.job_id);
+      assert.equal(job.submission.retry.attempt, baseSubmission.retry.attempt);
+    });
+  });
+
+  T("setOcrPendingRetry: idempotent overwrite with the same submission is a no-op", async () => {
+    await withImpl(async (repo) => {
+      await repo.createOcrJob(baseSubmission);
+      const bumped = clone(baseSubmission);
+      bumped.retry = { ...bumped.retry, attempt: bumped.retry.attempt + 1 };
+      await repo.setOcrPendingRetry(baseSubmission.job_id, bumped);
+      await repo.setOcrPendingRetry(baseSubmission.job_id, bumped);
+      const got = await repo.getOcrPendingRetry(baseSubmission.job_id);
+      assert.equal(got.retry.attempt, baseSubmission.retry.attempt + 1);
+    });
+  });
+
+  T("setOcrPendingRetry: writing a different submission replaces the prior pending row", async () => {
+    await withImpl(async (repo) => {
+      await repo.createOcrJob(baseSubmission);
+      const attempt2 = clone(baseSubmission);
+      attempt2.retry = { ...attempt2.retry, attempt: 2 };
+      await repo.setOcrPendingRetry(baseSubmission.job_id, attempt2);
+
+      const attempt3 = clone(baseSubmission);
+      attempt3.retry = { ...attempt3.retry, attempt: 3 };
+      await repo.setOcrPendingRetry(baseSubmission.job_id, attempt3);
+
+      const got = await repo.getOcrPendingRetry(baseSubmission.job_id);
+      assert.equal(got.retry.attempt, 3);
+    });
+  });
+
+  T("clearOcrPendingRetry: deletes the row; subsequent get returns null", async () => {
+    await withImpl(async (repo) => {
+      await repo.createOcrJob(baseSubmission);
+      const bumped = clone(baseSubmission);
+      bumped.retry = { ...bumped.retry, attempt: bumped.retry.attempt + 1 };
+      await repo.setOcrPendingRetry(baseSubmission.job_id, bumped);
+
+      await repo.clearOcrPendingRetry(baseSubmission.job_id);
+      assert.equal(
+        await repo.getOcrPendingRetry(baseSubmission.job_id),
+        null,
+      );
+    });
+  });
+
+  T("clearOcrPendingRetry: idempotent — clearing an empty slot does not throw", async () => {
+    await withImpl(async (repo) => {
+      await repo.createOcrJob(baseSubmission);
+      await repo.clearOcrPendingRetry(baseSubmission.job_id);
+      await repo.clearOcrPendingRetry(baseSubmission.job_id);
+      assert.equal(
+        await repo.getOcrPendingRetry(baseSubmission.job_id),
+        null,
+      );
+    });
+  });
+
+  T("pending_retry_submission surfaces on OcrJobRecord via getOcrJob", async () => {
+    await withImpl(async (repo) => {
+      await repo.createOcrJob(baseSubmission);
+      const bumped = clone(baseSubmission);
+      bumped.retry = { ...bumped.retry, attempt: 2 };
+      await repo.setOcrPendingRetry(baseSubmission.job_id, bumped);
+
+      const job = await repo.getOcrJob(baseSubmission.job_id);
+      assert.ok(job.pending_retry_submission);
+      assert.equal(job.pending_retry_submission.retry.attempt, 2);
+
+      await repo.clearOcrPendingRetry(baseSubmission.job_id);
+      const cleared = await repo.getOcrJob(baseSubmission.job_id);
+      assert.equal(cleared.pending_retry_submission, undefined);
+    });
+  });
 }

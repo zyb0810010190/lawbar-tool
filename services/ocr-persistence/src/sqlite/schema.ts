@@ -51,7 +51,7 @@ import type { Database } from "better-sqlite3";
 
 import { OcrPersistenceError } from "../types.js";
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -210,9 +210,25 @@ const DDL_STATEMENTS_V2: ReadonlyArray<string> = [
      ON ocr_queue_receipts(job_id, issued_at_ms);`,
 ];
 
+// ---------------------------------------------------------------------------
+// ADR-11G: durable pending-retry outbox column on ocr_jobs.
+//
+// SQLite's `ALTER TABLE ADD COLUMN` does not support `IF NOT EXISTS`, but the
+// migration loop (gated by `readMaxSchemaVersion`) guarantees each migration
+// runs at most once per database. A nullable TEXT column carries the
+// validated next-attempt submission JSON when a retry is pending; NULL means
+// "no pending retry" (the default for every existing and newly-inserted
+// job).
+// ---------------------------------------------------------------------------
+
+const DDL_STATEMENTS_V3: ReadonlyArray<string> = [
+  `ALTER TABLE ocr_jobs ADD COLUMN pending_retry_submission_json TEXT;`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
   [2, DDL_STATEMENTS_V2],
+  [3, DDL_STATEMENTS_V3],
 ]);
 
 /**
