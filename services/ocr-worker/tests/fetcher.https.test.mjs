@@ -102,9 +102,15 @@ async function assertFetcherError(promise, expectedCode) {
   });
 }
 
+// Default test deps stub the DNS lookup so happy-path tests don't
+// hit the system resolver AND don't depend on TEST-NET-3 being
+// treated as public (it's not, per the updated blocklist).
+const defaultDnsStub = async () => [{ address: "8.8.8.8", family: 4 }];
+
 const deps = (overrides = {}) => ({
   allowedFileRoot: "/tmp/unused-for-https",
   allowedHttpsHosts: new Set(["203.0.113.5"]),
+  dnsLookup: defaultDnsStub,
   ...overrides,
 });
 
@@ -242,21 +248,131 @@ test("mime_type missing rejected with mime_unsupported", async () => {
 
 // --- DNS / private IP block ------------------------------------------------
 
-test("host resolving to loopback rejected with host_resolves_to_private_ip", async () => {
-  // "localhost" resolves to 127.0.0.1 (and possibly ::1). Both are
-  // private. The allowlist match passes (we explicitly add it) but
-  // the private-IP check fires.
-  const submission = makeSubmission({
-    source: makeHttpsSource({ url: "https://localhost:8443/p.png" }),
-  });
+// Stub DNS lookup helper — returns canned addresses deterministically.
+// Audit 019e3af0 D7 fix: previous tests relied on the system resolver
+// for "localhost" + a documentation IP; replaced with the DNS seam.
+function stubDns(addresses) {
+  return async (_hostname) => addresses;
+}
+
+test("DNS seam: resolved 127.0.0.1 (loopback) rejected with host_resolves_to_private_ip", async () => {
+  const submission = makeSubmission();
   await assertFetcherError(
-    fetchPageBytes(submission, {
-      allowedFileRoot: "/tmp/unused",
-      allowedHttpsHosts: new Set(["localhost"]),
+    fetchPageBytes(submission, deps({
       httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
-    }),
+      dnsLookup: stubDns([{ address: "127.0.0.1", family: 4 }]),
+    })),
     FETCHER_ERROR_CODES.HOST_RESOLVES_TO_PRIVATE_IP,
   );
+});
+
+test("DNS seam: resolved 192.168.1.5 (RFC1918) rejected", async () => {
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+      dnsLookup: stubDns([{ address: "192.168.1.5", family: 4 }]),
+    })),
+    FETCHER_ERROR_CODES.HOST_RESOLVES_TO_PRIVATE_IP,
+  );
+});
+
+test("DNS seam: resolved 169.254.169.254 (cloud metadata) rejected", async () => {
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+      dnsLookup: stubDns([{ address: "169.254.169.254", family: 4 }]),
+    })),
+    FETCHER_ERROR_CODES.HOST_RESOLVES_TO_PRIVATE_IP,
+  );
+});
+
+test("DNS seam: resolved 203.0.113.5 (TEST-NET-3) NOW rejected (audit 019e3af0 D2 M policy fix)", async () => {
+  // Previous code allowed TEST-NET ranges as 'public'. New policy:
+  // any non-globally-routable address blocks. TEST-NET docs are
+  // out per RFC 5737.
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+      dnsLookup: stubDns([{ address: "203.0.113.5", family: 4 }]),
+    })),
+    FETCHER_ERROR_CODES.HOST_RESOLVES_TO_PRIVATE_IP,
+  );
+});
+
+test("DNS seam: mixed v4 public + v6 link-local — ANY private addr rejects", async () => {
+  // Mixed-family rebinding: attacker returns one safe public-looking
+  // v4 + one v6 link-local. Defense must reject if ANY address is
+  // non-routable, not just the first.
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+      dnsLookup: stubDns([
+        { address: "8.8.8.8", family: 4 },
+        { address: "fe80::1", family: 6 },
+      ]),
+    })),
+    FETCHER_ERROR_CODES.HOST_RESOLVES_TO_PRIVATE_IP,
+  );
+});
+
+test("DNS seam: IPv4-mapped IPv6 hex form (::ffff:7f00:1 = loopback) rejected (audit 019e3af0 D2 H)", async () => {
+  // Previous code only handled dotted form `::ffff:127.0.0.1`; hex
+  // form `::ffff:7f00:1` slipped through and could connect to
+  // loopback via an AAAA-mapped DNS answer.
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+      dnsLookup: stubDns([{ address: "::ffff:7f00:1", family: 6 }]),
+    })),
+    FETCHER_ERROR_CODES.HOST_RESOLVES_TO_PRIVATE_IP,
+  );
+});
+
+test("DNS seam: IPv4-mapped IPv6 dotted form (::ffff:127.0.0.1) rejected", async () => {
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+      dnsLookup: stubDns([{ address: "::ffff:127.0.0.1", family: 6 }]),
+    })),
+    FETCHER_ERROR_CODES.HOST_RESOLVES_TO_PRIVATE_IP,
+  );
+});
+
+test("DNS seam: empty address set rejected with https_network_error", async () => {
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+      dnsLookup: stubDns([]),
+    })),
+    FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR,
+  );
+});
+
+test("DNS seam: lookup throws -> https_network_error", async () => {
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+      dnsLookup: async () => { throw new Error("EAI_NONAME"); },
+    })),
+    FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR,
+  );
+});
+
+test("DNS seam: only-public address accepted (happy path with stub DNS)", async () => {
+  const submission = makeSubmission();
+  const result = await fetchPageBytes(submission, deps({
+    httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+    dnsLookup: stubDns([{ address: "8.8.8.8", family: 4 }]),
+  }));
+  assert.equal(result.sizeBytes, PNG_HEADER.length);
 });
 
 // --- transport-level errors ------------------------------------------------
@@ -320,16 +436,13 @@ test("transport throws generic error -> https_network_error", async () => {
   );
 });
 
-test("malformed URL rejected with https_network_error", async () => {
+test("malformed URL rejected with url_malformed (audit 019e3af0 D1 M)", async () => {
   const submission = makeSubmission({
     source: makeHttpsSource({ url: "not a url" }),
   });
   await assertFetcherError(
     fetchPageBytes(submission, deps({ httpsTransport: makeStubTransport(okResponse(PNG_HEADER)) })),
-    // URL constructor throws TypeError before any gates fire — we map
-    // this to https_network_error (pre-network "can't even start").
-    // Actually it's caught early; let's check whatever the code chose.
-    FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR,
+    FETCHER_ERROR_CODES.URL_MALFORMED,
   );
 });
 
@@ -420,4 +533,114 @@ test("declared image/png but body is PDF -> mime_signature_mismatch", async () =
     })),
     FETCHER_ERROR_CODES.MIME_SIGNATURE_MISMATCH,
   );
+});
+
+// --- audit 019e3af0 D3 Medium fixes ---------------------------------------
+
+test("https: byte_size missing rejected pre-network with size_mismatch (audit 019e3af0 D3 M)", async () => {
+  const submission = makeSubmission({
+    source: {
+      kind: "https",
+      url: "https://203.0.113.5/p.png",
+      mime_type: "image/png",
+      // byte_size intentionally omitted
+    },
+  });
+  let dnsLookupCalled = false;
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+      dnsLookup: async () => { dnsLookupCalled = true; return [{ address: "8.8.8.8", family: 4 }]; },
+    })),
+    FETCHER_ERROR_CODES.SIZE_MISMATCH,
+  );
+  assert.equal(dnsLookupCalled, false, "byte_size check must run before DNS");
+});
+
+test("https: expected_sha256 with wrong length (32 hex = MD5) rejected pre-network (audit 019e3af0 D3 M)", async () => {
+  // Schema admits 32-128 hex; fetcher only computes SHA-256 (64).
+  // A 32-char value can never match — reject up front rather than
+  // doing the round-trip just to surface a confusing
+  // content_hash_mismatch.
+  const submission = makeSubmission({
+    source: makeHttpsSource({ expected_sha256: "0".repeat(32) }),
+  });
+  let dnsLookupCalled = false;
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+      dnsLookup: async () => { dnsLookupCalled = true; return [{ address: "8.8.8.8", family: 4 }]; },
+    })),
+    FETCHER_ERROR_CODES.CONTENT_HASH_MISMATCH,
+  );
+  assert.equal(dnsLookupCalled, false, "expected_sha256 shape check must run before DNS");
+});
+
+test("https: expected_sha256 with 128 hex (SHA-512) rejected pre-network", async () => {
+  const submission = makeSubmission({
+    source: makeHttpsSource({ expected_sha256: "0".repeat(128) }),
+  });
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+    })),
+    FETCHER_ERROR_CODES.CONTENT_HASH_MISMATCH,
+  );
+});
+
+test("https: expected_sha256 with non-hex chars rejected pre-network", async () => {
+  const submission = makeSubmission({
+    source: makeHttpsSource({ expected_sha256: "X".repeat(64) }),
+  });
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport(okResponse(PNG_HEADER)),
+    })),
+    FETCHER_ERROR_CODES.CONTENT_HASH_MISMATCH,
+  );
+});
+
+// --- audit 019e3af0 D3 High: single deadline covers body streaming --------
+
+test("https: stalled body stream eventually aborts with https_timeout (audit 019e3af0 D3 H)", async (t) => {
+  // Need to mock setTimeout cycles? Simpler: rely on a body that
+  // never yields after the first chunk + an explicit abort signal.
+  // The fetcher's controller fires after 30s; we shortcut by
+  // making the body iterator wait on a never-resolving promise
+  // BUT abort when the controller fires.
+  //
+  // To avoid real 30s waits, we install our OWN AbortController in
+  // the body and trigger it manually after a tick. The deadline is
+  // intrinsic to the fetcher; we test that the body iteration
+  // RESPECTS the signal by simulating a controller abort.
+  //
+  // Approach: stub transport returns a body whose iterator awaits
+  // a controller-aborted promise. After a tick, manually abort.
+  // The fetcher catches the AbortError and maps to https_timeout.
+  let externalController;
+  const stallingBody = {
+    async *[Symbol.asyncIterator]() {
+      yield PNG_HEADER; // first chunk arrives
+      // Then stall awaiting our controller — abort it externally.
+      await new Promise((_resolve, reject) => {
+        externalController = new AbortController();
+        externalController.signal.addEventListener("abort", () => {
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        });
+      });
+    },
+  };
+  const submission = makeSubmission();
+  // Kick off the fetch; abort the stalling body shortly after.
+  const promise = fetchPageBytes(submission, deps({
+    httpsTransport: makeStubTransport({
+      status: 200,
+      headers: new Headers(),
+      body: stallingBody,
+    }),
+  }));
+  // Give the loop a microtask to start iterating before we abort.
+  await new Promise((r) => setTimeout(r, 5));
+  externalController?.abort();
+  await assertFetcherError(promise, FETCHER_ERROR_CODES.HTTPS_TIMEOUT);
 });

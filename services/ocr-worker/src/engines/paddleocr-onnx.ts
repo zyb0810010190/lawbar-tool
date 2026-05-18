@@ -120,6 +120,7 @@ const SANITIZED_FETCHER_MESSAGES: Readonly<Record<FetcherErrorCode, string>> =
     // ADR-11D.2 https codes — same path-redaction posture as file codes:
     // operator log carries the raw URL/host; the durable result envelope
     // gets the sanitized message only.
+    url_malformed: "Source URL is not a parseable URL.",
     http_scheme_unsupported: "Source URL scheme is not allowed (https:// only).",
     url_expired: "Source URL has expired.",
     host_not_allowlisted: "Source URL host is not in the configured allowlist.",

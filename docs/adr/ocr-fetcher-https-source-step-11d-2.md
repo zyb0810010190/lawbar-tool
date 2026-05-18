@@ -17,7 +17,9 @@ Companion code:
   default transport using Node's `fetch` with manual redirects
   and AbortController-driven timeouts; injected via `FetcherDeps`
   so tests can stub the transport without doing real network I/O.
-- `services/ocr-worker/src/fetcher/types.ts` — 8 new error codes.
+- `services/ocr-worker/src/fetcher/types.ts` — 10 new error codes
+  (9 in the original commit + `URL_MALFORMED` added in the audit
+  019e3af0 fix-up).
 - `services/ocr-worker/src/config.ts` —
   `OCR_FETCHER_HTTPS_HOSTS` env + `--https-hosts` argv flag.
 - `services/ocr-worker/src/cli.ts` — threads
@@ -62,8 +64,11 @@ Gate order, cheap-before-expensive plus specific-before-general:
    compare against `deps.now()` (defaults to `Date.now()`). If in
    the past → `url_expired`. The schema makes this field optional;
    only callers that supply it get the protection.
-4. **Host allowlist**: `url.host` (lower-cased) must be in
-   `deps.allowedHttpsHosts`. Set absence or empty → throw
+4. **Host allowlist**: `url.hostname` (lower-cased, port stripped)
+   must be in `deps.allowedHttpsHosts`. Matching on `hostname`
+   not `host` means operators allowlist
+   `signed.example.com`, not `signed.example.com:443` — saves
+   them enumerating ports. Set absence or empty → throw
    `host_not_allowlisted` regardless of how clean the URL looks.
 5. **MIME allowlist**: `source.mime_type` in
    `{image/jpeg, image/png}` or `mime_unsupported`. Same allowlist
@@ -141,34 +146,88 @@ Tests inject a stub `HttpsTransport` that returns canned responses
 with a synthetic async iterable. The fetcher's gates run unchanged
 in tests; only the bytes-coming-off-the-wire step changes.
 
-### §3 Private IP blocklist
+### §3 Non-globally-routable IP blocklist
 
-A resolved IPv4 address is "private" if it falls in:
-- `127.0.0.0/8` (loopback)
-- `10.0.0.0/8` (RFC 1918)
-- `172.16.0.0/12` (RFC 1918)
-- `192.168.0.0/16` (RFC 1918)
-- `169.254.0.0/16` (link-local / cloud metadata)
+Policy: "block any address that should never appear as a fetch
+destination over the public internet." Audit 019e3af0 D2 Medium
+fix widened the original private-shortlist to the full IANA
+special-use list.
+
+IPv4 blocks:
 - `0.0.0.0/8` (this network)
+- `10.0.0.0/8` (RFC 1918 private)
 - `100.64.0.0/10` (CGNAT)
+- `127.0.0.0/8` (loopback)
+- `169.254.0.0/16` (link-local + cloud metadata)
+- `172.16.0.0/12` (RFC 1918 private)
+- `192.0.0.0/24` (IETF protocol assignments)
+- `192.0.2.0/24` (TEST-NET-1)
+- `192.168.0.0/16` (RFC 1918 private)
 - `198.18.0.0/15` (benchmark testing)
+- `198.51.100.0/24` (TEST-NET-2)
+- `203.0.113.0/24` (TEST-NET-3)
+- `224.0.0.0/4` (multicast)
+- `240.0.0.0/4` (reserved for future use)
+- `255.255.255.255/32` (broadcast)
 
-IPv6:
+IPv6 blocks:
+- `::/128` (unspecified)
 - `::1/128` (loopback)
 - `fe80::/10` (link-local)
-- `fc00::/7` (unique local)
-- `::ffff:0:0/96` (IPv4-mapped — re-check the embedded v4)
+- `fc00::/7` (unique local addresses)
+- `ff00::/8` (multicast)
+- `2001:db8::/32` (documentation)
+- IPv4-mapped IPv6 (`::ffff:0:0/96` range): expanded to the
+  embedded IPv4 and re-checked. **Audit 019e3af0 D2 High fix**:
+  previous code recognized only the dotted form
+  (`::ffff:127.0.0.1`); the hex form (`::ffff:7f00:1`) bypassed
+  the block. Implementation now expands IPv6 to its full
+  8-group form, detects the IPv4-mapped pattern, and recurses
+  on the embedded v4.
 
-The blocklist is in `services/ocr-worker/src/fetcher/privateIp.ts`
-(new file). Pure function: `isPrivateIp(address: string): boolean`.
+Implementation: `services/ocr-worker/src/fetcher/privateIp.ts`
+uses `node:net.BlockList` for range membership and a custom
+parser for IPv4-mapped IPv6 expansion. Pure function:
+`isPrivateIp(address: string): boolean`. Returns `true` for
+non-IP-literal input (fail-closed).
 
 Why ALWAYS block, even when the allowlist matches:
-- DNS rebinding: an allowlisted host's DNS record can flip to a
-  private IP between the allowlist check and the fetch. Resolving
-  here pins the IP set we trust.
+- DNS rebinding (partial defense — see caveat below): an
+  allowlisted host's DNS record can flip to a private IP between
+  the allowlist check and the fetch. Resolving here catches the
+  cases where the malicious flip has already happened before we
+  look up.
 - Misconfigured allowlist: an operator might add an internal host
   to the allowlist accidentally (e.g., a typo of an external
   host). The private-IP check is a separate guard.
+
+**DNS-rebinding caveat (audit 019e3af0 D9 High fix)**: this gate
+DOES NOT fully defend against DNS rebinding. The reason: after the
+fetcher's `dns.lookup` returns a vetted address set, Node's
+built-in `fetch` (undici) does its OWN DNS resolution under the
+hood when connecting. There is no public undici API to pass a
+pre-resolved IP to bypass that second lookup. A determined
+attacker who controls a low-TTL DNS record can:
+
+1. Return a public IP to our lookup (passes the block).
+2. Flip the record to a private IP before undici's connect resolve.
+3. undici connects to the now-private IP.
+
+Mitigating this would require either:
+- a custom HTTPS dispatcher that accepts a pre-resolved IP (real
+  work; out of v1 scope), or
+- moving to a different HTTP client that supports lookup
+  injection (also out of v1 scope).
+
+For v1 the block is best-effort and the threat is documented. The
+defense IS effective against:
+- DNS records that already point at a private IP at first lookup
+  (typo, misconfigured allowlist).
+- Stable-record allowlist bypass (no rebinding involved).
+
+When real DNS-rebinding hardening becomes a requirement, a
+separate ADR will swap the transport for one that pins the
+connection IP from the vetted lookup result.
 
 ### §4 No support for redirects (v1)
 
@@ -221,11 +280,16 @@ check supply the field.
 
 ### §6 Timeouts
 
-- **Connect timeout**: not explicitly configurable in Node's
-  `fetch`; the overall AbortController fires after the
-  configured timeout regardless of which phase is in progress.
-- **Overall timeout**: 30 seconds, hardcoded constant
-  `HTTPS_FETCH_TIMEOUT_MS = 30_000`.
+- **Single end-to-end deadline**: 30 seconds, hardcoded constant
+  `HTTPS_FETCH_TIMEOUT_MS = 30_000`. The AbortController is
+  created BEFORE the DNS lookup and stays armed through DNS +
+  headers + body streaming. Audit 019e3af0 D3 High fix: previous
+  code cleared the timer in a `finally` that ran before body
+  iteration began, so a stalled body could have run indefinitely.
+  Now the `clearTimeout` runs in the function's outermost
+  `finally`, after the body has finished iterating (or thrown).
+- **Connect timeout**: not separately configurable in Node's
+  `fetch`. The single deadline covers all phases.
 
 Why 30s: a 10 MB signed URL on a 5 Mbps connection takes ~16s; a
 20 MB on the same connection ~32s. 30s covers typical legal-doc
@@ -236,11 +300,12 @@ retry — retry classification is ADR-11E scope).
 Configurable via env later if real workloads demand it; v1 keeps
 the contract small.
 
-### §7 New error codes (9)
+### §7 New error codes (10)
 
 `services/ocr-worker/src/fetcher/types.ts`:
 
 ```ts
+URL_MALFORMED:              "url_malformed",
 HOST_NOT_ALLOWLISTED:       "host_not_allowlisted",
 HOST_RESOLVES_TO_PRIVATE_IP: "host_resolves_to_private_ip",
 URL_EXPIRED:                "url_expired",
@@ -251,6 +316,11 @@ HTTPS_NETWORK_ERROR:        "https_network_error",
 CONTENT_HASH_MISMATCH:      "content_hash_mismatch",
 HTTP_SCHEME_UNSUPPORTED:    "http_scheme_unsupported",
 ```
+
+`url_malformed` (added in the audit 019e3af0 fix-up) is distinct
+from `https_network_error` so a future retry classifier (ADR-11E)
+doesn't treat caller-side malformed input as a transient network
+blip retryable on the queue.
 
 All sanitized-message entries added to `SANITIZED_FETCHER_MESSAGES`.
 Raw URLs do NOT appear in messages that travel into

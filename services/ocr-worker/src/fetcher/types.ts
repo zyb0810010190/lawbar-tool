@@ -36,6 +36,12 @@ export const FETCHER_ERROR_CODES = Object.freeze({
    */
   MIME_SIGNATURE_MISMATCH: "mime_signature_mismatch",
   // --- ADR-11D.2 https source codes ---------------------------------
+  /**
+   * source.url could not be parsed as a URL (audit 019e3af0 D1 Medium
+   * fix: distinct from https_network_error so a retry classifier
+   * doesn't treat malformed input as a transient network blip).
+   */
+  URL_MALFORMED: "url_malformed",
   /** url.protocol is not "https:" (schema-bypass defense). */
   HTTP_SCHEME_UNSUPPORTED: "http_scheme_unsupported",
   /** source.url_expires_at is in the past per deps.now(). */
@@ -115,7 +121,22 @@ export interface FetcherDeps {
    * expiry-edge behavior.
    */
   readonly now?: () => Date;
+  /**
+   * DNS lookup seam. Returns all resolved addresses for a hostname.
+   * Production defaults to `dns.promises.lookup(host, { all: true })`;
+   * tests inject deterministic results (audit 019e3af0 D7 Medium fix:
+   * makes mixed v4/v6 + DNS-failure + private-IP cases testable
+   * without depending on the system resolver).
+   */
+  readonly dnsLookup?: DnsLookupFn;
 }
+
+export interface DnsAddress {
+  readonly address: string;
+  readonly family: number; // 4 or 6
+}
+
+export type DnsLookupFn = (hostname: string) => Promise<ReadonlyArray<DnsAddress>>;
 
 // ---------------------------------------------------------------------
 // https transport (ADR-11D.2)
