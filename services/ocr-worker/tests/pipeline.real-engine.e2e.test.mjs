@@ -1,11 +1,18 @@
-// ADR-11C.3c — opt-in end-to-end smoke through the REAL paddle engine.
+// ADR-11C.3c — opt-in worker-bin end-to-end smoke through the REAL paddle engine.
+//
+// Scope: worker-bin level (NOT a full ingestion → review smoke). This test
+// owns the submission construction directly because services/ocr-worker
+// doesn't depend on ocr-ingestion (and shouldn't — ingestion sits above
+// the worker in the dep graph). A full domain-input → review smoke
+// belongs to a higher-level integration package; that's deferred.
 //
 // Flow:
-//   1. mkdtemp a temp file root + copy bakeoff zh-02-court-heading.png into it
+//   1. mkdtemp a temp file root + copy the vendored zh-02 fixture into it
 //   2. mkdtemp a SQLite workspace
 //   3. Build a contract-valid OcrSubmission with kind:file source pointing
 //      at the copied PNG (path relative to the file root)
-//   4. Persist + enqueue via ocr-ingestion (atomic seam, single page)
+//   4. persistence.createOcrJob + queueAdapter.enqueueOcrJob into the
+//      shared SQLite workspace (no ocr-ingestion dependency)
 //   5. Spawn the worker bin with OCR_WORKER=paddleocr-onnx +
 //      OCR_FETCHER_FILE_ROOT=<temp root> + SQLite workspace + max_iter=1
 //   6. Wait for clean exit (~400ms = ~200ms cold load + ~150ms detect +
@@ -43,15 +50,11 @@ const __dirname = dirname(__filename);
 
 const BIN_PATH = resolve(__dirname, "..", "bin", "ocr-worker.mjs");
 
-const BAKEOFF_FIXTURE = resolve(
-  __dirname,
-  "..",
-  "..",
-  "ocr-worker-bakeoff",
-  "fixtures",
-  "synthetic",
-  "zh-02-court-heading.png",
-);
+// Vendored fixture under services/ocr-worker/tests/fixtures/ — audit
+// 019e3a8f D8 Medium fix: previously this test read the bakeoff's
+// fixture by relative path and silently skipped if absent. Vendoring
+// makes the worker tests self-contained.
+const VENDORED_FIXTURE = resolve(__dirname, "fixtures", "zh-02-court-heading.png");
 
 const TENANT = "01jrk8m4q4xv2v8d4d4ymf5tnt";
 const DOCUMENT = "01jrk8m4q4xv2v8d4d4ymf5doc";
@@ -196,14 +199,76 @@ function shouldRunRealEngine() {
   return process.env.OCR_WORKER_REAL_ENGINE_TESTS === "1";
 }
 
-test("E2E real engine: ingest -> bin -> real paddle -> persisted succeeded result with CJK text", async (t) => {
+// --- always-on bin startup smoke for paddleocr-onnx (audit 019e3a8f D7) ---
+// Spawns the real bin with OCR_WORKER=paddleocr-onnx + an existing
+// fetcher root + an empty in-memory queue + max_iterations=1. Pays the
+// engine cold load (~200ms) so the deploy seam is exercised on every
+// CI run — registry routing, env reading, fetcher-root stat validation,
+// real engine factory cold load, bin spawn, clean exit code.
+//
+// Does NOT pay the detect cost (queue is empty; the loop runs one idle
+// iteration then exits). The real-OCR detect path is exercised by the
+// opt-in fixture-based test below.
+//
+// This catches deploy-seam regressions that the 11C.3b factory smoke
+// can't reach (the factory only proves makeRealPaddleEngine works in-
+// process; the bin smoke proves the bin can actually invoke it through
+// the full config-parse + buildDeps + WORKER_REGISTRY routing chain).
+test("bin startup smoke: OCR_WORKER=paddleocr-onnx with empty queue exits 0", async () => {
+  const fetcherRoot = makeFetcherRoot();
+  const sqliteWs = freshSqliteWorkspace();
+  try {
+    // Close ingestion handles so the bin gets exclusive SQLite access.
+    await sqliteWs.queue.close();
+    sqliteWs.persistenceDb.close();
+
+    const { done } = spawnWorkerBin({
+      sqlitePath: sqliteWs.sqlitePath,
+      workerId: "11c3c-startup-smoke",
+      fetcherRoot: fetcherRoot.dir,
+      // Detection runs no inference; cold load alone is paid.
+      timeoutMs: 15_000,
+    });
+    const result = await done;
+
+    assert.equal(
+      result.code,
+      0,
+      `bin exit code; stderr=${result.stderr}`,
+    );
+    assert.equal(result.signal, null);
+
+    // Audit 019e3a8f D2 M: stderr config-log line should show the
+    // chosen worker so operators can verify the deploy.
+    assert.match(
+      result.stderr,
+      /"worker_kind":"paddleocr-onnx"/,
+      `expected startup config-log line to show worker_kind=paddleocr-onnx in stderr; ` +
+        `stderr=${result.stderr}`,
+    );
+    assert.match(
+      result.stderr,
+      /"fetcher_file_root":/,
+      "expected startup config-log line to show fetcher_file_root",
+    );
+  } finally {
+    await sqliteWs.cleanup();
+    fetcherRoot.cleanup();
+  }
+});
+
+test("E2E real engine: bin -> real paddle -> persisted succeeded result with CJK text", async (t) => {
   if (!shouldRunRealEngine()) {
     t.skip("set OCR_WORKER_REAL_ENGINE_TESTS=1 to run the real-engine E2E smoke");
     return;
   }
-  if (!existsSync(BAKEOFF_FIXTURE)) {
-    t.skip(`bakeoff fixture missing at ${BAKEOFF_FIXTURE}; cannot run E2E`);
-    return;
+  // Vendored fixture; absence is a real failure, not a skip — the
+  // worker package now owns this fixture (see tests/fixtures/README.md).
+  if (!existsSync(VENDORED_FIXTURE)) {
+    assert.fail(
+      `vendored fixture missing at ${VENDORED_FIXTURE}; ` +
+        `check tests/fixtures/zh-02-court-heading.png is present`,
+    );
   }
 
   const ws = freshSqliteWorkspace();
@@ -212,7 +277,7 @@ test("E2E real engine: ingest -> bin -> real paddle -> persisted succeeded resul
     // Copy the fixture into the fetcher root so the bin can resolve
     // `source.path = "page.png"` against `OCR_FETCHER_FILE_ROOT`.
     const fixtureInRoot = join(fetcherRoot.dir, "page.png");
-    copyFileSync(BAKEOFF_FIXTURE, fixtureInRoot);
+    copyFileSync(VENDORED_FIXTURE, fixtureInRoot);
     const fixtureSize = statSync(fixtureInRoot).size;
 
     const env = deterministicEnv();

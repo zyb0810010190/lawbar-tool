@@ -506,14 +506,17 @@ test("OCR_WORKER=paddleocr-onnx with relative OCR_FETCHER_FILE_ROOT throws", () 
   );
 });
 
-test("OCR_WORKER=paddleocr-onnx with empty OCR_FETCHER_FILE_ROOT throws", () => {
+test("OCR_WORKER=paddleocr-onnx with empty OCR_FETCHER_FILE_ROOT throws (audit 019e3a8f D3 H)", () => {
+  // Empty is rejected explicitly per ADR-11A.0 §10 (omitted-vs-empty
+  // distinction). The message now says "must not be empty" rather
+  // than the missing-required form.
   assert.throws(
     () =>
       parseOcrWorkerConfig({
         env: { OCR_WORKER: "paddleocr-onnx", OCR_FETCHER_FILE_ROOT: "" },
         argv: [],
       }),
-    (err) => /requires fetcher_file_root/.test(err.message),
+    (err) => /must not be empty/.test(err.message),
   );
 });
 
@@ -577,4 +580,109 @@ test("--help short-circuit returns worker_kind=fake regardless of env", () => {
   assert.equal(cfg.help_requested, true);
   assert.equal(cfg.worker_kind, "fake");
   assert.equal(cfg.fetcher_file_root, undefined);
+});
+
+// --- audit 019e3a8f D3 H — explicit empty selector vs genuine omit ---------
+
+test("OCR_WORKER='' (explicit empty) is rejected with actionable error", () => {
+  // Per ADR-11A.0 §10: empty selector is a config error, NOT a silent
+  // collapse to fake. Operators who want fake must omit OCR_WORKER
+  // entirely, not set it to the empty string.
+  assert.throws(
+    () => parseOcrWorkerConfig({ env: { OCR_WORKER: "" }, argv: [] }),
+    (err) =>
+      /must not be empty/.test(err.message) &&
+      /omit entirely to default to "fake"/.test(err.message),
+  );
+});
+
+test("--worker= (explicit empty argv value) is rejected", () => {
+  assert.throws(
+    () => parseOcrWorkerConfig({ env: {}, argv: ["--worker="] }),
+    (err) => /must not be empty/.test(err.message),
+  );
+});
+
+test("OCR_FETCHER_FILE_ROOT='' under worker=fake is also rejected", () => {
+  // Even though fake doesn't use the fetcher root, an explicit empty
+  // string is still a malformed config signal per the same
+  // omitted-vs-empty rule.
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_FETCHER_FILE_ROOT: "" },
+        argv: [],
+      }),
+    (err) => /must not be empty/.test(err.message),
+  );
+});
+
+// --- audit 019e3a8f D2 H — production fail-closed (ADR-11A.0 §10) ----------
+
+test("OCR_WORKER_REQUIRE_REAL=1 with worker=fake is rejected (exit 2 maps here)", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { OCR_WORKER_REQUIRE_REAL: "1" },
+        argv: [],
+      }),
+    (err) => /OCR_WORKER_REQUIRE_REAL=1 forbids worker=fake/.test(err.message),
+  );
+});
+
+test("OCR_WORKER_REQUIRE_REAL=1 with worker=paddleocr-onnx parses cleanly", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: {
+      OCR_WORKER_REQUIRE_REAL: "1",
+      OCR_WORKER: "paddleocr-onnx",
+      OCR_FETCHER_FILE_ROOT: "/var/ocr",
+    },
+    argv: [],
+  });
+  assert.equal(cfg.worker_kind, "paddleocr-onnx");
+});
+
+test("NODE_ENV=production without OCR_WORKER_REQUIRE_REAL is rejected", () => {
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { NODE_ENV: "production" },
+        argv: [],
+      }),
+    (err) => /NODE_ENV=production requires OCR_WORKER_REQUIRE_REAL=1/.test(err.message),
+  );
+});
+
+test("NODE_ENV=production + OCR_WORKER_REQUIRE_REAL=1 + worker=fake is rejected", () => {
+  // The OCR_WORKER_REQUIRE_REAL=1 guard fires first (default
+  // worker_kind=fake).
+  assert.throws(
+    () =>
+      parseOcrWorkerConfig({
+        env: { NODE_ENV: "production", OCR_WORKER_REQUIRE_REAL: "1" },
+        argv: [],
+      }),
+    (err) => /forbids worker=fake/.test(err.message),
+  );
+});
+
+test("NODE_ENV=production + OCR_WORKER_REQUIRE_REAL=1 + worker=paddleocr-onnx parses", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: {
+      NODE_ENV: "production",
+      OCR_WORKER_REQUIRE_REAL: "1",
+      OCR_WORKER: "paddleocr-onnx",
+      OCR_FETCHER_FILE_ROOT: "/var/ocr",
+    },
+    argv: [],
+  });
+  assert.equal(cfg.worker_kind, "paddleocr-onnx");
+});
+
+test("NODE_ENV=development + OCR_WORKER_REQUIRE_REAL unset + worker=fake passes (dev path)", () => {
+  const cfg = parseOcrWorkerConfig({
+    env: { NODE_ENV: "development" },
+    argv: [],
+  });
+  assert.equal(cfg.worker_kind, "fake");
 });

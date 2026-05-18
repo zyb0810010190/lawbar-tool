@@ -202,28 +202,27 @@ export function parseOcrWorkerConfig(
   const workerId =
     pickString(argvFlags.values.workerId, env.OCR_WORKER_ID) ?? generateWorkerId();
 
-  // Worker kind: argv > env > default "fake" (ADR-11C.3c §1).
-  const workerKindRaw = pickString(argvFlags.values.worker, env.OCR_WORKER);
+  // Worker kind: argv > env > default "fake" (ADR-11A.0 §10 + ADR-11C.3c §1).
+  // Use `pickRaw` so an EXPLICIT empty value ("--worker=" or
+  // OCR_WORKER="") is preserved rather than silently filtered to
+  // undefined. The omitted-vs-empty distinction is load-bearing per
+  // ADR-11A.0 §10: empty is a config error; truly omitted defaults to
+  // "fake".
+  const workerKindRaw = pickRaw(argvFlags.values.worker, env.OCR_WORKER);
   const workerKind = parseWorkerKind(workerKindRaw);
 
-  // Fetcher root: argv > env > undefined. Cross-validated below.
-  const fetcherFileRoot = pickString(
+  // Fetcher root: argv > env > undefined. Use `pickRaw` for the same
+  // omitted-vs-empty reason.
+  const fetcherFileRootRaw = pickRaw(
     argvFlags.values.fetcherFileRoot,
     env.OCR_FETCHER_FILE_ROOT,
   );
-  if (workerKind === "paddleocr-onnx") {
-    if (fetcherFileRoot === undefined || fetcherFileRoot.length === 0) {
-      throw new OcrWorkerConfigError(
-        "worker=paddleocr-onnx requires fetcher_file_root " +
-          "(env OCR_FETCHER_FILE_ROOT or --fetcher-file-root)",
-      );
-    }
-    if (!isAbsolute(fetcherFileRoot)) {
-      throw new OcrWorkerConfigError(
-        `fetcher_file_root must be an absolute path (got ${JSON.stringify(fetcherFileRoot)})`,
-      );
-    }
-  }
+  const fetcherFileRoot = parseFetcherFileRoot(fetcherFileRootRaw, workerKind);
+
+  // ADR-11A.0 §10 production fail-closed. Evaluated AFTER worker kind
+  // resolves but BEFORE any deps construction; throws OcrWorkerConfigError
+  // which maps to exit 2 at the bin's top-level catch.
+  validateProductionProfile(env, workerKind);
 
   return {
     worker_id: workerId,
@@ -241,6 +240,16 @@ export function parseOcrWorkerConfig(
 
 function parseWorkerKind(raw: string | undefined): WorkerKey {
   if (raw === undefined) return "fake";
+  if (raw === "") {
+    // ADR-11A.0 §10: empty selector is an explicit config error,
+    // NOT a silent omission. Operators who want fake must omit
+    // the env / flag entirely.
+    throw new OcrWorkerConfigError(
+      "OCR_WORKER (or --worker) must not be empty; omit entirely to default to \"fake\", " +
+        "or set explicitly to one of " +
+        `${[...VALID_WORKER_KINDS].map((k) => JSON.stringify(k)).join(", ")}`,
+    );
+  }
   if (!VALID_WORKER_KINDS.has(raw as WorkerKey)) {
     throw new OcrWorkerConfigError(
       `unknown worker kind ${JSON.stringify(raw)}; expected one of ` +
@@ -248,6 +257,78 @@ function parseWorkerKind(raw: string | undefined): WorkerKey {
     );
   }
   return raw as WorkerKey;
+}
+
+function parseFetcherFileRoot(
+  raw: string | undefined,
+  workerKind: WorkerKey,
+): string | undefined {
+  if (raw === undefined) {
+    // Genuinely unset.
+    if (workerKind === "paddleocr-onnx") {
+      throw new OcrWorkerConfigError(
+        "worker=paddleocr-onnx requires fetcher_file_root " +
+          "(env OCR_FETCHER_FILE_ROOT or --fetcher-file-root)",
+      );
+    }
+    return undefined;
+  }
+  if (raw === "") {
+    // Explicit empty — same fail-closed posture as worker.
+    throw new OcrWorkerConfigError(
+      "OCR_FETCHER_FILE_ROOT (or --fetcher-file-root) must not be empty; " +
+        "omit the env/flag entirely or supply an absolute path",
+    );
+  }
+  if (!isAbsolute(raw)) {
+    throw new OcrWorkerConfigError(
+      `fetcher_file_root must be an absolute path (got ${JSON.stringify(raw)})`,
+    );
+  }
+  return raw;
+}
+
+/**
+ * ADR-11A.0 §10 fail-closed production profile. Reading NODE_ENV and
+ * OCR_WORKER_REQUIRE_REAL here (env-only — no argv flag for these,
+ * per the ADR's "production deployment" framing).
+ *
+ * Three independent guards, all surface as exit 2:
+ *   1. OCR_WORKER_REQUIRE_REAL=1 AND worker_kind="fake"
+ *   2. NODE_ENV=production AND OCR_WORKER_REQUIRE_REAL unset
+ *   3. NODE_ENV=production AND worker_kind="fake"
+ *
+ * Dev/test deployments leave both env vars unset (or set
+ * OCR_WORKER_REQUIRE_REAL=1 explicitly to opt into prod-like
+ * checks). Production deployments MUST set both.
+ */
+function validateProductionProfile(
+  env: Record<string, string | undefined>,
+  workerKind: WorkerKey,
+): void {
+  const requireReal = env.OCR_WORKER_REQUIRE_REAL;
+  const nodeEnv = env.NODE_ENV;
+  const requireRealActive = requireReal === "1";
+  const isProduction = nodeEnv === "production";
+
+  if (requireRealActive && workerKind === "fake") {
+    throw new OcrWorkerConfigError(
+      "OCR_WORKER_REQUIRE_REAL=1 forbids worker=fake; " +
+        "set OCR_WORKER=paddleocr-onnx (or another real worker) or unset OCR_WORKER_REQUIRE_REAL",
+    );
+  }
+  if (isProduction && !requireRealActive) {
+    throw new OcrWorkerConfigError(
+      "NODE_ENV=production requires OCR_WORKER_REQUIRE_REAL=1; " +
+        "production deployments MUST set both env vars (ADR-11A.0 §10)",
+    );
+  }
+  if (isProduction && workerKind === "fake") {
+    throw new OcrWorkerConfigError(
+      "NODE_ENV=production forbids worker=fake; " +
+        "set OCR_WORKER=paddleocr-onnx (or another real worker)",
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

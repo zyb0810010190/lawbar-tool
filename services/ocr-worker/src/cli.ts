@@ -17,6 +17,8 @@
 //   1 — loop terminated with stop_reason="error"
 //   2 — config parse failure OR dep wiring failure (startup failure)
 
+import { statSync } from "node:fs";
+
 import {
   InMemoryOcrPersistence,
   openSqliteOcrPersistence,
@@ -101,6 +103,11 @@ Usage:
 
 Flags:
   --worker-id <id>                    Worker identity (default: random UUID)
+  --worker <fake|paddleocr-onnx>      Worker backend (default: fake).
+                                      Empty value (--worker=) is an error;
+                                      omit entirely to take the default.
+  --fetcher-file-root <abs-path>      Allowed root for file:// page sources;
+                                      REQUIRED when --worker=paddleocr-onnx.
   --persistence <memory|sqlite>       Persistence backend (default: memory)
   --queue <memory|sqlite>             Queue backend (default: memory)
                                       sqlite requires --persistence=sqlite;
@@ -112,9 +119,15 @@ Flags:
   --help                              Print this and exit 0
 
 Environment variables (argv flags take precedence):
-  OCR_WORKER_ID, OCR_WORKER_PERSISTENCE, OCR_WORKER_QUEUE,
+  OCR_WORKER_ID, OCR_WORKER, OCR_FETCHER_FILE_ROOT,
+  OCR_WORKER_PERSISTENCE, OCR_WORKER_QUEUE,
   OCR_WORKER_SQLITE_PATH, OCR_WORKER_IDLE_DELAY_MS,
   OCR_WORKER_MAX_ITERATIONS, OCR_WORKER_INCLUDE_EMPTY_OUTCOMES
+
+Production profile (ADR-11A.0 §10) — env-only, no argv flag:
+  OCR_WORKER_REQUIRE_REAL=1    Forbid worker=fake (exit 2 if violated).
+  NODE_ENV=production          Forbids worker=fake AND requires
+                               OCR_WORKER_REQUIRE_REAL=1.
 
 Signals:
   SIGINT/SIGTERM        Graceful shutdown — wait for the in-flight processOne()
@@ -123,7 +136,7 @@ Signals:
 Exit codes:
   0   graceful stop, max_iterations, or --help
   1   loop ended with stop_reason="error"
-  2   config or dep-wiring failure
+  2   config or dep-wiring failure (incl. engine cold-load failure)
 `;
 
 export async function runOcrWorkerProcess(
@@ -155,6 +168,24 @@ export async function runOcrWorkerProcess(
     writeOut(HELP_TEXT);
     return 0;
   }
+
+  // ADR-11C.3c §1 + ADR-11A.0 §10: emit a one-line stderr config summary
+  // so operators see exactly which worker the bin chose. Without this,
+  // a misconfigured deploy could silently run the fake worker (the
+  // back-compat default) while looking like real OCR.
+  writeErr(
+    "ocr-worker startup: " +
+      JSON.stringify({
+        worker_id: config.worker_id,
+        worker_kind: config.worker_kind,
+        fetcher_file_root: config.fetcher_file_root ?? null,
+        persistence: config.persistence,
+        queue: config.queue,
+        sqlite_path: config.sqlite_path ?? null,
+        max_iterations: config.max_iterations ?? null,
+      }) +
+      "\n",
+  );
 
   // 2. Signal handlers (installed before deps so a slow buildDeps can be
   //    interrupted by SIGINT — but we still need to uninstall on every exit
@@ -258,6 +289,28 @@ async function constructWorker(config: OcrWorkerConfig): Promise<OcrWorker> {
       if (config.fetcher_file_root === undefined) {
         throw new OcrWorkerConfigError(
           "internal: worker_kind=paddleocr-onnx with no fetcher_file_root after config parse",
+        );
+      }
+      // Audit 019e3a8f D3 Medium: stat the fetcher root at startup so
+      // a missing path or non-directory fails as exit 2 BEFORE engine
+      // cold load, not after the first job lands and the fetcher
+      // rejects. Config parser already enforces "absolute string";
+      // here we additionally enforce "exists as a directory" so the
+      // fail-closed window covers filesystem reality, not just
+      // string shape.
+      let st;
+      try {
+        st = statSync(config.fetcher_file_root);
+      } catch (err) {
+        throw new OcrWorkerConfigError(
+          `fetcher_file_root ${JSON.stringify(config.fetcher_file_root)} ` +
+            `cannot be stat'd: ${(err as Error).message}`,
+        );
+      }
+      if (!st.isDirectory()) {
+        throw new OcrWorkerConfigError(
+          `fetcher_file_root ${JSON.stringify(config.fetcher_file_root)} ` +
+            `is not a directory`,
         );
       }
       // Cold load happens here. Failure (missing models, native-binary
