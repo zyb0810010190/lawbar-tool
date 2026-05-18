@@ -155,11 +155,16 @@ Layer A — **lexical containment**:
 Layer B — **real-path containment**:
 - `realpathSync.native(resolved)` MUST be inside
   `realpathSync.native(allowedFileRoot)`. Catches symlink escapes.
-- The resolved real path MUST be a regular file (rejects directories,
-  FIFOs, sockets, devices).
 
 Both layers run before any read of file bytes. Failure throws with
 stable code `path_escape`.
+
+**Regular-file check is NOT done in the containment helpers** (audit
+019e3a07 verify-D9). With the fd-bound TOCTOU posture (§6 below),
+the file-shape check has to run against the open fd, not against a
+separately-stat'd path, otherwise the stat and read race
+reappears. Containment returns only `realPath`; the directory /
+FIFO / socket / device reject happens via `fh.stat()` after `open`.
 
 ### §6 Gate order — size + MIME + hash
 
@@ -289,12 +294,18 @@ Runtime-frozen (`Object.freeze`) for the same reason as
   arm + one allowlist update.
 - **Content-hash verification (SHA-256)** — needs a schema field; no
   consumer yet.
-- **MIME sniffing of fetched bytes** — submission's `mime_type` is
-  authoritative for v1. Sniffing adds a libmagic-equivalent dep.
-- **Streaming / partial reads** — `readFile` reads the whole file at
-  once. Acceptable under the 50 MB cap; if multi-hundred-MB inputs
-  ever land (they won't pass the cap), revisit.
-- **TOCTOU hardening** — see §6. v1 trusts the file root.
+- **Full byte-format validation (libmagic / file)** — the v1 fetcher
+  does magic-byte signature sniff for PNG and JPEG (§6 step 15);
+  full format validation (header arity, chunk consistency, EOF
+  marker) is delegated to the engine. A libmagic-equivalent
+  dependency is not introduced because the v1 allowlist is two
+  formats with stable, short signatures.
+- **Streaming / partial reads** — `fh.readFile()` reads the whole
+  file at once. Acceptable under the 50 MB cap; if multi-hundred-MB
+  inputs ever land (they won't pass the cap), revisit.
+- **Full TOCTOU hardening** — see §6. The fd-bound pattern closes
+  the path-replacement race; same-inode in-place rewrite is out of
+  v1 threat model.
 - **Bin wiring (env read + deps construction)** — owned by 11C.3.
 
 ## Consequences
@@ -335,11 +346,13 @@ Runtime-frozen (`Object.freeze`) for the same reason as
 - **Multi-root file allowlist** — extra config surface for v1 with no
   driver. A single root covers the development and prod use cases
   ADR-11C.3 wires.
-- **Auto-detect MIME from byte signatures** — opens a libmagic-style
-  dep with its own threat surface; trusting the submission's
-  `mime_type` is sufficient given that the submission already passed
-  schema validation. If a malicious caller lies about MIME, the
-  engine will reject the bytes anyway.
+- **Trust the submission's declared `mime_type` without sniffing**
+  — reversed after audit 019e3a07 D2 Medium. The "engine will reject
+  later" stance made the anti-PDF boundary hollow: a PDF labeled as
+  `image/png` would reach the engine unfiltered. v1 now does a
+  short magic-byte sniff against the declared MIME (PNG and JPEG
+  signatures only; see §6 step 15). No libmagic-equivalent dep is
+  introduced because the v1 allowlist is exactly two formats.
 - **No `byte_size` verification** — would let a swapped file slip in
   silently; the size check is the v1 substitute for content-hash
   verification.
