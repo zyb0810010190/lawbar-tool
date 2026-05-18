@@ -734,7 +734,7 @@ test('inline: schema-bypass payload > 1 MB rejected with size_cap_exceeded (audi
   });
 });
 
-test('s3 source kind: still rejected with source_kind_unsupported (admission set: file, inline)', async () => {
+test('s3 source kind: still rejected with source_kind_unsupported (admission set: file, inline, https; see ADR-11D.3)', async () => {
   await withTempRoot(async (root) => {
     const submission = makeSubmission({
       source: { kind: 's3', bucket: 'b', key: 'k', byte_size: 1, mime_type: 'image/png' },
