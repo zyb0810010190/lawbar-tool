@@ -53,18 +53,28 @@ export const FETCHER_ERROR_CODES = Object.freeze({
   /** Response was 3xx; v1 does not follow redirects. */
   REDIRECT_UNSUPPORTED: "redirect_unsupported",
   /**
-   * Response status was 4xx (or any other non-200, non-3xx, non-5xx
-   * code). Classified as PERMANENT per ADR-11E §1: client errors
-   * (404, 401, 403, etc.) don't change on retry.
+   * Response status was 4xx (404, 401, 403, etc.). Classified as
+   * PERMANENT per ADR-11E §1: caller-side errors don't change on
+   * retry. Audit 019e3b1f D1 Medium fix: this code is now strictly
+   * the 400-499 range only; other non-200/non-3xx codes map to
+   * `HTTPS_STATUS_UNEXPECTED` so the code matches reality.
    */
   HTTPS_CLIENT_ERROR_4XX: "https_client_error_4xx",
   /**
    * Response status was 5xx. Classified as TRANSIENT per ADR-11E
-   * §1: server hiccups often resolve on retry. Split from the
-   * earlier `https_status_not_ok` code so the classification can
-   * be carried by the code itself.
+   * §1: server hiccups often resolve on retry.
    */
   HTTPS_SERVER_ERROR_5XX: "https_server_error_5xx",
+  /**
+   * Response status was non-200 and outside the standard 3xx/4xx/5xx
+   * families — covers 1xx informational (shouldn't reach a fetch
+   * client), 2xx-non-200 (204 No Content, 206 Partial Content),
+   * and any 6xx+ that some servers emit. Classified as PERMANENT
+   * (caller-side / unsupported behavior; retry doesn't help).
+   * Added by audit 019e3b1f D1 Medium fix so the persisted code
+   * matches what actually happened.
+   */
+  HTTPS_STATUS_UNEXPECTED: "https_status_unexpected",
   /** Fetch timed out (AbortController fired). */
   HTTPS_TIMEOUT: "https_timeout",
   /** Generic network error (connection refused, DNS failure, etc). */

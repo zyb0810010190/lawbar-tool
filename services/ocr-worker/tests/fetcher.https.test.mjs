@@ -441,9 +441,10 @@ test("non-200 status 503 rejected with https_server_error_5xx", async () => {
   );
 });
 
-test("non-200 status 204 (no content) rejected with https_client_error_4xx (caller-error-shaped)", async () => {
-  // 204 has no body to OCR; treat as caller error (sent a URL
-  // that doesn't return content).
+test("non-200 status 204 (no content) rejected with https_status_unexpected (audit 019e3b1f D1 M)", async () => {
+  // 204 No Content is in the 2xx family but not 200. Code now
+  // honestly reflects "unexpected status family" rather than
+  // mislabeling as 4xx.
   const submission = makeSubmission();
   await assertFetcherError(
     fetchPageBytes(submission, deps({
@@ -451,7 +452,31 @@ test("non-200 status 204 (no content) rejected with https_client_error_4xx (call
         status: 204, headers: new Headers(), body: syntheticBody(Buffer.alloc(0)),
       }),
     })),
-    FETCHER_ERROR_CODES.HTTPS_CLIENT_ERROR_4XX,
+    FETCHER_ERROR_CODES.HTTPS_STATUS_UNEXPECTED,
+  );
+});
+
+test("status 206 (partial content) rejected with https_status_unexpected", async () => {
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport({
+        status: 206, headers: new Headers(), body: syntheticBody(Buffer.from("partial")),
+      }),
+    })),
+    FETCHER_ERROR_CODES.HTTPS_STATUS_UNEXPECTED,
+  );
+});
+
+test("status 600+ (non-standard) rejected with https_status_unexpected", async () => {
+  const submission = makeSubmission();
+  await assertFetcherError(
+    fetchPageBytes(submission, deps({
+      httpsTransport: makeStubTransport({
+        status: 699, headers: new Headers(), body: syntheticBody(Buffer.alloc(0)),
+      }),
+    })),
+    FETCHER_ERROR_CODES.HTTPS_STATUS_UNEXPECTED,
   );
 });
 

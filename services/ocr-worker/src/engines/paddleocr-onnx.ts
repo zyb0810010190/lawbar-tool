@@ -95,6 +95,19 @@ export interface PaddleOcrOnnxAdapterDeps {
 export const ENGINE_FAILED_CODE = "engine_failed";
 
 /**
+ * Closed code set the classifier operates over (audit 019e3b1f
+ * D1 Medium fix). Previously the classifier accepted any `string`;
+ * a future enum-value rename or call-site typo would have
+ * silently degraded a transient code to permanent (since the Set
+ * membership check returns false). Tightening to a typed union
+ * makes the membership compile-checkable and adds an exhaustiveness
+ * test surface.
+ */
+export type ClassifiedFetcherCode =
+  | FetcherErrorCode
+  | typeof ENGINE_FAILED_CODE;
+
+/**
  * Retry classification table per ADR-11E §1 + §5. Codes in this
  * Set are TRANSIENT (worth retrying); every other code is
  * PERMANENT (default). Membership-or-default keeps the table
@@ -107,20 +120,26 @@ export const ENGINE_FAILED_CODE = "engine_failed";
  * in ADR-11F. v1 sets the bit correctly even though no consumer
  * acts on it yet.
  */
-const TRANSIENT_FETCHER_CODES: ReadonlySet<string> = new Set<string>([
-  FETCHER_ERROR_CODES.HTTPS_SERVER_ERROR_5XX,
-  FETCHER_ERROR_CODES.HTTPS_TIMEOUT,
-  FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR,
-  ENGINE_FAILED_CODE,
-]);
+const TRANSIENT_FETCHER_CODES: ReadonlySet<ClassifiedFetcherCode> =
+  new Set<ClassifiedFetcherCode>([
+    FETCHER_ERROR_CODES.HTTPS_SERVER_ERROR_5XX,
+    FETCHER_ERROR_CODES.HTTPS_TIMEOUT,
+    FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR,
+    ENGINE_FAILED_CODE,
+  ]);
 
 /**
  * Classify a fetcher/engine error code as transient (retry can
  * succeed) or permanent (retry pointless). See ADR-11E §1 for
  * the full map.
+ *
+ * Type-tightened in the audit 019e3b1f fix: the parameter is now
+ * `ClassifiedFetcherCode` rather than `string`, so a typo at the
+ * call site or an enum-value drift becomes a compile error rather
+ * than a silent degradation to permanent.
  */
 export function classifyFetcherError(
-  code: string,
+  code: ClassifiedFetcherCode,
 ): "transient" | "permanent" {
   return TRANSIENT_FETCHER_CODES.has(code) ? "transient" : "permanent";
 }
@@ -159,6 +178,7 @@ const SANITIZED_FETCHER_MESSAGES: Readonly<Record<FetcherErrorCode, string>> =
     redirect_unsupported: "Source URL returned a redirect; v1 does not follow redirects.",
     https_client_error_4xx: "Source URL responded with a 4xx client error.",
     https_server_error_5xx: "Source URL responded with a 5xx server error.",
+    https_status_unexpected: "Source URL responded with an unexpected non-200 status (not 3xx/4xx/5xx).",
     https_timeout: "Source URL fetch timed out.",
     https_network_error: "Source URL fetch failed with a network error.",
     content_hash_mismatch: "Fetched bytes do not match the declared expected_sha256.",
@@ -338,7 +358,7 @@ interface FailedOutcomeInput {
   readonly engineVersion: string;
   readonly processing_duration_ms: number;
   readonly completedAt: string;
-  readonly code: string;
+  readonly code: ClassifiedFetcherCode;
   readonly message: string;
   readonly rawError?: unknown; // for future op-log routing; unused today
 }

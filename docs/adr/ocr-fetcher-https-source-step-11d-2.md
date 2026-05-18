@@ -2,7 +2,17 @@
 
 ## Status
 
-Accepted. **Decision + code**. Second staged unit of ADR-11D
+Accepted.
+
+**Superseded in part by ADR-11E** (retry classification): the
+`HTTPS_STATUS_NOT_OK` code documented in this ADR was split into
+`HTTPS_CLIENT_ERROR_4XX` (4xx, permanent), `HTTPS_SERVER_ERROR_5XX`
+(5xx, transient), and `HTTPS_STATUS_UNEXPECTED` (1xx/2xx-non-200/
+6xx+, permanent). References to `https_status_not_ok` below are
+left in place for historical accuracy; ADR-11E §2 documents the
+shipped contract.
+
+**Decision + code**. Second staged unit of ADR-11D
 (source-kind expansion beyond `file://`). Opens the fetcher to
 `kind: "https"` submissions: the page bytes are fetched from a
 signed HTTPS URL the caller supplies. Inherits the same temp-file

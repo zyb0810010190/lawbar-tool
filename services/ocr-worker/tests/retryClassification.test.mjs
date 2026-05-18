@@ -49,6 +49,7 @@ test("classifyFetcherError: caller-error codes classify as permanent", () => {
     FETCHER_ERROR_CODES.REDIRECT_UNSUPPORTED,
     FETCHER_ERROR_CODES.CONTENT_HASH_MISMATCH,
     FETCHER_ERROR_CODES.HTTPS_CLIENT_ERROR_4XX,
+    FETCHER_ERROR_CODES.HTTPS_STATUS_UNEXPECTED,
   ];
   for (const code of permanents) {
     assert.equal(
@@ -62,8 +63,32 @@ test("classifyFetcherError: caller-error codes classify as permanent", () => {
 test("classifyFetcherError: unknown code defaults to permanent (fail-safe)", () => {
   // The fail-safe policy is "default permanent" so a forgotten
   // classification doesn't create retry storms.
-  assert.equal(classifyFetcherError("never_seen_code"), "permanent");
-  assert.equal(classifyFetcherError(""), "permanent");
+  // (Cast to bypass the tightened ClassifiedFetcherCode type so the
+  // runtime fail-safe behavior can be exercised directly.)
+  assert.equal(classifyFetcherError(/** @type any */ ("never_seen_code")), "permanent");
+  assert.equal(classifyFetcherError(/** @type any */ ("")), "permanent");
+});
+
+test("classifyFetcherError: exhaustiveness — every FETCHER_ERROR_CODES value + ENGINE_FAILED_CODE classifies (audit 019e3b1f D1 M)", () => {
+  // Verifies no code is silently missing from the classifier. If a
+  // future commit adds a new FETCHER_ERROR_CODES entry, this test
+  // forces the author to either:
+  //   (a) classify it intentionally,
+  //   (b) or accept that it defaults to permanent (the fail-safe).
+  // Either is fine but the choice should be conscious.
+  const allCodes = [...Object.values(FETCHER_ERROR_CODES), ENGINE_FAILED_CODE];
+  for (const code of allCodes) {
+    const classification = classifyFetcherError(code);
+    assert.ok(
+      classification === "transient" || classification === "permanent",
+      `classifyFetcherError(${JSON.stringify(code)}) returned ${JSON.stringify(classification)}`,
+    );
+  }
+  // Sanity: total count matches expected.
+  assert.equal(
+    allCodes.length,
+    Object.values(FETCHER_ERROR_CODES).length + 1, // +1 for ENGINE_FAILED_CODE
+  );
 });
 
 // --- assembleFailedOutcome wires is_transient correctly --------------------

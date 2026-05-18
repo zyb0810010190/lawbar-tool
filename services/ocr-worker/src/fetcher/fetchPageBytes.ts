@@ -549,13 +549,21 @@ async function fetchFromHttps(
       throw wrapTimeoutError(err);
     }
 
-    // Status check. Split per ADR-11E §2: 4xx (caller-side server
-    // response) is permanent; 5xx (server hiccup) is transient.
-    // The code itself carries the classification.
+    // Status check. Per ADR-11E §2 + audit 019e3b1f D1 fix: the
+    // code matches the actual status family so downstream
+    // analytics + future code-keyed retry policies see truthful
+    // data. 4xx is the 400-499 range only; other non-standard
+    // non-200 codes map to HTTPS_STATUS_UNEXPECTED.
     if (response.status >= 300 && response.status < 400) {
       throw new FetcherError(
         `response status ${response.status} is a redirect; v1 does not follow redirects`,
         { code: FETCHER_ERROR_CODES.REDIRECT_UNSUPPORTED },
+      );
+    }
+    if (response.status >= 400 && response.status < 500) {
+      throw new FetcherError(
+        `response status ${response.status} is a 4xx client error`,
+        { code: FETCHER_ERROR_CODES.HTTPS_CLIENT_ERROR_4XX },
       );
     }
     if (response.status >= 500 && response.status < 600) {
@@ -565,12 +573,13 @@ async function fetchFromHttps(
       );
     }
     if (response.status !== 200) {
-      // 4xx + 1xx + 2xx-non-200 (204, 206) + 6xx+ all classify as
-      // client-error-shaped (permanent). The 5xx range is handled
-      // separately above.
+      // 1xx informational, 2xx-non-200 (204 No Content, 206 Partial
+      // Content), 6xx+ non-standard. Mismatched bucket, but the
+      // code now honestly reflects "we got something that isn't a
+      // recognized status family for this endpoint".
       throw new FetcherError(
-        `response status ${response.status} is not 200`,
-        { code: FETCHER_ERROR_CODES.HTTPS_CLIENT_ERROR_4XX },
+        `response status ${response.status} is an unexpected non-200 status (outside 3xx/4xx/5xx ranges)`,
+        { code: FETCHER_ERROR_CODES.HTTPS_STATUS_UNEXPECTED },
       );
     }
 
