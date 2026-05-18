@@ -166,17 +166,9 @@ test("https source rejected with source_kind_unsupported", async () => {
   });
 });
 
-test("inline source rejected with source_kind_unsupported", async () => {
-  await withTempRoot(async (root) => {
-    const submission = makeSubmission({
-      source: { kind: "inline", base64: "aGVsbG8=", byte_size: 5, mime_type: "image/png" },
-    });
-    await assertFetcherError(
-      fetchPageBytes(submission, { allowedFileRoot: root }),
-      FETCHER_ERROR_CODES.SOURCE_KIND_UNSUPPORTED,
-    );
-  });
-});
+// Inline source kind is now admitted (ADR-11D.1). This test was
+// previously a `source_kind_unsupported` reject; replaced by the
+// happy-path + negative-path inline tests further down.
 
 // --- N=1 defense-in-depth --------------------------------------------------
 
@@ -560,3 +552,177 @@ test("FetcherError.code survives JSON round-trip via explicit serialization", ()
   assert.equal(round.name, "FetcherError");
   assert.equal(round.message, "oops");
 });
+
+// --- ADR-11D.1 inline source kind tests ----------------------------------
+
+const PNG_HEADER_HEX = '89504e470d0a1a0a';
+const JPEG_SOI_HEX = 'ffd8ff';
+
+function pngBytes() {
+  // Minimal valid PNG signature; the engine will reject a 1x1 zero-IHDR
+  // image but the fetcher only checks the magic-byte signature, not full
+  // PNG validity.
+  return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+}
+
+function jpegBytes() {
+  return Buffer.from([0xff, 0xd8, 0xff]);
+}
+
+test('inline source kind: PNG happy path -> returns decoded bytes', async () => {
+  const bytes = pngBytes();
+  const submission = makeSubmission({
+    source: {
+      kind: 'inline',
+      base64: bytes.toString('base64'),
+      byte_size: bytes.length,
+      mime_type: 'image/png',
+    },
+  });
+  // No allowedFileRoot needed for inline — pass empty deps via a
+  // fetcher root that exists but is irrelevant.
+  await withTempRoot(async (root) => {
+    const result = await fetchPageBytes(submission, { allowedFileRoot: root });
+    assert.equal(result.sizeBytes, bytes.length);
+    assert.equal(result.mimeType, 'image/png');
+    assert.deepEqual([...result.bytes], [...bytes]);
+  });
+});
+
+test('inline source kind: JPEG happy path -> returns decoded bytes', async () => {
+  const bytes = jpegBytes();
+  const submission = makeSubmission({
+    source: {
+      kind: 'inline',
+      base64: bytes.toString('base64'),
+      byte_size: bytes.length,
+      mime_type: 'image/jpeg',
+    },
+  });
+  await withTempRoot(async (root) => {
+    const result = await fetchPageBytes(submission, { allowedFileRoot: root });
+    assert.equal(result.sizeBytes, bytes.length);
+    assert.equal(result.mimeType, 'image/jpeg');
+  });
+});
+
+test('inline: declared byte_size mismatch with decoded length -> size_mismatch', async () => {
+  const bytes = pngBytes();
+  const submission = makeSubmission({
+    source: {
+      kind: 'inline',
+      base64: bytes.toString('base64'),
+      byte_size: bytes.length + 100, // lie about the size
+      mime_type: 'image/png',
+    },
+  });
+  await withTempRoot(async (root) => {
+    await assertFetcherError(
+      fetchPageBytes(submission, { allowedFileRoot: root }),
+      FETCHER_ERROR_CODES.SIZE_MISMATCH,
+    );
+  });
+});
+
+test('inline: mime_type not in allowlist -> mime_unsupported', async () => {
+  const bytes = pngBytes();
+  const submission = makeSubmission({
+    source: {
+      kind: 'inline',
+      base64: bytes.toString('base64'),
+      byte_size: bytes.length,
+      mime_type: 'application/pdf',
+    },
+  });
+  await withTempRoot(async (root) => {
+    await assertFetcherError(
+      fetchPageBytes(submission, { allowedFileRoot: root }),
+      FETCHER_ERROR_CODES.MIME_UNSUPPORTED,
+    );
+  });
+});
+
+test('inline: mime_type missing -> mime_unsupported (fetcher requires it)', async () => {
+  const bytes = pngBytes();
+  const submission = makeSubmission({
+    source: {
+      kind: 'inline',
+      base64: bytes.toString('base64'),
+      byte_size: bytes.length,
+      // mime_type intentionally omitted — schema lists it optional;
+      // fetcher needs it for allowlist + signature sniff.
+    },
+  });
+  await withTempRoot(async (root) => {
+    await assertFetcherError(
+      fetchPageBytes(submission, { allowedFileRoot: root }),
+      FETCHER_ERROR_CODES.MIME_UNSUPPORTED,
+    );
+  });
+});
+
+test('inline: declared image/png but bytes are PDF -> mime_signature_mismatch', async () => {
+  const bytes = Buffer.from("%PDF-1.4\n%fake\n");
+  const submission = makeSubmission({
+    source: {
+      kind: 'inline',
+      base64: bytes.toString('base64'),
+      byte_size: bytes.length,
+      mime_type: 'image/png',
+    },
+  });
+  await withTempRoot(async (root) => {
+    await assertFetcherError(
+      fetchPageBytes(submission, { allowedFileRoot: root }),
+      FETCHER_ERROR_CODES.MIME_SIGNATURE_MISMATCH,
+    );
+  });
+});
+
+test('inline: declared image/jpeg but bytes are PNG -> mime_signature_mismatch', async () => {
+  const bytes = pngBytes();
+  const submission = makeSubmission({
+    source: {
+      kind: 'inline',
+      base64: bytes.toString('base64'),
+      byte_size: bytes.length,
+      mime_type: 'image/jpeg',
+    },
+  });
+  await withTempRoot(async (root) => {
+    await assertFetcherError(
+      fetchPageBytes(submission, { allowedFileRoot: root }),
+      FETCHER_ERROR_CODES.MIME_SIGNATURE_MISMATCH,
+    );
+  });
+});
+
+test('inline: file_root_unconfigured is NOT thrown — inline doesn\'t need a root', async () => {
+  // Inline submission with EMPTY allowedFileRoot. file:// would reject
+  // immediately as file_root_unconfigured; inline bypasses the root
+  // check entirely because no path resolution happens.
+  const bytes = pngBytes();
+  const submission = makeSubmission({
+    source: {
+      kind: 'inline',
+      base64: bytes.toString('base64'),
+      byte_size: bytes.length,
+      mime_type: 'image/png',
+    },
+  });
+  const result = await fetchPageBytes(submission, { allowedFileRoot: '' });
+  assert.equal(result.sizeBytes, bytes.length);
+});
+
+test('s3 source kind: still rejected with source_kind_unsupported (admission set: file, inline)', async () => {
+  await withTempRoot(async (root) => {
+    const submission = makeSubmission({
+      source: { kind: 's3', bucket: 'b', key: 'k', byte_size: 1, mime_type: 'image/png' },
+    });
+    await assertFetcherError(
+      fetchPageBytes(submission, { allowedFileRoot: root }),
+      FETCHER_ERROR_CODES.SOURCE_KIND_UNSUPPORTED,
+    );
+  });
+});
+

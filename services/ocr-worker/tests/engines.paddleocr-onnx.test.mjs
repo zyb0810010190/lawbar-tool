@@ -595,3 +595,78 @@ test("makePaddleOcrOnnxWorker(deps) is the direct entrypoint for adapter tests",
     assert.equal(outcome.terminal_state, "succeeded");
   });
 });
+
+// --- ADR-11D.1: inline source kind end-to-end through the adapter ----------
+
+test("inline source: adapter happy path -> succeeded outcome via temp-file bridge", async () => {
+  await withTempRoot(async (root) => {
+    const seenPaths = [];
+    const stubLines = [{ text: "inline ok", mean: 0.91 }];
+    const engine = {
+      async detect(imagePath) {
+        seenPaths.push(imagePath);
+        return stubLines;
+      },
+    };
+    const sub = makeSubmission({
+      source: {
+        kind: "inline",
+        base64: PNG_HEADER.toString("base64"),
+        byte_size: PNG_HEADER.length,
+        mime_type: "image/png",
+      },
+    });
+    const outcome = await processPaddleOcrOnnxJob(
+      { id: "t-inline", submission: sub, enqueued_at: "2026-05-18T10:00:00.000Z" },
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion },
+    );
+    assert.equal(outcome.terminal_state, "succeeded");
+    assert.equal(outcome.results[0].status, "succeeded");
+    assert.equal(outcome.results[0].blocks.length, 1);
+    assert.equal(outcome.results[0].blocks[0].text, "inline ok");
+    assert.equal(seenPaths.length, 1);
+    assert.match(seenPaths[0], /ocr-worker-paddle-/);
+    assert.match(seenPaths[0], /\.png$/);
+  });
+});
+
+test("inline source: fetcher size_mismatch -> failed outcome with code preserved", async () => {
+  await withTempRoot(async (root) => {
+    const engine = { async detect() { throw new Error("should not be called"); } };
+    const sub = makeSubmission({
+      source: {
+        kind: "inline",
+        base64: PNG_HEADER.toString("base64"),
+        byte_size: 9999,
+        mime_type: "image/png",
+      },
+    });
+    const outcome = await processPaddleOcrOnnxJob(
+      { id: "t-inline", submission: sub, enqueued_at: "2026-05-18T10:00:00.000Z" },
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion },
+    );
+    assert.equal(outcome.terminal_state, "failed");
+    assert.equal(outcome.results[0].partial_failure.code, FETCHER_ERROR_CODES.SIZE_MISMATCH);
+  });
+});
+
+test("inline source: metadata round-trip through adapter (success path)", async () => {
+  await withTempRoot(async (root) => {
+    const engine = { async detect() { return [{ text: "x", mean: 1.0 }]; } };
+    const sub = makeSubmission({
+      source: {
+        kind: "inline",
+        base64: PNG_HEADER.toString("base64"),
+        byte_size: PNG_HEADER.length,
+        mime_type: "image/png",
+      },
+    });
+    sub.metadata = { trace_id: "inline-trace-xyz", route: "inline" };
+    const outcome = await processPaddleOcrOnnxJob(
+      { id: "t-inline", submission: sub, enqueued_at: "2026-05-18T10:00:00.000Z" },
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion },
+    );
+    assert.equal(outcome.terminal_state, "succeeded");
+    assert.deepEqual(outcome.results[0].metadata, sub.metadata);
+  });
+});

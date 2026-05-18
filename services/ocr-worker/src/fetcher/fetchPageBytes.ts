@@ -92,6 +92,33 @@ export async function fetchPageBytes(
     );
   }
 
+  // ADR-11D.1 §1 — dispatch on source.kind. Each branch performs its
+  // own MIME allowlist + magic-byte sniff + size-mismatch + size-cap
+  // checks; what differs is how the bytes are produced (file I/O for
+  // `file`, base64 decode for `inline`).
+  const source = submission.pages[0]!.source;
+  switch (source.kind) {
+    case "file":
+      return fetchFromFile(source, deps);
+    case "inline":
+      return fetchFromInline(source);
+    default:
+      throw new FetcherError(
+        `source kind ${JSON.stringify((source as { kind: string }).kind)} is not supported in v1 ` +
+          `(admitted: "file", "inline"; see ADR-11D.1 §1 + ADR-11C.2 §1)`,
+        { code: FETCHER_ERROR_CODES.SOURCE_KIND_UNSUPPORTED },
+      );
+  }
+}
+
+// ---------------------------------------------------------------------
+// file:// path — ADR-11C.2
+// ---------------------------------------------------------------------
+
+async function fetchFromFile(
+  source: Extract<OcrSubmission["pages"][number]["source"], { kind: "file" }>,
+  deps: FetcherDeps,
+): Promise<FetchedPage> {
   // §7 — fail closed on misconfigured root. Validate BEFORE the
   // `resolve` normalization so an empty / non-string / relative root
   // is surfaced with the actionable code, not silently turned into a
@@ -114,16 +141,6 @@ export async function fetchPageBytes(
   // `resolve(root, candidate)` would falsely reject every legitimate
   // in-root candidate.
   const allowedRoot = resolve(deps.allowedFileRoot);
-
-  const source = submission.pages[0]!.source;
-
-  // §1 — source-kind admission. Cheaper than I/O.
-  if (source.kind !== "file") {
-    throw new FetcherError(
-      `source kind ${JSON.stringify(source.kind)} is not supported in v1 (only "file" is admitted; see ADR-11C.2 §1)`,
-      { code: FETCHER_ERROR_CODES.SOURCE_KIND_UNSUPPORTED },
-    );
-  }
 
   // §6 — declared-MIME allowlist runs before any I/O. The post-read
   // signature sniff below catches mislabeling.
@@ -229,4 +246,85 @@ export async function fetchPageBytes(
   } finally {
     await fh.close();
   }
+}
+
+// ---------------------------------------------------------------------
+// inline path — ADR-11D.1
+// ---------------------------------------------------------------------
+
+/**
+ * Decode base64 + run the same MIME / size / signature gates as the
+ * file path. Pure (no I/O beyond CPU-bound decode). The schema's
+ * envelope validator has already constrained
+ * `source.base64` to `[A-Za-z0-9+/=\n\r]+` and `source.byte_size` to
+ * `[1, 1048576]` (1 MB); the checks below are defense-in-depth in
+ * case the envelope validator is bypassed.
+ */
+async function fetchFromInline(
+  source: Extract<OcrSubmission["pages"][number]["source"], { kind: "inline" }>,
+): Promise<FetchedPage> {
+  // The submission schema lists `mime_type` as optional on inline
+  // (only `kind`, `base64`, `byte_size` are required), but the
+  // fetcher requires it: without a declared MIME the allowlist +
+  // signature-sniff gates can't run. Schema narrowing would be a
+  // breaking contract change; rejecting at the fetcher boundary
+  // surfaces the same actionable error without rewiring the contract.
+  const declaredMime = source.mime_type;
+  if (typeof declaredMime !== "string" || declaredMime.length === 0) {
+    throw new FetcherError(
+      `inline source.mime_type is required for v1 (schema lists it as optional but the fetcher needs a declared MIME)`,
+      { code: FETCHER_ERROR_CODES.MIME_UNSUPPORTED },
+    );
+  }
+
+  // MIME allowlist before decode — cheap, and rules out the
+  // "decode 1 MB just to reject as PDF" wasted work.
+  if (!ALLOWED_MIME_TYPES.has(declaredMime)) {
+    throw new FetcherError(
+      `mime_type ${JSON.stringify(declaredMime)} is not in the v1 allowlist (${[...ALLOWED_MIME_TYPES].join(", ")})`,
+      { code: FETCHER_ERROR_CODES.MIME_UNSUPPORTED },
+    );
+  }
+
+  // Node's base64 decoder silently filters invalid characters. The
+  // schema's `base64` pattern already enforces the alphabet at the
+  // envelope layer; if invalid characters somehow reach here, the
+  // size-mismatch check below catches the discrepancy between the
+  // caller's declared byte_size and the decoded length.
+  const bytes = Buffer.from(source.base64, "base64");
+
+  // Declared byte_size must match decoded length. This is the contract
+  // pin: the caller asserted how many bytes they sent; if the decoded
+  // length disagrees, the submission is corrupt.
+  if (bytes.byteLength !== source.byte_size) {
+    throw new FetcherError(
+      `inline decoded length ${bytes.byteLength} bytes disagrees with submission's source.byte_size ${source.byte_size}`,
+      { code: FETCHER_ERROR_CODES.SIZE_MISMATCH },
+    );
+  }
+
+  // Size cap. The schema's inline cap is 1 MB; this 50 MB fetcher cap
+  // is the larger bound and the schema's check is the tighter binding
+  // constraint. Defense-in-depth in case schema validation is bypassed.
+  if (bytes.byteLength > MAX_PAGE_BYTES) {
+    throw new FetcherError(
+      `inline decoded length ${bytes.byteLength} bytes exceeds the ${MAX_PAGE_BYTES} byte per-page cap`,
+      { code: FETCHER_ERROR_CODES.SIZE_CAP_EXCEEDED },
+    );
+  }
+
+  // Magic-byte signature sniff — same as file path. PDF mislabeled as
+  // image/png in the inline base64 gets caught here.
+  if (!bytesMatchDeclaredMime(bytes, declaredMime)) {
+    throw new FetcherError(
+      `inline bytes do not carry a valid ${declaredMime} signature (declared MIME does not match content)`,
+      { code: FETCHER_ERROR_CODES.MIME_SIGNATURE_MISMATCH },
+    );
+  }
+
+  return {
+    bytes,
+    mimeType: declaredMime,
+    sizeBytes: bytes.byteLength,
+  };
 }
