@@ -128,8 +128,8 @@ export type Block = {
     | "handwriting"
     | "unknown";
   text?: string;
-  confidence: number;
-  bbox: Bbox;
+  confidence?: number | null;
+  bbox?: Bbox;
   polygon?: Polygon;
   reading_order?: number;
   writing_mode?: "horizontal-tb" | "vertical-rl" | "vertical-lr";
