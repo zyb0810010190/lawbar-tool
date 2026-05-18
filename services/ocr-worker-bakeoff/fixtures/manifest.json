@@ -20,7 +20,7 @@
         "point_size": 36,
         "canvas": "400x80",
         "source_text": "hello bakeoff",
-        "notes": "Rendered with ImageMagick 7.1.2-19 on macOS. Tesseract 5.5.2 (eng) reads this image verbatim as 'hello bakeoff' — CER = 0 against the authored source phrase."
+        "notes": "Rendered with ImageMagick 7.1.2-19 on macOS. Source text is the AUTHORED ground truth; engine measurement results live in the bakeoff report, not in fixture provenance (audit 019e396b H#2)."
       },
       "notes": "First synthetic fixture; verifies the Tesseract harness end-to-end. The Chinese verdict corpus is built by the zh-* fixtures below."
     },
@@ -43,7 +43,7 @@
         "point_size": 44,
         "canvas": "800x80",
         "source_text": "上海市浦东新区人民法院",
-        "notes": "Court heading category — short, large display text. PaddleOCR-ONNX reads it verbatim (CER 0 against the authored source) on the 2026-05-18 host."
+        "notes": "Court heading category — short, large display text. Engine measurement results live in the bakeoff report, not here."
       }
     },
     {
@@ -57,7 +57,7 @@
       "sha256": "2c85dc524badbc0f26acac0b0707694d9d0fec1328ceea6981c39e8dd521629e",
       "expected_text_sha256": "bdfe6e84774bc10cba35f1e67da00cef8b216075ea314efffd9b4a7a99ab4f12",
       "language": "zh-Hans",
-      "provenance": "Synthetic v1, simplified-Chinese case number with half-width parentheses + ASCII digits + Chinese. Tests engine handling of half/full-width punctuation drift — PaddleOCR-ONNX returns full-width '（）' even though the authored source uses ASCII '()'.",
+      "provenance": "Synthetic v1, simplified-Chinese case number with half-width parentheses + ASCII digits + Chinese. Tests engine handling of half/full-width punctuation drift.",
       "last_verified_at": "2026-05-18T00:00:00Z",
       "render": {
         "render_command": "magick -size 800x80 xc:white -font /System/Library/Fonts/Hiragino\\ Sans\\ GB.ttc -pointsize 40 -gravity center -annotate +0+0 '(2025) 沪0115民初12345号' zh-03-case-number.png",
@@ -65,7 +65,7 @@
         "point_size": 40,
         "canvas": "800x80",
         "source_text": "(2025) 沪0115民初12345号",
-        "notes": "Mixed half-width punctuation + digits + Chinese. CER non-zero is expected here for PaddleOCR-ONNX because the model emits full-width parens — this is honest engine signal for the ε verdict, not a fixture bug."
+        "notes": "Mixed half-width punctuation + digits + Chinese. Designed to expose engine half/full-width punctuation behavior under the CER normative spec (no punctuation folding)."
       }
     },
     {
@@ -87,7 +87,7 @@
         "point_size": 36,
         "canvas": "1200x80",
         "source_text": "本院经审理查明：被告于二零二五年五月签订合同。",
-        "notes": "Pure Chinese paragraph. PaddleOCR-ONNX reads it verbatim (CER 0)."
+        "notes": "Pure Chinese paragraph including a colon (：) and period (。)."
       }
     },
     {
@@ -101,7 +101,7 @@
       "sha256": "de4a5aeb30b2c9404509d564e082e2749d55495a093fe7af855affaa3ee88444",
       "expected_text_sha256": "ced9eeb97fdcfc1444b76c109964e63b4859a8735c58138586ca11423b42868e",
       "language": "zh-Hans",
-      "provenance": "Synthetic v1, simplified-Chinese party-list row with intentional double-space separator between fields. Tests engine handling of inter-field whitespace — the CER normative spec collapses whitespace runs, so this double-vs-single-space difference is normalized away.",
+      "provenance": "Synthetic v1, simplified-Chinese party-list row with intentional double-space separator between fields. Tests engine handling of inter-field whitespace under the CER normative spec.",
       "last_verified_at": "2026-05-18T00:00:00Z",
       "render": {
         "render_command": "magick -size 800x80 xc:white -font /System/Library/Fonts/Hiragino\\ Sans\\ GB.ttc -pointsize 40 -gravity center -annotate +0+0 '原告：张三  被告：李四' zh-05-party-row.png",
@@ -109,7 +109,7 @@
         "point_size": 40,
         "canvas": "800x80",
         "source_text": "原告：张三  被告：李四",
-        "notes": "Two parties separated by a double-space. PaddleOCR-ONNX returns no inter-party space; the CER normalization (whitespace collapse) makes this a CER-0 match against the authored source."
+        "notes": "Two parties separated by a double-space. The CER normative spec collapses whitespace runs but does not invent missing separators; engine output dropping the inter-party gap will surface as a non-zero CER (one deletion against an 11-token reference)."
       }
     },
     {
@@ -131,7 +131,7 @@
         "point_size": 36,
         "canvas": "1200x80",
         "source_text": "案件编号：(2025)沪0115民初12345号",
-        "notes": "PaddleOCR-ONNX returns '（' (full-width) for the opening paren but keeps ')' (half-width). Asymmetric punctuation drift is realistic engine signal for ε."
+        "notes": "Mixed-script tokenization adjacent to half-width punctuation. Authored ground truth; engine measurement against this fixture lives in the bakeoff report."
       }
     },
     {

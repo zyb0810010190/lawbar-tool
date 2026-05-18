@@ -840,10 +840,12 @@ test("REAL: runBakeoff on the smoke fixture yields CER === 0", { skip: !realTest
   assert.equal(score.cer, 0, `real Tesseract CER on the smoke fixture must be exactly 0; got ${score.cer}`);
 });
 
-test("REAL: smoke roleFilter does NOT count toward verdict_ready even when successful", { skip: !realTestsRequested ? `set ${REAL_ENV_KEY}=1 to enable` : false }, async () => {
+test("REAL: smoke fixture is excluded from the verdict roleFilter scoring", { skip: !realTestsRequested ? `set ${REAL_ENV_KEY}=1 to enable` : false }, async () => {
   const candidate = makeTesseractCandidate(fixturesRoot);
   const manifest = JSON.parse(readFileSync(join(fixturesRoot, "manifest.json"), "utf8"));
-  // Run with role=verdict; smoke fixtures are excluded → fixtures_scored=0.
+  // Run with role=verdict. The 5 zh-* Chinese verdict fixtures are
+  // present; the 01-hello-bakeoff smoke fixture MUST NOT leak into the
+  // verdict report's scored set.
   const verdictReport = await runBakeoff({
     candidates: [candidate],
     fixtures: manifest.fixtures,
@@ -851,6 +853,18 @@ test("REAL: smoke roleFilter does NOT count toward verdict_ready even when succe
     fixturesRoot,
   });
   assert.equal(verdictReport.role_filter, "verdict");
-  assert.equal(verdictReport.fixtures_scored, 0, "no verdict fixtures exist in β; smoke must NOT leak in");
+  // Manifest currently has 5 verdict-role active fixtures (all zh-Hans).
+  const verdictFixtureIds = manifest.fixtures
+    .filter((f) => f.active === true && f.role === "verdict")
+    .map((f) => f.id);
+  assert.equal(verdictReport.fixtures_scored, verdictFixtureIds.length);
+  // No observation may carry the smoke fixture's id.
+  assert.ok(
+    !verdictReport.observations.some((o) => o.fixture_id === "01-hello-bakeoff"),
+    "smoke fixture must NOT appear in verdict observations",
+  );
+  // Tesseract on zh-Hans without chi_sim → probe_missing_model failures
+  // for every verdict fixture; verdict_ready remains false because no
+  // CER score is computable.
   assert.equal(verdictReport.verdict_ready, false);
 });

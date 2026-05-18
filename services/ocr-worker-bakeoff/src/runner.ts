@@ -91,26 +91,43 @@ export async function runBakeoff(opts: RunBakeoffOptions): Promise<BakeoffRunRep
   const cer_scores: BakeoffRunReport["cer_scores"] = [];
 
   for (const candidate of opts.candidates) {
-    // Refuse to ask a candidate for an unsupported run mode in the first
-    // place (Codex pass-4 D1.1). Tesseract's supported_run_kinds is
-    // ["cold"] — every fixture in this runner is scored cold.
-    const requestedKind: "cold" | "warm" = "cold";
-    if (!candidate.supported_run_kinds.includes(requestedKind)) {
-      // Unreachable today (requestedKind is always "cold" and every
-      // candidate must support cold); guarded for future runner modes.
-      probes.push({
-        candidate: candidate.name,
-        result: {
-          status: "unsupported_platform",
-          platform: `requested_run_kind=${requestedKind}`,
-          remediation: `Candidate ${candidate.name} does not support run_kind ${requestedKind}`,
-        },
-      });
-      continue;
-    }
+    // Audit 019e396b H#1: every candidate's probe and run must be
+    // isolated from the others. A thrown exception in one candidate
+    // must NOT abort the rest of the bakeoff — convert it to a
+    // structured `engine_threw` failure observation per fixture, then
+    // continue to the next candidate.
+    try {
+      // Refuse to ask a candidate for an unsupported run mode in the first
+      // place (Codex pass-4 D1.1). Tesseract's supported_run_kinds is
+      // ["cold"] — every fixture in this runner is scored cold.
+      const requestedKind: "cold" | "warm" = "cold";
+      if (!candidate.supported_run_kinds.includes(requestedKind)) {
+        // Unreachable today (requestedKind is always "cold" and every
+        // candidate must support cold); guarded for future runner modes.
+        probes.push({
+          candidate: candidate.name,
+          result: {
+            status: "unsupported_platform",
+            platform: `requested_run_kind=${requestedKind}`,
+            remediation: `Candidate ${candidate.name} does not support run_kind ${requestedKind}`,
+          },
+        });
+        continue;
+      }
 
-    const probe = await candidate.probe();
-    probes.push({ candidate: candidate.name, result: probe });
+      let probe: ProbeResult;
+      try {
+        probe = await candidate.probe();
+      } catch (err) {
+        // probe() should always return a typed ProbeResult — if it
+        // throws, treat as probe_failed so the report stays uniform.
+        probe = {
+          status: "probe_failed",
+          error_message: `candidate ${candidate.name}.probe() threw: ${(err as Error).message}`,
+          remediation: "The harness's probe() contract is to return a typed ProbeResult; this is a harness bug.",
+        };
+      }
+      probes.push({ candidate: candidate.name, result: probe });
 
     if (probe.status !== "available") {
       // Every non-available ProbeResult variant carries `remediation`
@@ -191,7 +208,22 @@ export async function runBakeoff(opts: RunBakeoffOptions): Promise<BakeoffRunRep
           continue;
         }
 
-        const obs = await candidate.run(fx, { run_kind: requestedKind, timeout_ms });
+        // Audit 019e396b H#1: candidate.run() is a contract that
+        // returns an EngineObservation. If a harness throws here
+        // instead of returning a failure observation, convert it so
+        // later candidates and fixtures still get scored.
+        let obs: EngineObservation;
+        try {
+          obs = await candidate.run(fx, { run_kind: requestedKind, timeout_ms });
+        } catch (err) {
+          obs = {
+            outcome: "failure",
+            fixture_id: fx.id,
+            engine_name: candidate.name,
+            code: "engine_threw",
+            message: `candidate ${candidate.name}.run() threw: ${(err as Error).message}`,
+          };
+        }
         observations.push(obs);
         if (obs.outcome === "success") {
           const expected = readFileSync(txtPath, "utf8");
@@ -204,6 +236,29 @@ export async function runBakeoff(opts: RunBakeoffOptions): Promise<BakeoffRunRep
       }
     } finally {
       await disposeSafely(candidate);
+    }
+    } catch (err) {
+      // Last-resort safety net for anything we did NOT anticipate above
+      // (e.g. a candidate factory whose probe iterator throws synchronously).
+      // The bakeoff must still complete; produce a single probe_failed
+      // record so the report shape stays consistent.
+      probes.push({
+        candidate: candidate.name,
+        result: {
+          status: "probe_failed",
+          error_message: `unexpected runner-side throw for candidate ${candidate.name}: ${(err as Error).message}`,
+          remediation: "This indicates a harness bug; capture the message and file an issue.",
+        },
+      });
+      for (const fx of scoredFixtures) {
+        observations.push({
+          outcome: "failure",
+          fixture_id: fx.id,
+          engine_name: candidate.name,
+          code: "runner_threw",
+          message: (err as Error).message,
+        });
+      }
     }
   }
 
