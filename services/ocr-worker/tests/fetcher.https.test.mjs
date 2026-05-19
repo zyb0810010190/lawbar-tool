@@ -71,7 +71,14 @@ function makeSubmission({ source } = {}) {
 
 function makeStubTransport(response) {
   return {
-    async fetch() {
+    async fetch(url, init) {
+      // The HttpsTransport contract requires `init.signal` and
+      // `init.allowedAddresses`. Asserting their presence here means
+      // every test using this stub (not just the seam-focused ones)
+      // catches a regression that drops or renames either field
+      // from the fetcher's call site.
+      assert.ok(init && init.signal !== undefined, "stub: init.signal must be present");
+      assert.ok(Array.isArray(init?.allowedAddresses), "stub: init.allowedAddresses must be an array");
       if (response instanceof Error) throw response;
       return response;
     },
@@ -728,17 +735,18 @@ test("https: stalled body stream eventually aborts with https_timeout (audit 019
 // WI-02 seam: fetcher passes vetted addresses to httpsTransport.fetch
 // ---------------------------------------------------------------------------
 //
-// These tests assert the CONTRACT at the fetcher/transport seam that
-// WI-02 must establish: after DNS resolution + private-IP screening,
-// the fetcher must pass the surviving addresses to the transport via
-// an `allowedAddresses: ReadonlyArray<DnsAddress>` field on the init
+// These tests assert the CONTRACT at the fetcher/transport seam:
+// after DNS resolution + private-IP screening, the fetcher passes the
+// surviving addresses to the transport via an
+// `allowedAddresses: ReadonlyArray<DnsAddress>` field on the init
 // argument, preserving order (no re-sort by family).
 //
-// Currently the fetcher passes only `{ signal }` to transport.fetch,
-// so these tests will FAIL until WI-02 ships. They are kept here
-// (skipped) so the seam contract is reviewable in source and so that
-// reverting WI-02 in the future fails CI loudly. Skip reason names
-// WI-02 as the unlocker.
+// WI-02 landed this contract; the tests are active. A regression that
+// drops `allowedAddresses`, reorders it, or quietly subsets it (e.g.
+// returning only public answers from a mixed set instead of rejecting
+// the whole call) makes one of these tests fail. WI-03 will rely on
+// the same contract when it consumes `allowedAddresses[0]` to pin
+// the socket.
 
 function makeRecordingTransport(response) {
   const calls = [];
@@ -754,7 +762,6 @@ function makeRecordingTransport(response) {
 
 test(
   "WI-02 seam: fetcher passes a single vetted DNS address to transport.allowedAddresses",
-  { skip: "Unlocked by WI-02 (fetcher must propagate allowedAddresses to transport)" },
   async () => {
     const submission = makeSubmission();
     const transport = makeRecordingTransport(okResponse(PNG_HEADER));
@@ -775,7 +782,6 @@ test(
 
 test(
   "WI-02 seam: multi-address DNS preserves DNS order in allowedAddresses (no transport re-sort)",
-  { skip: "Unlocked by WI-02" },
   async () => {
     // URL host MUST match the overridden allowlist or the fetcher
     // short-circuits with host_not_allowlisted before DNS is even
@@ -825,7 +831,6 @@ test(
 
 test(
   "WI-02 seam: private addresses are filtered out BEFORE the transport receives allowedAddresses",
-  { skip: "Unlocked by WI-02" },
   async () => {
     // Mixed public + private DNS answer: fetcher's existing
     // host_resolves_to_private_ip path rejects the call before

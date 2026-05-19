@@ -539,12 +539,21 @@ async function fetchFromHttps(
       }
     }
 
-    // Transport call.
+    // Transport call. WI-02 seam: the fetcher hands the COMPLETE
+    // vetted DNS answer set to the transport in resolver order. The
+    // fetcher does NOT subset or reorder (ADR §1 / §4). The
+    // production transport (WI-03) will pin the socket to
+    // allowedAddresses[0]; the current default transport ignores
+    // the field — see makeNodeFetchHttpsTransport for the deferred
+    // SSRF residual.
     const transport: HttpsTransport =
       deps.httpsTransport ?? makeNodeFetchHttpsTransport();
     let response;
     try {
-      response = await transport.fetch(url, { signal: controller.signal });
+      response = await transport.fetch(url, {
+        signal: controller.signal,
+        allowedAddresses: addresses,
+      });
     } catch (err) {
       throw wrapTimeoutError(err);
     }

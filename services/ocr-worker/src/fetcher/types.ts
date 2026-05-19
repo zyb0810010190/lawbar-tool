@@ -154,7 +154,15 @@ export interface FetcherDeps {
 
 export interface DnsAddress {
   readonly address: string;
-  readonly family: number; // 4 or 6
+  /**
+   * Address family discriminator. Narrowed to `4 | 6` at the seam
+   * (WI-02) so transport implementations cannot accidentally accept
+   * `family: 0`, `family: 10`, or any other Node-specific extension
+   * value at compile time. Runtime validation of values arriving
+   * from a real resolver is the production transport's responsibility
+   * (WI-03 / ADR §5).
+   */
+  readonly family: 4 | 6;
 }
 
 export type DnsLookupFn = (hostname: string) => Promise<ReadonlyArray<DnsAddress>>;
@@ -164,9 +172,31 @@ export type DnsLookupFn = (hostname: string) => Promise<ReadonlyArray<DnsAddress
 // ---------------------------------------------------------------------
 
 export interface HttpsTransport {
+  /**
+   * Issue a single HTTPS request.
+   *
+   * `init.allowedAddresses` carries the post-DNS, post-private-IP-screen
+   * answer set from the fetcher in resolver order. WI-02 lands the
+   * seam; the production transport that actually pins the socket to
+   * `allowedAddresses[0]` via `node:https.request` + custom `lookup`
+   * is delivered by WI-03 (ADR §3 / §4). The default
+   * `makeNodeFetchHttpsTransport` accepts the field and ignores it
+   * until then, so callers can already pass the vetted set.
+   *
+   * The seam contract (per ADR §1):
+   * - The fetcher passes the COMPLETE vetted set, not a subset; quiet
+   *   subsetting is forbidden.
+   * - The fetcher does not reorder by family or any other criterion;
+   *   resolver order is preserved.
+   * - The transport selects exactly `allowedAddresses[0]` (WI-03);
+   *   no internal fallback, retry, or reorder.
+   */
   fetch(
     url: URL,
-    init: { signal: AbortSignal },
+    init: {
+      readonly signal: AbortSignal;
+      readonly allowedAddresses: ReadonlyArray<DnsAddress>;
+    },
   ): Promise<HttpsTransportResponse>;
 }
 

@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed. Not yet implemented.
+Partial: seam (WI-02) landed; production transport rewrite (WI-03)
+pending. SSRF closure is NOT complete until WI-03 ships.
 
 ## Context
 
@@ -81,6 +82,14 @@ resolution result and must fail closed.
 
 ### §3 ADR-11D.2 §2 replacement interface
 
+**WI-02 landing status**: the type/signature change below is in
+production (`services/ocr-worker/src/fetcher/types.ts`,
+`services/ocr-worker/src/fetcher/fetchPageBytes.ts`,
+`services/ocr-worker/src/fetcher/httpsTransport.ts`,
+commit history under `WI-02`). The runtime validation requirements
+in §5 and the production transport behavior in §4 are NOT yet
+implemented; those land in WI-03.
+
 Replace ADR-11D.2 §2 `HttpsTransport` seam with:
 
 ~~~ts
@@ -108,10 +117,10 @@ export interface HttpsTransportResponse {
 }
 ~~~
 
-Current code has `DnsAddress.family: number`; the implementation of
-this ADR must tighten the typed surface to `4 | 6`. Production behavior
-must also validate at runtime because TypeScript does not protect JS
-callers or stale test stubs.
+WI-02 tightened `DnsAddress.family` to `4 | 6` at compile time.
+Runtime validation against malformed values from custom resolvers
+or stale test stubs is still required and lands in WI-03 (§5),
+since TypeScript does not protect JS callers.
 
 `allowedAddresses` is required in the type and in production behavior.
 Production transport must fail closed if the list is empty or missing.
@@ -119,6 +128,15 @@ Test stubs may ignore the parameter but must implement the required
 signature.
 
 ### §4 Production transport
+
+**WI-02 landing status**: the production default transport
+(`makeNodeFetchHttpsTransport` in
+`services/ocr-worker/src/fetcher/httpsTransport.ts`) currently
+accepts `init.allowedAddresses` as a no-op and continues to use
+global `fetch`. The behavior described below — `node:https.request`
+with custom `lookup`, per-request `ca`, `agent: false`, etc. —
+lands in WI-03. SSRF closure (no TOCTOU between fetcher DNS check
+and socket DNS resolution) completes at WI-03, not WI-02.
 
 Default transport switches from global `fetch` to `node:https.request`.
 `https.request(url, options)` accepts `http.request` options and TLS
@@ -357,9 +375,10 @@ TLS fixtures:
   expires, allowlist, MIME, DNS resolution, private-IP rejection,
   size cap, `expected_sha256`, byte-size mismatch, and abort
   mid-body via stub. WI-02t appended three seam-level tests for the
-  `allowedAddresses` contract with full assertion bodies; those are
-  `test.skip(..., { skip: "Unlocked by WI-02" })` until WI-02 wires
-  the field through.
+  `allowedAddresses` contract with full assertion bodies. **WI-02
+  un-skipped these tests; they are active.** A regression that drops
+  `allowedAddresses`, reorders it, or quietly subsets a mixed
+  public+private answer set will fail one of the three.
 - `services/ocr-worker/tests/fetcher.https.transport.test.mjs` —
   transport-level tests against the future production transport
   (export name `makeNodeHttpsRequestTransport` is provisional and may

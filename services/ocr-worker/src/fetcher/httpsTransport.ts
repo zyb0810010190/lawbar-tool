@@ -4,12 +4,29 @@
 // Production wires `makeNodeFetchHttpsTransport()` into FetcherDeps.
 // Tests inject a stub that returns canned HttpsTransportResponses
 // so the fetcher's gates can be exercised without real network I/O.
+//
+// WI-02 status: the signature accepts `init.allowedAddresses` (the
+// post-DNS, post-private-IP-screen vetted answer set) but this
+// default transport ignores it — global `fetch` resolves DNS itself
+// on the socket layer, so socket pinning to `allowedAddresses[0]`
+// has no hook. WI-03 replaces this with a `node:https.request`-based
+// transport that consumes `allowedAddresses[0]` via a custom
+// `lookup` callback. Until then, deployments using this transport
+// retain the pre-WI-03 SSRF surface: the fetcher refuses non-public
+// answers, but the socket still resolves the hostname via the
+// platform resolver, so a TOCTOU between the fetcher's DNS check
+// and the socket's DNS resolution remains possible.
 
 import type { HttpsTransport, HttpsTransportResponse } from "./types.js";
 
 export function makeNodeFetchHttpsTransport(): HttpsTransport {
   return {
     async fetch(url, init) {
+      // WI-02 seam: `init.allowedAddresses` is part of the required
+      // shape but this default transport cannot honor it. Tagged
+      // with a void reference so a future linter/tsc strictness
+      // bump catches the unused field intentionally.
+      void init.allowedAddresses;
       const res = await fetch(url, {
         signal: init.signal,
         redirect: "manual",
