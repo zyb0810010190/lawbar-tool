@@ -1,0 +1,53 @@
+# cc-suite: generated-by-init  (this comment is consumed by unbridge)
+# Codex CLI configuration for this project.
+# See: https://developers.openai.com/codex/config-reference
+
+# Uncomment to also read CLAUDE.md as a fallback instruction source:
+# project_doc_fallback_filenames = ["CLAUDE.md"]
+
+# MCP servers mirrored from .mcp.json are added below by /cc-suite:bridge-mcp.
+# >>> cc-suite-mcp >>>
+[mcp_servers.claude-reviewer]
+command = "npx"
+args    = ["-y", "claude-octopus@1.1.10"]
+# env vars required — add [mcp_servers.claude-reviewer.env] manually:
+# CLAUDE_ALLOWED_TOOLS = "<value>"
+# CLAUDE_APPEND_PROMPT = "<value>"
+# CLAUDE_DESCRIPTION = "<value>"
+# CLAUDE_MODEL = "<value>"
+# CLAUDE_SERVER_NAME = "<value>"
+# CLAUDE_TOOL_NAME = "<value>"
+
+[mcp_servers.claude-planner]
+command = "npx"
+args = ["-y", "claude-octopus@latest"]
+# env vars required — add [mcp_servers.claude-planner.env] manually:
+# CLAUDE_ALLOWED_TOOLS = "<value>"
+# CLAUDE_APPEND_PROMPT = "<value>"
+# CLAUDE_DESCRIPTION = "<value>"
+# CLAUDE_MODEL = "<value>"
+# CLAUDE_SERVER_NAME = "<value>"
+# CLAUDE_TOOL_NAME = "<value>"
+
+[mcp_servers.claude-debugger]
+command = "npx"
+args = ["-y", "claude-octopus@latest"]
+# env vars required — add [mcp_servers.claude-debugger.env] manually:
+# CLAUDE_ALLOWED_TOOLS = "<value>"
+# CLAUDE_APPEND_PROMPT = "<value>"
+# CLAUDE_DESCRIPTION = "<value>"
+# CLAUDE_MODEL = "<value>"
+# CLAUDE_SERVER_NAME = "<value>"
+# CLAUDE_TOOL_NAME = "<value>"
+# <<< cc-suite-mcp <<<
+
+# >>> cc-suite-claude-mcp >>>
+[mcp_servers.claude-code]
+startup_timeout_sec = 120
+command = "npx"
+args    = ["-y", "claude-octopus@latest"]
+env     = {}
+
+[mcp_servers.claude-code.tools.claude_code]
+approval_mode = "approve"
+# <<< cc-suite-claude-mcp <<<
