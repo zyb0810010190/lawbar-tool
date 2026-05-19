@@ -16,14 +16,12 @@ Audit `019e3dd3-20b5-7b33-b5a6-1f5448919ee6` (mini, 2026-05-18) flagged
 that the vetted addresses are not bound to the actual transport
 connection. `fetchFromHttps`:
 
-```
-addresses = await dnsLookup(url.hostname);     // first resolution → vetted
-...
-response = await transport.fetch(url, { signal });
-```
+    addresses = await dnsLookup(url.hostname);     // first resolution -> vetted
+    ...
+    response = await transport.fetch(url, { signal });
 
 The default transport (`makeNodeFetchHttpsTransport`) calls global
-`fetch(url, …)`, which performs its **own** DNS resolution under the
+`fetch(url, ...)`, which performs its own DNS resolution under the
 hood (undici). A DNS-rebinding attacker can answer the first lookup
 with a public address (passes `isPrivateIp`) and the second lookup
 with a private address (`127.0.0.1`, `169.254.169.254`, internal
@@ -32,10 +30,10 @@ RFC1918, etc.). The vetted check is bypassed.
 This is a real SSRF gap. Severity: High (D1 Logic & Correctness +
 implicit Security).
 
-This ADR **amends ADR-11D.2 §2**. ADR-11D.2's transport seam used
-`fetch(url, { signal })`; that is insufficient because production
-transport can resolve DNS again after the fetcher has vetted a
-different answer set.
+This ADR amends ADR-11D.2 §2 `HttpsTransport` seam. ADR-11D.2's
+transport seam used `fetch(url, { signal })`; that is insufficient
+because production transport can resolve DNS again after the fetcher
+has vetted a different answer set.
 
 ## Decision
 
@@ -49,12 +47,21 @@ Fetcher owns:
 - Empty-result rejection.
 - Private-IP rejection across the complete answer set.
 - Passing the fully vetted public answer list into transport.
+- Address ordering policy. V1 uses the order returned by `dnsLookup`
+  after validation.
 
 Transport owns:
+- Runtime validation of the supplied `allowedAddresses`.
 - Connecting to exactly one supplied vetted address.
-- Failing closed if `allowedAddresses` is absent or empty at runtime.
+- Failing closed if `allowedAddresses` is absent, empty, malformed,
+  private, or contains an address family outside `4 | 6`.
 - Preserving URL hostname semantics for Host, SNI, and certificate
   verification while the socket connects to the vetted IP.
+
+The transport repeats the private-IP check even though the fetcher
+already performed it. This is the only repeated fetcher validation in
+the transport and exists as defense in depth against JS callers, stale
+test doubles, or future call sites that bypass the typed path.
 
 ### §2 DNS validation order
 
@@ -62,11 +69,11 @@ DNS handling remains two-phase:
 
 1. Fetcher resolves all addresses with `dnsLookup(url.hostname)`.
 2. Fetcher rejects if the result is empty.
-3. Fetcher validates **every** returned address with `isPrivateIp`.
+3. Fetcher validates every returned address with `isPrivateIp`.
    If any address is non-globally-routable, reject the hostname with
    `host_resolves_to_private_ip`.
-4. Only after the complete set passes may transport select one address
-   from the fully vetted public list.
+4. Only after the complete set passes may transport connect to one
+   address from the fully vetted public list.
 
 Do not change this to "pick a public answer and ignore private
 answers." Mixed public + private answers are a hostile or misconfigured
@@ -74,15 +81,20 @@ resolution result and must fail closed.
 
 ### §3 ADR-11D.2 §2 replacement interface
 
-Replace ADR-11D.2 §2's `HttpsTransport` interface with:
+Replace ADR-11D.2 §2 `HttpsTransport` seam with:
 
-```ts
+~~~ts
+export interface DnsAddress {
+  readonly address: string;
+  readonly family: 4 | 6;
+}
+
 export interface HttpsTransport {
   fetch(
     url: URL,
     init: {
       signal: AbortSignal;
-      allowedAddresses: ReadonlyArray<{ address: string; family: 4 | 6 }>;
+      allowedAddresses: ReadonlyArray<DnsAddress>;
     },
   ): Promise<HttpsTransportResponse>;
 }
@@ -94,7 +106,12 @@ export interface HttpsTransportResponse {
       enforcing size caps. */
   readonly body: AsyncIterable<Uint8Array>;
 }
-```
+~~~
+
+Current code has `DnsAddress.family: number`; the implementation of
+this ADR must tighten the typed surface to `4 | 6`. Production behavior
+must also validate at runtime because TypeScript does not protect JS
+callers or stale test stubs.
 
 `allowedAddresses` is required in the type and in production behavior.
 Production transport must fail closed if the list is empty or missing.
@@ -104,35 +121,117 @@ signature.
 ### §4 Production transport
 
 Default transport switches from global `fetch` to `node:https.request`.
-It must not TLS-connect to an IP literal as the request hostname.
-Instead, it connects the socket to a vetted IP via custom lookup while
-preserving the original URL hostname for Host, SNI, and certificate
-verification.
+`https.request(url, options)` accepts `http.request` options and TLS
+options from `tls.connect()`, including `lookup`, `agent`, `signal`,
+`ca`, `rejectUnauthorized`, and `servername` (Node 22.x docs:
+https://nodejs.org/docs/latest-v22.x/api/https.html#httpsrequesturl-options-callback,
+https://nodejs.org/docs/latest-v22.x/api/http.html#httprequesturl-options-callback,
+https://nodejs.org/docs/latest-v22.x/api/tls.html#tlsconnectoptions-callback).
+
+The transport must not TLS-connect to an IP literal as the request
+hostname. It connects the socket to a vetted IP via custom `lookup`
+while preserving the original URL hostname for Host, SNI, and
+certificate verification. Node's TLS hostname verification uses
+`tls.checkServerIdentity(servername, cert)` behavior for certificate
+identity checks (Node 22.x docs:
+https://nodejs.org/docs/latest-v22.x/api/tls.html#tlscheckserveridentityhostname-cert).
 
 Required `https.request` behavior:
-- Select exactly one entry from `allowedAddresses` for this request
-  (v1: first vetted address; no separate IPv4/IPv6 preference policy).
+- Method is always `GET`; `HttpsTransport.fetch` has no method
+  parameter. POST/PUT/DELETE are out of scope for v1.
+- Select the first element of the already-vetted `allowedAddresses`
+  array as supplied by the fetcher. The transport must not re-sort,
+  filter, or re-prefer any family.
 - Provide a custom `lookup(host, options, cb)` that returns exactly
   that entry via `cb(null, address, family)`.
 - Keep request `hostname` and the Host header as `url.hostname`
   (including port handling per Node's normal URL/options behavior).
-- Set `servername: url.hostname` so SNI uses the original hostname.
+- Set `servername: url.hostname` so SNI and certificate verification
+  use the original hostname, not the pinned IP.
 - Keep `rejectUnauthorized: true`.
+- Use `agent: false`. `https.request` otherwise defaults to
+  `https.globalAgent`; disabling the agent gives each request an
+  isolated socket and prevents pooled sockets or lookup state from
+  crossing hostnames.
 - Preserve manual redirect handling: 3xx responses are surfaced to the
   fetcher, not followed.
-- Wire `signal` to the request and to body consumption; on abort,
-  destroy the request so both connect/header wait and mid-body stalls
-  terminate under the existing deadline.
+- Wire `signal` to the request and body consumption; on abort, destroy
+  the request/response stream so connect wait, header wait, and
+  mid-body stalls terminate under the existing deadline.
 
-Connection pooling remains per-call/no shared agent so pinned lookup
-state cannot leak across hosts.
+This is deliberately HTTP/1.1-only for v1. `https.request` uses the
+HTTP/1.1 client path; that is acceptable because the fetcher performs
+single-request GETs against pre-signed object-storage URLs and does
+not need HTTP/2 multiplexing, server push, or HPACK. HTTP/2 support
+would require a separate proof and ADR.
 
-### §5 Error-code mapping
+No HTTP/HTTPS proxy support in v1. Proxies move DNS resolution to the
+proxy, which undermines this IP-pinning model. If proxies are later
+required, that needs a separate ADR.
+
+### §5 Runtime address validation
+
+At transport entry, production must validate:
+- `allowedAddresses` is a non-empty array.
+- Every element is a plain object.
+- `address` is a string.
+- `family` is numeric and exactly `4` or `6`.
+- `family: 4` parses as a plain IPv4 dotted-decimal literal.
+- `family: 6` parses as a plain IPv6 hex literal.
+- The parsed address family matches the declared family.
+
+Fail closed with a transport error that the fetcher maps to
+`https_network_error` on any violation.
+
+The transport must also reject:
+- Non-4 / non-6 family.
+- IPv4-mapped IPv6 literals, including dotted and hex forms
+  (`::ffff:1.2.3.4`, `::ffff:0102:0304`, etc.).
+- Scoped link-local or scoped IPv6 literals with a `%zone` suffix.
+- Malformed literals: any string that does not parse as plain IPv4
+  dotted decimal or plain IPv6 hex.
+- Addresses that fail `isPrivateIp`.
+
+### §6 Response adapter
+
+`https.request` returns `http.IncomingMessage`, not Web `Response`.
+The default transport must adapt it to `HttpsTransportResponse`.
+
+Header handling:
+- Convert `IncomingMessage.headers` to a `Headers` object. Node's
+  parsed headers object is lowercased and may represent duplicate
+  values as comma-joined strings depending on the header.
+- Use `IncomingMessage.rawHeaders` when needed to preserve legitimate
+  duplicates by calling `Headers.append`, especially `set-cookie`.
+  V1 object-storage GETs are unlikely to need repeated headers, but
+  the adapter must not silently drop them.
+- Parse `content-length` strictly before exposing the response:
+  decimal integer, no leading zero unless exactly `"0"`, >= 0, and
+  single-valued. Reject `"0123"`, negative values, non-integers, and
+  multiple `content-length` values with a transport error mapped to
+  `https_network_error`.
+- If `content-length` is absent, expose no size hint; the fetcher's
+  existing streamed byte cap remains authoritative.
+
+Body handling:
+- Convert the Node `Readable` body to `AsyncIterable<Uint8Array>`.
+  Node 22 Readable streams are already async-iterable, but chunks may
+  be `Buffer`.
+- Do not pass `Buffer` through. Convert each chunk to a `Uint8Array`,
+  e.g. `new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength)`,
+  or copy to an equivalent `Uint8Array`.
+- If the abort signal fires during body iteration, iteration must throw
+  a timeout-mapped error, not end as a partial-content success.
+
+### §7 Error-code mapping
 
 No new public fetcher error codes are introduced by this ADR.
 
 - DNS lookup failures and connection/TLS failures map to
   `https_network_error`.
+- Runtime transport input validation failures map to
+  `https_network_error`.
+- Strict `content-length` parse failures map to `https_network_error`.
 - Timeout or abort during connect, headers, or body maps to
   `https_timeout`.
 - Private DNS answers remain `host_resolves_to_private_ip`.
@@ -145,31 +244,90 @@ the wrong hostname, are network failures and map to
 
 ## Consequences
 
-- Required test surface:
-  - Mixed public + private DNS answers rejects with
-    `host_resolves_to_private_ip`.
-  - Zero vetted addresses rejects before transport, preserving today's
-    behavior.
-  - Cert valid for the hostname passes when socket is pinned to a
-    vetted IP.
-  - Cert valid only for the IP, or for the wrong hostname, fails TLS
-    verification and maps to `https_network_error`.
-  - Timeout, abort, and mid-body socket destroy map to
-    `https_timeout` / `https_network_error` per existing rules.
-  - Manual 3xx handling survives the rewrite, including existing
-    fetcher tests plus one transport-level local-HTTPS-server 302 case.
-  - Integration tests use a local HTTPS server with a self-signed cert,
-    not only fetcher stub tests.
+### §1 Required sequencing
+
+Before the full production transport rewrite, write and run a small
+standalone TLS proof-of-concept, approximately 50 lines plus fixture
+generation/helper code. It must use:
+- A local self-signed-CA HTTPS server.
+- `https.request`.
+- Custom `lookup` returning `127.0.0.1`.
+- Request URL hostname preserved as the original hostname.
+- `servername` preserved as the original hostname.
+- Per-request CA injection through the `ca` TLS option accepted by
+  `https.request`/`tls.connect`; do not use `NODE_EXTRA_CA_CERTS`
+  because that mutates the test process's global TLS trust.
+
+The prototype is a prerequisite gate. Full transport rewrite begins
+only after it proves:
+1. Socket connects to the vetted IP.
+2. SNI/Host are the original hostname.
+3. Cert valid for the hostname succeeds.
+4. Cert valid only for the IP fails with a certificate error that the
+   implementation will map to `https_network_error`.
+
+### §2 Required test surface
+
+Transport/fetcher tests must cover:
+- Mixed public + private DNS answers reject with
+  `host_resolves_to_private_ip`.
+- Zero vetted addresses rejects before transport, preserving today's
+  behavior.
+- Production transport rejects missing, empty, non-array, non-plain
+  object, non-string `address`, nonnumeric `family`, non-4/6 family,
+  malformed literals, scoped literals, IPv4-mapped IPv6, and private
+  addresses with `https_network_error`.
+- First vetted address means the first element of fetcher-supplied
+  `allowedAddresses`; no transport reordering.
+- Cert valid for hostname passes when socket is pinned to a vetted IP.
+- Cert valid only for IP fails TLS verification and maps to
+  `https_network_error`.
+- Cert valid only for another hostname fails TLS verification and maps
+  to `https_network_error`.
+- Strict `content-length` parsing rejects leading zero, negative,
+  non-integer, and duplicate values with `https_network_error`.
+- Absent `content-length` streams under the existing size cap.
+- Buffer chunks from `IncomingMessage` are exposed as `Uint8Array`.
+- Manual 3xx handling survives the rewrite, including a
+  transport-level local-HTTPS-server 302 case.
+- Abort before socket connect resolves maps to `https_timeout`.
+- Abort before response headers arrive maps to `https_timeout`.
+- Abort mid-body after some chunks were delivered maps to
+  `https_timeout`; stream iteration must not return partial success.
+
+TLS fixtures:
+- Local HTTPS server using a self-signed CA.
+- Cert #1: SAN includes `localhost` or the chosen hostname
+  (cert-valid-for-hostname -> pass).
+- Cert #2: SAN includes only IP literal `127.0.0.1`
+  (IP-only cert -> fail).
+- Cert #3: SAN includes only `other-host.test`
+  (wrong-host cert -> fail).
+- CA injection uses the per-request `ca` option, keeping global TLS
+  process state unaffected.
+
+### §3 Operational consequences
+
 - All existing `HttpsTransport` stubs gain the required
   `allowedAddresses` parameter in their signature, even if ignored.
-- `node:https.request` brings in `IncomingMessage` semantics — body
-  streaming, headers shape — divergent from `fetch`'s Web stream
-  surface; conversion lives entirely in the default transport.
-- No new dependency (pure `node:https` + `node:dns`).
+- `node:https.request` brings in `IncomingMessage` semantics: body
+  streaming, headers shape, strict length parsing, and abort behavior
+  differ from `fetch`. Conversion lives entirely in the default
+  transport.
+- No new runtime dependency: pure `node:https`, `node:http`,
+  `node:tls`, `node:net`, and existing fetcher code.
+- Connection pooling is intentionally disabled for v1. If later fetch
+  volume requires pooling, it needs a design that proves pinned lookup
+  state cannot leak across hostnames.
 
 ## References
 
-- ADR-11D.2 — original `https` source admission and DNS-blocking design.
+- ADR-11D.2 — original `https` source admission and DNS-blocking
+  design, especially ADR-11D.2 §2 `HttpsTransport` seam.
+- Node 22.x `https.request`: https://nodejs.org/docs/latest-v22.x/api/https.html#httpsrequesturl-options-callback
+- Node 22.x `http.request` options: https://nodejs.org/docs/latest-v22.x/api/http.html#httprequesturl-options-callback
+- Node 22.x `tls.connect` options: https://nodejs.org/docs/latest-v22.x/api/tls.html#tlsconnectoptions-callback
+- Node 22.x `tls.checkServerIdentity`: https://nodejs.org/docs/latest-v22.x/api/tls.html#tlscheckserveridentityhostname-cert
 - Plan-review NEEDS REVISION findings:
   - D1.1 / D2.1 — preserve any-private-answer rejection.
   - D1.2 — amend ADR-11D.2 §2 with exact replacement interface.
@@ -185,18 +343,19 @@ the wrong hostname, are network failures and map to
   - `fetchPageBytes.ts:523` — D1 High
   - `httpsTransport.ts:13` — D1 High
 - OWASP SSRF Prevention Cheat Sheet — DNS rebinding section.
+- `dev-memo/spike-https-dns-pinning-undici.md`.
 
 ## Not in scope
 
-- Connection-pooling redesign (out of scope; agent per call is fine
-  for v1 fetch volume).
+- Connection-pooling redesign.
 - IPv4/IPv6 preference policy beyond "use the first fully vetted
-  address."
-- Replacing the `dnsLookup` injection seam with a registry — keep the
-  function injection as is.
+  address supplied by the fetcher."
+- POST/PUT/DELETE or request bodies.
+- HTTP/HTTPS proxy support.
+- Replacing the `dnsLookup` injection seam with a registry.
 - New retry-classification or public error-code changes.
 - ADR-11D.2-B split; this ADR revises Step 11D.2-A in place.
-- Undici dispatcher path. **Spike resolved** —
+- Undici dispatcher path. Spike resolved:
   `dev-memo/spike-https-dns-pinning-undici.md` rejects the Undici
   dispatcher route for v1 on three grounds: (i) Node 22.x does not
   expose the bundled Undici `Agent` / `buildConnector` as a documented
