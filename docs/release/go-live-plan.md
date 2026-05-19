@@ -445,27 +445,33 @@ v1 bucket: v1-blocking
 
 ### WI-02 - Pass Vetted DNS Addresses Through The Fetcher Seam
 
-Goal: Tighten the HTTPS transport interface so `fetchFromHttps` passes the fully vetted DNS answer set into transport.
+Goal: Tighten the HTTPS transport interface so `fetchFromHttps` passes the fully vetted DNS answer set into transport. **Seam-only change**: production transport behavior (global `fetch` → `node:https.request`) is deferred to WI-03; SSRF closure is not complete at WI-02.
 
-Predecessor: WI-02t
+Predecessor: WI-02t (including `fix: replace blocked WI-02t seam fixtures`).
 
 Likely files:
 - `services/ocr-worker/src/fetcher/types.ts`
 - `services/ocr-worker/src/fetcher/fetchPageBytes.ts`
 - `services/ocr-worker/src/fetcher/httpsTransport.ts`
 - `services/ocr-worker/tests/fetcher.https.test.mjs`
-- `services/ocr-worker/tests/fetcher.test.mjs`
 - `docs/adr/ocr-fetcher-https-dns-pinning-step-11d-2-a.md`
 
+HTTPS transport stubs to update (named explicitly):
+- `makeStubTransport` in `services/ocr-worker/tests/fetcher.https.test.mjs`
+- `makeRecordingTransport` in `services/ocr-worker/tests/fetcher.https.test.mjs`
+- Default factory `makeNodeFetchHttpsTransport` in `services/ocr-worker/src/fetcher/httpsTransport.ts` (signature only — see acceptance criteria)
+
 Acceptance criteria:
-- `DnsAddress.family` is typed as `4 | 6`.
-- `HttpsTransport.fetch` requires `init.allowedAddresses`.
-- `fetchFromHttps` rejects an empty DNS result before transport.
+- `DnsAddress.family` is typed as `4 | 6` as a compile-time seam narrowing only; runtime validation of the discriminated union is deferred to WI-03.
+- `HttpsTransport.fetch` requires `init.allowedAddresses: ReadonlyArray<DnsAddress>`.
+- `makeNodeFetchHttpsTransport` (default global-`fetch` transport) accepts `allowedAddresses` as a no-op; behavior change is deferred to WI-03. The signature changes; the body does not.
+- `fetchFromHttps` rejects an empty DNS result before transport with the existing `https_network_error` code (no new fetcher error code in WI-02).
 - `fetchFromHttps` rejects mixed public + private DNS answers with `host_resolves_to_private_ip`.
-- `fetchFromHttps` passes the complete already-vetted public DNS answer list to transport in resolver order.
-- Existing HTTPS transport stubs compile and include the new required parameter.
+- `fetchFromHttps` passes the complete already-vetted public DNS answer list to transport as `init.allowedAddresses`, preserving resolver order as defined in ADR §1 / §4 (no re-sort, no family preference, no quiet subsetting).
+- All existing HTTPS transport stubs (`makeStubTransport`, `makeRecordingTransport`, and the default factory) compile and include the new required parameter.
 - No new public fetcher error code is introduced.
-- WI-02t tests that target seam behavior pass.
+- WI-02 un-skips the three `Unlocked by WI-02` seam tests in `services/ocr-worker/tests/fetcher.https.test.mjs`, and they pass. Zero residual `Unlocked by WI-02` skips remain in that file at WI-02 completion.
+- ADR §3 / §4 / §2.1 are updated to record that WI-02 lands seam-only; the production transport remains global `fetch` until WI-03.
 
 Tests to run:
 - `node --version`
@@ -474,7 +480,9 @@ Tests to run:
 
 Verification command: `/cc-suite:verify WI-02`
 
-Audit command: `/cc-suite:audit --full services/ocr-worker/src/fetcher/types.ts services/ocr-worker/src/fetcher/fetchPageBytes.ts services/ocr-worker/src/fetcher/httpsTransport.ts services/ocr-worker/tests/fetcher.https.test.mjs services/ocr-worker/tests/fetcher.test.mjs docs/adr/ocr-fetcher-https-dns-pinning-step-11d-2-a.md`
+Audit command: `/cc-suite:audit --full services/ocr-worker/src/fetcher/types.ts services/ocr-worker/src/fetcher/fetchPageBytes.ts services/ocr-worker/src/fetcher/httpsTransport.ts services/ocr-worker/tests/fetcher.https.test.mjs docs/adr/ocr-fetcher-https-dns-pinning-step-11d-2-a.md`
+
+Residual risk after WI-02: HTTPS fetches still flow through global `fetch`, so the SSRF gap (no DNS pinning at the socket layer) is NOT closed by WI-02 alone. SSRF closure completes at WI-03, not WI-02. Do not claim "SSRF fixed" at WI-02 commit.
 
 Risk level: Critical
 
