@@ -789,9 +789,16 @@ test(
     let dnsCalls = 0;
     // DNS returns IPv6 FIRST then IPv4. The fetcher must NOT re-sort
     // by family — ordering is the fetcher's contract with the
-    // transport; per ADR §4 the transport selects entry[0]. Both
-    // addresses are global-unicast / documentation ranges (2001:db8::
-    // is RFC 3849 documentation IPv6; 198.51.100.0/24 is TEST-NET-2).
+    // transport; per ADR §4 the transport selects entry[0].
+    //
+    // Fixtures must be GLOBALLY ROUTABLE (not on privateIp.ts blocklist),
+    // or the fetcher's existing post-DNS private-IP screen rejects the
+    // call before reaching the seam. Documentation ranges (TEST-NET-1/2/3,
+    // 2001:db8::/32) are explicitly blocked; using them here would cause
+    // a false host_resolves_to_private_ip failure on un-skip and mask
+    // any real seam bug. Public DNS resolver literals are safe choices
+    // since they are real-world routable and have no side effects in a
+    // stub-transport test.
     await fetchPageBytes(
       submission,
       deps({
@@ -800,8 +807,8 @@ test(
         dnsLookup: async () => {
           dnsCalls += 1;
           return [
-            { address: "2001:db8::1", family: 6 },
-            { address: "198.51.100.5", family: 4 },
+            { address: "2001:4860:4860::8888", family: 6 },
+            { address: "1.1.1.1", family: 4 },
           ];
         },
       }),
@@ -810,8 +817,8 @@ test(
     assert.equal(transport.calls.length, 1);
     const { init } = transport.calls[0];
     assert.deepEqual(init.allowedAddresses, [
-      { address: "2001:db8::1", family: 6 },
-      { address: "198.51.100.5", family: 4 },
+      { address: "2001:4860:4860::8888", family: 6 },
+      { address: "1.1.1.1", family: 4 },
     ]);
   },
 );
