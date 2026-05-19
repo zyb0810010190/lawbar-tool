@@ -196,10 +196,14 @@ the wrong hostname, are network failures and map to
   function injection as is.
 - New retry-classification or public error-code changes.
 - ADR-11D.2-B split; this ADR revises Step 11D.2-A in place.
-- Undici dispatcher spike result is a prerequisite before committing to
-  the full `fetch` -> `https.request` rewrite: verify whether undici's
-  public `Dispatcher` API in Node 22.x can pin connect to a vetted IP
-  while preserving fetch's stream/header surface. If it has no public
-  pre-resolved-IP API, record that conclusion explicitly and proceed
-  with `https.request`; if it can do this cleanly, prefer the dispatcher
-  path instead.
+- Undici dispatcher path. **Spike resolved** —
+  `dev-memo/spike-https-dns-pinning-undici.md` rejects the Undici
+  dispatcher route for v1 on three grounds: (i) Node 22.x does not
+  expose the bundled Undici `Agent` / `buildConnector` as a documented
+  importable surface; (ii) `ocr-worker-adapter` has no direct `undici`
+  dependency and adding one is out of scope; (iii) on documented public
+  surface alone the path cannot prove security requirements A (one
+  vetted IP at connect), D (cert verifies against original hostname),
+  and H (no fallback re-resolution). §4 (`https.request`) stands as
+  the chosen path. Revisit if a direct `undici` dependency is later
+  approved.
