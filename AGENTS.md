@@ -122,3 +122,55 @@ This keeps Claude Code, Codex CLI, and Gemini CLI on the same context.
 - `.codex/hooks.json` / `.codex/config.toml` — Codex hooks/config (optional)
 - `.gemini/skills/`, `.gemini/commands/` — Gemini skills and TOML commands
 - `.mcp.json` — MCP server registrations (shared by all three tools)
+
+## CC-Suite Autonomous Execution Policy
+
+Claude Code may use cc-suite to plan, implement, audit, fix, verify, validate, and test bounded project work without asking for confirmation on every step, provided all conditions below hold.
+
+### Allowed without further confirmation
+
+- Planning and plan review.
+- Documentation updates.
+- Test writing and test repair.
+- Implementation of one bounded work item at a time.
+- Fixes for correctness, reliability, validation, observability, and test failures within the active work item.
+- Running local test commands listed in this file.
+- Running `/review-plan`, `/implement`, `/audit`, `/audit-fix`, `/verify`, `/status`, `/result`, `/continue`, and `/cancel`.
+
+### Required stop-and-ask gates
+
+Stop and ask the user before:
+- Production deployment or release publication.
+- Database migrations on real data.
+- Secret, credential, billing, auth, authorization, or external account changes.
+- New runtime dependencies.
+- Public API, wire-format, schema, or CLI breaking changes.
+- Security-sensitive rewrites, including SSRF, TLS, DNS, crypto, auth, tenant isolation, or sandboxing.
+- Large cross-service refactors.
+- Deleting data, deleting files not clearly generated, or destructive shell commands.
+- Creating Git commits, tags, branches, or pushes unless explicitly authorized in the current task.
+
+### Required loop
+
+For each work item:
+
+1. `/review-plan` before implementation when the change affects architecture, security, contracts, persistence, queue lifecycle, or multiple packages.
+2. `/implement` for one bounded work item.
+3. Run relevant local tests.
+4. `/verify` after implementation.
+5. `/audit` or `/audit-fix` on the changed scope.
+6. Repeat until verification and audit pass.
+7. Summarize changed files, tests run, remaining risks, and next recommended work item.
+
+### Scope rule
+
+Never interpret “finish the project” as permission to make unbounded changes. Convert it into a queue of small work items and process one item at a time.
+
+### Go-live rule
+
+The project is not ready to go live until:
+- All planned work items are complete.
+- All package tests pass.
+- Full audit has no unresolved Critical/High findings.
+- Security, migration, persistence, queue, contract, and API risks have been explicitly cleared.
+- A final go-live readiness report is produced.
