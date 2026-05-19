@@ -723,3 +723,123 @@ test("https: stalled body stream eventually aborts with https_timeout (audit 019
   externalController?.abort();
   await assertFetcherError(promise, FETCHER_ERROR_CODES.HTTPS_TIMEOUT);
 });
+
+// ---------------------------------------------------------------------------
+// WI-02 seam: fetcher passes vetted addresses to httpsTransport.fetch
+// ---------------------------------------------------------------------------
+//
+// These tests assert the CONTRACT at the fetcher/transport seam that
+// WI-02 must establish: after DNS resolution + private-IP screening,
+// the fetcher must pass the surviving addresses to the transport via
+// an `allowedAddresses: ReadonlyArray<DnsAddress>` field on the init
+// argument, preserving order (no re-sort by family).
+//
+// Currently the fetcher passes only `{ signal }` to transport.fetch,
+// so these tests will FAIL until WI-02 ships. They are kept here
+// (skipped) so the seam contract is reviewable in source and so that
+// reverting WI-02 in the future fails CI loudly. Skip reason names
+// WI-02 as the unlocker.
+
+function makeRecordingTransport(response) {
+  const calls = [];
+  return {
+    calls,
+    async fetch(url, init) {
+      calls.push({ url: url.toString(), init });
+      if (response instanceof Error) throw response;
+      return response;
+    },
+  };
+}
+
+test(
+  "WI-02 seam: fetcher passes a single vetted DNS address to transport.allowedAddresses",
+  { skip: "Unlocked by WI-02 (fetcher must propagate allowedAddresses to transport)" },
+  async () => {
+    const submission = makeSubmission();
+    const transport = makeRecordingTransport(okResponse(PNG_HEADER));
+    await fetchPageBytes(
+      submission,
+      deps({
+        httpsTransport: transport,
+        dnsLookup: async () => [{ address: "8.8.8.8", family: 4 }],
+      }),
+    );
+    assert.equal(transport.calls.length, 1);
+    const { init } = transport.calls[0];
+    assert.ok(Array.isArray(init.allowedAddresses), "expected allowedAddresses array");
+    assert.equal(init.allowedAddresses.length, 1);
+    assert.deepEqual(init.allowedAddresses[0], { address: "8.8.8.8", family: 4 });
+  },
+);
+
+test(
+  "WI-02 seam: multi-address DNS preserves DNS order in allowedAddresses (no transport re-sort)",
+  { skip: "Unlocked by WI-02" },
+  async () => {
+    // URL host MUST match the overridden allowlist or the fetcher
+    // short-circuits with host_not_allowlisted before DNS is even
+    // consulted. The fetcher always invokes deps.dnsLookup on the
+    // hostname (no IP-literal bypass), so it is sufficient that the
+    // URL host equals an allowlist entry.
+    const submission = makeSubmission({
+      source: { kind: "https", url: "https://example.test/page.png", byte_size: PNG_HEADER.length, mime_type: "image/png" },
+    });
+    const transport = makeRecordingTransport(okResponse(PNG_HEADER));
+    let dnsCalls = 0;
+    // DNS returns IPv6 FIRST then IPv4. The fetcher must NOT re-sort
+    // by family — ordering is the fetcher's contract with the
+    // transport; per ADR §4 the transport selects entry[0]. Both
+    // addresses are global-unicast / documentation ranges (2001:db8::
+    // is RFC 3849 documentation IPv6; 198.51.100.0/24 is TEST-NET-2).
+    await fetchPageBytes(
+      submission,
+      deps({
+        httpsTransport: transport,
+        allowedHttpsHosts: new Set(["example.test"]),
+        dnsLookup: async () => {
+          dnsCalls += 1;
+          return [
+            { address: "2001:db8::1", family: 6 },
+            { address: "198.51.100.5", family: 4 },
+          ];
+        },
+      }),
+    );
+    assert.equal(dnsCalls, 1, "fetcher must consult DNS exactly once for this hostname");
+    assert.equal(transport.calls.length, 1);
+    const { init } = transport.calls[0];
+    assert.deepEqual(init.allowedAddresses, [
+      { address: "2001:db8::1", family: 6 },
+      { address: "198.51.100.5", family: 4 },
+    ]);
+  },
+);
+
+test(
+  "WI-02 seam: private addresses are filtered out BEFORE the transport receives allowedAddresses",
+  { skip: "Unlocked by WI-02" },
+  async () => {
+    // Mixed public + private DNS answer: fetcher's existing
+    // host_resolves_to_private_ip path rejects the call before
+    // reaching transport. The transport must NOT be called at all,
+    // because surfacing a public-only subset would mask the private
+    // address and weaken SSRF defense (ADR §1 "no quiet subsetting").
+    const submission = makeSubmission();
+    const transport = makeRecordingTransport(okResponse(PNG_HEADER));
+    await assertFetcherError(
+      fetchPageBytes(
+        submission,
+        deps({
+          httpsTransport: transport,
+          dnsLookup: async () => [
+            { address: "8.8.8.8", family: 4 },
+            { address: "10.0.0.5", family: 4 },
+          ],
+        }),
+      ),
+      FETCHER_ERROR_CODES.HOST_RESOLVES_TO_PRIVATE_IP,
+    );
+    assert.equal(transport.calls.length, 0, "transport must not be called when any DNS answer is private");
+  },
+);

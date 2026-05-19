@@ -350,6 +350,51 @@ TLS fixtures:
 - CA injection uses the per-request `ca` option, keeping global TLS
   process state unaffected.
 
+#### §2.1 Test files (authored by WI-02t)
+
+- `services/ocr-worker/tests/fetcher.https.test.mjs` — fetcher-level
+  tests against a stub transport. Existing tests cover scheme,
+  expires, allowlist, MIME, DNS resolution, private-IP rejection,
+  size cap, `expected_sha256`, byte-size mismatch, and abort
+  mid-body via stub. WI-02t appended three seam-level tests for the
+  `allowedAddresses` contract with full assertion bodies; those are
+  `test.skip(..., { skip: "Unlocked by WI-02" })` until WI-02 wires
+  the field through.
+- `services/ocr-worker/tests/fetcher.https.transport.test.mjs` —
+  transport-level tests against the future production transport
+  (export name `makeNodeHttpsRequestTransport` is provisional and may
+  be renamed by WI-03; rename across the file before un-skipping).
+  Coverage is split into two tiers:
+    - **Full assertion bodies** today (15 cases): the runtime
+      address-validation tests at the top of the file (missing,
+      empty, non-array, non-plain-object, non-string address,
+      nonnumeric family, non-4/6 family, malformed IPv4/IPv6,
+      mapped IPv6 dotted + hex, scoped IPv6, family/address
+      mismatch, private IPv4, private IPv6). Each calls
+      `assert.rejects` on the transport with a message regex.
+    - **Strategy stubs** today (18 cases): TLS scenarios,
+      content-length parsing, body Uint8Array shape, manual 3xx,
+      abort phases, e2e mapping. Each carries a detailed
+      "Strategy when un-skipped" comment block describing the
+      local-HTTPS-server + cert-suite setup, distinct response
+      markers, and the assertion shape; the body is
+      `assert.ok(makeNodeHttpsRequestTransport)` so the file
+      compiles. These bodies will be fleshed out when WI-03 lands
+      the production transport and the test infrastructure for a
+      self-signed CA in the test process.
+  All tests are `test.skip(..., { skip: "Unlocked by WI-03" })`
+  regardless of tier. Imports of the future export are inside test
+  bodies (via `await import(...)`) so the file loads cleanly today.
+
+The skip-with-body / skip-with-strategy pattern keeps the
+security-critical assertions and the setup requirements visible in
+source, makes the constraints on WI-02 and WI-03 reviewable before
+either ships, and minimizes the WI-02t-blast-radius by deferring
+test-infrastructure (cert helper, local TLS server) to WI-03 where
+it ships alongside the matching production code. Un-skip and replace
+the strategy stub with the documented setup as each implementation
+surface lands.
+
 ### §3 Operational consequences
 
 - All existing `HttpsTransport` stubs gain the required
