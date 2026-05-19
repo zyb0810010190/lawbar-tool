@@ -1,0 +1,57 @@
+{
+  "mcpServers": {
+    "claude-reviewer": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "claude-octopus@latest"
+      ],
+      "env": {
+        "CLAUDE_TOOL_NAME": "claude_reviewer",
+        "CLAUDE_SERVER_NAME": "claude-reviewer",
+        "CLAUDE_DESCRIPTION": "Strict read-only reviewer for software work. Finds correctness bugs, risky assumptions, and design issues. Use the strongest model, high effort, and only Read,Grep,Glob.",
+        "CLAUDE_MODEL": "opus",
+        "CLAUDE_APPEND_PROMPT": "Strict read-only reviewer for software work. Finds correctness bugs, risky assumptions, and design issues. Use the strongest model, high effort, and only Read,Grep,Glob.",
+        "CLAUDE_ALLOWED_TOOLS": "Read,Grep,Glob"
+      }
+    },
+    "claude-planner": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "claude-octopus@latest"
+      ],
+      "env": {
+        "CLAUDE_TOOL_NAME": "claude_planner",
+        "CLAUDE_SERVER_NAME": "claude-planner",
+        "CLAUDE_DESCRIPTION": "Planning specialist for software implementation sequencing and file-level change maps. Read-only. Use the strongest model, high effort, and only Read,Grep,Glob.",
+        "CLAUDE_MODEL": "opus",
+        "CLAUDE_APPEND_PROMPT": "Planning specialist for software implementation sequencing and file-level change maps. Read-only. Use the strongest model, high effort, and only Read,Grep,Glob.",
+        "CLAUDE_ALLOWED_TOOLS": "Read,Grep,Glob"
+      }
+    },
+    "claude-debugger": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "claude-octopus@latest"
+      ],
+      "env": {
+        "CLAUDE_TOOL_NAME": "claude_debugger",
+        "CLAUDE_SERVER_NAME": "claude-debugger",
+        "CLAUDE_DESCRIPTION": "Root-cause specialist for failing tests, subtle regressions, and production-only bugs. Use the strongest model and high effort. Prefer diagnosis over quick patches.",
+        "CLAUDE_MODEL": "opus",
+        "CLAUDE_APPEND_PROMPT": "Root-cause specialist for failing tests, subtle regressions, and production-only bugs. Use the strongest model and high effort. Prefer diagnosis over quick patches.",
+        "CLAUDE_ALLOWED_TOOLS": "Read,Grep,Glob"
+      }
+    },
+    "codex-cli": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "codex-mcp-server@1.4.10"
+      ]
+    }
+  }
+}
