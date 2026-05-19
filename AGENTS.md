@@ -166,6 +166,30 @@ For each work item:
 
 Never interpret “finish the project” as permission to make unbounded changes. Convert it into a queue of small work items and process one item at a time.
 
+### No-Choice Autonomous Default
+
+During cc-suite autonomous execution, do not ask the user to choose among routine process options.
+
+When multiple valid process paths exist, choose the safest optimal path automatically:
+
+- Prefer the next executable WI with all predecessors satisfied.
+- Prefer background cc-suite jobs for review-plan, audit, and long-running validation.
+- Prefer Claude writes / Codex validates unless the WI explicitly authorizes Codex writing.
+- Prefer `/audit-fix` when fixes are allowed, so audit → fix → verify happens as one loop.
+- Prefer `/audit` only for read-only WIs or when fixes are not allowed.
+- Prefer plan-review before implementation for security, TLS/DNS/SSRF, auth, migration, public API, CLI, schema, persistence, queue lifecycle, or multi-package changes.
+- Prefer the smallest bounded change that satisfies the WI.
+- Prefer opening a bounded sub-WI instead of expanding scope.
+
+Only stop and ask the user when:
+- production deployment or release publication is involved;
+- secrets, credentials, billing, external accounts, or auth/authorization are involved;
+- destructive commands or data deletion are involved;
+- new runtime dependencies are required;
+- public API, wire-format, schema, CLI, migration, persistence, or queue lifecycle changes require explicit approval;
+- real user-provided fixtures or legal/business waivers are required;
+- the plan has no safe path forward.
+
 ### Go-live rule
 
 The project is not ready to go live until:

@@ -1,5 +1,30 @@
 # Go-Live Plan
 
+## Autonomous Choice Policy
+
+For routine execution choices, cc-suite must not ask the user to pick among options. It must choose the safest optimal path and continue.
+
+Default choices:
+- Choose the next executable WI with all predecessors satisfied.
+- Use background cc-suite jobs for long review, audit, and validation.
+- Use Claude writes / Codex validates unless the WI explicitly authorizes Codex writing.
+- Use `/audit-fix` when fixes are allowed.
+- Use `/audit` only for read-only or no-fix scopes.
+- Use `/review-plan` before risky implementation.
+- Use the smallest bounded change that satisfies the WI.
+- Open bounded sub-WIs instead of expanding scope.
+
+Stop and ask only when:
+- production deployment or release publication is involved;
+- secrets, credentials, billing, external accounts, or auth/authorization are involved;
+- destructive commands or data deletion are involved;
+- new runtime dependencies are required;
+- public API, wire-format, schema, CLI, migration, persistence, or queue lifecycle approval is required;
+- real fixtures or waivers are required from the user;
+- no safe path forward exists.
+
+If an action is blocked by a Stop-and-Ask gate, take the safest non-mutating preparatory action first. Pause only if no safe preparatory action exists.
+
 ## Cross-Cutting Policies That Apply To Every WI
 
 User-authorized Codex-writes WIs: [] by default. The user may fill this list in the plan-acceptance turn for autonomous WIs, or authorize a specific Codex-writes Stop-and-ask WI in the current turn.
