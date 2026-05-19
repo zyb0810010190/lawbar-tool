@@ -266,6 +266,50 @@ only after it proves:
 4. Cert valid only for the IP fails with a certificate error that the
    implementation will map to `https_network_error`.
 
+### §1.1 Prototype gate result (WI-01)
+
+The prototype is implemented at
+`dev-memo/prototypes/https-dns-pinning-poc.mjs` with its certificate
+helper at `dev-memo/prototypes/https-dns-pinning-cert-helper.mjs`.
+
+Command: `node dev-memo/prototypes/https-dns-pinning-poc.mjs`
+Node: v22.22.1 LTS (darwin-arm64)
+Result: **PASS** — all three scenarios behave as expected:
+
+- `cert-valid-for-hostname` → TLS handshake succeeds; server observes
+  `Host: allowed-host.test:<port>`, TLS SNI servername equal to
+  `allowed-host.test`, AND the connected socket's local address
+  (server side) equals `127.0.0.1`, confirming that the custom
+  `lookup` directly pinned the connect.
+- `cert-valid-only-for-ip-literal` → TLS handshake fails specifically
+  with a HOSTNAME-VERIFICATION error (`ERR_TLS_CERT_ALTNAME_INVALID`
+  / `ERR_OSSL_X509_HOST_MISMATCH`) because the cert's SAN lists only
+  the pinned IP and Node's `checkServerIdentity` rejects it against
+  the original URL hostname. The matcher in
+  `https-dns-pinning-poc.mjs` accepts ONLY those two codes (or a
+  hostname-altname mismatch message); a generic
+  `UNKNOWN_CA` / `BAD_CERTIFICATE` / `DEPTH_ZERO_SELF_SIGNED_CERT`
+  is treated as gate FAILURE because that would mask a broken CA
+  setup instead of proving the hostname-verification property.
+- `cert-valid-only-for-wrong-hostname` → TLS handshake fails the
+  same way against an unrelated DNS SAN.
+
+Per-request `ca` injection works through `tls.connect`'s options on
+the request; `NODE_EXTRA_CA_CERTS` is NOT used and the test process's
+global TLS trust remains unchanged.
+
+Implementation notes captured during WI-01:
+- Node 22's `http.request` invokes the custom `lookup` callback with
+  `options.all = true`, which requires the callback signature
+  `cb(err, [{ address, family }])`. The legacy
+  `cb(err, address, family)` form is also accepted when `options.all`
+  is falsy. Production transport must support both modes (or pin the
+  `all: true` form once 22+ is the only supported Node line).
+- Cert generation uses local `openssl` (OpenSSL 3.6.2 on the
+  development host). No new runtime dependency added to any package.
+
+Gate verdict: **GREEN**. WI-02t / WI-02 / WI-03 may proceed.
+
 ### §2 Required test surface
 
 Transport/fetcher tests must cover:
