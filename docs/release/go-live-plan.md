@@ -500,9 +500,12 @@ v1 bucket: v1-blocking
 The original monolithic WI-03 ("Replace Global Fetch With Pinned `node:https.request` Transport") has been split into four bounded, gated sub-WIs to reduce blast radius of a Critical-risk security rewrite. Each sub-WI is independently Stop-and-ask, runs its own audit-fix + verify loop, and produces a discrete commit with a discrete rollback boundary.
 
 Locked decisions that apply to every sub-WI:
-- **Factory name and export path**: factory is `makeNodeHttpsRequestTransport`, exported from both `services/ocr-worker/src/fetcher/index.ts` and `services/ocr-worker/src/index.ts`; after build, `import { makeNodeHttpsRequestTransport, HttpsTransport } from "<package>/dist/index.js"` must resolve. WI-02t transport tests already reference this name.
+- **Factory name and export path**: factory is `makeNodeHttpsRequestTransport`, exported from both `services/ocr-worker/src/fetcher/index.ts` and `services/ocr-worker/src/index.ts`. The accompanying types `HttpsTransport` and `DnsAddress` are also re-exported from both index surfaces (`export type { HttpsTransport, DnsAddress } from "./types.js"`). After build, `import { makeNodeHttpsRequestTransport } from "<package>/dist/index.js"` resolves at runtime, and `import type { HttpsTransport, DnsAddress } from "<package>/dist/index.js"` resolves at TypeScript build time. WI-02t transport tests already reference the factory name.
 - **Factory options contract**: `makeNodeHttpsRequestTransport(options?: { ca?: string | Buffer | Array<string | Buffer> })`. The empty-object call `makeNodeHttpsRequestTransport({})` must be valid because WI-02t stubs already use it. No new runtime dependencies.
-- **Lookup callback behavior**: defensive dual-mode. Primary proved path is Node 22's `options.all === true` returning the complete vetted list in resolver order (per WI-01 prototype). Fallback for the legacy `cb(err, address, family)` shape returns the first vetted address without re-sorting or filtering; the fallback is portability hardening, not the primary proof path.
+- **Lookup callback behavior**: defensive dual-mode. **Both modes pin Node's lookup to `allowedAddresses[0]` only — the complete vetted list is NEVER returned to Node's lookup callback.**
+  - Primary proved path (Node 22, `options.all === true`): callback returns a **single-element array** `[{ address: allowedAddresses[0].address, family: allowedAddresses[0].family }]`. Note: the array contains exactly one entry, not the full vetted list.
+  - Defensive fallback (legacy `cb(err, address, family)` shape): callback returns `cb(null, allowedAddresses[0].address, allowedAddresses[0].family)`. Portability hardening only; not the primary proof path.
+  - The complete vetted `allowedAddresses` list is consumed by the transport for input validation (WI-03b) and future policy decisions, but is never returned wholesale to Node's lookup.
 - **Plain-object validation**: `Object.getPrototypeOf(value) === Object.prototype`. Arrays, `null`, functions, class instances, `Date`, and `Object.create(null)` are invalid.
 - **No new public fetcher error codes**: WI-03* must not add entries to `FETCHER_ERROR_CODES`. Internal transport error discriminators (codes/classes on a transport-internal error type) are introduced and mapped to existing public codes by the fetcher.
 - **TLS test infrastructure**: shared test helper module(s) live under `services/ocr-worker/tests/` (no production-test imports from `dev-memo/`). Prefer **static checked-in TEST-ONLY PEM fixtures under `services/ocr-worker/tests/fixtures/tls/`** over shelling out to OpenSSL during tests. Fixtures carry clear `TEST-ONLY — NOT A SECRET` headers in adjacent README/comment. If regenerating the fixtures requires OpenSSL, document that as a one-off maintenance script; tests themselves must not invoke OpenSSL.
@@ -519,7 +522,7 @@ Residual risk and sign-off:
 
 ### WI-03a - Production HTTPS Transport Core
 
-Goal: Replace the global-`fetch` body of `makeNodeFetchHttpsTransport` with a `node:https.request`-based implementation that pins the socket to `allowedAddresses[0]` via a custom `lookup`, preserves the original URL hostname for Host/SNI/cert verification, accepts per-request `ca` injection, and is reachable via the locked factory export. **No runtime validation, no response-adapter changes, no test un-skips — those are in subsequent sub-WIs.**
+Goal: Ship a new pinned `node:https.request`-based transport factory `makeNodeHttpsRequestTransport` that pins the socket to `allowedAddresses[0]` via a custom `lookup`, preserves the original URL hostname for Host/SNI/cert verification, accepts per-request `ca` injection, and is reachable via the locked factory export. The existing `makeNodeFetchHttpsTransport` is retained as a thin compatibility wrapper delegating to the new factory, so the existing `fetchPageBytes.ts:41` import and `:550` default callsite continue to compile and run without WI-03a touching `fetchPageBytes.ts`. **No runtime validation, no response-adapter strictness, no test un-skips, no hard removal of the legacy factory — those are in subsequent sub-WIs.**
 
 Predecessor: WI-02
 
@@ -529,21 +532,38 @@ Likely files:
 - `services/ocr-worker/src/fetcher/index.ts`
 - `services/ocr-worker/src/index.ts`
 
+`services/ocr-worker/src/fetcher/fetchPageBytes.ts` is NOT in WI-03a scope: the legacy-factory compatibility wrapper preserves its current call site. Any future direct migration from `makeNodeFetchHttpsTransport` to `makeNodeHttpsRequestTransport` at that call site must land as its own explicit sub-WI (target: WI-03d cleanup or a dedicated follow-up WI).
+
 Acceptance criteria:
-- New factory `makeNodeHttpsRequestTransport(options?: { ca?: string | Buffer | Array<string | Buffer> })` is exported from `services/ocr-worker/src/fetcher/index.ts` AND `services/ocr-worker/src/index.ts`. After build, `import { makeNodeHttpsRequestTransport, HttpsTransport } from "<package>/dist/index.js"` resolves. `makeNodeHttpsRequestTransport({})` is a valid call.
-- Implementation uses `node:https.request` with `agent: false`, `rejectUnauthorized: true`, `servername: url.hostname`, manual redirect handling (transport does NOT follow 3xx — returns `{status, headers, body}` for redirects).
-- Custom `lookup` callback supports BOTH `options.all === true` (Node 22, primary) AND the legacy `cb(err, address, family)` shape (defensive). In primary mode the callback returns the complete vetted `allowedAddresses` list in resolver order. In legacy mode it returns the first vetted entry without re-sorting or filtering.
-- Per-request CA injection wired through `options.ca` (not `NODE_EXTRA_CA_CERTS`).
-- Host header, URL hostname, SNI `servername`, and certificate verification all use the original URL hostname; the socket connects to `allowedAddresses[0]` only.
-- `makeNodeFetchHttpsTransport` (the legacy global-`fetch` default from WI-02) is REMOVED or marked deprecated with an explicit note; production deps wiring (in `services/ocr-worker/src/cli.ts` or equivalent) is updated to use the new factory.
-- No new runtime dependencies introduced.
-- No entries added to `FETCHER_ERROR_CODES` (public fetcher error surface unchanged).
-- Build clean: `npm --prefix services/ocr-worker run build`. Existing tests still green (the existing 48 fetcher.https.test.mjs tests, the cross-package smokes); transport tests in `fetcher.https.transport.test.mjs` remain skipped — WI-03a does NOT un-skip them.
-- ADR §3 / §4 updated to record WI-03a landed the transport core; runtime validation (§5) and response adapter (§6) status remain "pending" until WI-03b / WI-03c.
+- **Canonical factory**: `makeNodeHttpsRequestTransport(options?: { ca?: string | Buffer | Array<string | Buffer> })` is the new canonical HTTPS transport factory. `makeNodeHttpsRequestTransport({})` is a valid call (WI-02t stubs already use it).
+- **Exports**: `makeNodeHttpsRequestTransport` is exported from `services/ocr-worker/src/fetcher/index.ts` AND `services/ocr-worker/src/index.ts`. The types `HttpsTransport` and `DnsAddress` are re-exported from both surfaces. After build, `import { makeNodeHttpsRequestTransport } from "<package>/dist/index.js"` resolves at runtime, and `import type { HttpsTransport, DnsAddress } from "<package>/dist/index.js"` resolves at TS build time.
+- **Non-skipped export smoke**: this command exits 0 after build:
+  `node -e 'import("./services/ocr-worker/dist/index.js").then(m => { if (!m.makeNodeHttpsRequestTransport) throw new Error("missing makeNodeHttpsRequestTransport export"); console.log("ok"); })'`
+- **Implementation core**: uses `node:https.request` with `agent: false`, `rejectUnauthorized: true`, `servername: url.hostname`. Manual redirect handling: transport does NOT follow 3xx; transport returns `{status, headers, body}` for redirects so the fetcher's existing `redirect_unsupported` mapping continues to work.
+- **Lookup callback (dual-mode, both pinning to entry[0] only)**:
+  - Primary (`options.all === true`): callback returns the single-element array `[{ address: allowedAddresses[0].address, family: allowedAddresses[0].family }]`.
+  - Fallback (legacy `cb(err, address, family)`): callback returns `cb(null, allowedAddresses[0].address, allowedAddresses[0].family)`.
+  - The complete vetted list is never returned to Node's lookup in either mode.
+- **Per-request CA**: injection wired through `options.ca` (not `NODE_EXTRA_CA_CERTS`); global TLS state unchanged.
+- **Hostname preservation**: Host header, URL hostname, SNI `servername`, and certificate verification all use the original URL hostname; the socket connects to `allowedAddresses[0]` only.
+- **Legacy factory compatibility wrapper**: `makeNodeFetchHttpsTransport` remains as a thin compatibility wrapper around `makeNodeHttpsRequestTransport({})`. Hard removal / deprecation cleanup is DEFERRED outside WI-03a (target: WI-03d or a later cleanup WI). This prevents compile breakage at `fetchPageBytes.ts:41` (import) and `:550` (default callsite).
+- **No new runtime dependencies**.
+- **No new public fetcher error codes**: `FETCHER_ERROR_CODES` is unchanged.
+- **Build clean**: `npm --prefix services/ocr-worker run build`. Existing tests still green (the 48 active `fetcher.https.test.mjs` cases + cross-package smokes); transport tests in `fetcher.https.transport.test.mjs` remain skipped — WI-03a does NOT un-skip them.
+- **WI-03a boundary disclaimer (must not silently expand into other sub-WIs)**:
+  - Runtime input validation under the global plain-object rule is DEFERRED to WI-03b.
+  - Strict Content-Length parsing is DEFERRED to WI-03c.
+  - Strict `Uint8Array` body-shape adaptation is DEFERRED to WI-03c.
+  - Abort-phase mechanics (per-phase `req`/`res` destroy + iterator-throw normalization) are DEFERRED to WI-03c.
+  - Transport-test un-skipping / full TLS harness activation is DEFERRED to WI-03d.
+  - WI-03a must not silently implement WI-03b/c/d.
+- **ADR §3 / §4 status update**: use this verbatim wording template (or equivalent that does not weaken the boundary): "WI-03a lands the pinned `node:https.request` transport core and package exports only. WI-03b runtime validation, WI-03c response adapter strictness, and WI-03d full TLS harness/test activation remain pending. WI-03a does not by itself complete the full WI-03 verification matrix or go-live security sign-off."
+- **Evidence-claim limits**: WI-03a evidence claims are limited to (a) canonical factory exists, (b) exports reachable from `dist/index.js`, (c) lookup pins to `allowedAddresses[0]`, (d) TLS defaults (`agent: false`, `rejectUnauthorized: true`, `servername: url.hostname`) are fail-closed, (e) legacy wrapper preserves the existing call site. WI-03a does NOT claim full SSRF closure, runtime validation completeness, or response-adapter strictness; those claims are reserved for WI-03b/c/d respectively.
 
 Tests to run:
 - `node --version`
 - `npm --prefix services/ocr-worker run build`
+- `node -e 'import("./services/ocr-worker/dist/index.js").then(m => { if (!m.makeNodeHttpsRequestTransport) throw new Error("missing makeNodeHttpsRequestTransport export"); console.log("ok"); })'`
 - `npm --prefix services/ocr-worker test`
 - `node --test services/ocr-worker/tests/fetcher.https.test.mjs`
 
