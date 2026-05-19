@@ -474,3 +474,30 @@ surface lands.
   and H (no fallback re-resolution). §4 (`https.request`) stands as
   the chosen path. Revisit if a direct `undici` dependency is later
   approved.
+
+## Protocol-surface guardrails
+
+The pinning model in §4 assumes a single, fresh socket per request
+with the lookup callback firing exactly once at connect. Any future
+change that breaks those assumptions can silently re-introduce the
+DNS-rebinding / TOCTOU surface this ADR closes, even if the lookup
+callback itself is unchanged. The following changes therefore
+require a new ADR (or an explicit revision of this one) before
+landing:
+
+- HTTP/2 enablement on the fetcher's HTTPS transport (HTTP/2 reuses
+  a single TLS connection for multiple streams; the per-stream
+  lookup hook semantics are different from `http.request`'s).
+- Re-introduction of HTTP/HTTPS proxy support (proxies move DNS
+  resolution to the proxy and bypass the custom lookup entirely).
+- Switching `agent: false` to a pooled or shared `https.Agent`
+  (pooled sockets cache lookup results across requests and can
+  reuse a connection after a rebind window).
+- Any other form of socket reuse, keep-alive pooling, or
+  connection multiplexing on the transport's HTTPS path.
+
+These are deliberately listed as "guardrails" rather than "not in
+scope" because they would each be a security-boundary change, not
+merely a feature addition. A reviewer encountering such a change
+in a PR should require a fresh ADR + audit + sign-off before
+approving.
