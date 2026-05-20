@@ -44,7 +44,7 @@ Either path is a **multi-day backend decision** that should land before any UI-0
 
 This report does NOT design the UI. It identifies the order in which design / build work would be safest to schedule:
 
-1. **Decide the gateway strategy** (HTTP API service vs in-process app). This is a backend / architecture WI, not a UI WI. Without it, the rest of the order is undefined.
+1. **Decide the gateway strategy** (HTTP API service vs in-process app). This is a backend / architecture WI, not a UI WI. Without it, the rest of the order is undefined. → Reconciled in `dev-memo/plan-client-00.md`. Decision split into `docs/adr/client-application-surface.md` (v1 primary = Mac desktop, in-process embedding) and `docs/adr/sync-bridge-architecture.md` (opt-in companion HTTP bridge, post-v1). Companion endpoint reference: `docs/ui/sync-bridge-contract-draft.md` (formerly `ui-gateway-contract-draft.md`).
 2. **Spec the cancel endpoint** (the only contract-named UI write today) and its coordinator-mediated semantics. Small, well-scoped, satisfies AGENTS.md "Coordinator owns lifecycle".
 3. **Scope corrections** (S4 write path) explicitly: either declare them out-of-scope for v1, or add a contract surface for them. Don't let this drift into UI implementation.
 4. **Tenant / auth surface** before any read screen ships. Reading without scoping is a leak risk.

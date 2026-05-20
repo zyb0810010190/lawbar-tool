@@ -29,6 +29,9 @@ CLAUDE.local.md
 # cc-suite plugin-dropped codex review commands (local plugin assets)
 .claude/commands/codex-*.md
 
+# superseded uncommitted historical drafts (preserved locally, never tracked)
+dev-memo/superseded/
+
 # Codex CLI — local files, keep checked-in subdirs
 .codex/*
 !.codex/skills/
