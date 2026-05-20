@@ -57,7 +57,10 @@
         "required": ["status", "previous_status"]
       },
       "then": {
-        "required": ["transition_reason"]
+        "required": ["transition_reason"],
+        "properties": {
+          "transition_reason": { "type": "string", "minLength": 1 }
+        }
       }
     }
   ],

@@ -23,10 +23,9 @@ export type AjvErrorObject = {
   data?: unknown;
 };
 
-// `strict: "log"` matches the OCR contract. The if/then conditional shapes used
-// by some case-box schemas (e.g. deadline missed→met requires reason) are
-// legitimate JSON Schema 2020-12 but trip Ajv's `strictRequired` warning under
-// full strict mode.
+// `strict: "log"` matches the OCR contract. Future conditionals or generated
+// shapes may emit Ajv strictness warnings that are non-fatal; we keep parity
+// with the OCR contract rather than tightening unilaterally here.
 const ajv = new Ajv2020({ strict: "log", allErrors: true });
 addFormats(ajv);
 

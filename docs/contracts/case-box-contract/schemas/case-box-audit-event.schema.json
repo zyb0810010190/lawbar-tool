@@ -74,7 +74,10 @@
         "required": ["action"]
       },
       "then": {
-        "required": ["reason"]
+        "required": ["reason"],
+        "properties": {
+          "reason": { "type": "string", "minLength": 1 }
+        }
       }
     }
   ],
