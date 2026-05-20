@@ -580,79 +580,170 @@ v1 bucket: v1-blocking
 
 ### WI-03b - Runtime Address Validation + Internal Error Discriminators
 
-Goal: At transport entry, validate `init.allowedAddresses` against the full ADR §5 surface and reject malformed values with stable internal transport error discriminators that the fetcher maps to the existing public `https_network_error` code.
+Goal: At transport entry, validate `init.allowedAddresses` against the full ADR §5 surface and reject malformed values with stable internal transport error discriminators that the fetcher maps to the existing public `https_network_error` code, preserving the internal error as `cause`.
 
-Predecessor: WI-03a
+Predecessor: WI-02 + WI-03a. WI-03b relies on the WI-02 fetcher DNS seam (vetted `allowedAddresses` flowing into the transport) and on the WI-03a pinned `node:https.request` transport core.
 
 Likely files:
-- `services/ocr-worker/src/fetcher/httpsTransport.ts`
-- `services/ocr-worker/src/fetcher/httpsTransportErrors.ts` (new internal-only error module — see "Internal error module" below)
-- `services/ocr-worker/src/fetcher/fetchPageBytes.ts` (internal-transport-error → public fetcher-error mapping)
+- `services/ocr-worker/src/fetcher/httpsTransport.ts` (preflight wiring + internal test seam)
+- `services/ocr-worker/src/fetcher/httpsTransportErrors.ts` (new internal-only error module + type guard)
+- `services/ocr-worker/src/fetcher/fetchPageBytes.ts` (explicit `isHttpsTransportError` branch before generic catch-all; preserve `cause`)
 - `services/ocr-worker/tests/fetcher.https.transport.test.mjs` (un-skip the 15 runtime-validation cases)
 - One fetcher-level test file (e.g. `services/ocr-worker/tests/fetcher.https.test.mjs` or sibling) for the internal→public mapping coverage
+- One public-barrel smoke test (e.g. `services/ocr-worker/tests/fetcher.public-surface.test.mjs` or sibling) for the barrel-prohibition assertion
 
 Scope boundaries (must NOT cross into other WIs):
 - WI-03b must NOT implement WI-03c Content-Length strictness.
 - WI-03b must NOT implement WI-03c strict `Uint8Array` body-shape adaptation.
 - WI-03b must NOT implement WI-03c abort-phase mechanics.
 - WI-03b must NOT implement WI-03d TLS harness or un-skip non-validation TLS matrix tests.
-- WI-03b is limited to runtime input validation, internal transport error discriminators, and the fetcher mapping from those internal errors to the existing public surface.
+- WI-03b is limited to runtime input validation, internal transport error discriminators, the internal test seam, and the fetcher mapping from those internal errors to the existing public surface.
 
 #### Validation timing
 
 - Validate `init.allowedAddresses` inside each `transport.fetch(url, init)` call.
 - Validation happens before creating https.request, before invoking the custom lookup callback, and before any socket/network activity.
 - Validation must be implemented as a pure preflight helper (sync, no I/O, no side effects) so it is unit-testable through the transport with a syntactically valid HTTPS URL — no live server, no DNS, no socket required.
-- Tests must prove validation failure occurs **before** the underlying request function / socket path is invoked. The preferred technique is to fail validation with a syntactically valid HTTPS URL and assert that no socket/lookup callback was reached (e.g. by spy/injection on the request factory or lookup).
+- Tests must prove validation failure occurs before the underlying request function / socket path is invoked, by importing the internal `makeNodeHttpsRequestTransportForTest({ request })` seam (defined below), passing a recording fake `request`, and asserting it was not called when validation rejects.
+
+#### Pinned validation order
+
+`allowedAddresses` validation order:
+
+1. **Container checks:**
+   - `init.allowedAddresses` exists (property is present and value is not `undefined`).
+   - `Array.isArray(init.allowedAddresses) === true`.
+   - Array is non-empty (`length >= 1`).
+2. **For each element in array order:**
+   - Plain-object check (`Object.getPrototypeOf(entry) === Object.prototype`).
+   - Required own-data-property descriptors present for `address` and `family` (own, data — not accessors — descriptor truthy via `Object.getOwnPropertyDescriptor`).
+   - Type checks for `address` (`typeof === "string"`) and `family` (`typeof === "number"`).
+   - `address === address.trim()` equality check.
+   - Mapped/scoped literal rejection (see "Strict IP literal behavior" below) — BEFORE `net.isIP`/family/private checks.
+   - `net.isIP(address)` parse check (must return non-zero).
+   - Family match check: `net.isIP(address) === family`.
+   - Private/reserved/blocklist check via `isPrivateIp(address)`.
+3. **Reject the entire request on the first invalid element.**
+4. **Do not filter, normalize, reorder, or wrap per-entry errors.**
+
+**Pinned code mapping (per validation step):**
+
+| Failure                                                  | `HttpsTransportError.code`         |
+|----------------------------------------------------------|------------------------------------|
+| missing `allowedAddresses`                               | `MISSING_ALLOWED_ADDRESSES`        |
+| non-array `allowedAddresses`                             | `ALLOWED_ADDRESSES_NOT_ARRAY`      |
+| empty array                                              | `EMPTY_ALLOWED_ADDRESSES`          |
+| non-plain-object entry                                   | `ADDRESS_ENTRY_NOT_PLAIN_OBJECT`   |
+| accessor descriptor on `address` or `family`             | `ADDRESS_ENTRY_NOT_PLAIN_OBJECT`   |
+| missing own `address` field                              | `ADDRESS_MISSING_ADDRESS`          |
+| missing own `family` field                               | `ADDRESS_MISSING_FAMILY`           |
+| `address` not string                                     | `ADDRESS_NOT_STRING`               |
+| `family` not number                                      | `ADDRESS_FAMILY_NOT_NUMBER`        |
+| `address !== address.trim()`                             | `ADDRESS_INVALID_LITERAL`          |
+| mapped/scoped literal                                    | `ADDRESS_INVALID_LITERAL`          |
+| `net.isIP(address) === 0`                                | `ADDRESS_INVALID_LITERAL`          |
+| `net.isIP(address) !== family`                           | `ADDRESS_FAMILY_MISMATCH`          |
+| number `family` not 4 or 6                               | `ADDRESS_FAMILY_INVALID`           |
+| private/reserved/blocklisted address                     | `ADDRESS_PRIVATE`                  |
+
+**Important ordering rule:**
+- For cases that satisfy both literal invalidity and private/blocklisted status, **literal invalidity wins** because the literal/mapped/scoped check runs before `isPrivateIp`.
+- Concrete example: `fe80::1%lo0` must produce `ADDRESS_INVALID_LITERAL` (zone suffix rejected in step 2.5), NOT `ADDRESS_PRIVATE`, even though `isPrivateIp("fe80::1%lo0")` returns `true`.
 
 #### Exact validation semantics
 
 **Container shape (`init.allowedAddresses`):**
 - Must be an `Array` (`Array.isArray(init.allowedAddresses) === true`).
 - Must be non-empty (`length >= 1`).
-- Every element is validated.
-- On the first invalid element, **reject the entire request** — do not filter, drop, reorder, normalize, or silently coerce entries. Mixed arrays (some valid, one invalid) are rejected on the first invalid entry.
+- Every element is validated in array order.
+- On the first invalid element, reject the entire request — do not filter, drop, reorder, normalize, or silently coerce entries. Mixed arrays (some valid, one invalid) are rejected on the first invalid entry.
 
 **Element shape (each `entry`):**
 - Each entry must be a plain object: `Object.getPrototypeOf(entry) === Object.prototype`.
-- `null`, arrays, functions, `Date`, class instances (including `Buffer`), and `Object.create(null)` are invalid.
-- `entry.family` must be `typeof "number"` and exactly `4` or `6`. Numeric strings like `"4"` and `"6"` are invalid.
-- `entry.address` must be `typeof "string"`.
+- `null`, arrays, functions, `Date`, class instances (including `Buffer`), and `Object.create(null)` are invalid → `ADDRESS_ENTRY_NOT_PLAIN_OBJECT`.
+- Required fields `address` and `family` must be **own data properties** (not accessors). Validation checks descriptors via `Object.getOwnPropertyDescriptor` before reading values; accessor descriptors (getter/setter) are rejected as `ADDRESS_ENTRY_NOT_PLAIN_OBJECT` so validation stays pure and side-effect-free.
+- After descriptors are confirmed, each required value is read exactly once.
+- `typeof entry.family === "number"` and exactly `4` or `6`. Numeric strings like `"4"` and `"6"` are invalid.
+- `typeof entry.address === "string"`.
+- Extra/unknown own keys on an entry are ignored — only the required known fields are validated.
 
 **Strict IP literal behavior:**
-- Use `node:net` `isIP(address)` as the parser.
-- Require `net.isIP(address) === family` (so `family === 4` requires `net.isIP(address) === 4`, and `family === 6` requires `net.isIP(address) === 6`).
-- Require `address === address.trim()`; leading/trailing whitespace is invalid.
+- `net.isIP(address) === family` is necessary but not sufficient.
+- Reject zone/scoped IPv6 literals — any address containing `"%"` — BEFORE `net.isIP`/family/private checks. Produces `ADDRESS_INVALID_LITERAL`.
+- Reject IPv4-mapped IPv6 literals (e.g. `::ffff:127.0.0.1`, `::ffff:8.8.8.8`, `::ffff:0102:0304`) BEFORE `net.isIP`/family/private checks. Produces `ADDRESS_INVALID_LITERAL`.
+- No normalization or canonicalization of the input address.
+- Use `node:net` `isIP(address)` as the parser for the remaining check.
+- Require `net.isIP(address) === family` (so `family === 4` requires `net.isIP(address) === 4`, and `family === 6` requires `net.isIP(address) === 6`); on parse-failure (`net.isIP === 0`) emit `ADDRESS_INVALID_LITERAL`; on family/parse mismatch emit `ADDRESS_FAMILY_MISMATCH`.
+- Require `address === address.trim()`; leading/trailing whitespace is invalid → `ADDRESS_INVALID_LITERAL`.
 - Reject CIDR strings, bracketed IPv6 (`[::1]`), hostnames, empty strings, numeric-only IPv4 forms, plus-prefixed forms, IPvFuture, and anything `net.isIP` rejects.
-- Compressed IPv6 and uppercase IPv6 hex are valid **iff** `net.isIP` accepts them and `family === 6`.
+- Compressed IPv6 and uppercase IPv6 hex are valid iff `net.isIP` accepts them and `family === 6`.
 - Leading-zero IPv4 is invalid iff `net.isIP` rejects it.
-- IPv4-mapped IPv6 forms (`::ffff:1.2.3.4` dotted, `::ffff:0102:0304` hex) and scoped/zoned IPv6 (`fe80::1%lo0`) are not acceptable pinning literals and must be rejected as invalid literals even when `net.isIP` accepts them.
 - No new runtime dependencies.
 
 **Private-IP defense-in-depth:**
 - Reuse the existing private-IP predicate `isPrivateIp` from `services/ocr-worker/src/fetcher/privateIp.ts`. Do not duplicate or re-implement the blocklist.
-- Reject any `address` that the predicate classifies as private/reserved/blocked, even though the fetcher already screened DNS-derived addresses at WI-02.
-- Representative coverage beyond loopback: RFC1918 (e.g. `10.0.0.1`), IPv4 link-local (`169.254.x.x`), IPv6 loopback (`::1`), IPv6 link-local (`fe80::/10`), RFC4193/ULA (`fc00::/7`). The existing `isPrivateIp` already covers these via the shared blocklist; tests must exercise at least one representative from each family.
+- The check runs AFTER literal/mapped/scoped rejection. Address recognized by `isPrivateIp` as private/reserved/blocked → `ADDRESS_PRIVATE` (only reached for syntactically valid, non-mapped, non-scoped literals that survived the earlier steps).
+- Representative coverage beyond loopback: RFC1918 (e.g. `10.0.0.1`), IPv4 link-local (`169.254.x.x`), IPv6 loopback (`::1`), IPv6 link-local (`fe80::/10` — un-scoped form), RFC4193/ULA (`fc00::/7`). The existing `isPrivateIp` already covers these via the shared blocklist; tests exercise at least one representative from each family.
 
 #### Internal error module
 
-- Create new internal module: `services/ocr-worker/src/fetcher/httpsTransportErrors.ts`.
-- Export from that internal module **for tests only**:
-  - `HttpsTransportError` (class extending `Error`, carries a stable `code` field)
-  - `HttpsTransportErrorCode` (type/union of stable codes), if useful
-  - `isHttpsTransportError(value): value is HttpsTransportError`, if useful
-- `HttpsTransportError` extends `Error` and carries a stable `code` discriminator. Error messages are non-contractual; tests assert on `code` / `instanceof HttpsTransportError`, not on full message text.
-- **Public export prohibition** — these symbols must NOT be re-exported from:
+Internal module path: `services/ocr-worker/src/fetcher/httpsTransportErrors.ts`.
+
+Shape:
+
+```ts
+class HttpsTransportError extends Error {
+  code: HttpsTransportErrorCode;
+  constructor(message: string, options: { code: HttpsTransportErrorCode; cause?: unknown });
+}
+```
+
+Requirements:
+- `name === "HttpsTransportError"` (set in constructor).
+- `code` is stable, exhaustive, and enumerable (a string literal union or const-enum) so tests assert on `err.code === "<CODE>"`.
+- `cause` is preserved when provided (delegated to `Error`'s standard `cause` option, Node ≥ 16).
+- Stack must be preserved by normal `Error` construction (no manual `Error.captureStackTrace` removal).
+- Error messages are non-contractual; tests assert class / code / cause, not full message text.
+
+Exports from the internal module (for tests + internal callers only):
+- `HttpsTransportError` (class).
+- `HttpsTransportErrorCode` (type/union of stable codes).
+- `isHttpsTransportError(value): value is HttpsTransportError`. The guard must check `instanceof HttpsTransportError` AND `typeof (value as any).code === "string"`; it must not rely only on message text or `name`.
+
+Public export prohibition — these symbols must NOT be re-exported from:
+- `services/ocr-worker/src/index.ts`
+- `services/ocr-worker/src/fetcher/index.ts`
+
+Internal errors must not become public API. The only way external callers see a validation failure is the existing public `https_network_error` `FetcherError` returned by `fetchPageBytes`.
+
+#### Fetcher mapping branch
+
+- `services/ocr-worker/src/fetcher/fetchPageBytes.ts` imports `isHttpsTransportError` from the internal module (`./httpsTransportErrors.js`).
+- In the catch path around the transport call, branch on `isHttpsTransportError(err)` **before** the generic network/timeout catch-all (i.e. before `wrapTimeoutError` or its equivalent), so an internal validation error is never absorbed silently by the generic branch.
+- The branch constructs a public `FetcherError` with `code: "https_network_error"` and **preserves the original `HttpsTransportError` as `cause`** (`new FetcherError(message, { code: "https_network_error", cause: err })`).
+- `FETCHER_ERROR_CODES` is unchanged. No new public fetcher error codes.
+- The mapping test must assert all three:
+  - public `err.code === "https_network_error"`,
+  - `err.cause instanceof HttpsTransportError`,
+  - `err.cause.code === <expected internal validation code>`.
+- The mapping test MUST NOT be satisfiable through generic `wrapTimeoutError` / catch-all behavior — the cause assertion is what proves the explicit internal branch fired.
+
+#### Internal test seam
+
+- Add and export `makeNodeHttpsRequestTransportForTest({ request })` from `services/ocr-worker/src/fetcher/httpsTransport.ts` only.
+- Do NOT export it from:
   - `services/ocr-worker/src/index.ts`
   - `services/ocr-worker/src/fetcher/index.ts`
-- Internal errors must not become public API. The only way external callers see a validation failure is the existing public `https_network_error` `FetcherError` returned by `fetchPageBytes`.
-- The fetcher maps every internal transport validation failure to the existing public `https_network_error` code. `FETCHER_ERROR_CODES` is unchanged. No new public fetcher error codes.
+- WI-03b validation tests may import it by source/internal path (e.g. `../dist/fetcher/httpsTransport.js` or `../src/fetcher/httpsTransport.ts` depending on the existing test build setup).
+- The seam accepts a fake `request` function. The fake must record whether it was called (e.g. by mutating a `called: boolean` flag, or by being a wrapper around `node:test`'s `mock.fn()`).
+- Runtime-validation tests must assert: on every invalid `allowedAddresses` shape, the recording fake `request` is **never called** and an `HttpsTransportError` is thrown.
+- This is an internal test seam only, not public API. Production code must continue to use `makeNodeHttpsRequestTransport` from WI-03a.
 
 #### Test → internal-code mapping (15 runtime-validation stubs)
 
-The 15 `test.skip(..., { skip: "Unlocked by WI-03" })` cases in `services/ocr-worker/tests/fetcher.https.transport.test.mjs` are un-skipped and each pinned to a stable internal code. Each test asserts on `instanceof HttpsTransportError` and `err.code === <CODE>` as the primary check; message regex is retained only as a secondary readability check.
+The 15 `test.skip(..., { skip: "Unlocked by WI-03" })` cases in `services/ocr-worker/tests/fetcher.https.transport.test.mjs` are un-skipped and each pinned to a stable internal code. Each test asserts on `instanceof HttpsTransportError` AND `err.code === <CODE>` as the primary check. The pre-existing message regex is removed (non-contractual messages preclude a forward-compatible regex assertion); test titles are kept for readability.
 
-If the implemented stub names differ from this table, align the table to the real test names — but the four hard mapping rules below are binding regardless of naming.
+If the implemented stub titles differ from this table, align the table to the real test titles — the binding contract is the `err.code` value per step, not the title.
 
 | # | Test (verbatim title fragment)                            | Internal code (`HttpsTransportError.code`) |
 |---|-----------------------------------------------------------|--------------------------------------------|
@@ -672,30 +763,57 @@ If the implemented stub names differ from this table, align the table to the rea
 |14 | private IPv4 (`127.0.0.1`) — defense-in-depth              | `ADDRESS_PRIVATE`                          |
 |15 | private IPv6 (`::1`) — defense-in-depth                    | `ADDRESS_PRIVATE`                          |
 
-Hard mapping rules (binding regardless of test renaming):
-- non-number `family` → `ADDRESS_FAMILY_NOT_NUMBER`.
-- `family` is a number but not exactly `4` or `6` → `ADDRESS_FAMILY_INVALID`.
-- Valid IP literal of one family with `family` field set to the other → `ADDRESS_FAMILY_MISMATCH`.
-- Address recognized by `isPrivateIp` as private/reserved/blocked → `ADDRESS_PRIVATE`.
-- Mixed arrays containing one invalid entry → reject the entire request on the first invalid entry; do not filter, drop, or reorder. Per-entry validation surfaces the per-entry code from the table; a parent `ADDRESS_LIST_CONTAINS_INVALID_ENTRY` wrapper code MAY be used if the implementation prefers a two-layer shape, but it must not mask the inner discriminator.
+**Top-level error code is the per-entry code.** There is no aggregate / wrapper code. The top-level `HttpsTransportError.code` is exactly the per-entry code for the first invalid entry. Mixed arrays produce the per-entry code of the first invalid element, not a wrapper.
 
 #### Fetcher-level mapping coverage (acceptance)
 
-- At least one fetcher-level test proves an internal `HttpsTransportError` from runtime validation maps to public `FetcherError.code === "https_network_error"`.
-- The mapping test must NOT rely on DNS, TLS, or network failure to trigger the internal error.
-- Use a syntactically valid HTTPS source URL and an `allowedAddresses` value that fails preflight validation (e.g. empty array, or an entry with `family=5`).
-- The failure source must be the internal `HttpsTransportError`, not a Node `ERR_*` system error or a DNS error.
+- At least one fetcher-level test proves an internal `HttpsTransportError` from runtime validation maps to public `FetcherError.code === "https_network_error"` AND preserves the internal error as `cause`.
+- The mapping test must NOT rely on DNS, TLS, or network failure to trigger the internal error, and must not be satisfiable through generic `wrapTimeoutError`/catch-all behavior.
+- The mapping test must exercise the path AFTER the fetcher's DNS pre-check, not before — the empty `allowedAddresses` array example is not acceptable because the fetcher rejects an empty DNS result before reaching the transport.
+- Recommended setup:
+  - Source URL: `https://example.test/page.png`.
+  - DNS resolver returns a valid public address such as `{ address: "8.8.8.8", family: 4 }` so the fetcher's DNS pre-check passes.
+  - Either:
+    (a) inject a stub transport that throws `new HttpsTransportError("...", { code: "ADDRESS_FAMILY_INVALID" })`, OR
+    (b) use the real transport with `allowedAddresses` overridden after DNS to `[{ address: "8.8.8.8", family: 5 }]` so the transport's preflight rejects with `ADDRESS_FAMILY_INVALID`, OR
+    (c) override to `[{ address: "8.8.8.8", family: 6 }]` to trigger `ADDRESS_FAMILY_MISMATCH`.
+- Assertions on the resulting public `FetcherError`:
+  - `err.code === "https_network_error"`.
+  - `err.cause instanceof HttpsTransportError`.
+  - `err.cause.code === <expected internal code, e.g. "ADDRESS_FAMILY_INVALID">`.
 - The existing public fetcher error surface (`FETCHER_ERROR_CODES`) is preserved exactly.
+
+#### Public-barrel prohibition smoke test (acceptance)
+
+Add a **non-skipped** smoke test that imports the **public** barrels and asserts the internal symbols are absent:
+
+- Imports:
+  - `../dist/index.js` (or the existing barrel path used by the package's other public-surface tests)
+  - `../dist/fetcher/index.js`
+- Assertions — these symbols must be absent from both public barrels:
+  - `HttpsTransportError`
+  - `HttpsTransportErrorCode`
+  - `isHttpsTransportError`
+  - `makeNodeHttpsRequestTransportForTest`
+- The existing public exports established by WI-03a must remain available:
+  - `makeNodeHttpsRequestTransport`
+  - `makeNodeFetchHttpsTransport`
+  - `makePinnedLookup`
+  - The associated public type exports (`MakeNodeHttpsRequestTransportOptions`, `FetcherError`, `FETCHER_ERROR_CODES`, etc.) per the existing `services/ocr-worker/src/fetcher/index.ts` surface.
+- The smoke test imports `HttpsTransportError` etc. from the **internal** module path separately, only to compare and assert the public barrel imports do not equal those internal exports (defensive). The check is `assert.ok(!("HttpsTransportError" in publicBarrelNamespace))` style, not an identity check.
 
 #### Acceptance criteria (summary)
 
-- Preflight validation runs inside `transport.fetch` before `https.request`, before the custom lookup callback, and before any socket activity.
+- Preflight validation runs inside `transport.fetch` before `https.request`, before the custom lookup callback, and before any socket activity — proven via the `makeNodeHttpsRequestTransportForTest` seam and a recording fake `request`.
 - The 15 runtime-validation stubs in `fetcher.https.transport.test.mjs` are un-skipped, each asserts on `instanceof HttpsTransportError` and stable `err.code` per the table, and all pass.
-- `HttpsTransportError` lives in `services/ocr-worker/src/fetcher/httpsTransportErrors.ts` and is NOT re-exported from `services/ocr-worker/src/index.ts` or `services/ocr-worker/src/fetcher/index.ts`.
-- The fetcher maps every internal transport validation failure to public `https_network_error`. `FETCHER_ERROR_CODES` is unchanged.
-- At least one fetcher-level test proves the internal→public mapping using only validation failure (no DNS/TLS/network).
-- No new public fetcher error codes.
-- No new runtime dependencies.
+- Validation order is exactly: container checks → per-entry plain-object + own-data-property descriptors → type checks → trim equality → mapped/scoped literal rejection → `net.isIP` parse → family match → `isPrivateIp`. First invalid element rejects the whole request.
+- `fe80::1%lo0` produces `ADDRESS_INVALID_LITERAL`, not `ADDRESS_PRIVATE`.
+- `HttpsTransportError` lives in `services/ocr-worker/src/fetcher/httpsTransportErrors.ts`, has `name === "HttpsTransportError"`, preserves `cause`, and is NOT re-exported from `services/ocr-worker/src/index.ts` or `services/ocr-worker/src/fetcher/index.ts`.
+- `makeNodeHttpsRequestTransportForTest({ request })` is exported only from `httpsTransport.ts` and NOT from public barrels.
+- The fetcher (`fetchPageBytes.ts`) has an explicit `isHttpsTransportError` branch before the generic catch-all, maps to public `https_network_error`, and preserves the internal error as `cause`.
+- At least one fetcher-level mapping test asserts public code + cause + cause code, exercises the path after the DNS pre-check, and is not satisfiable via generic catch-all.
+- A non-skipped public-barrel smoke test asserts `HttpsTransportError`, `HttpsTransportErrorCode`, `isHttpsTransportError`, and `makeNodeHttpsRequestTransportForTest` are absent from both public barrels.
+- `FETCHER_ERROR_CODES` unchanged. No new public fetcher error codes. No new runtime dependencies.
 
 Tests to run:
 - `node --test services/ocr-worker/tests/fetcher.https.transport.test.mjs`
