@@ -1,10 +1,10 @@
 # PLAN-CLIENT-00 — Client Application Surface (Reconciliation)
 
-**Status**: Draft plan. Discovery + architecture reconciliation. Not implementation. Not authorization.
+**Status**: CLIENT-00a (track plan), CLIENT-00c (GW-00 split), and CLIENT-00b (case-box boundary promotion) **complete**. This document is the historical reconciliation record; the authoritative product summary now lives at `docs/product/product-target-architecture.md`, and the architecture decisions live in `docs/adr/client-application-surface.md`, `docs/adr/sync-bridge-architecture.md`, and `docs/adr/case-box-step-0-boundary.md`.
 
-**Date**: 2026-05-20.
+**Date**: 2026-05-20. CLIENT-00b promotion: 2026-05-20.
 
-**Branch**: `gw-00-ui-gateway-architecture` (the GW-00 ADR is uncommitted on this branch; PLAN-CLIENT-00 reconciles it before any commit).
+**Branch**: `gw-00-ui-gateway-architecture` (the GW-00 ADR was uncommitted on this branch; PLAN-CLIENT-00 reconciled it before commit and the GW-00 draft is now archived at `dev-memo/superseded/gw-00-ocr-ui-gateway-architecture.md`).
 
 **Purpose**: Decide the v1 lawyer-client application surface and reconcile two existing-but-conflicting design directions: the GW-00 ADR (HTTP API gateway primary) and `dev-memo/case-box-plan.md` (local-only, no HTTP, single-user MVP). Both predate PLAN-CLIENT-00; both contain correct pieces; neither alone is the right v1 framing.
 
@@ -203,11 +203,11 @@ The following must each clear before the architecture decision can land as code.
 
 This plan does NOT authorize execution. It sketches the order in which downstream WIs would land.
 
-| Step | Output | Authorization gate |
-|---|---|---|
-| **CLIENT-00 (this doc)** | `dev-memo/plan-client-00.md` | this turn — user-authorized |
-| **CLIENT-00b** | Promote `dev-memo/case-box-plan.md` to a tracked ADR set (Phase 0 of that plan's own ADR list — `docs/adr/case-box-step-0-boundary.md`). No code; just track the boundary decision so PLAN-CLIENT-00 can reference it without referencing an untracked file | next user authorization |
-| **CLIENT-00c** | Execute the GW-00 reconciliation per §5 Option β: delete `docs/adr/ocr-ui-gateway-architecture.md` from this branch, create `docs/adr/client-application-surface.md` and `docs/adr/sync-bridge-architecture.md`, rewrite `docs/ui/ui-gateway-contract-draft.md` as the sync-bridge endpoint reference | next user authorization (touches existing draft files; reviewer should see the deletion explicitly) |
+| Step | Output | Authorization gate | Status |
+|---|---|---|---|
+| **CLIENT-00a** | `dev-memo/plan-client-00.md` tracked (commit `a07e5d1`) | user-authorized 2026-05-20 | **done** |
+| **CLIENT-00c** | GW-00 reconciliation per §5 Option β: archived `docs/adr/ocr-ui-gateway-architecture.md` to `dev-memo/superseded/`, created `docs/adr/client-application-surface.md` and `docs/adr/sync-bridge-architecture.md`, renamed `docs/ui/ui-gateway-contract-draft.md` to `docs/ui/sync-bridge-contract-draft.md` with re-scoped endpoints, updated `docs/ui/ui-gap-report.md` (commit `cc2071e`) | user-authorized 2026-05-20 | **done** |
+| **CLIENT-00b** | Promote `dev-memo/case-box-plan.md` authoritative content to `docs/adr/case-box-step-0-boundary.md` + `docs/product/product-target-architecture.md`; archive case-box-plan.md to `dev-memo/superseded/` | user-authorized 2026-05-20 | **done** |
 | **CLIENT-01** | Desktop-app framework Stop-and-Ask (Electron vs Tauri vs native) | Stop-and-Ask: new runtime dependency |
 | **CLIENT-02** | Renderer UI framework Stop-and-Ask | Stop-and-Ask: new runtime dependency |
 | **CLIENT-03** | `apps/lawbar-desktop/` scaffold (main process, IPC bridge, empty renderer). No screens yet. | regular implementation WI after CLIENT-01 + CLIENT-02 |
@@ -224,10 +224,10 @@ This plan does NOT authorize execution. It sketches the order in which downstrea
 | `docs/ui/current-ui-map.md` | Keep. S1–S7 surface remains valid; delivery mechanism changes from "HTTP gateway" to "in-process IPC for primary + narrow HTTP for companion". Add one-line forward reference to PLAN-CLIENT-00 only if no over-edit risk |
 | `docs/ui/ui-state-contract.md` | Keep. State contract derived from `transitions.ts` is mechanism-independent |
 | `docs/ui/ui-gap-report.md` | Already contains a forward reference to GW-00 (added during GW-00 drafting). Update minimally to point at PLAN-CLIENT-00 when CLIENT-00c executes |
-| `docs/adr/ocr-ui-gateway-architecture.md` | Recommended deletion under CLIENT-00c. NOT touched by this plan |
-| `docs/ui/ui-gateway-contract-draft.md` | Recommended rewrite under CLIENT-00c as a sync-bridge reference. NOT touched by this plan |
-| `docs/release/wi-03-security-signoff.md` | Keep. The Q10 paragraph about GW-00 needs a one-line edit when CLIENT-00c lands to point at the new ADR names, but this plan does NOT touch it |
-| `dev-memo/case-box-plan.md` | Treated as authoritative-pending-promotion. Recommended promotion in CLIENT-00b. NOT moved by this plan |
+| `docs/adr/ocr-ui-gateway-architecture.md` | **Done in CLIENT-00c**: archived to `dev-memo/superseded/gw-00-ocr-ui-gateway-architecture.md` (gitignored) |
+| `docs/ui/ui-gateway-contract-draft.md` | **Done in CLIENT-00c**: renamed to `docs/ui/sync-bridge-contract-draft.md` with endpoints re-scoped by SYNC step |
+| `docs/release/wi-03-security-signoff.md` | Keep. The Q10 paragraph about GW-00 still references the deleted ADR name; a one-line edit may be made in a future docs WI to point at the new ADR names |
+| `dev-memo/case-box-plan.md` | **Done in CLIENT-00b**: authoritative content promoted to `docs/adr/case-box-step-0-boundary.md` + `docs/product/product-target-architecture.md`; original archived to `dev-memo/superseded/case-box-plan.md` (gitignored) |
 | `dev-memo/real-ocr-worker-brainstorm.md` | Keep as historical brainstorm. Constraint C5 (local-OCR-by-default) aligns with PLAN-CLIENT-00; no edit needed |
 
 ---
