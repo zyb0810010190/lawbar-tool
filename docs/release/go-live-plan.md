@@ -1010,6 +1010,19 @@ Mapping mechanics:
 - Exactly the WI-03c-class tests enumerated above are un-skipped; TLS / hostname / e2e / no-reorder tests remain skipped with renamed reason `"Unlocked by WI-03d"`.
 - No new public fetcher error codes. No new runtime dependencies.
 
+#### Implementation order (mandatory)
+
+1. Add the new internal `HttpsTransportError` codes to `httpsTransportErrors.ts`.
+2. Implement the duplicate / syntax Content-Length parser in the transport response callback BEFORE yielding the response.
+3. Implement the Buffer → Uint8Array body adapter on the body iterator.
+4. Implement abort wiring + listener cleanup across the testable phases.
+5. Discriminate `RESPONSE_ABORTED` in the fetcher mapping branch.
+6. Extend the public-barrel smoke test with the new internal symbols.
+7. Re-run the full WI-03b regression set — including `fetcher.https.transport.test.mjs` WI-03b validation cases, `fetcher.public-surface.test.mjs`, and the WI-03b mapping tests in `fetcher.https.test.mjs`. All must still pass before WI-03c may un-skip its own test set.
+8. Un-skip the 9 firm + up-to-2 conditional WI-03c tests; rename the skip reason on deferred cases to `"Unlocked by WI-03d"`.
+
+WI-03c is not complete until both the WI-03b regression set and the WI-03c un-skip set are green simultaneously.
+
 Tests to run:
 - `node --test services/ocr-worker/tests/fetcher.https.transport.test.mjs`
 - `node --test services/ocr-worker/tests/fetcher.https.test.mjs`
