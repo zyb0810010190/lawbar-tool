@@ -90,6 +90,17 @@ commit history under `WI-02`). The runtime validation requirements
 in §5 and the production transport behavior in §4 are NOT yet
 implemented; those land in WI-03.
 
+**WI-03a landing status**: WI-03a lands the pinned
+`node:https.request` transport core and package exports only.
+WI-03b runtime validation, WI-03c response adapter strictness, and
+WI-03d full TLS harness/test activation remain pending. WI-03a does
+not by itself complete the full WI-03 verification matrix or
+go-live security sign-off. The canonical factory
+`makeNodeHttpsRequestTransport` and the types `HttpsTransport` /
+`DnsAddress` are re-exported from both
+`services/ocr-worker/src/fetcher/index.ts` and
+`services/ocr-worker/src/index.ts`.
+
 Replace ADR-11D.2 §2 `HttpsTransport` seam with:
 
 ~~~ts
@@ -137,6 +148,25 @@ global `fetch`. The behavior described below — `node:https.request`
 with custom `lookup`, per-request `ca`, `agent: false`, etc. —
 lands in WI-03. SSRF closure (no TOCTOU between fetcher DNS check
 and socket DNS resolution) completes at WI-03, not WI-02.
+
+**WI-03a landing status**: WI-03a lands the pinned
+`node:https.request` transport core and package exports only.
+WI-03b runtime validation, WI-03c response adapter strictness, and
+WI-03d full TLS harness/test activation remain pending. WI-03a does
+not by itself complete the full WI-03 verification matrix or
+go-live security sign-off. The new canonical factory is
+`makeNodeHttpsRequestTransport(options?: { ca?: string | Buffer |
+Array<string | Buffer> })`; legacy `makeNodeFetchHttpsTransport()`
+is retained as a thin compatibility wrapper that delegates to
+`makeNodeHttpsRequestTransport({})`, so the existing
+`fetchPageBytes.ts` default callsite continues unchanged. The
+lookup callback pins to `allowedAddresses[0]` in both
+`options.all === true` (single-element array) and legacy
+single-address modes; the full vetted list is never returned
+wholesale to Node's lookup. Strict runtime validation (§5), strict
+Content-Length parsing + body adaptation (§6), and the abort-phase
+mechanics + error mapping (§6/§7) remain WI-03b/c work and are not
+yet implemented.
 
 Default transport switches from global `fetch` to `node:https.request`.
 `https.request(url, options)` accepts `http.request` options and TLS

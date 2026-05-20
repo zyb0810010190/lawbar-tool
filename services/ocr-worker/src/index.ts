@@ -87,6 +87,14 @@ export {
   type FetcherErrorCode,
   type FetcherDeps,
   type FetchedPage,
+  type HttpsTransport,
+  type HttpsTransportResponse,
+  type DnsAddress,
+  type DnsLookupFn,
+  makeNodeHttpsRequestTransport,
+  makeNodeFetchHttpsTransport,
+  makePinnedLookup,
+  type MakeNodeHttpsRequestTransportOptions,
 } from "./fetcher/index.js";
 export {
   WORKER_REGISTRY,

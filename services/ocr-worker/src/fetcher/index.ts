@@ -7,4 +7,14 @@ export {
   type FetcherErrorCode,
   type FetcherDeps,
   type FetchedPage,
+  type HttpsTransport,
+  type HttpsTransportResponse,
+  type DnsAddress,
+  type DnsLookupFn,
 } from "./types.js";
+export {
+  makeNodeHttpsRequestTransport,
+  makeNodeFetchHttpsTransport,
+  makePinnedLookup,
+  type MakeNodeHttpsRequestTransportOptions,
+} from "./httpsTransport.js";
