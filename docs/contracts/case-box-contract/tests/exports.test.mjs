@@ -48,6 +48,13 @@ const expectedFns = [
   "isMarkerProtective",
   "isMarkerLifecycleTerminal",
   "isMachineSuggestedMarker",
+  // Step 4
+  "isKnownAuditEntityType",
+  "canonicalAuditEventHashInput",
+  "assertReasonForAuditEventKind",
+  "buildCaseBoxAuditEvent",
+  "verifyAuditChain",
+  "asAuditEventHash",
 ];
 
 const expectedArrays = [
@@ -69,6 +76,8 @@ const expectedArrays = [
   "ALLOWED_DEADLINE_EDGES",
   "ALLOWED_FACT_EDGES",
   "ALLOWED_PRIVILEGE_MARKER_EDGES",
+  // Step 4
+  "CASE_BOX_AUDIT_ENTITY_TYPES",
 ];
 
 const expectedObjects = [
@@ -93,6 +102,7 @@ const expectedErrorCtors = [
   "FactPromotionInvariantError",
   "FactCreationInvariantError",
   "PrivilegeMarkerCreationError",
+  "AuditEventReasonRequiredError",
 ];
 
 test("every expected function is exported and callable", () => {
@@ -118,6 +128,12 @@ test("every expected array is exported and non-empty (where applicable)", () => 
   assert.ok(pkg.ALLOWED_DEADLINE_EDGES.length > 0);
   assert.ok(pkg.ALLOWED_FACT_EDGES.length > 0);
   assert.ok(pkg.ALLOWED_PRIVILEGE_MARKER_EDGES.length > 0);
+  assert.ok(pkg.CASE_BOX_AUDIT_ENTITY_TYPES.length > 0);
+});
+
+test("CASE_BOX_AUDIT_EVENT_KINDS is exported as a non-empty object", () => {
+  assert.equal(typeof pkg.CASE_BOX_AUDIT_EVENT_KINDS, "object");
+  assert.ok(Object.keys(pkg.CASE_BOX_AUDIT_EVENT_KINDS).length > 0);
 });
 
 test("every expected schema is exported and frozen", () => {
@@ -163,4 +179,9 @@ test("error constructors produce Error instances with named .name", () => {
   assert.ok(e5 instanceof Error);
   assert.equal(e5.name, "PrivilegeMarkerCreationError");
   assert.equal(e5.violation, "not lawyer");
+
+  const e6 = new pkg.AuditEventReasonRequiredError("PRIVILEGE_MARKER_WAIVED");
+  assert.ok(e6 instanceof Error);
+  assert.equal(e6.name, "AuditEventReasonRequiredError");
+  assert.equal(e6.kind, "PRIVILEGE_MARKER_WAIVED");
 });

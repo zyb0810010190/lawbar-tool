@@ -1,0 +1,16 @@
+{
+  "_invalid_reason": "Step-4 schema change: additionalProperties: false rejects unknown fields (this fixture has wibble)",
+  "_target_schema": "case-box-audit-event",
+  "id": "01jrcasebox0000000000000a2",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "action": "create",
+  "entity_type": "matter",
+  "entity_id": "01jrcasebox0000000000000m1",
+  "before_state_hash": null,
+  "after_state_hash": "sha256:abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1",
+  "prev_event_hash": null,
+  "timestamp": "2026-05-20T09:00:00.000Z",
+  "wibble": "should-be-rejected"
+}

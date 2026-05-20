@@ -356,3 +356,21 @@ test("invalid: privilege-marker-proposed-with-confirmed-at is rejected (M1)", ()
   const offenders = (validatePrivilegeMarker.errors || []).filter((e) => e.instancePath === "/confirmed_at");
   assert.ok(offenders.length > 0, `expected error on /confirmed_at (got ${errs(validatePrivilegeMarker)})`);
 });
+
+// ---------------------------------------------------------------------------
+// Step-4 audit-event schema tightenings
+// ---------------------------------------------------------------------------
+
+test("invalid: audit-event with extra property is rejected (additionalProperties: false)", () => {
+  const fixture = readJson(join(invalidDir, "audit-event-extra-property.json"));
+  assert.equal(validateAuditEvent(fixture), false);
+  const offenders = (validateAuditEvent.errors || []).filter((e) => e.keyword === "additionalProperties");
+  assert.ok(offenders.length > 0, `expected additionalProperties error (got ${errs(validateAuditEvent)})`);
+});
+
+test("invalid: audit-event with bad entity_type is rejected (entity_type enum)", () => {
+  const fixture = readJson(join(invalidDir, "audit-event-bad-entity-type.json"));
+  assert.equal(validateAuditEvent(fixture), false);
+  const offenders = (validateAuditEvent.errors || []).filter((e) => e.instancePath === "/entity_type");
+  assert.ok(offenders.length > 0, `expected enum error on /entity_type (got ${errs(validateAuditEvent)})`);
+});

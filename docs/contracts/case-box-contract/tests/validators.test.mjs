@@ -31,7 +31,18 @@ import {
   FactPromotionInvariantError,
   FactCreationInvariantError,
   OcrSubordinationError,
+  // Step 4
+  CASE_BOX_AUDIT_ENTITY_TYPES,
+  CASE_BOX_AUDIT_EVENT_KINDS,
+  isKnownAuditEntityType,
+  canonicalAuditEventHashInput,
+  assertReasonForAuditEventKind,
+  buildCaseBoxAuditEvent,
+  verifyAuditChain,
+  asAuditEventHash,
+  AuditEventReasonRequiredError,
 } from "../dist/index.js";
+import { createHash } from "node:crypto";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -539,6 +550,284 @@ test("PrivilegeResolution shape has NO disclosure-clearance fields", () => {
   const banned = ["isPrivileged", "safeToDisclose", "disclosureClearance", "notPrivileged"];
   for (const k of banned) {
     assert.equal(k in r, false, `PrivilegeResolution must NOT have field ${k}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Step 4 — audit log helpers
+// ---------------------------------------------------------------------------
+
+// Sample event for canonical-hash exact-string test. Field values picked so
+// JSON.stringify output is stable and short.
+const SAMPLE_AUDIT_EVENT = {
+  id: "01jrcasebox0000000000000a1",
+  tenant_id: "tenant-local-v1",
+  actor_user_id: "local-user",
+  matter_id: "01jrcasebox0000000000000m1",
+  action: "create",
+  entity_type: "matter",
+  entity_id: "01jrcasebox0000000000000m1",
+  before_state_hash: null,
+  after_state_hash: "sha256:abc",
+  prev_event_hash: null,
+  timestamp: "2026-05-20T09:00:00.000Z",
+};
+const SAMPLE_CANONICAL =
+  '{"action":"create","actor_user_id":"local-user","after_state_hash":"sha256:abc","before_state_hash":null,"entity_id":"01jrcasebox0000000000000m1","entity_type":"matter","id":"01jrcasebox0000000000000a1","matter_id":"01jrcasebox0000000000000m1","prev_event_hash":null,"reason":null,"tenant_id":"tenant-local-v1","timestamp":"2026-05-20T09:00:00.000Z"}';
+
+test("canonicalAuditEventHashInput: produces the exact pinned canonical string", () => {
+  assert.equal(canonicalAuditEventHashInput(SAMPLE_AUDIT_EVENT), SAMPLE_CANONICAL);
+});
+
+test("canonicalAuditEventHashInput: includes id and timestamp (plan-review correction)", () => {
+  const s = canonicalAuditEventHashInput(SAMPLE_AUDIT_EVENT);
+  assert.ok(s.includes('"id":"01jrcasebox0000000000000a1"'));
+  assert.ok(s.includes('"timestamp":"2026-05-20T09:00:00.000Z"'));
+});
+
+test("canonicalAuditEventHashInput: determinism — same input twice → same output", () => {
+  const a = canonicalAuditEventHashInput(SAMPLE_AUDIT_EVENT);
+  const b = canonicalAuditEventHashInput({ ...SAMPLE_AUDIT_EVENT });
+  assert.equal(a, b);
+});
+
+test("canonicalAuditEventHashInput: throws when a required canonical field is undefined", () => {
+  const broken = { ...SAMPLE_AUDIT_EVENT, action: undefined };
+  assert.throws(() => canonicalAuditEventHashInput(broken), /undefined/);
+});
+
+test("assertReasonForAuditEventKind: PRIVILEGE_MARKER_WAIVED empty reason throws", () => {
+  assert.throws(() => assertReasonForAuditEventKind("PRIVILEGE_MARKER_WAIVED", ""), AuditEventReasonRequiredError);
+  assert.throws(() => assertReasonForAuditEventKind("PRIVILEGE_MARKER_WAIVED", null), AuditEventReasonRequiredError);
+  assert.throws(() => assertReasonForAuditEventKind("PRIVILEGE_MARKER_WAIVED", undefined), AuditEventReasonRequiredError);
+});
+
+test("assertReasonForAuditEventKind: DEADLINE_MISSED_TO_MET requires reason (helper ceiling beyond schema)", () => {
+  assert.throws(() => assertReasonForAuditEventKind("DEADLINE_MISSED_TO_MET", undefined), AuditEventReasonRequiredError);
+  assert.doesNotThrow(() => assertReasonForAuditEventKind("DEADLINE_MISSED_TO_MET", "filed within grace period"));
+});
+
+test("assertReasonForAuditEventKind: FACT_ACCEPTED does NOT require reason", () => {
+  assert.doesNotThrow(() => assertReasonForAuditEventKind("FACT_ACCEPTED", undefined));
+});
+
+test("assertReasonForAuditEventKind: FACT_REJECTED requires reason", () => {
+  assert.throws(() => assertReasonForAuditEventKind("FACT_REJECTED", undefined), AuditEventReasonRequiredError);
+});
+
+test("assertReasonForAuditEventKind: PRIVILEGE_MARKER_DISMISSED requires reason", () => {
+  assert.throws(() => assertReasonForAuditEventKind("PRIVILEGE_MARKER_DISMISSED", undefined), AuditEventReasonRequiredError);
+});
+
+test("assertReasonForAuditEventKind: EXTERNAL_OCR_REVOKED / SYNC_GRANT_REVOKED / LLM_EXTRACTION_OPT_OUT require reason", () => {
+  for (const k of ["EXTERNAL_OCR_REVOKED", "SYNC_GRANT_REVOKED", "LLM_EXTRACTION_OPT_OUT"]) {
+    assert.throws(() => assertReasonForAuditEventKind(k, undefined), AuditEventReasonRequiredError, `${k} should require reason`);
+  }
+});
+
+test("buildCaseBoxAuditEvent: FACT_ACCEPTED happy path returns ok=true with action=update, entity_type=fact", () => {
+  const r = buildCaseBoxAuditEvent({
+    kind: "FACT_ACCEPTED",
+    id: "01jrcasebox0000000000000a4",
+    tenant_id: "tenant-local-v1",
+    actor_user_id: "local-user",
+    matter_id: "01jrcasebox0000000000000m1",
+    entity_id: "01jrcasebox0000000000000f5",
+    before_state_hash: "sha256:before",
+    after_state_hash: "sha256:after",
+    prev_event_hash: "sha256:prior",
+    timestamp: "2026-05-20T11:20:30.000Z",
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.value.action, "update");
+  assert.equal(r.value.entity_type, "fact");
+});
+
+test("buildCaseBoxAuditEvent: FACT_REPLACEMENT_ACCEPTED uses action=create (plan-review D1.3)", () => {
+  const r = buildCaseBoxAuditEvent({
+    kind: "FACT_REPLACEMENT_ACCEPTED",
+    id: "01jrcasebox0000000000000a5",
+    tenant_id: "tenant-local-v1",
+    actor_user_id: "local-user",
+    matter_id: "01jrcasebox0000000000000m1",
+    entity_id: "01jrcasebox0000000000000f6",
+    before_state_hash: null,
+    after_state_hash: "sha256:newrow",
+    prev_event_hash: "sha256:prior",
+    timestamp: "2026-05-20T12:00:30.000Z",
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.value.action, "create");
+});
+
+test("buildCaseBoxAuditEvent: reason-required kind without reason returns ok=false (helper)", () => {
+  const r = buildCaseBoxAuditEvent({
+    kind: "PRIVILEGE_MARKER_DISMISSED",
+    id: "01jrcasebox0000000000000a6",
+    tenant_id: "tenant-local-v1",
+    actor_user_id: "local-user",
+    matter_id: "01jrcasebox0000000000000m1",
+    entity_id: "01jrcasebox0000000000000p5",
+    before_state_hash: "sha256:before",
+    after_state_hash: "sha256:after",
+    prev_event_hash: "sha256:prior",
+    timestamp: "2026-05-20T14:35:00.000Z",
+  });
+  assert.equal(r.ok, false);
+});
+
+test("buildCaseBoxAuditEvent: PRIVILEGE_MARKER_WAIVED empty reason fails (schema floor + helper)", () => {
+  const r = buildCaseBoxAuditEvent({
+    kind: "PRIVILEGE_MARKER_WAIVED",
+    id: "01jrcasebox0000000000000a7",
+    tenant_id: "tenant-local-v1",
+    actor_user_id: "local-user",
+    matter_id: "01jrcasebox0000000000000m1",
+    entity_id: "01jrcasebox0000000000000p6",
+    before_state_hash: "sha256:before",
+    after_state_hash: "sha256:after",
+    prev_event_hash: "sha256:prior",
+    timestamp: "2026-06-15T09:00:00.000Z",
+    reason: "",
+  });
+  assert.equal(r.ok, false);
+});
+
+test("buildCaseBoxAuditEvent: never throws", () => {
+  // Even a bogus kind should be returned as ok=false, not thrown.
+  const r = buildCaseBoxAuditEvent({ kind: "BOGUS", id: "x", tenant_id: "x", actor_user_id: "x", matter_id: "x", entity_id: "x", before_state_hash: null, after_state_hash: "x", prev_event_hash: null, timestamp: "x" });
+  assert.equal(r.ok, false);
+});
+
+test("asAuditEventHash: accepts 64-char lowercase hex; rejects everything else", () => {
+  const valid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+  assert.equal(asAuditEventHash(valid), valid);
+  assert.throws(() => asAuditEventHash("ABC"), /not a valid/);
+  assert.throws(() => asAuditEventHash(valid.toUpperCase()), /not a valid/);
+  assert.throws(() => asAuditEventHash("z".repeat(64)), /not a valid/);
+  assert.throws(() => asAuditEventHash(""), /not a valid/);
+});
+
+test("isKnownAuditEntityType: returns true for v1 vocabulary, false for unknown", () => {
+  for (const t of CASE_BOX_AUDIT_ENTITY_TYPES) {
+    assert.equal(isKnownAuditEntityType(t), true);
+  }
+  assert.equal(isKnownAuditEntityType("wibble"), false);
+});
+
+// ---------------------------------------------------------------------------
+// Audit chain verifier — uses real SHA-256 for hash fn
+// ---------------------------------------------------------------------------
+
+function sha256Hex(input) {
+  return createHash("sha256").update(input, "utf8").digest("hex");
+}
+function eventHashFn(event) {
+  return asAuditEventHash(sha256Hex(canonicalAuditEventHashInput(event)));
+}
+
+test("verifyAuditChain: empty chain returns ok=true, verifiedCount=0, headHash=null", () => {
+  const r = verifyAuditChain([], { eventHashFn });
+  assert.equal(r.ok, true);
+  assert.equal(r.verifiedCount, 0);
+  assert.equal(r.headHash, null);
+});
+
+test("verifyAuditChain: single create event with null prev_event_hash passes", () => {
+  const e = { ...SAMPLE_AUDIT_EVENT };
+  const r = verifyAuditChain([e], { eventHashFn });
+  assert.equal(r.ok, true);
+  assert.equal(r.verifiedCount, 1);
+  assert.equal(typeof r.headHash, "string");
+  assert.equal(r.headHash.length, 64);
+});
+
+test("verifyAuditChain: first event with non-null prev_event_hash returns ok=false", () => {
+  const e = { ...SAMPLE_AUDIT_EVENT, prev_event_hash: "sha256:something" };
+  const r = verifyAuditChain([e], { eventHashFn });
+  assert.equal(r.ok, false);
+  assert.equal(r.errorReason, "prev_event_hash_non_null_for_first_event");
+  assert.equal(r.errorIndex, 0);
+});
+
+test("verifyAuditChain: create event with non-null before_state_hash returns ok=false", () => {
+  const e = { ...SAMPLE_AUDIT_EVENT, before_state_hash: "sha256:bad" };
+  const r = verifyAuditChain([e], { eventHashFn });
+  assert.equal(r.ok, false);
+  assert.equal(r.errorReason, "before_state_hash_not_null_on_create");
+});
+
+test("verifyAuditChain: 3-event chain with correct prev_event_hash via real SHA-256 returns ok=true", () => {
+  const e1 = { ...SAMPLE_AUDIT_EVENT };
+  const h1 = eventHashFn(e1);
+  const e2 = { ...SAMPLE_AUDIT_EVENT, id: "01jrcasebox0000000000000a2", action: "update", before_state_hash: "sha256:before2", after_state_hash: "sha256:after2", prev_event_hash: h1, timestamp: "2026-05-20T09:01:00.000Z" };
+  const h2 = eventHashFn(e2);
+  const e3 = { ...SAMPLE_AUDIT_EVENT, id: "01jrcasebox0000000000000a3", action: "update", before_state_hash: "sha256:before3", after_state_hash: "sha256:after3", prev_event_hash: h2, timestamp: "2026-05-20T09:02:00.000Z" };
+  const r = verifyAuditChain([e1, e2, e3], { eventHashFn });
+  assert.equal(r.ok, true);
+  assert.equal(r.verifiedCount, 3);
+  assert.equal(r.headHash, eventHashFn(e3));
+});
+
+test("verifyAuditChain: corrupted middle event returns ok=false with errorIndex=2", () => {
+  const e1 = { ...SAMPLE_AUDIT_EVENT };
+  const h1 = eventHashFn(e1);
+  const e2 = { ...SAMPLE_AUDIT_EVENT, id: "01jrcasebox0000000000000a2", action: "update", before_state_hash: "sha256:before2", after_state_hash: "sha256:after2", prev_event_hash: h1, timestamp: "2026-05-20T09:01:00.000Z" };
+  // Tamper: change e2's after_state_hash AFTER computing its hash, so its hash
+  // changes and the chain breaks at e3.
+  const e3 = { ...SAMPLE_AUDIT_EVENT, id: "01jrcasebox0000000000000a3", action: "update", before_state_hash: "sha256:before3", after_state_hash: "sha256:after3", prev_event_hash: eventHashFn(e2), timestamp: "2026-05-20T09:02:00.000Z" };
+  const tamperedE2 = { ...e2, after_state_hash: "sha256:tampered" };
+  const r = verifyAuditChain([e1, tamperedE2, e3], { eventHashFn });
+  assert.equal(r.ok, false);
+  assert.equal(r.errorReason, "prev_event_hash_mismatch");
+  assert.equal(r.errorIndex, 2);
+});
+
+test("verifyAuditChain: tenant_id mismatch in event 2 returns ok=false", () => {
+  const e1 = { ...SAMPLE_AUDIT_EVENT };
+  const h1 = eventHashFn(e1);
+  const e2 = { ...SAMPLE_AUDIT_EVENT, id: "01jrcasebox0000000000000a2", tenant_id: "tenant-other", action: "update", before_state_hash: "sha256:before2", after_state_hash: "sha256:after2", prev_event_hash: h1, timestamp: "2026-05-20T09:01:00.000Z" };
+  const r = verifyAuditChain([e1, e2], { eventHashFn });
+  assert.equal(r.ok, false);
+  assert.equal(r.errorReason, "tenant_id_mismatch");
+  assert.equal(r.errorIndex, 1);
+});
+
+test("verifyAuditChain: matter_id mismatch in event 2 returns ok=false", () => {
+  const e1 = { ...SAMPLE_AUDIT_EVENT };
+  const h1 = eventHashFn(e1);
+  const e2 = { ...SAMPLE_AUDIT_EVENT, id: "01jrcasebox0000000000000a2", matter_id: "01jrcasebox0000000000000m9", action: "update", before_state_hash: "sha256:before2", after_state_hash: "sha256:after2", prev_event_hash: h1, timestamp: "2026-05-20T09:01:00.000Z" };
+  const r = verifyAuditChain([e1, e2], { eventHashFn });
+  assert.equal(r.ok, false);
+  assert.equal(r.errorReason, "matter_id_mismatch");
+  assert.equal(r.errorIndex, 1);
+});
+
+test("verifyAuditChain: schema-invalid event in middle returns event_schema_invalid", () => {
+  const e1 = { ...SAMPLE_AUDIT_EVENT };
+  const e2_bad = { ...SAMPLE_AUDIT_EVENT, id: "01jrcasebox0000000000000a2", entity_type: "wibble" };
+  const r = verifyAuditChain([e1, e2_bad], { eventHashFn });
+  assert.equal(r.ok, false);
+  assert.equal(r.errorReason, "event_schema_invalid");
+  assert.equal(r.errorIndex, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Drift guards (schema vs TS vocabulary)
+// ---------------------------------------------------------------------------
+
+test("drift: every CASE_BOX_AUDIT_EVENT_KINDS[k].action is a valid schema action", () => {
+  const SCHEMA_ACTIONS = new Set([
+    "create", "update", "delete-soft", "access", "export", "print", "share", "privilege-waive",
+  ]);
+  for (const [k, meta] of Object.entries(CASE_BOX_AUDIT_EVENT_KINDS)) {
+    assert.ok(SCHEMA_ACTIONS.has(meta.action), `${k} has invalid action ${meta.action}`);
+  }
+});
+
+test("drift: every CASE_BOX_AUDIT_EVENT_KINDS[k].entity_type is in CASE_BOX_AUDIT_ENTITY_TYPES", () => {
+  for (const [k, meta] of Object.entries(CASE_BOX_AUDIT_EVENT_KINDS)) {
+    assert.ok(CASE_BOX_AUDIT_ENTITY_TYPES.includes(meta.entity_type), `${k} has unknown entity_type ${meta.entity_type}`);
   }
 });
 

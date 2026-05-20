@@ -97,6 +97,27 @@ export {
   type PrivilegeResolution,
 } from "./privilege-invariants.js";
 
+// --- Audit log helpers (Step 4) ---
+export {
+  CASE_BOX_AUDIT_ENTITY_TYPES,
+  CASE_BOX_AUDIT_EVENT_KINDS,
+  isKnownAuditEntityType,
+  canonicalAuditEventHashInput,
+  assertReasonForAuditEventKind,
+  buildCaseBoxAuditEvent,
+  verifyAuditChain,
+  asAuditEventHash,
+  AuditEventReasonRequiredError,
+  type CaseBoxAuditEntityType,
+  type CaseBoxAuditEventKind,
+  type BuildAuditEventInput,
+  type ChainVerifyOk,
+  type ChainVerifyErr,
+  type ChainVerifyErrorReason,
+  type AuditEventHash,
+  type EventHashFn,
+} from "./audit-log.js";
+
 // --- Shared validation result types ---
 export type {
   ValidationResult,

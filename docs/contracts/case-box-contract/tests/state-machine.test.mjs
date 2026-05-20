@@ -291,6 +291,17 @@ test("privilege-marker: ALLOWED_PRIVILEGE_MARKER_EDGES content matches documente
 });
 
 // ---------------------------------------------------------------------------
+// Step 4 drift guard — schema entity_type enum matches CASE_BOX_AUDIT_ENTITY_TYPES
+// ---------------------------------------------------------------------------
+
+test("drift: schema entity_type.enum exactly matches CASE_BOX_AUDIT_ENTITY_TYPES", async () => {
+  const { auditEventSchema, CASE_BOX_AUDIT_ENTITY_TYPES } = await import("../dist/index.js");
+  const schemaEnum = auditEventSchema?.properties?.entity_type?.enum;
+  assert.ok(Array.isArray(schemaEnum), "audit-event schema must declare entity_type as enum");
+  assert.deepEqual([...schemaEnum].sort(), [...CASE_BOX_AUDIT_ENTITY_TYPES].sort());
+});
+
+// ---------------------------------------------------------------------------
 // Fact lifecycle
 // ---------------------------------------------------------------------------
 
