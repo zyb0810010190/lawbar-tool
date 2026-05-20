@@ -2,19 +2,29 @@ node_modules/
 dist/
 coverage/
 .DS_Store
+
+# Secrets / env
 .env
 .env.*
-*.tsbuildinfo
+!.env.example
 
 # tdd-guardian generated artifacts
+.claude/tdd-guardian/
 .claude/tdd-guardian/state.json
 
 # >>> cc-suite >>>
 # AI assistant local state
+.claude/settings.json
 .claude/settings.local.json
 .claude/CLAUDE.local.md
 .claude/*.local.*
 CLAUDE.local.md
+
+# cc-suite plugin caches/state
+.cc-suite/
+
+# claude-english-buddy local config
+.claude-english-buddy.json
 
 # Codex CLI — local files, keep checked-in subdirs
 .codex/*
@@ -29,3 +39,5 @@ CLAUDE.local.md
 !.gemini/skills/
 !.gemini/commands/
 # <<< cc-suite <<<
+
+*.tsbuildinfo
