@@ -1,15 +1,21 @@
 // Transport-level HTTPS tests for ADR-11D.2-A (DNS pinning).
 //
-// **WI-02t / Option A status**: every test here is currently
-// `test.skip(..., { skip: "Unlocked by WI-03 ..." })` because the
-// production transport rewrite (`node:https.request` with custom
-// `lookup`, per-request `ca`, strict content-length parsing, runtime
-// address validation, abort wiring) has NOT shipped yet. The bodies
-// are fully written so the security-critical assertions remain
-// reviewable in source; they will be un-skipped one by one as WI-03
-// lands the corresponding implementation surface.
+// WI-03a landed the pinned `node:https.request` transport core.
+// WI-03b lands the 15 runtime-validation tests below, which are now
+// un-skipped. They use the internal `makeNodeHttpsRequestTransportForTest`
+// seam to pass a recording fake `request` and prove each invalid
+// `allowedAddresses` shape fails preflight BEFORE any socket activity
+// (the fake `request` is never called). Each test asserts on
+// `instanceof HttpsTransportError` and `err.code === <CODE>` per the
+// pinned mapping in `docs/release/go-live-plan.md` WI-03b.
 //
-// Two skip reasons are used:
+// The remaining `test.skip(..., { skip: "Unlocked by WI-03" })` cases
+// in this file are NOT runtime-validation cases — they belong to
+// WI-03c (content-length, body shape, abort) and WI-03d (TLS harness
+// + the reordering test that needs two reachable endpoints). Those
+// stay skipped.
+//
+// Two skip reasons are used in the still-skipped tests:
 //   - "Unlocked by WI-02"  — seam-only changes (interface signature,
 //     types, allowedAddresses wiring). The current production
 //     transport doesn't accept `allowedAddresses`.
@@ -32,6 +38,51 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+// WI-03b helper: build a recording fake `request` so each
+// runtime-validation test can prove the fake was never invoked when
+// preflight rejects. The fake throws if it is ever called.
+function makeRecordingRequest() {
+  const calls = [];
+  const request = (...args) => {
+    calls.push(args);
+    throw new Error("recording fake request must not be called when preflight rejects");
+  };
+  return { request, calls };
+}
+
+// WI-03b helper: build a transport with a recording fake request via
+// the internal `makeNodeHttpsRequestTransportForTest` seam (imported by
+// internal dist path; NOT exported from public barrels).
+async function makeTransportWithRecordingRequest() {
+  const { makeNodeHttpsRequestTransportForTest } = await import(
+    "../dist/fetcher/httpsTransport.js"
+  );
+  const rec = makeRecordingRequest();
+  const transport = makeNodeHttpsRequestTransportForTest({ request: rec.request });
+  return { transport, rec };
+}
+
+// WI-03b helper: assert err is an HttpsTransportError with the given
+// code, and that the recording fake `request` was never called.
+async function assertPreflightRejects(promise, rec, expectedCode) {
+  const { HttpsTransportError } = await import(
+    "../dist/fetcher/httpsTransportErrors.js"
+  );
+  await assert.rejects(promise, (err) => {
+    assert.ok(
+      err instanceof HttpsTransportError,
+      `expected HttpsTransportError, got ${err && err.constructor && err.constructor.name}: ${err && err.message}`,
+    );
+    assert.equal(err.code, expectedCode, `expected code ${expectedCode}, got ${err.code}`);
+    return true;
+  });
+  assert.equal(
+    rec.calls.length,
+    0,
+    `expected request not to be called, but it was called ${rec.calls.length} time(s)`,
+  );
+}
+
 // NOTE: top-level imports of the future production transport are
 // intentionally absent. WI-03 will export
 // `makeNodeHttpsRequestTransport` (name TBD by WI-03 author) from
@@ -53,204 +104,241 @@ function makeAddr(address, family) {
 }
 
 // ---------------------------------------------------------------------------
-// ADR §5 — Runtime address validation (transport entry)
+// ADR §5 / WI-03b — Runtime address validation (transport entry)
 // ---------------------------------------------------------------------------
 //
-// Per ADR §5: production must validate `allowedAddresses` at entry
-// and fail closed with a transport error that the fetcher maps to
-// `https_network_error`. The transport-level tests below assert the
-// transport-side error shape; a parallel set later in this file
-// asserts the fetcher-side error-code mapping per ADR §7.
-//
-// **Regex brittleness note**: each runtime-address-validation test
-// currently matches an error MESSAGE substring (e.g. `/allowedAddresses/i`,
-// `/mapped|ipv4/i`, `/scope|zone|%/i`). This is provisional. When
-// WI-03 lands a stable transport-input error class or `code`
-// discriminator (recommended: e.g. `TransportInputError` with codes
-// `MISSING_ALLOWED_ADDRESSES`, `MAPPED_IPV6`, `SCOPED_IPV6`,
-// `PRIVATE_ADDRESS`, `FAMILY_MISMATCH`, etc.), update each test to
-// assert on the code/class as the PRIMARY check and keep the
-// message regex only as a secondary readability assertion.
+// Per ADR §5 + WI-03b: production validates `allowedAddresses` at entry
+// and fails closed with `HttpsTransportError` carrying a stable `code`
+// discriminator. The 15 tests below assert on `instanceof
+// HttpsTransportError` AND `err.code === <CODE>` per the pinned
+// mapping in `docs/release/go-live-plan.md` WI-03b. Each test also
+// asserts the recording fake `request` was never called, proving the
+// preflight rejected BEFORE any socket/network activity. The fetcher-
+// side mapping to public `https_network_error` is covered in
+// fetcher.https.test.mjs.
 
-test("transport rejects missing allowedAddresses", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), { signal: AbortSignal.timeout(1000) /* allowedAddresses omitted */ }),
-    (err) => err && /allowedAddresses/i.test(String(err.message)),
+test("transport rejects missing allowedAddresses", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+      signal: AbortSignal.timeout(1000),
+      // allowedAddresses omitted
+    }),
+    rec,
+    "MISSING_ALLOWED_ADDRESSES",
   );
 });
 
-test("transport rejects empty allowedAddresses", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects empty allowedAddresses", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: [],
     }),
-    (err) => err && /empty|at least one/i.test(String(err.message)),
+    rec,
+    "EMPTY_ALLOWED_ADDRESSES",
   );
 });
 
-test("transport rejects non-array allowedAddresses", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects non-array allowedAddresses", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: "not-an-array",
     }),
-    (err) => err && /array/i.test(String(err.message)),
+    rec,
+    "ALLOWED_ADDRESSES_NOT_ARRAY",
   );
 });
 
-test("transport rejects non-plain-object element", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects non-plain-object element", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: ["8.8.8.8"], // string instead of object
     }),
-    (err) => err && /object|address/i.test(String(err.message)),
+    rec,
+    "ADDRESS_ENTRY_NOT_PLAIN_OBJECT",
   );
 });
 
-test("transport rejects non-string address field", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects non-string address field", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: [{ address: 12345678, family: 4 }],
     }),
-    (err) => err && /address.*string|string.*address/i.test(String(err.message)),
+    rec,
+    "ADDRESS_NOT_STRING",
   );
 });
 
-test("transport rejects nonnumeric family", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects nonnumeric family", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: [{ address: "8.8.8.8", family: "4" }],
     }),
-    (err) => err && /family/i.test(String(err.message)),
+    rec,
+    "ADDRESS_FAMILY_NOT_NUMBER",
   );
 });
 
-test("transport rejects family=5 (non 4|6)", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects family=5 (non 4|6)", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: [{ address: "8.8.8.8", family: 5 }],
     }),
-    (err) => err && /family/i.test(String(err.message)),
+    rec,
+    "ADDRESS_FAMILY_INVALID",
   );
 });
 
-test("transport rejects malformed IPv4 literal", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects malformed IPv4 literal", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: [{ address: "999.999.999.999", family: 4 }],
     }),
-    (err) => err && /address|literal|parse/i.test(String(err.message)),
+    rec,
+    "ADDRESS_INVALID_LITERAL",
   );
 });
 
-test("transport rejects malformed IPv6 literal", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects malformed IPv6 literal", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: [{ address: "::gg::", family: 6 }],
     }),
-    (err) => err && /address|literal|parse/i.test(String(err.message)),
+    rec,
+    "ADDRESS_INVALID_LITERAL",
   );
 });
 
-test("transport rejects IPv4-mapped IPv6 dotted form (::ffff:1.2.3.4)", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects IPv4-mapped IPv6 dotted form (::ffff:1.2.3.4)", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: [{ address: "::ffff:1.2.3.4", family: 6 }],
     }),
-    (err) => err && /mapped|ipv4/i.test(String(err.message)),
+    rec,
+    "ADDRESS_INVALID_LITERAL",
   );
 });
 
-test("transport rejects IPv4-mapped IPv6 hex form (::ffff:0102:0304)", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects IPv4-mapped IPv6 hex form (::ffff:0102:0304)", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: [{ address: "::ffff:0102:0304", family: 6 }],
     }),
-    (err) => err && /mapped|ipv4/i.test(String(err.message)),
+    rec,
+    "ADDRESS_INVALID_LITERAL",
   );
 });
 
-test("transport rejects scoped IPv6 (fe80::1%lo0)", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects scoped IPv6 (fe80::1%lo0) — literal-invalidity wins over private-IP", async () => {
+  // WI-03b ordering rule: mapped/scoped literal rejection runs BEFORE
+  // isPrivateIp, so fe80::1%lo0 must surface ADDRESS_INVALID_LITERAL
+  // even though isPrivateIp("fe80::1%lo0") is true.
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: [{ address: "fe80::1%lo0", family: 6 }],
     }),
-    (err) => err && /scope|zone|%/i.test(String(err.message)),
+    rec,
+    "ADDRESS_INVALID_LITERAL",
   );
 });
 
-test("transport rejects family/address mismatch (family=6 with IPv4 literal)", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects family/address mismatch (family=6 with IPv4 literal)", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: [{ address: "8.8.8.8", family: 6 }],
     }),
-    (err) => err && /family.*address|address.*family|mismatch/i.test(String(err.message)),
+    rec,
+    "ADDRESS_FAMILY_MISMATCH",
   );
 });
 
-test("transport rejects private IPv4 (127.0.0.1) — defense in depth at transport entry", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  // Fetcher should reject earlier; transport must ALSO reject as
-  // defense-in-depth per ADR §1 "transport repeats the private-IP
-  // check even though the fetcher already performed it".
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects private IPv4 (127.0.0.1) — defense in depth at transport entry", async () => {
+  // Fetcher rejects earlier (host_resolves_to_private_ip); transport
+  // ALSO rejects as defense-in-depth per ADR §1.
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: [makeAddr(LOOPBACK_V4, 4)],
     }),
-    (err) => err && /private|loopback|host_resolves_to_private_ip|globally.routable/i.test(String(err.message)),
+    rec,
+    "ADDRESS_PRIVATE",
   );
 });
 
-test("transport rejects private IPv6 (::1) — defense in depth", { skip: "Unlocked by WI-03" }, async () => {
-  const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
-  const t = makeNodeHttpsRequestTransport({});
-  await assert.rejects(
-    t.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+test("transport rejects private IPv6 (::1) — defense in depth", async () => {
+  const { transport, rec } = await makeTransportWithRecordingRequest();
+  await assertPreflightRejects(
+    transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
       signal: AbortSignal.timeout(1000),
       allowedAddresses: [makeAddr(LOOPBACK_V6, 6)],
     }),
-    (err) => err && /private|loopback|host_resolves_to_private_ip|globally.routable/i.test(String(err.message)),
+    rec,
+    "ADDRESS_PRIVATE",
   );
 });
+
+// ---------------------------------------------------------------------------
+// WI-03b — Private-IP defense-in-depth: representative coverage
+// ---------------------------------------------------------------------------
+//
+// Beyond the loopback cases above, exercise one address from each
+// major non-globally-routable family the shared `isPrivateIp` blocklist
+// covers. The transport must reject all of them with
+// `ADDRESS_PRIVATE`, mirroring the fetcher's earlier DNS-time check.
+//
+// Coverage:
+//   - IPv4 RFC1918 (10/8, 172.16/12, 192.168/16)
+//   - IPv4 link-local (169.254/16, includes cloud metadata 169.254.169.254)
+//   - IPv6 link-local (fe80::/10) — un-scoped form (scoped + zone-id
+//     forms are covered by the ADDRESS_INVALID_LITERAL case above)
+//   - IPv6 ULA / RFC4193 (fc00::/7)
+
+for (const [label, address, family] of [
+  ["IPv4 RFC1918 10/8", "10.0.0.5", 4],
+  ["IPv4 RFC1918 172.16/12", "172.16.5.5", 4],
+  ["IPv4 RFC1918 192.168/16", "192.168.1.1", 4],
+  ["IPv4 link-local 169.254/16", "169.254.169.254", 4],
+  ["IPv6 link-local fe80::/10 (un-scoped)", "fe80::1", 6],
+  ["IPv6 ULA fc00::/7", "fc00::1", 6],
+  ["IPv6 ULA fd00::/8", "fd00::abcd", 6],
+]) {
+  test(`transport rejects private ${label} as ADDRESS_PRIVATE`, async () => {
+    const { transport, rec } = await makeTransportWithRecordingRequest();
+    await assertPreflightRejects(
+      transport.fetch(new URL(`https://${ALLOWED_HOST}/x`), {
+        signal: AbortSignal.timeout(1000),
+        allowedAddresses: [makeAddr(address, family)],
+      }),
+      rec,
+      "ADDRESS_PRIVATE",
+    );
+  });
+}
 
 // ---------------------------------------------------------------------------
 // ADR §4 — First-vetted-address selection (no transport reordering)

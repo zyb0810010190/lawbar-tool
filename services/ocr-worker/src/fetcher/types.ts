@@ -103,8 +103,19 @@ export type FetcherErrorCode =
 export class FetcherError extends Error {
   readonly code: FetcherErrorCode;
 
-  constructor(message: string, options: { code: FetcherErrorCode }) {
-    super(message);
+  constructor(
+    message: string,
+    options: { code: FetcherErrorCode; cause?: unknown },
+  ) {
+    // WI-03b: forward `cause` to the standard ES2022 `Error` options bag
+    // so the fetcher's transport-validation mapping branch can preserve
+    // the internal `HttpsTransportError` discriminator chain. No new
+    // public fetcher error code is added; `cause` is opt-in and
+    // additive.
+    super(
+      message,
+      options.cause === undefined ? undefined : { cause: options.cause },
+    );
     this.name = "FetcherError";
     this.code = options.code;
   }

@@ -855,3 +855,151 @@ test(
     assert.equal(transport.calls.length, 0, "transport must not be called when any DNS answer is private");
   },
 );
+
+// ---------------------------------------------------------------------------
+// WI-03b — Internal HttpsTransportError → public https_network_error mapping
+// ---------------------------------------------------------------------------
+//
+// The fetcher (`fetchPageBytes.ts`) has an explicit `isHttpsTransportError`
+// branch in `wrapTimeoutError` that maps internal transport-validation
+// errors to the existing public `https_network_error` code, preserving
+// the internal error as `cause`. These tests pin that mapping by
+// asserting all three observables: the public code, the cause class,
+// and the cause's internal code. The cause assertion is what proves
+// the explicit branch fired (a generic catch-all path would surface
+// `https_network_error` but would NOT carry the HttpsTransportError
+// cause chain).
+
+test(
+  "WI-03b mapping: end-to-end via real transport — family=5 trips ADDRESS_FAMILY_INVALID, mapped to https_network_error with cause preserved",
+  async () => {
+    // Use the REAL pinned transport so the failure source is the
+    // transport's own preflight, not a hand-crafted stub. DNS is
+    // stubbed to a public IPv4 so the fetcher's existing DNS pre-check
+    // passes — only then does the transport see the malformed family.
+    // Per ADR-11D.2 §5: family must be exactly 4 or 6; family=5 maps
+    // to ADDRESS_FAMILY_INVALID. The mapping test is therefore not
+    // satisfiable via the empty-DNS pre-check or generic timeout/
+    // network catch-all (both would surface https_network_error
+    // without an HttpsTransportError cause chain).
+    const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
+    const { HttpsTransportError } = await import(
+      "../dist/fetcher/httpsTransportErrors.js"
+    );
+    const submission = makeSubmission();
+    await assert.rejects(
+      fetchPageBytes(submission, deps({
+        httpsTransport: makeNodeHttpsRequestTransport({}),
+        dnsLookup: async () => [{ address: "8.8.8.8", family: 5 }],
+      })),
+      (err) => {
+        assert.ok(err instanceof FetcherError, `expected FetcherError, got ${err?.constructor?.name}`);
+        assert.equal(err.code, FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR);
+        assert.ok(
+          err.cause instanceof HttpsTransportError,
+          `expected err.cause to be HttpsTransportError, got ${err.cause?.constructor?.name}`,
+        );
+        assert.equal(err.cause.code, "ADDRESS_FAMILY_INVALID");
+        return true;
+      },
+    );
+  },
+);
+
+test(
+  "WI-03b mapping: ADDRESS_PRIVATE failure does not leak the raw address literal into FetcherError.message",
+  async () => {
+    // Audit finding fix: the internal HttpsTransportError message for
+    // ADDRESS_PRIVATE must NOT embed the address value, because the
+    // public FetcherError mapping concatenates `err.message` into its
+    // own message, which then flows into any sink that logs
+    // FetcherError. The `code` discriminator is sufficient diagnostics;
+    // the raw address remains reachable via `err.cause` for in-process
+    // inspection but never via the rendered message.
+    //
+    // We exercise the REAL transport via the production path: DNS
+    // returns a public IP so the fetcher's pre-check passes; then we
+    // wrap that transport so it sees an `allowedAddresses` whose
+    // entry is private (the sentinel below), forcing the transport's
+    // defense-in-depth ADDRESS_PRIVATE branch.
+    const { makeNodeHttpsRequestTransport } = await import("../dist/index.js");
+    const { HttpsTransportError } = await import(
+      "../dist/fetcher/httpsTransportErrors.js"
+    );
+    const sentinelAddress = "10.0.0.42"; // RFC1918, blocked by isPrivateIp
+    const real = makeNodeHttpsRequestTransport({});
+    const wrappingTransport = {
+      async fetch(url, init) {
+        // Swap allowedAddresses to a private address so the real
+        // transport's preflight throws ADDRESS_PRIVATE. The fetcher's
+        // earlier host_resolves_to_private_ip gate is bypassed because
+        // the DNS stub returned a public address.
+        return real.fetch(url, {
+          ...init,
+          allowedAddresses: [{ address: sentinelAddress, family: 4 }],
+        });
+      },
+    };
+    const submission = makeSubmission();
+    await assert.rejects(
+      fetchPageBytes(submission, deps({
+        httpsTransport: wrappingTransport,
+        dnsLookup: async () => [{ address: "8.8.8.8", family: 4 }],
+      })),
+      (err) => {
+        assert.ok(err instanceof FetcherError);
+        assert.equal(err.code, FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR);
+        assert.ok(err.cause instanceof HttpsTransportError);
+        assert.equal(err.cause.code, "ADDRESS_PRIVATE");
+        // Hygiene: neither layer should expose the sentinel address.
+        assert.ok(
+          !err.message.includes(sentinelAddress),
+          `public FetcherError.message leaked address: ${err.message}`,
+        );
+        assert.ok(
+          !err.cause.message.includes(sentinelAddress),
+          `internal HttpsTransportError.message leaked address: ${err.cause.message}`,
+        );
+        return true;
+      },
+    );
+  },
+);
+
+test(
+  "WI-03b mapping: stub transport throwing HttpsTransportError preserves the discriminator chain through wrapTimeoutError",
+  async () => {
+    // Independent of which transport produced the error: any
+    // HttpsTransportError thrown from inside `transport.fetch` must be
+    // mapped via the explicit `isHttpsTransportError` branch in
+    // `wrapTimeoutError`, not via the generic network catch-all. The
+    // cause assertion is the proof — a catch-all would lose it.
+    const { HttpsTransportError } = await import(
+      "../dist/fetcher/httpsTransportErrors.js"
+    );
+    const stubTransport = {
+      async fetch(_url, _init) {
+        throw new HttpsTransportError(
+          "synthetic transport-validation failure",
+          { code: "ADDRESS_FAMILY_MISMATCH" },
+        );
+      },
+    };
+    const submission = makeSubmission();
+    await assert.rejects(
+      fetchPageBytes(submission, deps({ httpsTransport: stubTransport })),
+      (err) => {
+        assert.ok(err instanceof FetcherError);
+        assert.equal(err.code, FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR);
+        assert.ok(err.cause instanceof HttpsTransportError);
+        assert.equal(err.cause.code, "ADDRESS_FAMILY_MISMATCH");
+        // Negative check: a generic Error thrown from the same point
+        // would surface https_network_error without a cause chain, so
+        // the absence of a cause would prove the explicit branch
+        // never fired. The positive check above is the same assertion
+        // viewed from the other side.
+        return true;
+      },
+    );
+  },
+);

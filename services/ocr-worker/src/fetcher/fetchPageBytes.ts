@@ -39,6 +39,7 @@ import {
 } from "./pathContainment.js";
 import { isPrivateIp } from "./privateIp.js";
 import { makeNodeFetchHttpsTransport } from "./httpsTransport.js";
+import { isHttpsTransportError } from "./httpsTransportErrors.js";
 
 const dnsLookupAllRaw = promisify(dnsLookupCallback);
 const defaultDnsLookup: DnsLookupFn = async (hostname) => {
@@ -500,6 +501,21 @@ async function fetchFromHttps(
   // Helper: any error after the deadline fires becomes https_timeout.
   const wrapTimeoutError = (err: unknown): FetcherError => {
     if (err instanceof FetcherError) return err;
+    // WI-03b mapping branch: an internal `HttpsTransportError` from
+    // transport-entry runtime address validation maps to the existing
+    // public `https_network_error` code, preserving the internal error
+    // as `cause` so the mapping test can assert
+    // `err.cause instanceof HttpsTransportError` AND
+    // `err.cause.code === <expected internal code>`. This branch must
+    // run BEFORE the generic abort/network catch-all below — otherwise
+    // the network-error branch would swallow validation failures
+    // without preserving the discriminator chain.
+    if (isHttpsTransportError(err)) {
+      return new FetcherError(
+        `https transport input validation failed: ${err.message}`,
+        { code: FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR, cause: err },
+      );
+    }
     if (
       controller.signal.aborted ||
       (err as { name?: string }).name === "AbortError"
