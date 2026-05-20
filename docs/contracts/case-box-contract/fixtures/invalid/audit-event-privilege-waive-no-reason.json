@@ -1,0 +1,15 @@
+{
+  "_invalid_reason": "action=privilege-waive requires a non-empty reason",
+  "_target_schema": "case-box-audit-event",
+  "id": "01jrcasebox0000000000000a1",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "action": "privilege-waive",
+  "entity_type": "document",
+  "entity_id": "01jrcasebox0000000000000d1",
+  "before_state_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "after_state_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "prev_event_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "timestamp": "2026-05-20T11:00:00.000Z"
+}

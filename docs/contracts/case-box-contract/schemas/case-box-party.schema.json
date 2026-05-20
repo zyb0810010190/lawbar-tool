@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-party.schema.json",
+  "title": "CaseBoxParty",
+  "description": "Party shape embedded in CaseBoxMatter.parties. See docs/adr/case-box-step-0-boundary.md.",
+  "type": "object",
+  "required": ["role", "display_name", "party_kind"],
+  "properties": {
+    "role": {
+      "enum": ["client", "opposing", "third_party"],
+      "description": "Role of the party in the matter."
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Lawyer-authored display name for the party."
+    },
+    "party_kind": {
+      "enum": ["individual", "organization", "government", "court", "other"]
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

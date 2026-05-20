@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-evidence-item.schema.json",
+  "title": "CaseBoxEvidenceItem",
+  "description": "v1-simplified evidence shape: exhibit binding to a matter with optional source document + page range + lawyer weight. The full fact-binding-to-element model is a later case-box step.",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "actor_user_id",
+    "matter_id",
+    "lawyer_weight",
+    "status",
+    "created_at"
+  ],
+  "properties": {
+    "id":            { "$ref": "#/$defs/ulid" },
+    "tenant_id":     { "type": "string", "minLength": 1 },
+    "actor_user_id": { "type": "string", "minLength": 1 },
+    "matter_id":     { "$ref": "#/$defs/ulid" },
+    "source_document_id": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/ulid" }
+      ]
+    },
+    "exhibit_page_range": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1, "description": "Free-form e.g. \"1-3\" or \"7\". v1 does not constrain the format." }
+      ]
+    },
+    "lawyer_weight": {
+      "enum": ["weak", "moderate", "strong"]
+    },
+    "status": {
+      "enum": ["proposed", "accepted", "rejected", "superseded"]
+    },
+    "supersedes_evidence_id": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/ulid" }
+      ],
+      "description": "Required when status is \"superseded\"."
+    },
+    "notes":      { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "superseded" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["supersedes_evidence_id"],
+        "properties": {
+          "supersedes_evidence_id": { "$ref": "#/$defs/ulid" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$"
+    }
+  }
+}

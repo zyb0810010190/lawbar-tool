@@ -1,0 +1,41 @@
+{
+  "name": "case-box-contract",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Schemas, fixtures, contract tests, and TypeScript validators for the lawyer case-box product boundary. Local-first by default; OCR is a subordinate data feed.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schemas/*": "./schemas/*"
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "fixtures",
+    "README.md"
+  ],
+  "scripts": {
+    "gen:types": "node scripts/gen-types.mjs",
+    "build": "tsc -p tsconfig.json",
+    "prebuild": "npm run gen:types",
+    "test": "npm run build && node --test tests/contract.test.mjs tests/validators.test.mjs tests/state-machine.test.mjs tests/invariants.test.mjs tests/exports.test.mjs"
+  },
+  "engines": {
+    "//": "src/loadSchemas.ts uses JSON import attributes (`with { type: \"json\" }`), which require Node >= 22. Matches ocr-worker-contract.",
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "json-schema-to-typescript": "^15.0.4",
+    "typescript": "^5.6.0"
+  }
+}

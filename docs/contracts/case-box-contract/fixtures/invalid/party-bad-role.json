@@ -1,0 +1,7 @@
+{
+  "_invalid_reason": "role not in enum (client/opposing/third_party)",
+  "_target_schema": "case-box-party",
+  "role": "judge",
+  "display_name": "Honorable J. Smith",
+  "party_kind": "individual"
+}

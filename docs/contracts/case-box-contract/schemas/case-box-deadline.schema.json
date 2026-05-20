@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-deadline.schema.json",
+  "title": "CaseBoxDeadline",
+  "description": "Case-scoped deadline. Computation engine is post-MVP; v1 carries the shape only.",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "actor_user_id",
+    "matter_id",
+    "kind",
+    "due_at",
+    "owner_user_id",
+    "status"
+  ],
+  "properties": {
+    "id":            { "$ref": "#/$defs/ulid" },
+    "tenant_id":     { "type": "string", "minLength": 1 },
+    "actor_user_id": { "type": "string", "minLength": 1 },
+    "matter_id":     { "$ref": "#/$defs/ulid" },
+    "kind": {
+      "enum": ["statute_of_limitations", "court_order", "discovery", "filing", "hearing", "internal"]
+    },
+    "source_rule_citation": { "type": "string" },
+    "due_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "owner_user_id": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": ["pending", "met", "missed", "withdrawn"]
+    },
+    "met_at": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date-time" }
+      ]
+    },
+    "previous_status": {
+      "enum": ["pending", "met", "missed", "withdrawn"],
+      "description": "Optional record of the prior status. When the current status is met and previous_status was missed, a transition_reason is required."
+    },
+    "transition_reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required when transitioning missed → met. Captured in the same write that flips the status."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status":          { "const": "met" },
+          "previous_status": { "const": "missed" }
+        },
+        "required": ["status", "previous_status"]
+      },
+      "then": {
+        "required": ["transition_reason"]
+      }
+    }
+  ],
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$"
+    }
+  }
+}

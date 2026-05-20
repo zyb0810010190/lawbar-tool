@@ -1,0 +1,14 @@
+{
+  "_invalid_reason": "status=met with previous_status=missed requires transition_reason",
+  "_target_schema": "case-box-deadline",
+  "id": "01jrcasebox0000000000000l1",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "kind": "filing",
+  "due_at": "2026-06-19T16:00:00.000Z",
+  "owner_user_id": "local-user",
+  "status": "met",
+  "previous_status": "missed",
+  "met_at": "2026-06-20T08:00:00.000Z"
+}

@@ -1,0 +1,11 @@
+{
+  "_invalid_reason": "direction must be the literal \"read-only\" — OCR is a subordinate data feed; case-box never writes to ocr-persistence",
+  "_target_schema": "case-box-ocr-link",
+  "document_id": "01jrcasebox0000000000000d1",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "ocr_job_id": "01jrk8m4q4xv2v8d4d4ymf5xnk",
+  "direction": "read-write",
+  "status_snapshot": "succeeded",
+  "last_seen_at": "2026-05-20T09:30:00.000Z"
+}

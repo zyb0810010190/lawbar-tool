@@ -1,0 +1,111 @@
+// Public surface of the case-box-contract package.
+//
+// Importers (case-box-ingestion, case-box-persistence, case-box-review, future
+// desktop app, future sync bridge) should depend on this entry point. The JSON
+// schemas under docs/contracts/case-box-contract/schemas/ remain the source of
+// truth; everything exported here is derived from them.
+
+// --- Validators ---
+export { validateMatter } from "./validateMatter.js";
+export { validateDocument } from "./validateDocument.js";
+export { validateParty } from "./validateParty.js";
+export { validateDeadline } from "./validateDeadline.js";
+export { validateEvidenceItem } from "./validateEvidenceItem.js";
+export { validateOcrLink, assertCaseBoxIsSubordinateToOcr } from "./validateOcrLink.js";
+export { validateAuditEvent } from "./validateAuditEvent.js";
+
+// --- State machines + transition helpers ---
+export {
+  MATTER_STATES,
+  TERMINAL_MATTER_STATES,
+  isTerminalMatterState,
+  DOCUMENT_STATES,
+  TERMINAL_DOCUMENT_STATES,
+  isTerminalDocumentState,
+  EVIDENCE_STATES,
+  TERMINAL_EVIDENCE_STATES,
+  isTerminalEvidenceState,
+  DEADLINE_STATES,
+  TERMINAL_DEADLINE_STATES,
+  isTerminalDeadlineState,
+  ALLOWED_MATTER_EDGES,
+  ALLOWED_DOCUMENT_EDGES,
+  ALLOWED_EVIDENCE_EDGES,
+  ALLOWED_DEADLINE_EDGES,
+  isAllowedMatterTransition,
+  isAllowedDocumentTransition,
+  isAllowedEvidenceTransition,
+  isAllowedDeadlineTransition,
+  assertValidMatterTransition,
+  assertValidDocumentTransition,
+  assertValidEvidenceTransition,
+  assertValidDeadlineTransition,
+  IllegalTransitionError,
+  OcrSubordinationError,
+  type MatterState,
+  type DocumentState,
+  type EvidenceState,
+  type DeadlineState,
+  type CaseBoxActor,
+  type AllowedEdge,
+} from "./transitions.js";
+
+// --- Semantic invariants ---
+export {
+  LOCAL_ONLY_ACTOR_USER_ID,
+  isLocalOnlyActor,
+  defaultsAreLocalFirst,
+  classAllowsExternal,
+} from "./invariants.js";
+
+// --- Shared validation result types ---
+export type {
+  ValidationResult,
+  ValidationOk,
+  ValidationErr,
+} from "./result-types.js";
+
+export type { AjvErrorObject } from "./ajv-instance.js";
+
+// --- Schema-derived data types ---
+export type { CaseBoxMatter } from "./generated/case-box-matter.js";
+export type { CaseBoxDocument } from "./generated/case-box-document.js";
+export type { CaseBoxParty } from "./generated/case-box-party.js";
+export type { CaseBoxDeadline } from "./generated/case-box-deadline.js";
+export type { CaseBoxEvidenceItem } from "./generated/case-box-evidence-item.js";
+export type { CaseBoxOcrLink } from "./generated/case-box-ocr-link.js";
+export type { CaseBoxAuditEvent } from "./generated/case-box-audit-event.js";
+
+// --- Deep-frozen public schemas ---
+//
+// Re-export the schemas in case callers want to validate elsewhere (e.g. in a
+// different runtime, with a different Ajv config). Deep-frozen at the public
+// boundary so a downstream consumer cannot weaken process-wide validation by
+// mutating schema internals.
+import {
+  matterSchema as rawMatterSchema,
+  documentSchema as rawDocumentSchema,
+  partySchema as rawPartySchema,
+  deadlineSchema as rawDeadlineSchema,
+  evidenceItemSchema as rawEvidenceItemSchema,
+  ocrLinkSchema as rawOcrLinkSchema,
+  auditEventSchema as rawAuditEventSchema,
+} from "./loadSchemas.js";
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const k of Object.keys(value as object)) {
+      deepFreeze((value as Record<string, unknown>)[k]);
+    }
+    Object.freeze(value);
+  }
+  return value;
+}
+
+export const matterSchema = deepFreeze(structuredClone(rawMatterSchema));
+export const documentSchema = deepFreeze(structuredClone(rawDocumentSchema));
+export const partySchema = deepFreeze(structuredClone(rawPartySchema));
+export const deadlineSchema = deepFreeze(structuredClone(rawDeadlineSchema));
+export const evidenceItemSchema = deepFreeze(structuredClone(rawEvidenceItemSchema));
+export const ocrLinkSchema = deepFreeze(structuredClone(rawOcrLinkSchema));
+export const auditEventSchema = deepFreeze(structuredClone(rawAuditEventSchema));

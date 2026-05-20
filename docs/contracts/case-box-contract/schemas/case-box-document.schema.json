@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-document.schema.json",
+  "title": "CaseBoxDocument",
+  "description": "Legal document registered to a matter. May reference an OCR job by value (never by FK).",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "actor_user_id",
+    "matter_id",
+    "source",
+    "filename",
+    "content_hash",
+    "storage_uri",
+    "doc_type",
+    "received_at",
+    "status"
+  ],
+  "properties": {
+    "id":            { "$ref": "#/$defs/ulid" },
+    "tenant_id":     { "type": "string", "minLength": 1 },
+    "actor_user_id": { "type": "string", "minLength": 1 },
+    "matter_id":     { "$ref": "#/$defs/ulid" },
+    "source": {
+      "enum": ["uploaded", "produced", "subpoena", "court_filing", "third_party"]
+    },
+    "custody_chain": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["actor_user_id", "at"],
+        "properties": {
+          "actor_user_id": { "type": "string", "minLength": 1 },
+          "action":        { "type": "string" },
+          "at":            { "type": "string", "format": "date-time" },
+          "notes":         { "type": "string" }
+        }
+      },
+      "description": "Append-only chain of custody entries."
+    },
+    "filename":     { "type": "string", "minLength": 1 },
+    "content_hash": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Immutable once OCR submitted. Persistence layer enforces immutability."
+    },
+    "storage_uri":  { "type": "string", "minLength": 1, "description": "Local filesystem path or opaque URI." },
+    "ocr_job_id":   {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/ulid" }
+      ],
+      "description": "External-Ref to ocr-persistence by value; case-box never FKs to OCR tables."
+    },
+    "submission_hash": {
+      "type": "string",
+      "description": "Canonical OCR submission JSON hash; matches OCR dedupe key."
+    },
+    "language":   { "type": "string" },
+    "page_count": { "type": "integer", "minimum": 1 },
+    "doc_type": {
+      "enum": ["pleading", "contract", "correspondence", "transcript", "exhibit", "other"]
+    },
+    "received_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": ["registered", "ocr_pending", "ocr_complete", "ocr_failed", "triaged", "tagged", "reviewed"]
+    }
+  },
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$"
+    }
+  }
+}

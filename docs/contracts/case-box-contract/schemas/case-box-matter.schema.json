@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-matter.schema.json",
+  "title": "CaseBoxMatter",
+  "description": "Matter root. v1 local-first; opt-in external flags default false. See docs/adr/case-box-step-0-boundary.md.",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "actor_user_id",
+    "name",
+    "jurisdiction",
+    "matter_type",
+    "parties",
+    "confidentiality_class",
+    "status",
+    "external_ocr_authorized",
+    "sync_grant_present",
+    "llm_extraction_opt_in",
+    "created_at"
+  ],
+  "properties": {
+    "id":            { "$ref": "#/$defs/ulid" },
+    "tenant_id":     { "type": "string", "minLength": 1, "description": "Retained for forward compatibility; v1 = single tenant." },
+    "actor_user_id": { "type": "string", "minLength": 1, "description": "v1 sentinel: \"local-user\" for local-only mode. See isLocalOnlyActor()." },
+    "name":          { "type": "string", "minLength": 1 },
+    "jurisdiction": {
+      "type": "object",
+      "required": ["value", "locked"],
+      "properties": {
+        "value":  { "type": "string", "minLength": 1, "description": "Controlled-vocab jurisdiction id." },
+        "locked": { "type": "boolean", "description": "True once any deadline exists; persistence layer enforces." }
+      }
+    },
+    "matter_type": {
+      "enum": ["litigation", "arbitration", "advisory", "due_diligence", "criminal_defense", "other"]
+    },
+    "parties": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/party" }
+    },
+    "retainer_scope": { "type": "string" },
+    "confidentiality_class": {
+      "enum": ["normal", "heightened", "sealed"]
+    },
+    "status": {
+      "enum": ["active", "archived"]
+    },
+    "external_ocr_authorized": {
+      "type": "boolean",
+      "default": false,
+      "description": "Opt-in: per-matter authorization to send documents to external OCR worker. Default false (local OCR only)."
+    },
+    "sync_grant_present": {
+      "type": "boolean",
+      "default": false,
+      "description": "Opt-in: at least one sync grant exists for this matter. Default false (no companion bridge exposure)."
+    },
+    "llm_extraction_opt_in": {
+      "type": "boolean",
+      "default": false,
+      "description": "Opt-in: per-case LLM candidate-fact extraction. Default false (deterministic stub only)."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "archived_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Set when status transitions to archived. Reversible per case-box-step-0."
+    }
+  },
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$",
+      "description": "Lowercase 26-char ULID. Mirrors ocr-worker-contract's ULID convention."
+    },
+    "party": {
+      "type": "object",
+      "required": ["role", "display_name", "party_kind"],
+      "properties": {
+        "role":         { "enum": ["client", "opposing", "third_party"] },
+        "display_name": { "type": "string", "minLength": 1 },
+        "party_kind":   { "enum": ["individual", "organization", "government", "court", "other"] },
+        "notes":        { "type": "string" }
+      }
+    }
+  }
+}

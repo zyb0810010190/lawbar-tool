@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-audit-event.schema.json",
+  "title": "CaseBoxAuditEvent",
+  "description": "Append-only audit event with hash-chain shape. Chain integrity (replay-tamper-detection) is enforced by case-box-persistence; the contract carries the SHAPE only.",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "actor_user_id",
+    "matter_id",
+    "action",
+    "entity_type",
+    "entity_id",
+    "after_state_hash",
+    "timestamp"
+  ],
+  "properties": {
+    "id":            { "$ref": "#/$defs/ulid" },
+    "tenant_id":     { "type": "string", "minLength": 1 },
+    "actor_user_id": { "type": "string", "minLength": 1 },
+    "matter_id":     { "$ref": "#/$defs/ulid" },
+    "action": {
+      "enum": [
+        "create",
+        "update",
+        "delete-soft",
+        "access",
+        "export",
+        "print",
+        "share",
+        "privilege-waive"
+      ]
+    },
+    "entity_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "e.g. \"matter\", \"document\", \"deadline\", \"evidence_item\", \"ocr_link\"."
+    },
+    "entity_id": { "$ref": "#/$defs/ulid" },
+    "before_state_hash": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "Null on create; non-null otherwise."
+    },
+    "after_state_hash": {
+      "type": "string",
+      "minLength": 1,
+      "description": "sha256 of canonicalized post-state."
+    },
+    "prev_event_hash": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "Null only on the first audit event for a matter. Non-null otherwise."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required when action is \"privilege-waive\". Optional otherwise."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "action": { "const": "privilege-waive" } },
+        "required": ["action"]
+      },
+      "then": {
+        "required": ["reason"]
+      }
+    }
+  ],
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$"
+    }
+  }
+}

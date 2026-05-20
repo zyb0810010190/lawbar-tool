@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-ocr-link.schema.json",
+  "title": "CaseBoxOcrLink",
+  "description": "Read-only snapshot of an OCR job's state as known to case-box. OCR is a subordinate data feed; case-box never writes to ocr-persistence.",
+  "type": "object",
+  "required": [
+    "document_id",
+    "tenant_id",
+    "actor_user_id",
+    "ocr_job_id",
+    "direction",
+    "status_snapshot",
+    "last_seen_at"
+  ],
+  "properties": {
+    "document_id":   { "$ref": "#/$defs/ulid" },
+    "tenant_id":     { "type": "string", "minLength": 1 },
+    "actor_user_id": { "type": "string", "minLength": 1 },
+    "ocr_job_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque external reference to ocr-persistence; case-box never FKs."
+    },
+    "direction": {
+      "const": "read-only",
+      "description": "Contractually enforced. OCR is a subordinate data feed into case-box; case-box never writes back."
+    },
+    "status_snapshot": {
+      "enum": [
+        "queued",
+        "claimed",
+        "processing",
+        "succeeded",
+        "failed",
+        "partial_succeeded",
+        "cancelled",
+        "dead_lettered"
+      ],
+      "description": "Mirrors OCR job state values. Not cross-$ref'd to avoid schema-build-time coupling."
+    },
+    "last_seen_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When case-box last polled / synced this status from ocr-persistence."
+    }
+  },
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$"
+    }
+  }
+}
