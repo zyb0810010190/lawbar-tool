@@ -832,33 +832,193 @@ v1 bucket: v1-blocking
 
 ### WI-03c - Response Adapter (Content-Length, Uint8Array, Abort, 3xx)
 
-Goal: Implement the transport-owned response adapter per ADR §6 — strict Content-Length parsing (in the transport, before yielding a successful `HttpsTransportResponse`), Buffer-to-Uint8Array strict adaptation on body chunks, abort propagation through every phase, and the 3xx return-shape contract.
+Goal: Implement the transport-owned response adapter per ADR §6 — strict single-valued Content-Length parsing (in the transport, before yielding a successful `HttpsTransportResponse`), Buffer-to-Uint8Array strict adaptation on body chunks, abort propagation through every testable phase, and the 3xx return-shape contract.
 
-Predecessor: WI-03b
+Predecessor: WI-03b (commit `1a9f55c`). WI-03c extends the same transport and reuses the WI-03b internal `HttpsTransportError` module + request-factory seam.
 
-Likely files:
-- `services/ocr-worker/src/fetcher/httpsTransport.ts`
-- `services/ocr-worker/tests/fetcher.https.transport.test.mjs` (un-skip content-length + body shape + abort tests; total ~11 cases)
+#### Scope boundaries (must NOT cross into other WIs)
 
-Acceptance criteria:
-- **Content-Length parsing happens in the transport**, before yielding a successful `HttpsTransportResponse`. Reject with a transport-internal error (mapped to `https_network_error`) on: leading zero (`"0123"`), negative (`-1`), non-integer (`"12.5"`), duplicate values (`"100, 200"`). Accept literal `"0"` (the empty-body case). Absent header is acceptable; transport streams under the existing size cap, no size hint. Fetcher must not need to re-parse Content-Length.
-- **Body chunks** yielded by the response's `AsyncIterable<Uint8Array>` satisfy `chunk.constructor === Uint8Array`. `Buffer` is NOT acceptable (even though `Buffer extends Uint8Array`).
-- **3xx handling**: transport returns `{ status, headers, body }` for any 3xx response — does NOT follow the redirect. The fetcher (existing code) maps to `redirect_unsupported`. Transport must not consume the redirect body unnecessarily.
-- **Abort by phase**:
-  - **Connect phase** (before TCP/TLS established): on signal abort, transport calls `req.destroy(<abort-marker>)` and surfaces an error normalized to the abort discriminator. Fetcher maps to `https_timeout`.
-  - **Headers phase** (after socket established, before response headers received): on signal abort, transport calls `req.destroy(<abort-marker>)` and any `res.destroy` if applicable; surfaces the same abort discriminator.
-  - **Body phase** (during body iteration): on signal abort, transport calls `res.destroy(<abort-marker>)` (and `req.destroy` if needed) so the body's `AsyncIterable` **throws** the normalized abort error. Iteration must NOT end as a partial-success.
-- Signal listeners installed on the AbortSignal are removed on normal completion, error, AND abort to avoid listener leaks.
-- All content-length, body-shape, abort-phase tests in `fetcher.https.transport.test.mjs` un-skipped and pass.
-- No new public fetcher error codes; no new runtime dependencies.
+- WI-03c must NOT implement the WI-03d TLS test harness or local HTTPS server.
+- WI-03c must NOT un-skip certificate / hostname / TLS local-server tests.
+- WI-03c must NOT un-skip the `127.0.0.2` first-vetted-address reorder test (needs loopback-alias binding + TLS).
+- WI-03c must NOT claim full SSRF closure or full transport-TLS integration.
+- Full transport / TLS integration proof remains WI-03d.
+
+#### Likely files
+
+- `services/ocr-worker/src/fetcher/httpsTransport.ts` (response adapter — header parsing, body iterator, abort wiring)
+- `services/ocr-worker/src/fetcher/httpsTransportErrors.ts` (extend `HttpsTransportErrorCode` union with new internal codes — see below)
+- `services/ocr-worker/src/fetcher/fetchPageBytes.ts` (mapping: `RESPONSE_ABORTED` → `https_timeout`; other response-adapter codes continue to map to `https_network_error` via the existing WI-03b `isHttpsTransportError` branch)
+- `services/ocr-worker/tests/fetcher.https.transport.test.mjs` (un-skip exactly the WI-03c-class tests enumerated below)
+- Optionally one test helper file (e.g. `services/ocr-worker/tests/helpers/fake-response.mjs`) for the fake-IncomingMessage / readable-stream harness — internal-only
+
+#### New internal `HttpsTransportError` codes (extends the WI-03b union)
+
+Added to `services/ocr-worker/src/fetcher/httpsTransportErrors.ts`. **Internal only** — must NOT be re-exported from `services/ocr-worker/src/index.ts` or `services/ocr-worker/src/fetcher/index.ts`. The existing WI-03b public-barrel smoke test (`fetcher.public-surface.test.mjs`) is extended to cover the new codes by name.
+
+- `RESPONSE_CONTENT_LENGTH_INVALID` — Content-Length header is present but syntactically malformed (leading zero, negative, non-integer, signed, contains whitespace after canonical trim, or the declared length disagrees with the body bytes the transport observed).
+- `RESPONSE_CONTENT_LENGTH_DUPLICATE` — Content-Length header appears more than once in the raw header sequence.
+- `RESPONSE_ABORTED` — request aborted via `AbortSignal`. Surfaces from the request promise (connect / headers phase) or from the body's `AsyncIterable` (body phase).
+- `RESPONSE_BODY_CHUNK_INVALID` *(optional; emit only if a body chunk fails the `chunk.constructor === Uint8Array` invariant after adaptation — defense-in-depth)*.
+
+#### Content-Length: duplicate detection (Critical fix)
+
+The current header conversion at `httpsTransport.ts` uses `Object.entries(res.headers)`, which is insufficient: Node's `IncomingMessage.headers` collapses duplicate Content-Length entries — a duplicate header would pass through invisibly. WI-03c MUST:
+
+- Detect duplicate Content-Length using `res.rawHeaders` (the raw `[name1, value1, name2, value2, ...]` sequence Node 22+ preserves) OR `res.headersDistinct` (Node 18.3+ exposes per-name string arrays).
+- Do NOT rely on `res.headers` alone for the duplicate check.
+- Count distinct raw occurrences case-insensitively against `"content-length"`.
+- Required outcomes:
+  - Count = 0 → header absent → allowed; transport streams under the existing per-page size cap; no size hint.
+  - Count = 1 → header present → validate syntax (see next subsection).
+  - Count > 1 → reject with `RESPONSE_CONTENT_LENGTH_DUPLICATE` BEFORE yielding the response (no body iteration started, no socket leaked).
+- The duplicate check runs in the transport's response callback, before constructing the public `Headers` instance.
+
+#### Content-Length: syntax + mismatch
+
+Transport owns syntactic validation; fetcher does NOT re-validate.
+
+- Reject (emit `RESPONSE_CONTENT_LENGTH_INVALID`):
+  - Leading zero on a non-`"0"` value (e.g. `"0123"`).
+  - Negative (`-1`).
+  - Non-integer (`"12.5"`).
+  - Signed (`"+1"`).
+  - Contains internal whitespace.
+  - Any value that fails the canonical syntax: `address === address.trim()` style — accept only digit-only ASCII strings (after the transport's deduplication pass), with optional `"0"` exactly for the empty-body case.
+- Accept literal `"0"`.
+- If the transport observed body byte count disagrees with the validated Content-Length (mismatch), emit `RESPONSE_CONTENT_LENGTH_INVALID` from the body iterator (the iterator throws; iteration must not end as a partial-success).
+
+**Existing wording reconciliation** — replace the prior "Fetcher must not need to re-parse Content-Length" with:
+
+> Transport guarantees syntactically valid single-valued Content-Length when present; fetcher may use that value for its existing byte-cap checks without re-validating syntax.
+
+This keeps the fetcher's existing `Number.parseInt(cl, 10)` cap check at `fetchPageBytes.ts:611` valid and unchanged — the fetcher is allowed to use the value, just not to re-validate it.
+
+#### 3xx return-shape contract
+
+Pinned ownership: WI-03c owns transport-level 3xx behavior via the request-factory seam. WI-03d adds TLS-backed integration coverage of the same behavior; it does NOT re-own the contract.
+
+- Transport must return `{ status, headers, body }` for any 3xx status.
+- Transport must NOT follow redirects.
+- `body` is always an `AsyncIterable<Uint8Array>` — may be empty but **never undefined**.
+- Transport must NOT pre-read the 3xx body. The body stays a lazy async iterable; the caller decides whether to consume it.
+- Fetcher continues mapping 3xx → public `redirect_unsupported` per ADR §7. No change to the fetcher.
+
+#### Body chunk shape
+
+- Body `AsyncIterable<Uint8Array>` must yield only chunks where `chunk.constructor === Uint8Array`.
+- Node `IncomingMessage` yields `Buffer` chunks; `Buffer.prototype instanceof Uint8Array` is true but `chunk.constructor === Uint8Array` is false. The transport must adapt each chunk before yielding.
+- Implementation note: a zero-copy view (`new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength)`) preserves `byteLength` and avoids copying; a strict copy (`new Uint8Array(chunk)`) is acceptable. Either way the fetcher's existing `chunk.byteLength` and `Buffer.concat(chunks, total)` paths must continue to work (note: `Buffer.concat` accepts `Uint8Array[]`).
+- If a chunk fails the invariant after adaptation (defense-in-depth), emit `RESPONSE_BODY_CHUNK_INVALID` from the iterator.
+
+#### Abort contract (deterministic by phase)
+
+Abort identity: transport surfaces an `HttpsTransportError` with code `RESPONSE_ABORTED`. Fetcher maps this internal code to existing public `https_timeout` (no new public code).
+
+- Abort source: `init.signal` (existing `AbortSignal`). When the signal fires, transport's wiring calls `req.destroy(abortErr)` / `res.destroy(abortErr)` as appropriate to the active phase.
+- Phase 1 — Before connect / before request completes: the request promise rejects with `HttpsTransportError({ code: "RESPONSE_ABORTED" })`. Testable through the WI-03b request-factory seam (no TLS server required).
+- Phase 2 — After connect, before headers (headers phase): the request promise rejects with `HttpsTransportError({ code: "RESPONSE_ABORTED" })`. Requires a fake-IncomingMessage / readable-stream harness if no live server.
+- Phase 3 — Mid-body iteration: the body's `AsyncIterable` throws `HttpsTransportError({ code: "RESPONSE_ABORTED" })`. Iteration MUST NOT end as a partial-success. Requires fake-stream harness if no live server.
+- If a phase cannot be made deterministic without the WI-03d TLS harness, that specific test is deferred to WI-03d and documented in the skipped test's skip reason — DO NOT pretend WI-03c proves it.
+- Ownership rule: the transport body iterator throws on abort; the fetcher only maps the thrown error. The fetcher does not detect partial completion.
+- Behavior-level assertion: tests assert `for await` throws AND fetcher maps to `https_timeout`, NOT exact Node internal error type. Node's `req.destroy(err)` / `res.destroy(err)` propagated identity can vary across versions; the behavior contract is what's tested.
+
+#### Listener cleanup (symmetry across exits)
+
+- Signal listeners installed on `init.signal` must be removed on every exit path:
+  - normal completion (success),
+  - error (any non-abort failure including Content-Length rejection),
+  - abort.
+- WI-03c tests must include a listener-symmetry assertion across the three abort-coverable phases × the three exit modes that apply to each. Use either:
+  - a counting/spy AbortSignal that records `addEventListener` / `removeEventListener` calls and asserts the delta is zero at end of test, OR
+  - an instrumented mock that captures the listener callbacks and asserts each is unwired after the corresponding exit.
+- The non-TLS phases (phase-1 abort, success, error) MUST have the symmetry assertion in WI-03c. TLS-server-only listener lifecycle (if any) is deferred to WI-03d.
+
+#### Test seam (extends WI-03b)
+
+WI-03c may extend the WI-03b internal seam (`makeNodeHttpsRequestTransportForTest({ request })`) with fake `IncomingMessage` / readable-stream helpers for response-adapter tests. Constraints:
+
+- The seam and any new fake-stream helpers stay internal: NOT re-exported from public barrels.
+- Fake-stream helpers live under `services/ocr-worker/tests/helpers/` (test-only) or as private helpers in the test file.
+- Tests that cannot be made deterministic without a local HTTPS server lifecycle remain skipped with the existing `{ skip: "Unlocked by WI-03d" }` reason (renamed from "Unlocked by WI-03" so the boundary is auditable).
+
+#### Tests to un-skip (exact enumeration)
+
+WI-03c un-skips exactly these from `services/ocr-worker/tests/fetcher.https.transport.test.mjs`:
+
+| # | Line | Test title |
+|---|------|------------|
+| 1 | ~422 | `content-length: leading zero ("0123") rejected with transport error` |
+| 2 | ~430 | `content-length: negative value (-1) rejected` |
+| 3 | ~435 | `content-length: non-integer ("12.5") rejected` |
+| 4 | ~440 | `content-length: duplicate values ("100, 200") rejected` |
+| 5 | ~446 | `content-length: "0" is accepted (empty body case)` |
+| 6 | ~453 | `content-length: absent → streams under existing size cap, no size hint` |
+| 7 | ~463 | `body: each chunk yielded by the async iterator is Uint8Array, never raw Buffer` |
+| 8 | ~481 | `3xx: transport surfaces status 302 instead of following the Location header` |
+| 9 | ~497 | `abort: signal fired BEFORE connect resolves → request error mapped to https_timeout by fetcher` |
+
+Conditionally un-skipped IF the fake-stream harness can make them deterministic without a live HTTPS server:
+
+| # | Line | Test title | Condition |
+|---|------|------------|-----------|
+| 10 | ~506 | `abort: signal fired AFTER connect but BEFORE response headers → request error mapped to https_timeout` | requires fake-IncomingMessage harness |
+| 11 | ~515 | `abort: signal fired MID-BODY after some chunks delivered → stream throws, no partial-success` | requires fake-readable-stream harness |
+
+Explicitly **deferred to WI-03d** (NOT un-skipped by WI-03c):
+
+| Line | Test title | Reason |
+|------|------------|--------|
+| ~347 | `transport connects to the FIRST element of allowedAddresses, no reordering` | requires 127.0.0.2 loopback alias + two TLS servers |
+| ~386 | `TLS: cert valid for hostname → ...` | requires TLS test harness |
+| ~400 | `TLS: cert valid only for IP literal → ...` | requires TLS test harness |
+| ~411 | `TLS: cert valid only for wrong hostname → ...` | requires TLS test harness |
+| ~537 | `e2e: TLS hostname mismatch via real transport → fetcher returns https_network_error` | requires TLS test harness |
+| ~547 | `e2e: malformed Content-Length via real transport → fetcher returns https_network_error` | requires live HTTPS server |
+| ~553 | `e2e: abort during body via real transport → fetcher returns https_timeout` | requires live HTTPS server |
+
+Total un-skipped by WI-03c: 9 firm + up to 2 conditional = 9 to 11 cases. If a conditional case is left skipped, the skip reason MUST be renamed to `{ skip: "Unlocked by WI-03d" }` and documented.
+
+#### Fetcher mapping (no new public codes)
+
+Internal response-adapter errors map to existing public fetcher codes only:
+
+| Internal `HttpsTransportError.code` | Public `FETCHER_ERROR_CODES` | Cause preserved? |
+|---|---|---|
+| `RESPONSE_CONTENT_LENGTH_INVALID` | `HTTPS_NETWORK_ERROR` | yes |
+| `RESPONSE_CONTENT_LENGTH_DUPLICATE` | `HTTPS_NETWORK_ERROR` | yes |
+| `RESPONSE_BODY_CHUNK_INVALID` | `HTTPS_NETWORK_ERROR` | yes |
+| `RESPONSE_ABORTED` | `HTTPS_TIMEOUT` | yes |
+| 3xx response status | `REDIRECT_UNSUPPORTED` (existing fetcher logic; no transport-level error) | n/a |
+
+Mapping mechanics:
+
+- The WI-03b `isHttpsTransportError` branch in `wrapTimeoutError` already maps every `HttpsTransportError` to `https_network_error` with `cause` preserved. WI-03c MUST add an additional discriminator inside that branch: if `err.code === "RESPONSE_ABORTED"`, map to `https_timeout` instead, still preserving `cause`. All other `HttpsTransportError` codes continue to fall through to `https_network_error`.
+- `FETCHER_ERROR_CODES` MUST remain unchanged. No new public codes.
+- Tests MUST assert public code AND `err.cause instanceof HttpsTransportError` AND `err.cause.code` — same shape as the WI-03b mapping test.
+
+#### Acceptance criteria (summary)
+
+- Content-Length duplicate detection uses `res.rawHeaders` or `res.headersDistinct`, not `res.headers` alone.
+- Content-Length syntax validation lives in the transport; the fetcher may use the validated value for cap checks without re-validating syntax.
+- Transport returns `{ status, headers, body }` for 3xx; `body` is always an `AsyncIterable<Uint8Array>` (may be empty, never undefined); transport does NOT pre-read the 3xx body.
+- Body chunks satisfy `chunk.constructor === Uint8Array` (Buffer adapted before yield).
+- Abort discriminator pinned: `HttpsTransportError({ code: "RESPONSE_ABORTED" })`. Phase-1 abort proven via the WI-03b request-factory seam. Phase-2 / phase-3 abort tests un-skipped only if a fake-stream harness makes them deterministic without a live HTTPS server; otherwise the skip reason renames to `"Unlocked by WI-03d"`.
+- Listener-symmetry assertion present across success / error / abort exits for the non-TLS phases.
+- Fetcher mapping: `RESPONSE_ABORTED` → `https_timeout`, other response-adapter codes → `https_network_error`, all with `cause` preserved. `FETCHER_ERROR_CODES` unchanged.
+- Public-barrel smoke test (`fetcher.public-surface.test.mjs`) extended to assert the new internal codes/symbols are absent from both public barrels.
+- Exactly the WI-03c-class tests enumerated above are un-skipped; TLS / hostname / e2e / no-reorder tests remain skipped with renamed reason `"Unlocked by WI-03d"`.
+- No new public fetcher error codes. No new runtime dependencies.
 
 Tests to run:
 - `node --test services/ocr-worker/tests/fetcher.https.transport.test.mjs`
+- `node --test services/ocr-worker/tests/fetcher.https.test.mjs`
+- `node --test services/ocr-worker/tests/fetcher.public-surface.test.mjs`
 - `npm --prefix services/ocr-worker test`
 
 Verification command: `/cc-suite:verify WI-03c`
 
-Audit command: `/cc-suite:audit --full services/ocr-worker/src/fetcher/httpsTransport.ts services/ocr-worker/tests/fetcher.https.transport.test.mjs`
+Audit command: `/cc-suite:audit --full services/ocr-worker/src/fetcher/httpsTransport.ts services/ocr-worker/src/fetcher/httpsTransportErrors.ts services/ocr-worker/src/fetcher/fetchPageBytes.ts services/ocr-worker/tests/fetcher.https.transport.test.mjs services/ocr-worker/tests/fetcher.https.test.mjs services/ocr-worker/tests/fetcher.public-surface.test.mjs`
 
 Risk level: Critical
 Ownership: Claude writes, Codex validates
