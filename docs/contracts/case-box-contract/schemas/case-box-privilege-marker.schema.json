@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-privilege-marker.schema.json",
+  "title": "CaseBoxPrivilegeMarker",
+  "description": "Privilege marker on a CaseBoxDocument or CaseBoxFact. Single mutable row per marker; status advances proposed → confirmed → waived OR proposed → dismissed. Machine sources (llm_suggested, imported) MUST start as proposed. lawyer_authored MAY start as proposed or confirmed. Unmarked targets (no marker row) are legally undetermined — neither privileged nor cleared-for-disclosure. See docs/adr/case-box-step-3-privilege-marker-model.md.",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "actor_user_id",
+    "matter_id",
+    "target_type",
+    "target_id",
+    "kind",
+    "basis_text",
+    "status",
+    "source_type",
+    "extractor_name",
+    "extractor_version",
+    "extraction_confidence",
+    "proposed_at",
+    "confirmed_actor_user_id",
+    "confirmed_at",
+    "dismissed_actor_user_id",
+    "dismissed_at",
+    "dismissal_reason",
+    "waiver_actor_user_id",
+    "waived_at",
+    "waiver_reason",
+    "created_at"
+  ],
+  "properties": {
+    "id":            { "$ref": "#/$defs/ulid" },
+    "tenant_id":     { "type": "string", "minLength": 1 },
+    "actor_user_id": { "type": "string", "minLength": 1, "description": "Creator. v1 sentinel: \"local-user\"." },
+    "matter_id":     { "$ref": "#/$defs/ulid" },
+    "target_type": {
+      "enum": ["document", "fact"],
+      "description": "v1 set. evidence-item / matter / page-range markers are deferred to future evolutions."
+    },
+    "target_id": { "$ref": "#/$defs/ulid", "description": "Opaque ref. Persistence enforces existence and tenant/matter consistency." },
+    "kind": {
+      "enum": ["attorney_client", "work_product", "joint_defense", "common_interest"],
+      "description": "Legal basis. Required on every row regardless of status (privilege log must reconstruct the basis even from dismissed/waived rows)."
+    },
+    "basis_text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Lawyer-authored or extractor-supplied prose explaining the basis. Required non-empty on every row."
+    },
+    "status": {
+      "enum": ["proposed", "confirmed", "dismissed", "waived"]
+    },
+    "source_type": {
+      "enum": ["lawyer_authored", "llm_suggested", "imported"]
+    },
+    "extractor_name": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "Extractor identity for machine sources. Required for llm_suggested + imported. MUST be null for lawyer_authored."
+    },
+    "extractor_version": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ]
+    },
+    "extraction_confidence": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "number", "minimum": 0, "maximum": 1 }
+      ]
+    },
+    "proposed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Creation timestamp; required NON-NULL on every row. For lawyer-direct-confirmed markers, proposed_at === confirmed_at."
+    },
+    "confirmed_actor_user_id": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "Set when status reaches confirmed (and persists through waived). MUST be a lawyer; load-bearing for no-auto-privilege."
+    },
+    "confirmed_at": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date-time" }
+      ]
+    },
+    "dismissed_actor_user_id": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ]
+    },
+    "dismissed_at": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date-time" }
+      ]
+    },
+    "dismissal_reason": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "Required non-null when status === dismissed."
+    },
+    "waiver_actor_user_id": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ]
+    },
+    "waived_at": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date-time" }
+      ]
+    },
+    "waiver_reason": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "Required non-null when status === waived. Legal-trail invariant: waiver MUST cite a reason."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if":   { "properties": { "status": { "const": "proposed" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "confirmed_actor_user_id": { "type": "null" },
+          "confirmed_at":            { "type": "null" },
+          "dismissed_actor_user_id": { "type": "null" },
+          "dismissed_at":            { "type": "null" },
+          "dismissal_reason":        { "type": "null" },
+          "waiver_actor_user_id":    { "type": "null" },
+          "waived_at":               { "type": "null" },
+          "waiver_reason":           { "type": "null" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "status": { "const": "confirmed" } }, "required": ["status"] },
+      "then": {
+        "required": ["confirmed_actor_user_id", "confirmed_at"],
+        "properties": {
+          "confirmed_actor_user_id": { "type": "string", "minLength": 1 },
+          "confirmed_at":            { "type": "string", "format": "date-time" },
+          "dismissed_actor_user_id": { "type": "null" },
+          "dismissed_at":            { "type": "null" },
+          "dismissal_reason":        { "type": "null" },
+          "waiver_actor_user_id":    { "type": "null" },
+          "waived_at":               { "type": "null" },
+          "waiver_reason":           { "type": "null" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "status": { "const": "dismissed" } }, "required": ["status"] },
+      "then": {
+        "required": ["dismissed_actor_user_id", "dismissed_at", "dismissal_reason"],
+        "properties": {
+          "dismissed_actor_user_id": { "type": "string", "minLength": 1 },
+          "dismissed_at":            { "type": "string", "format": "date-time" },
+          "dismissal_reason":        { "type": "string", "minLength": 1 },
+          "confirmed_actor_user_id": { "type": "null" },
+          "confirmed_at":            { "type": "null" },
+          "waiver_actor_user_id":    { "type": "null" },
+          "waived_at":               { "type": "null" },
+          "waiver_reason":           { "type": "null" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "status": { "const": "waived" } }, "required": ["status"] },
+      "then": {
+        "required": ["confirmed_actor_user_id", "confirmed_at", "waiver_actor_user_id", "waived_at", "waiver_reason"],
+        "properties": {
+          "confirmed_actor_user_id": { "type": "string", "minLength": 1 },
+          "confirmed_at":            { "type": "string", "format": "date-time" },
+          "waiver_actor_user_id":    { "type": "string", "minLength": 1 },
+          "waived_at":               { "type": "string", "format": "date-time" },
+          "waiver_reason":           { "type": "string", "minLength": 1 },
+          "dismissed_actor_user_id": { "type": "null" },
+          "dismissed_at":            { "type": "null" },
+          "dismissal_reason":        { "type": "null" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "source_type": { "const": "lawyer_authored" } }, "required": ["source_type"] },
+      "then": {
+        "properties": {
+          "extractor_name":        { "type": "null" },
+          "extractor_version":     { "type": "null" },
+          "extraction_confidence": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "source_type": { "const": "llm_suggested" } }, "required": ["source_type"] },
+      "then": {
+        "required": ["extractor_name"],
+        "properties": {
+          "extractor_name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "source_type": { "const": "imported" } }, "required": ["source_type"] },
+      "then": {
+        "required": ["extractor_name"],
+        "properties": {
+          "extractor_name": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$"
+    }
+  }
+}

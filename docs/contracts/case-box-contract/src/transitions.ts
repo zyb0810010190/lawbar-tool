@@ -108,6 +108,30 @@ export function isTerminalFactState(state: FactState): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Privilege-marker lifecycle
+// ---------------------------------------------------------------------------
+
+export type PrivilegeMarkerState = "proposed" | "confirmed" | "dismissed" | "waived";
+
+export const PRIVILEGE_MARKER_STATES: readonly PrivilegeMarkerState[] = Object.freeze([
+  "proposed",
+  "confirmed",
+  "dismissed",
+  "waived",
+] as const);
+
+// dismissed and waived are terminal. Once dismissed or waived, the marker
+// stays in that state; a new marker on the same target is a new row.
+export const TERMINAL_PRIVILEGE_MARKER_STATES: readonly PrivilegeMarkerState[] = Object.freeze([
+  "dismissed",
+  "waived",
+] as const);
+
+export function isTerminalPrivilegeMarkerState(state: PrivilegeMarkerState): boolean {
+  return TERMINAL_PRIVILEGE_MARKER_STATES.includes(state);
+}
+
+// ---------------------------------------------------------------------------
 // Deadline lifecycle
 // ---------------------------------------------------------------------------
 
@@ -168,6 +192,15 @@ export const ALLOWED_EVIDENCE_EDGES: readonly AllowedEdge<EvidenceState>[] = fre
   { from: "proposed", to: "accepted",   by: ["lawyer"] },
   { from: "proposed", to: "rejected",   by: ["lawyer"] },
   { from: "accepted", to: "superseded", by: ["lawyer"], note: "supersedes_evidence_id required" },
+]);
+
+// Privilege-marker edges. proposed→confirmed is the only promotion path
+// (load-bearing for no-auto-privilege); proposed→dismissed and confirmed→
+// waived both REQUIRE a non-empty reason (legal-trail invariants).
+export const ALLOWED_PRIVILEGE_MARKER_EDGES: readonly AllowedEdge<PrivilegeMarkerState>[] = freezeEdges<PrivilegeMarkerState>([
+  { from: "proposed",  to: "confirmed", by: ["lawyer"], note: "promotion to protective status — load-bearing for no-auto-privilege" },
+  { from: "proposed",  to: "dismissed", by: ["lawyer"], reason_required: true, note: "dismissal reason required for legal trail" },
+  { from: "confirmed", to: "waived",    by: ["lawyer"], reason_required: true, note: "waiver reason required; waiver is one-way" },
 ]);
 
 // Fact promotion edges. `candidate → accepted` is intentionally absent: it
@@ -275,6 +308,14 @@ export function isAllowedFactTransition(
   return isAllowed(ALLOWED_FACT_EDGES, from, to, controlled_by);
 }
 
+export function isAllowedPrivilegeMarkerTransition(
+  from: PrivilegeMarkerState,
+  to: PrivilegeMarkerState,
+  controlled_by: CaseBoxActor,
+): boolean {
+  return isAllowed(ALLOWED_PRIVILEGE_MARKER_EDGES, from, to, controlled_by);
+}
+
 function assertNonTerminal<S extends string>(
   terminals: readonly S[],
   from: S,
@@ -364,5 +405,30 @@ export function assertValidFactTransition(
   }
   if (!isAllowedFactTransition(from, to, controlled_by)) {
     throw new IllegalTransitionError(from, to, controlled_by);
+  }
+}
+
+export function assertValidPrivilegeMarkerTransition(
+  from: PrivilegeMarkerState,
+  to: PrivilegeMarkerState,
+  controlled_by: CaseBoxActor,
+  reason?: string,
+): void {
+  assertNonTerminal(TERMINAL_PRIVILEGE_MARKER_STATES, from, to, controlled_by);
+  if (from === to) {
+    throw new IllegalTransitionError(from, to, controlled_by, "self-transition rejected");
+  }
+  if (!isAllowedPrivilegeMarkerTransition(from, to, controlled_by)) {
+    throw new IllegalTransitionError(from, to, controlled_by);
+  }
+  if (edgeRequiresReason(ALLOWED_PRIVILEGE_MARKER_EDGES, from, to)) {
+    if (typeof reason !== "string" || reason.length === 0) {
+      throw new IllegalTransitionError(
+        from,
+        to,
+        controlled_by,
+        `transition '${from}' -> '${to}' requires a non-empty reason`,
+      );
+    }
   }
 }

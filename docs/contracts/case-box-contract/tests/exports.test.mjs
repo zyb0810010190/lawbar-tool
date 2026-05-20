@@ -14,6 +14,7 @@ const expectedFns = [
   "validateOcrLink",
   "validateAuditEvent",
   "validateFact",
+  "validatePrivilegeMarker",
   "assertCaseBoxIsSubordinateToOcr",
   "isLocalOnlyActor",
   "defaultsAreLocalFirst",
@@ -23,21 +24,30 @@ const expectedFns = [
   "isTerminalEvidenceState",
   "isTerminalDeadlineState",
   "isTerminalFactState",
+  "isTerminalPrivilegeMarkerState",
   "isAllowedMatterTransition",
   "isAllowedDocumentTransition",
   "isAllowedEvidenceTransition",
   "isAllowedDeadlineTransition",
   "isAllowedFactTransition",
+  "isAllowedPrivilegeMarkerTransition",
   "assertValidMatterTransition",
   "assertValidDocumentTransition",
   "assertValidEvidenceTransition",
   "assertValidDeadlineTransition",
   "assertValidFactTransition",
+  "assertValidPrivilegeMarkerTransition",
   "assertFactPromotionInvariants",
   "assertValidNewFact",
   "isFactCandidateOnly",
   "factWasMachineExtracted",
   "isMachineExtractedCandidate",
+  "assertValidNewPrivilegeMarker",
+  "assertPrivilegeMarkerTimestamps",
+  "effectivePrivilegeStatus",
+  "isMarkerProtective",
+  "isMarkerLifecycleTerminal",
+  "isMachineSuggestedMarker",
 ];
 
 const expectedArrays = [
@@ -51,11 +61,14 @@ const expectedArrays = [
   "TERMINAL_DEADLINE_STATES",
   "FACT_STATES",
   "TERMINAL_FACT_STATES",
+  "PRIVILEGE_MARKER_STATES",
+  "TERMINAL_PRIVILEGE_MARKER_STATES",
   "ALLOWED_MATTER_EDGES",
   "ALLOWED_DOCUMENT_EDGES",
   "ALLOWED_EVIDENCE_EDGES",
   "ALLOWED_DEADLINE_EDGES",
   "ALLOWED_FACT_EDGES",
+  "ALLOWED_PRIVILEGE_MARKER_EDGES",
 ];
 
 const expectedObjects = [
@@ -67,6 +80,7 @@ const expectedObjects = [
   "ocrLinkSchema",
   "auditEventSchema",
   "factSchema",
+  "privilegeMarkerSchema",
 ];
 
 const expectedConstants = [
@@ -78,6 +92,7 @@ const expectedErrorCtors = [
   "OcrSubordinationError",
   "FactPromotionInvariantError",
   "FactCreationInvariantError",
+  "PrivilegeMarkerCreationError",
 ];
 
 test("every expected function is exported and callable", () => {
@@ -96,11 +111,13 @@ test("every expected array is exported and non-empty (where applicable)", () => 
   assert.ok(pkg.EVIDENCE_STATES.length > 0);
   assert.ok(pkg.DEADLINE_STATES.length > 0);
   assert.ok(pkg.FACT_STATES.length > 0);
+  assert.ok(pkg.PRIVILEGE_MARKER_STATES.length > 0);
   assert.ok(pkg.ALLOWED_MATTER_EDGES.length > 0);
   assert.ok(pkg.ALLOWED_DOCUMENT_EDGES.length > 0);
   assert.ok(pkg.ALLOWED_EVIDENCE_EDGES.length > 0);
   assert.ok(pkg.ALLOWED_DEADLINE_EDGES.length > 0);
   assert.ok(pkg.ALLOWED_FACT_EDGES.length > 0);
+  assert.ok(pkg.ALLOWED_PRIVILEGE_MARKER_EDGES.length > 0);
 });
 
 test("every expected schema is exported and frozen", () => {
@@ -141,4 +158,9 @@ test("error constructors produce Error instances with named .name", () => {
   assert.ok(e4 instanceof Error);
   assert.equal(e4.name, "FactCreationInvariantError");
   assert.equal(e4.violation, "not candidate");
+
+  const e5 = new pkg.PrivilegeMarkerCreationError("not lawyer");
+  assert.ok(e5 instanceof Error);
+  assert.equal(e5.name, "PrivilegeMarkerCreationError");
+  assert.equal(e5.violation, "not lawyer");
 });

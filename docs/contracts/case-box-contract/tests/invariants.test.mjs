@@ -129,6 +129,12 @@ test("every entity fixture carries tenant_id and actor_user_id", () => {
     "fact-accepted-lawyer-authored.valid.json",
     "fact-accepted-supersedes-prior.valid.json",
     "fact-rejected.valid.json",
+    "privilege-marker-proposed-llm.valid.json",
+    "privilege-marker-proposed-lawyer-draft.valid.json",
+    "privilege-marker-confirmed-lawyer-direct.valid.json",
+    "privilege-marker-confirmed-on-fact.valid.json",
+    "privilege-marker-dismissed.valid.json",
+    "privilege-marker-waived.valid.json",
   ];
   for (const f of fixtures) {
     const data = readJson(join(validDir, f));

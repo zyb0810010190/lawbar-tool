@@ -16,6 +16,7 @@ Wire-format and semantic contract for the case-box domain layer:
 - **CaseBoxOcrLink** — read-only mirror of OCR job state; `direction: "read-only"` is contractually enforced.
 - **CaseBoxAuditEvent** — append-only event with hash-chain shape (chain integrity is persistence's job).
 - **CaseBoxFact** — statement-level fact derived from a document, an LLM, an OCR excerpt, an import, or authored by the lawyer. Carries source + extractor provenance + review trail + supersession pointer. v1 invariant: **all facts created in status=candidate**; no auto-promote.
+- **CaseBoxPrivilegeMarker** — privilege assertion on a CaseBoxDocument or CaseBoxFact. Single mutable row per marker; status advances `proposed → confirmed → waived` OR `proposed → dismissed`. Machine sources MUST start `proposed`; lawyer sources MAY start `confirmed`. **Unmarked targets are legally undetermined — neither privileged nor cleared-for-disclosure.** See `effectivePrivilegeStatus` resolver.
 
 ## What this package is NOT
 
@@ -41,6 +42,11 @@ See `src/index.ts`. Validators, state-machine helpers, errors, semantic helpers 
 - **`CaseBoxFact` no-auto-accept**: enforced in three layers — state machine bans `candidate → accepted`, schema requires reviewer fields for `accepted`/`rejected`/`reviewed`, and `assertValidNewFact` rejects any new fact whose `status !== "candidate"`. Machine-extracted facts (LLM / OCR excerpt / imported) MUST land as `candidate`.
 - **`CaseBoxFact` supersession** is a relationship, not a row state. A new accepted fact's `supersedes_fact_id` points to the old accepted fact it replaces; both rows remain `accepted`. There is no row-level `superseded` state. Self-cycle caught by `assertFactPromotionInvariants`; broader chain-cycle detection is persistence's job.
 - **`CaseBoxFact` source-type coherence**: `lawyer_authored` MUST NOT carry extractor metadata; `llm_extraction` and `imported` MUST carry `extractor_name`; `ocr_excerpt` MUST carry `source_document_id`, `source_ocr_job_id`, `source_page_number`, and `source_excerpt`.
+- **`CaseBoxPrivilegeMarker` no-auto-privilege**: state machine bans non-`lawyer` actors from any promotion; `assertValidNewPrivilegeMarker` rejects machine-sourced markers in initial state `confirmed`; schema requires reviewer fields for `confirmed`/`dismissed`/`waived`.
+- **`CaseBoxPrivilegeMarker` resolver safety**: `effectivePrivilegeStatus` returns a structured `PrivilegeResolution` object with `hasProtectiveAssertion: boolean` + `activeConfirmedMarkers: Marker[]` + `historyHas: {...}` + `allTargetMarkers: Marker[]`. **There is NO `isPrivileged`, `safeToDisclose`, `disclosureClearance`, or `notPrivileged` field.** Callers MUST check `hasProtectiveAssertion` explicitly and MUST NOT infer disclosure safety from any other return field.
+- **`CaseBoxPrivilegeMarker` reason invariants**: `proposed → dismissed` AND `confirmed → waived` both require a non-empty reason at the state-machine layer; the schema's M3/M4 require non-null `dismissal_reason` / `waiver_reason` respectively.
+- **`CaseBoxPrivilegeMarker` basis preservation**: `kind` and `basis_text` are top-level required on every row, so a `dismissed` or `waived` marker preserves what was originally proposed/protected (privilege-log reproducibility).
+- **`CaseBoxPrivilegeMarker` source-type coherence**: `lawyer_authored` MUST NOT carry extractor metadata; `llm_suggested` and `imported` MUST carry `extractor_name`.
 
 ## Test commands
 

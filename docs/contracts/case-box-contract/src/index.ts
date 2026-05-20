@@ -14,6 +14,7 @@ export { validateEvidenceItem } from "./validateEvidenceItem.js";
 export { validateOcrLink, assertCaseBoxIsSubordinateToOcr } from "./validateOcrLink.js";
 export { validateAuditEvent } from "./validateAuditEvent.js";
 export { validateFact } from "./validateFact.js";
+export { validatePrivilegeMarker } from "./validatePrivilegeMarker.js";
 
 // --- State machines + transition helpers ---
 export {
@@ -32,21 +33,27 @@ export {
   FACT_STATES,
   TERMINAL_FACT_STATES,
   isTerminalFactState,
+  PRIVILEGE_MARKER_STATES,
+  TERMINAL_PRIVILEGE_MARKER_STATES,
+  isTerminalPrivilegeMarkerState,
   ALLOWED_MATTER_EDGES,
   ALLOWED_DOCUMENT_EDGES,
   ALLOWED_EVIDENCE_EDGES,
   ALLOWED_DEADLINE_EDGES,
   ALLOWED_FACT_EDGES,
+  ALLOWED_PRIVILEGE_MARKER_EDGES,
   isAllowedMatterTransition,
   isAllowedDocumentTransition,
   isAllowedEvidenceTransition,
   isAllowedDeadlineTransition,
   isAllowedFactTransition,
+  isAllowedPrivilegeMarkerTransition,
   assertValidMatterTransition,
   assertValidDocumentTransition,
   assertValidEvidenceTransition,
   assertValidDeadlineTransition,
   assertValidFactTransition,
+  assertValidPrivilegeMarkerTransition,
   IllegalTransitionError,
   OcrSubordinationError,
   type MatterState,
@@ -54,6 +61,7 @@ export {
   type EvidenceState,
   type DeadlineState,
   type FactState,
+  type PrivilegeMarkerState,
   type CaseBoxActor,
   type AllowedEdge,
 } from "./transitions.js";
@@ -77,6 +85,18 @@ export {
   FactCreationInvariantError,
 } from "./fact-invariants.js";
 
+// --- Privilege-marker invariants and resolver ---
+export {
+  assertValidNewPrivilegeMarker,
+  assertPrivilegeMarkerTimestamps,
+  effectivePrivilegeStatus,
+  isMarkerProtective,
+  isMarkerLifecycleTerminal,
+  isMachineSuggestedMarker,
+  PrivilegeMarkerCreationError,
+  type PrivilegeResolution,
+} from "./privilege-invariants.js";
+
 // --- Shared validation result types ---
 export type {
   ValidationResult,
@@ -95,6 +115,7 @@ export type { CaseBoxEvidenceItem } from "./generated/case-box-evidence-item.js"
 export type { CaseBoxOcrLink } from "./generated/case-box-ocr-link.js";
 export type { CaseBoxAuditEvent } from "./generated/case-box-audit-event.js";
 export type { CaseBoxFact } from "./generated/case-box-fact.js";
+export type { CaseBoxPrivilegeMarker } from "./generated/case-box-privilege-marker.js";
 
 // --- Deep-frozen public schemas ---
 //
@@ -111,6 +132,7 @@ import {
   ocrLinkSchema as rawOcrLinkSchema,
   auditEventSchema as rawAuditEventSchema,
   factSchema as rawFactSchema,
+  privilegeMarkerSchema as rawPrivilegeMarkerSchema,
 } from "./loadSchemas.js";
 
 function deepFreeze<T>(value: T): T {
@@ -131,3 +153,4 @@ export const evidenceItemSchema = deepFreeze(structuredClone(rawEvidenceItemSche
 export const ocrLinkSchema = deepFreeze(structuredClone(rawOcrLinkSchema));
 export const auditEventSchema = deepFreeze(structuredClone(rawAuditEventSchema));
 export const factSchema = deepFreeze(structuredClone(rawFactSchema));
+export const privilegeMarkerSchema = deepFreeze(structuredClone(rawPrivilegeMarkerSchema));

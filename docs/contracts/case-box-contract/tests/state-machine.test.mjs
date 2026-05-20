@@ -19,21 +19,26 @@ import {
   TERMINAL_DEADLINE_STATES,
   FACT_STATES,
   TERMINAL_FACT_STATES,
+  PRIVILEGE_MARKER_STATES,
+  TERMINAL_PRIVILEGE_MARKER_STATES,
   ALLOWED_MATTER_EDGES,
   ALLOWED_DOCUMENT_EDGES,
   ALLOWED_EVIDENCE_EDGES,
   ALLOWED_DEADLINE_EDGES,
   ALLOWED_FACT_EDGES,
+  ALLOWED_PRIVILEGE_MARKER_EDGES,
   isAllowedMatterTransition,
   isAllowedDocumentTransition,
   isAllowedEvidenceTransition,
   isAllowedDeadlineTransition,
   isAllowedFactTransition,
+  isAllowedPrivilegeMarkerTransition,
   assertValidMatterTransition,
   assertValidDocumentTransition,
   assertValidEvidenceTransition,
   assertValidDeadlineTransition,
   assertValidFactTransition,
+  assertValidPrivilegeMarkerTransition,
   IllegalTransitionError,
 } from "../dist/index.js";
 
@@ -47,6 +52,7 @@ test("state lists are non-empty", () => {
   assert.ok(EVIDENCE_STATES.length >= 2);
   assert.ok(DEADLINE_STATES.length >= 2);
   assert.ok(FACT_STATES.length >= 2);
+  assert.ok(PRIVILEGE_MARKER_STATES.length >= 2);
 });
 
 test("terminal lists are subsets of state lists", () => {
@@ -55,6 +61,7 @@ test("terminal lists are subsets of state lists", () => {
   for (const s of TERMINAL_EVIDENCE_STATES) assert.ok(EVIDENCE_STATES.includes(s));
   for (const s of TERMINAL_DEADLINE_STATES) assert.ok(DEADLINE_STATES.includes(s));
   for (const s of TERMINAL_FACT_STATES) assert.ok(FACT_STATES.includes(s));
+  for (const s of TERMINAL_PRIVILEGE_MARKER_STATES) assert.ok(PRIVILEGE_MARKER_STATES.includes(s));
 });
 
 // ---------------------------------------------------------------------------
@@ -182,6 +189,7 @@ test("no edge table contains a self-loop", () => {
   for (const e of ALLOWED_EVIDENCE_EDGES) assert.notEqual(e.from, e.to);
   for (const e of ALLOWED_DEADLINE_EDGES) assert.notEqual(e.from, e.to);
   for (const e of ALLOWED_FACT_EDGES)     assert.notEqual(e.from, e.to);
+  for (const e of ALLOWED_PRIVILEGE_MARKER_EDGES) assert.notEqual(e.from, e.to);
 });
 
 // ---------------------------------------------------------------------------
@@ -195,9 +203,90 @@ test("every edge cites at least one actor", () => {
     ...ALLOWED_EVIDENCE_EDGES,
     ...ALLOWED_DEADLINE_EDGES,
     ...ALLOWED_FACT_EDGES,
+    ...ALLOWED_PRIVILEGE_MARKER_EDGES,
   ];
   for (const e of allEdges) {
     assert.ok(Array.isArray(e.by) && e.by.length > 0, `edge ${e.from}→${e.to} has no actor`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Privilege marker lifecycle
+// ---------------------------------------------------------------------------
+
+test("privilege-marker: proposed → confirmed by lawyer is allowed (promotion to protective status)", () => {
+  assert.doesNotThrow(() => assertValidPrivilegeMarkerTransition("proposed", "confirmed", "lawyer"));
+});
+
+test("privilege-marker: proposed → dismissed by lawyer requires non-empty reason", () => {
+  assert.throws(() => assertValidPrivilegeMarkerTransition("proposed", "dismissed", "lawyer"), IllegalTransitionError);
+  assert.throws(() => assertValidPrivilegeMarkerTransition("proposed", "dismissed", "lawyer", ""), IllegalTransitionError);
+  assert.doesNotThrow(() => assertValidPrivilegeMarkerTransition("proposed", "dismissed", "lawyer", "Court filing, not privileged."));
+});
+
+test("privilege-marker: confirmed → waived by lawyer requires non-empty reason", () => {
+  assert.throws(() => assertValidPrivilegeMarkerTransition("confirmed", "waived", "lawyer"), IllegalTransitionError);
+  assert.throws(() => assertValidPrivilegeMarkerTransition("confirmed", "waived", "lawyer", ""), IllegalTransitionError);
+  assert.doesNotThrow(() => assertValidPrivilegeMarkerTransition("confirmed", "waived", "lawyer", "Discovery production 2026-06-15."));
+});
+
+test("privilege-marker: every promotion edge by coordinator is rejected (actor gating)", () => {
+  for (const [from, to, reason] of [["proposed", "confirmed", undefined], ["proposed", "dismissed", "ok"], ["confirmed", "waived", "ok"]]) {
+    assert.throws(() => assertValidPrivilegeMarkerTransition(from, to, "coordinator", reason), IllegalTransitionError, `${from}→${to} by coordinator must throw`);
+  }
+});
+
+test("privilege-marker: every promotion edge by ingestion is rejected (actor gating)", () => {
+  for (const [from, to, reason] of [["proposed", "confirmed", undefined], ["proposed", "dismissed", "ok"], ["confirmed", "waived", "ok"]]) {
+    assert.throws(() => assertValidPrivilegeMarkerTransition(from, to, "ingestion", reason), IllegalTransitionError, `${from}→${to} by ingestion must throw`);
+  }
+});
+
+test("privilege-marker: every promotion edge by review is rejected (actor gating)", () => {
+  for (const [from, to, reason] of [["proposed", "confirmed", undefined], ["proposed", "dismissed", "ok"], ["confirmed", "waived", "ok"]]) {
+    assert.throws(() => assertValidPrivilegeMarkerTransition(from, to, "review", reason), IllegalTransitionError, `${from}→${to} by review must throw`);
+  }
+});
+
+test("privilege-marker: proposed → waived rejected (must confirm first)", () => {
+  assert.throws(() => assertValidPrivilegeMarkerTransition("proposed", "waived", "lawyer", "ok"), IllegalTransitionError);
+});
+
+test("privilege-marker: confirmed → proposed and confirmed → dismissed rejected", () => {
+  assert.throws(() => assertValidPrivilegeMarkerTransition("confirmed", "proposed", "lawyer"), IllegalTransitionError);
+  assert.throws(() => assertValidPrivilegeMarkerTransition("confirmed", "dismissed", "lawyer", "ok"), IllegalTransitionError);
+});
+
+test("privilege-marker: dismissed is terminal — dismissed → * rejected", () => {
+  for (const to of ["proposed", "confirmed", "waived"]) {
+    assert.throws(() => assertValidPrivilegeMarkerTransition("dismissed", to, "lawyer", "ok"), IllegalTransitionError, `dismissed→${to} must throw`);
+  }
+});
+
+test("privilege-marker: waived is terminal — waived → * rejected", () => {
+  for (const to of ["proposed", "confirmed", "dismissed"]) {
+    assert.throws(() => assertValidPrivilegeMarkerTransition("waived", to, "lawyer", "ok"), IllegalTransitionError, `waived→${to} must throw`);
+  }
+});
+
+test("privilege-marker: self-transitions all rejected", () => {
+  for (const s of ["proposed", "confirmed", "dismissed", "waived"]) {
+    assert.throws(() => assertValidPrivilegeMarkerTransition(s, s, "lawyer", "ok"), IllegalTransitionError, `${s}→${s} must throw`);
+  }
+});
+
+test("privilege-marker: ALLOWED_PRIVILEGE_MARKER_EDGES content matches documented edge set exactly (drift guard)", () => {
+  const documented = [
+    { from: "proposed",  to: "confirmed", by: ["lawyer"], reason_required: undefined },
+    { from: "proposed",  to: "dismissed", by: ["lawyer"], reason_required: true },
+    { from: "confirmed", to: "waived",    by: ["lawyer"], reason_required: true },
+  ];
+  assert.equal(ALLOWED_PRIVILEGE_MARKER_EDGES.length, documented.length, "edge count drift");
+  for (const d of documented) {
+    const match = ALLOWED_PRIVILEGE_MARKER_EDGES.find((e) => e.from === d.from && e.to === d.to);
+    assert.ok(match, `missing edge ${d.from}→${d.to}`);
+    assert.deepEqual([...match.by], d.by, `actor list drift on ${d.from}→${d.to}`);
+    assert.equal(match.reason_required === true ? true : undefined, d.reason_required, `reason_required drift on ${d.from}→${d.to}`);
   }
 });
 

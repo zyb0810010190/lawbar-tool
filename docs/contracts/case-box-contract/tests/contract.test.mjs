@@ -34,6 +34,7 @@ const evidenceItemSchema = readJson(join(schemasDir, "case-box-evidence-item.sch
 const ocrLinkSchema      = readJson(join(schemasDir, "case-box-ocr-link.schema.json"));
 const auditEventSchema   = readJson(join(schemasDir, "case-box-audit-event.schema.json"));
 const factSchema         = readJson(join(schemasDir, "case-box-fact.schema.json"));
+const privilegeMarkerSchema = readJson(join(schemasDir, "case-box-privilege-marker.schema.json"));
 
 const validateMatter       = ajv.compile(matterSchema);
 const validateDocument     = ajv.compile(documentSchema);
@@ -43,6 +44,7 @@ const validateEvidenceItem = ajv.compile(evidenceItemSchema);
 const validateOcrLink      = ajv.compile(ocrLinkSchema);
 const validateAuditEvent   = ajv.compile(auditEventSchema);
 const validateFact         = ajv.compile(factSchema);
+const validatePrivilegeMarker = ajv.compile(privilegeMarkerSchema);
 
 const errs = (v) => (v.errors || []).map((e) => `${e.instancePath} ${e.message}`).join("; ");
 
@@ -104,6 +106,30 @@ test("valid: fact-accepted-supersedes-prior passes fact schema", () => {
 
 test("valid: fact-rejected passes fact schema", () => {
   assert.equal(validateFact(readJson(join(validDir, "fact-rejected.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: privilege-marker-proposed-llm passes marker schema", () => {
+  assert.equal(validatePrivilegeMarker(readJson(join(validDir, "privilege-marker-proposed-llm.valid.json"))), true, errs(validatePrivilegeMarker));
+});
+
+test("valid: privilege-marker-proposed-lawyer-draft passes marker schema", () => {
+  assert.equal(validatePrivilegeMarker(readJson(join(validDir, "privilege-marker-proposed-lawyer-draft.valid.json"))), true, errs(validatePrivilegeMarker));
+});
+
+test("valid: privilege-marker-confirmed-lawyer-direct passes marker schema", () => {
+  assert.equal(validatePrivilegeMarker(readJson(join(validDir, "privilege-marker-confirmed-lawyer-direct.valid.json"))), true, errs(validatePrivilegeMarker));
+});
+
+test("valid: privilege-marker-confirmed-on-fact passes marker schema", () => {
+  assert.equal(validatePrivilegeMarker(readJson(join(validDir, "privilege-marker-confirmed-on-fact.valid.json"))), true, errs(validatePrivilegeMarker));
+});
+
+test("valid: privilege-marker-dismissed passes marker schema", () => {
+  assert.equal(validatePrivilegeMarker(readJson(join(validDir, "privilege-marker-dismissed.valid.json"))), true, errs(validatePrivilegeMarker));
+});
+
+test("valid: privilege-marker-waived passes marker schema", () => {
+  assert.equal(validatePrivilegeMarker(readJson(join(validDir, "privilege-marker-waived.valid.json"))), true, errs(validatePrivilegeMarker));
 });
 
 // ---------------------------------------------------------------------------
@@ -235,4 +261,98 @@ test("invalid: fact-ocr-excerpt-missing-fields is rejected (N7)", () => {
     (e.keyword === "required" && e.params?.missingProperty === "source_document_id")
   );
   assert.ok(offenders.length > 0, `expected error citing source_document_id (got ${errs(validateFact)})`);
+});
+
+// ---------------------------------------------------------------------------
+// Privilege marker invalid fixtures
+// ---------------------------------------------------------------------------
+
+test("invalid: privilege-marker-confirmed-no-basis is rejected (basis_text minLength)", () => {
+  const fixture = readJson(join(invalidDir, "privilege-marker-confirmed-no-basis.json"));
+  assert.equal(validatePrivilegeMarker(fixture), false);
+  const offenders = (validatePrivilegeMarker.errors || []).filter((e) => e.instancePath === "/basis_text");
+  assert.ok(offenders.length > 0, `expected error on /basis_text (got ${errs(validatePrivilegeMarker)})`);
+});
+
+test("invalid: privilege-marker-confirmed-no-confirmer is rejected (M2)", () => {
+  const fixture = readJson(join(invalidDir, "privilege-marker-confirmed-no-confirmer.json"));
+  assert.equal(validatePrivilegeMarker(fixture), false);
+  const offenders = (validatePrivilegeMarker.errors || []).filter((e) =>
+    ["/confirmed_actor_user_id", "/confirmed_at"].includes(e.instancePath)
+  );
+  assert.ok(offenders.length > 0, `expected type errors on confirmation fields (got ${errs(validatePrivilegeMarker)})`);
+});
+
+test("invalid: privilege-marker-dismissed-no-reason is rejected (M3)", () => {
+  const fixture = readJson(join(invalidDir, "privilege-marker-dismissed-no-reason.json"));
+  assert.equal(validatePrivilegeMarker(fixture), false);
+  const offenders = (validatePrivilegeMarker.errors || []).filter((e) => e.instancePath === "/dismissal_reason");
+  assert.ok(offenders.length > 0, `expected error on /dismissal_reason (got ${errs(validatePrivilegeMarker)})`);
+});
+
+test("invalid: privilege-marker-waived-no-reason is rejected (M4)", () => {
+  const fixture = readJson(join(invalidDir, "privilege-marker-waived-no-reason.json"));
+  assert.equal(validatePrivilegeMarker(fixture), false);
+  const offenders = (validatePrivilegeMarker.errors || []).filter((e) => e.instancePath === "/waiver_reason");
+  assert.ok(offenders.length > 0, `expected error on /waiver_reason (got ${errs(validatePrivilegeMarker)})`);
+});
+
+test("invalid: privilege-marker-waived-no-confirmer is rejected (M4 — must have been confirmed first)", () => {
+  const fixture = readJson(join(invalidDir, "privilege-marker-waived-no-confirmer.json"));
+  assert.equal(validatePrivilegeMarker(fixture), false);
+  const offenders = (validatePrivilegeMarker.errors || []).filter((e) =>
+    ["/confirmed_actor_user_id", "/confirmed_at"].includes(e.instancePath)
+  );
+  assert.ok(offenders.length > 0, `expected type errors on confirmation fields (got ${errs(validatePrivilegeMarker)})`);
+});
+
+test("invalid: privilege-marker-llm-without-extractor is rejected (M6)", () => {
+  const fixture = readJson(join(invalidDir, "privilege-marker-llm-without-extractor.json"));
+  assert.equal(validatePrivilegeMarker(fixture), false);
+  const offenders = (validatePrivilegeMarker.errors || []).filter((e) => e.instancePath === "/extractor_name");
+  assert.ok(offenders.length > 0, `expected error on /extractor_name (got ${errs(validatePrivilegeMarker)})`);
+});
+
+test("invalid: privilege-marker-imported-without-extractor is rejected (M7)", () => {
+  const fixture = readJson(join(invalidDir, "privilege-marker-imported-without-extractor.json"));
+  assert.equal(validatePrivilegeMarker(fixture), false);
+  const offenders = (validatePrivilegeMarker.errors || []).filter((e) => e.instancePath === "/extractor_name");
+  assert.ok(offenders.length > 0, `expected error on /extractor_name (got ${errs(validatePrivilegeMarker)})`);
+});
+
+test("invalid: privilege-marker-lawyer-with-extractor is rejected (M5)", () => {
+  const fixture = readJson(join(invalidDir, "privilege-marker-lawyer-with-extractor.json"));
+  assert.equal(validatePrivilegeMarker(fixture), false);
+  const offenders = (validatePrivilegeMarker.errors || []).filter((e) => e.instancePath === "/extractor_name");
+  assert.ok(offenders.length > 0, `expected error on /extractor_name (got ${errs(validatePrivilegeMarker)})`);
+});
+
+test("invalid: privilege-marker-bad-kind is rejected", () => {
+  const fixture = readJson(join(invalidDir, "privilege-marker-bad-kind.json"));
+  assert.equal(validatePrivilegeMarker(fixture), false);
+  const offenders = (validatePrivilegeMarker.errors || []).filter((e) => e.instancePath === "/kind");
+  assert.ok(offenders.length > 0, `expected enum error on /kind (got ${errs(validatePrivilegeMarker)})`);
+});
+
+test("invalid: privilege-marker-bad-target-type is rejected", () => {
+  const fixture = readJson(join(invalidDir, "privilege-marker-bad-target-type.json"));
+  assert.equal(validatePrivilegeMarker(fixture), false);
+  const offenders = (validatePrivilegeMarker.errors || []).filter((e) => e.instancePath === "/target_type");
+  assert.ok(offenders.length > 0, `expected enum error on /target_type (got ${errs(validatePrivilegeMarker)})`);
+});
+
+test("invalid: privilege-marker-missing-kind is rejected (top-level required)", () => {
+  const fixture = readJson(join(invalidDir, "privilege-marker-missing-kind.json"));
+  assert.equal(validatePrivilegeMarker(fixture), false);
+  const offenders = (validatePrivilegeMarker.errors || []).filter((e) =>
+    e.keyword === "required" && e.params?.missingProperty === "kind"
+  );
+  assert.ok(offenders.length > 0, `expected required-property error on kind (got ${errs(validatePrivilegeMarker)})`);
+});
+
+test("invalid: privilege-marker-proposed-with-confirmed-at is rejected (M1)", () => {
+  const fixture = readJson(join(invalidDir, "privilege-marker-proposed-with-confirmed-at.json"));
+  assert.equal(validatePrivilegeMarker(fixture), false);
+  const offenders = (validatePrivilegeMarker.errors || []).filter((e) => e.instancePath === "/confirmed_at");
+  assert.ok(offenders.length > 0, `expected error on /confirmed_at (got ${errs(validatePrivilegeMarker)})`);
 });

@@ -17,9 +17,17 @@ import {
   validateOcrLink,
   validateAuditEvent,
   validateFact,
+  validatePrivilegeMarker,
   assertCaseBoxIsSubordinateToOcr,
   assertFactPromotionInvariants,
   assertValidNewFact,
+  assertValidNewPrivilegeMarker,
+  assertPrivilegeMarkerTimestamps,
+  effectivePrivilegeStatus,
+  isMarkerProtective,
+  isMarkerLifecycleTerminal,
+  isMachineSuggestedMarker,
+  PrivilegeMarkerCreationError,
   FactPromotionInvariantError,
   FactCreationInvariantError,
   OcrSubordinationError,
@@ -278,6 +286,260 @@ test("assertValidNewFact throws for status=rejected", () => {
     rejection_reason: "no",
   };
   assert.throws(() => assertValidNewFact(fact), FactCreationInvariantError);
+});
+
+// ---------------------------------------------------------------------------
+// Privilege marker validator + creation helper
+// ---------------------------------------------------------------------------
+
+test("validatePrivilegeMarker happy: proposed-llm ok=true", () => {
+  const r = validatePrivilegeMarker(readJson(join(validDir, "privilege-marker-proposed-llm.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(r.value.status, "proposed");
+  assert.equal(r.value.extractor_name, "claude-opus-4-7");
+});
+
+test("validatePrivilegeMarker happy: confirmed-lawyer-direct ok=true (proposed_at === confirmed_at)", () => {
+  const r = validatePrivilegeMarker(readJson(join(validDir, "privilege-marker-confirmed-lawyer-direct.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(r.value.status, "confirmed");
+  assert.equal(r.value.proposed_at, r.value.confirmed_at);
+});
+
+test("validatePrivilegeMarker happy: waived ok=true", () => {
+  const r = validatePrivilegeMarker(readJson(join(validDir, "privilege-marker-waived.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(r.value.status, "waived");
+  assert.equal(typeof r.value.waiver_reason, "string");
+});
+
+test("validatePrivilegeMarker error: dismissed-no-reason ok=false (M3)", () => {
+  const r = validatePrivilegeMarker(readJson(join(invalidDir, "privilege-marker-dismissed-no-reason.json")));
+  assert.equal(r.ok, false);
+});
+
+// --- assertValidNewPrivilegeMarker ---
+
+test("assertValidNewPrivilegeMarker passes for proposed-llm fixture", () => {
+  const m = readJson(join(validDir, "privilege-marker-proposed-llm.valid.json"));
+  assert.doesNotThrow(() => assertValidNewPrivilegeMarker(m));
+});
+
+test("assertValidNewPrivilegeMarker passes for confirmed-lawyer-direct fixture", () => {
+  const m = readJson(join(validDir, "privilege-marker-confirmed-lawyer-direct.valid.json"));
+  assert.doesNotThrow(() => assertValidNewPrivilegeMarker(m));
+});
+
+test("assertValidNewPrivilegeMarker throws for llm_suggested initial-status=confirmed (load-bearing no-auto-privilege)", () => {
+  const m = {
+    status: "confirmed",
+    source_type: "llm_suggested",
+    proposed_at: "2026-05-20T14:00:00.000Z",
+    confirmed_actor_user_id: "local-user",
+    confirmed_at: "2026-05-20T14:00:00.000Z",
+  };
+  assert.throws(() => assertValidNewPrivilegeMarker(m), PrivilegeMarkerCreationError);
+});
+
+test("assertValidNewPrivilegeMarker throws for imported initial-status=confirmed", () => {
+  const m = {
+    status: "confirmed",
+    source_type: "imported",
+    proposed_at: "2026-05-20T14:00:00.000Z",
+    confirmed_actor_user_id: "local-user",
+    confirmed_at: "2026-05-20T14:00:00.000Z",
+  };
+  assert.throws(() => assertValidNewPrivilegeMarker(m), PrivilegeMarkerCreationError);
+});
+
+test("assertValidNewPrivilegeMarker throws for initial-status=dismissed", () => {
+  const m = { status: "dismissed", source_type: "lawyer_authored", proposed_at: "2026-05-20T14:00:00.000Z" };
+  assert.throws(() => assertValidNewPrivilegeMarker(m), PrivilegeMarkerCreationError);
+});
+
+test("assertValidNewPrivilegeMarker throws for initial-status=waived", () => {
+  const m = { status: "waived", source_type: "lawyer_authored", proposed_at: "2026-05-20T14:00:00.000Z" };
+  assert.throws(() => assertValidNewPrivilegeMarker(m), PrivilegeMarkerCreationError);
+});
+
+test("assertValidNewPrivilegeMarker throws when new proposed marker has confirmation fields populated", () => {
+  const m = {
+    status: "proposed",
+    source_type: "lawyer_authored",
+    proposed_at: "2026-05-20T14:00:00.000Z",
+    confirmed_actor_user_id: "local-user",
+  };
+  assert.throws(() => assertValidNewPrivilegeMarker(m), PrivilegeMarkerCreationError);
+});
+
+test("assertValidNewPrivilegeMarker throws when new marker has dismissal fields populated", () => {
+  const m = {
+    status: "proposed",
+    source_type: "lawyer_authored",
+    proposed_at: "2026-05-20T14:00:00.000Z",
+    dismissal_reason: "no",
+  };
+  assert.throws(() => assertValidNewPrivilegeMarker(m), PrivilegeMarkerCreationError);
+});
+
+test("assertValidNewPrivilegeMarker throws when new marker has waiver fields populated", () => {
+  const m = {
+    status: "proposed",
+    source_type: "lawyer_authored",
+    proposed_at: "2026-05-20T14:00:00.000Z",
+    waiver_reason: "produced",
+  };
+  assert.throws(() => assertValidNewPrivilegeMarker(m), PrivilegeMarkerCreationError);
+});
+
+test("assertValidNewPrivilegeMarker throws when proposed_at is null", () => {
+  const m = { status: "proposed", source_type: "lawyer_authored", proposed_at: null };
+  assert.throws(() => assertValidNewPrivilegeMarker(m), PrivilegeMarkerCreationError);
+});
+
+// --- assertPrivilegeMarkerTimestamps ---
+
+test("assertPrivilegeMarkerTimestamps passes on lawful ordering", () => {
+  const m = readJson(join(validDir, "privilege-marker-waived.valid.json"));
+  assert.doesNotThrow(() => assertPrivilegeMarkerTimestamps(m));
+});
+
+test("assertPrivilegeMarkerTimestamps throws when confirmed_at < proposed_at", () => {
+  const m = {
+    proposed_at: "2026-05-20T14:00:00.000Z",
+    confirmed_at: "2026-05-20T13:00:00.000Z",
+  };
+  assert.throws(() => assertPrivilegeMarkerTimestamps(m), PrivilegeMarkerCreationError);
+});
+
+test("assertPrivilegeMarkerTimestamps throws when waived_at < confirmed_at", () => {
+  const m = {
+    proposed_at: "2026-05-20T14:00:00.000Z",
+    confirmed_at: "2026-05-20T14:00:00.000Z",
+    waived_at: "2026-05-20T13:00:00.000Z",
+  };
+  assert.throws(() => assertPrivilegeMarkerTimestamps(m), PrivilegeMarkerCreationError);
+});
+
+test("assertPrivilegeMarkerTimestamps throws when dismissed_at < proposed_at", () => {
+  const m = {
+    proposed_at: "2026-05-20T14:00:00.000Z",
+    dismissed_at: "2026-05-20T13:00:00.000Z",
+  };
+  assert.throws(() => assertPrivilegeMarkerTimestamps(m), PrivilegeMarkerCreationError);
+});
+
+// --- helper predicates ---
+
+test("isMarkerProtective truth table", () => {
+  assert.equal(isMarkerProtective({ status: "confirmed" }), true);
+  assert.equal(isMarkerProtective({ status: "proposed" }), false);
+  assert.equal(isMarkerProtective({ status: "dismissed" }), false);
+  assert.equal(isMarkerProtective({ status: "waived" }), false);
+});
+
+test("isMarkerLifecycleTerminal truth table", () => {
+  assert.equal(isMarkerLifecycleTerminal({ status: "dismissed" }), true);
+  assert.equal(isMarkerLifecycleTerminal({ status: "waived" }), true);
+  assert.equal(isMarkerLifecycleTerminal({ status: "proposed" }), false);
+  assert.equal(isMarkerLifecycleTerminal({ status: "confirmed" }), false);
+});
+
+test("isMachineSuggestedMarker truth table", () => {
+  assert.equal(isMachineSuggestedMarker({ source_type: "llm_suggested" }), true);
+  assert.equal(isMachineSuggestedMarker({ source_type: "imported" }), true);
+  assert.equal(isMachineSuggestedMarker({ source_type: "lawyer_authored" }), false);
+});
+
+// --- effectivePrivilegeStatus four-case truth table ---
+
+test("effectivePrivilegeStatus: empty markers returns hasProtectiveAssertion=false, all historyHas false", () => {
+  const r = effectivePrivilegeStatus("document", "01jrcasebox0000000000000d1", []);
+  assert.equal(r.hasProtectiveAssertion, false);
+  assert.equal(r.activeConfirmedMarkers.length, 0);
+  assert.equal(r.historyHas.proposed, false);
+  assert.equal(r.historyHas.confirmed, false);
+  assert.equal(r.historyHas.dismissed, false);
+  assert.equal(r.historyHas.waived, false);
+  assert.equal(r.allTargetMarkers.length, 0);
+});
+
+test("effectivePrivilegeStatus: one confirmed marker → hasProtectiveAssertion=true, activeConfirmedMarkers=[A]", () => {
+  const m = readJson(join(validDir, "privilege-marker-confirmed-lawyer-direct.valid.json"));
+  const r = effectivePrivilegeStatus(m.target_type, m.target_id, [m]);
+  assert.equal(r.hasProtectiveAssertion, true);
+  assert.equal(r.activeConfirmedMarkers.length, 1);
+  assert.equal(r.historyHas.confirmed, true);
+});
+
+test("effectivePrivilegeStatus: two confirmed markers of different kinds → activeConfirmedMarkers=[A, B] (NOT collapsed)", () => {
+  const baseA = readJson(join(validDir, "privilege-marker-confirmed-lawyer-direct.valid.json"));
+  const baseB = { ...baseA, id: "01jrcasebox0000000000000pX", kind: "work_product" };
+  const r = effectivePrivilegeStatus(baseA.target_type, baseA.target_id, [baseA, baseB]);
+  assert.equal(r.hasProtectiveAssertion, true);
+  assert.equal(r.activeConfirmedMarkers.length, 2);
+  const kinds = new Set(r.activeConfirmedMarkers.map((x) => x.kind));
+  assert.ok(kinds.has("attorney_client") && kinds.has("work_product"));
+});
+
+test("effectivePrivilegeStatus: a single row in state=waived → hasProtectiveAssertion=false (NOT counted as confirmed)", () => {
+  const m = readJson(join(validDir, "privilege-marker-waived.valid.json"));
+  const r = effectivePrivilegeStatus(m.target_type, m.target_id, [m]);
+  assert.equal(r.hasProtectiveAssertion, false);
+  assert.equal(r.activeConfirmedMarkers.length, 0);
+  assert.equal(r.historyHas.waived, true);
+  assert.equal(r.historyHas.confirmed, true, "lifecycle witness reports confirmed-at-some-point");
+});
+
+test("effectivePrivilegeStatus: confirmed (live) + dismissed (separate row) → hasProtectiveAssertion=true", () => {
+  const confirmed = readJson(join(validDir, "privilege-marker-confirmed-lawyer-direct.valid.json"));
+  const dismissed = { ...readJson(join(validDir, "privilege-marker-dismissed.valid.json")), target_id: confirmed.target_id, target_type: confirmed.target_type };
+  const r = effectivePrivilegeStatus(confirmed.target_type, confirmed.target_id, [confirmed, dismissed]);
+  assert.equal(r.hasProtectiveAssertion, true);
+  assert.equal(r.activeConfirmedMarkers.length, 1);
+  assert.equal(r.historyHas.confirmed, true);
+  assert.equal(r.historyHas.dismissed, true);
+});
+
+test("effectivePrivilegeStatus: only-dismissed → hasProtectiveAssertion=false but historyHas.dismissed=true (NOT a clearance)", () => {
+  const m = readJson(join(validDir, "privilege-marker-dismissed.valid.json"));
+  const r = effectivePrivilegeStatus(m.target_type, m.target_id, [m]);
+  assert.equal(r.hasProtectiveAssertion, false);
+  assert.equal(r.historyHas.dismissed, true);
+  assert.equal(r.historyHas.confirmed, false);
+});
+
+test("effectivePrivilegeStatus: only-proposed → hasProtectiveAssertion=false, historyHas.proposed=true", () => {
+  const m = readJson(join(validDir, "privilege-marker-proposed-llm.valid.json"));
+  const r = effectivePrivilegeStatus(m.target_type, m.target_id, [m]);
+  assert.equal(r.hasProtectiveAssertion, false);
+  assert.equal(r.historyHas.proposed, true);
+  assert.equal(r.historyHas.confirmed, false);
+});
+
+test("effectivePrivilegeStatus: filters by target_type", () => {
+  const m = readJson(join(validDir, "privilege-marker-confirmed-lawyer-direct.valid.json"));
+  const r = effectivePrivilegeStatus("fact", m.target_id, [m]);
+  assert.equal(r.hasProtectiveAssertion, false);
+  assert.equal(r.allTargetMarkers.length, 0);
+});
+
+test("effectivePrivilegeStatus: filters by target_id", () => {
+  const m = readJson(join(validDir, "privilege-marker-confirmed-lawyer-direct.valid.json"));
+  const r = effectivePrivilegeStatus(m.target_type, "01jrcasebox000000000000xxx", [m]);
+  assert.equal(r.hasProtectiveAssertion, false);
+  assert.equal(r.allTargetMarkers.length, 0);
+});
+
+// --- Type guard: PrivilegeResolution has no green-light field ---
+
+test("PrivilegeResolution shape has NO disclosure-clearance fields", () => {
+  const m = readJson(join(validDir, "privilege-marker-confirmed-lawyer-direct.valid.json"));
+  const r = effectivePrivilegeStatus(m.target_type, m.target_id, [m]);
+  const banned = ["isPrivileged", "safeToDisclose", "disclosureClearance", "notPrivileged"];
+  for (const k of banned) {
+    assert.equal(k in r, false, `PrivilegeResolution must NOT have field ${k}`);
+  }
 });
 
 // ---------------------------------------------------------------------------

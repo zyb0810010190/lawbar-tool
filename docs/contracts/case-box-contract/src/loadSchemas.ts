@@ -10,6 +10,7 @@ import evidenceItemSchema from "../schemas/case-box-evidence-item.schema.json" w
 import ocrLinkSchema from "../schemas/case-box-ocr-link.schema.json" with { type: "json" };
 import auditEventSchema from "../schemas/case-box-audit-event.schema.json" with { type: "json" };
 import factSchema from "../schemas/case-box-fact.schema.json" with { type: "json" };
+import privilegeMarkerSchema from "../schemas/case-box-privilege-marker.schema.json" with { type: "json" };
 
 export {
   matterSchema,
@@ -20,4 +21,5 @@ export {
   ocrLinkSchema,
   auditEventSchema,
   factSchema,
+  privilegeMarkerSchema,
 };
