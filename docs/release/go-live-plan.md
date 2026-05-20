@@ -1070,6 +1070,7 @@ WI-03d tests require Node 22+. This matches the contract package's existing floo
 - `services/ocr-worker/tests/fixtures/tls/server-ip-only.{key,crt}` (new — TEST-ONLY; SAN: IP:`127.0.0.1` only — no DNS SAN)
 - `services/ocr-worker/tests/fixtures/tls/server-wrong-host.{key,crt}` (new — TEST-ONLY; SAN: DNS:`other-host.test`)
 - `services/ocr-worker/tests/fetcher.https.transport.test.mjs` (un-skip exactly the 8 cases enumerated below)
+- `services/ocr-worker/src/fetcher/fetchPageBytes.ts` (additive: extend the generic HTTPS network-error branch in `wrapTimeoutError` to pass `cause: err` so Case 6 can assert the original Node TLS error code; no new public code; `FETCHER_ERROR_CODES remains unchanged`)
 - `docs/adr/ocr-fetcher-https-dns-pinning-step-11d-2-a.md` (Status + §2.1/§3/§4/§5/§6/§7 update — verbatim text below)
 - `dev-memo/regen-tls-fixtures.md` (new — exact OpenSSL regeneration commands + SAN config + filename map)
 - `docs/release/test-and-audit-report.md` (new or appended — post-WI-03 readiness summary section)
@@ -1150,15 +1151,15 @@ All three e2e cases use the same local HTTPS server lifecycle:
 - `services/ocr-worker/tests/helpers/tls-server.mjs` starts the server.
 - DNS stub for the fetcher's resolver returns `[{ address: "127.0.0.1", family: 4 }]` (single entry; bypasses the host-allowlist + private-IP DNS pre-check via fixture URL pointing at a public-looking hostname `allowed-host.test` allowlisted in deps).
 - Fetcher deps: `allowedHttpsHosts = new Set(["allowed-host.test"])`, fixed clock, deterministic submission with `mime_type: "image/png"`, `byte_size` matching server response, `expected_sha256` omitted unless test-specific.
-- Cause-chain expectations DIFFER between Case 6 and Cases 7/8:
-  - Cases 7 and 8 assert `err.cause instanceof HttpsTransportError` AND `err.cause.code === <expected internal code>` (matches the WI-03b/c cause-chain pattern, because the transport's own preflight/adapter throws the failure).
-  - Case 6 asserts the cause is a Node `Error` with `code` in `{ ERR_TLS_CERT_ALTNAME_INVALID, ERR_OSSL_X509_HOST_MISMATCH }`. This matches the WI-03b/c mapping path: native TLS hostname-mismatch failures are NOT wrapped as `HttpsTransportError`; they fall through the generic network-error branch with the original Node TLS error preserved as `cause` (the `isHttpsTransportError` check in `wrapTimeoutError` returns false for a bare Node `Error`, so the generic branch fires).
+- Cause-chain expectations DIFFER between Case 6 and Cases 7/8 (both layers require `cause` preservation in `fetchPageBytes.ts`):
+  - Cases 7 and 8 assert `err.cause instanceof HttpsTransportError` AND `err.cause.code === <expected internal code>` (matches the WI-03b/c cause-chain pattern, because the transport's own preflight/adapter throws an `HttpsTransportError`; the `isHttpsTransportError` branch in `wrapTimeoutError` preserves `cause`).
+  - Case 6 asserts `err.cause` is the original Node TLS `Error` (NOT an `HttpsTransportError` — native TLS hostname-mismatch is not wrapped by the transport) AND `err.cause.code` is one of `{ ERR_TLS_CERT_ALTNAME_INVALID, ERR_OSSL_X509_HOST_MISMATCH }`. For this assertion to hold, WI-03d implementation MUST extend the generic HTTPS network-error branch in `fetchPageBytes.ts` `wrapTimeoutError` to also preserve `cause` when constructing the `FetcherError`. This is an **additive cause-preservation change**, consistent with the WI-03b/WI-03c cause-preservation behavior on the `isHttpsTransportError` branch. The change does NOT add any new public fetcher error code: `FETCHER_ERROR_CODES remains unchanged`; the public `err.code` for Case 6 stays at `https_network_error`. Concretely, the generic-branch return becomes `new FetcherError(message, { code: FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR, cause: err })` (one-line extension; `cause` is already an opt-in option on `FetcherError` since WI-03b's types.ts change).
 - All three cases assert the public `err.code` per the table below.
-- No new public fetcher error code introduced.
+- No new public fetcher error code introduced. `FETCHER_ERROR_CODES remains unchanged`.
 
 | # | Title | Server fixture / setup | Expected public code | Expected `err.cause.code` |
 |---|-------|------------------------|----------------------|---------------------------|
-| 6 | `e2e: TLS hostname mismatch via real transport → fetcher returns https_network_error` | `server-wrong-host` fixture, server bound on `127.0.0.1` | `https_network_error` | undefined (cause is a Node `Error` with `code === "ERR_TLS_CERT_ALTNAME_INVALID"` or `"ERR_OSSL_X509_HOST_MISMATCH"`) — assert cause's Node `code` instead of `HttpsTransportError.code` |
+| 6 | `e2e: TLS hostname mismatch via real transport → fetcher returns https_network_error` | `server-wrong-host` fixture, server bound on `127.0.0.1` | `https_network_error` | `err.cause` is the original Node TLS `Error`; assert `err.cause.code` is one of `ERR_TLS_CERT_ALTNAME_INVALID` or `ERR_OSSL_X509_HOST_MISMATCH` (NOT `HttpsTransportError.code`). Requires WI-03d to extend the generic `wrapTimeoutError` branch with `cause: err`. |
 | 7 | `e2e: malformed Content-Length via real transport → fetcher returns https_network_error` | `server-hostname` fixture; server emits malformed Content-Length (e.g. duplicate `Content-Length: 100` + `Content-Length: 200`, or non-integer `12.5`) | `https_network_error` | `RESPONSE_CONTENT_LENGTH_DUPLICATE` (or `RESPONSE_CONTENT_LENGTH_INVALID` if the test uses the non-integer variant) |
 | 8 | `e2e: abort during body via real transport → fetcher returns https_timeout` | `server-hostname` fixture; server starts streaming body, holds before final chunk | `https_timeout` | `RESPONSE_ABORTED` |
 
@@ -1253,13 +1254,14 @@ Append a new section to `docs/release/test-and-audit-report.md` (create the file
 1. Generate fixtures via the recipe in `dev-memo/regen-tls-fixtures.md`; commit fixtures.
 2. Add fixture self-check test; confirm it passes before any other WI-03d test is touched.
 3. Add `tls-server.mjs` + `tls-fixtures.mjs` helpers; capability probe; teardown contract.
-4. Un-skip Case 1 (no-reorder) sub-case 1 (no alias dependency); confirm green; then sub-case 2 if alias available.
-5. Un-skip Cases 2, 3, 4 (TLS scenarios); confirm green.
-6. Un-skip Case 5 (phase-2 abort); confirm green.
-7. Un-skip Cases 6, 7, 8 (e2e mappings); confirm green.
-8. Re-run the full WI-03b + WI-03c regression set (transport + fetcher + public-surface) — all must still pass before WI-03d may claim done.
-9. Update the ADR Status block + per-section deltas per the verbatim text above.
-10. Append the Post-WI-03 readiness summary to `docs/release/test-and-audit-report.md`.
+4. Extend `fetchPageBytes.ts` `wrapTimeoutError` generic HTTPS network-error branch to pass `cause: err` (one-line additive change). Re-run the WI-03b/WI-03c regression set immediately to confirm no behavior regression. `FETCHER_ERROR_CODES remains unchanged`.
+5. Un-skip Case 1 (no-reorder) sub-case 1 (no alias dependency); confirm green; then sub-case 2 if alias available.
+6. Un-skip Cases 2, 3, 4 (TLS scenarios); confirm green.
+7. Un-skip Case 5 (phase-2 abort); confirm green.
+8. Un-skip Cases 6, 7, 8 (e2e mappings); confirm green.
+9. Re-run the full WI-03b + WI-03c regression set (transport + fetcher + public-surface) — all must still pass before WI-03d may claim done.
+10. Update the ADR Status block + per-section deltas per the verbatim text above.
+11. Append the Post-WI-03 readiness summary to `docs/release/test-and-audit-report.md`.
 
 WI-03d is not complete until: (a) all 8 enumerated cases pass (modulo the documented `127.0.0.2` sub-case skip when capability is unavailable), (b) the WI-03b + WI-03c regression set is still green, (c) the public-barrel smoke test still passes (both public exports `makeNodeHttpsRequestTransport` and `makeNodeFetchHttpsTransport` still present; no internal symbols leaked), and (d) the ADR Status + Post-WI-03 readiness summary are updated.
 
