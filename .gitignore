@@ -26,6 +26,9 @@ CLAUDE.local.md
 # claude-english-buddy local config
 .claude-english-buddy.json
 
+# cc-suite plugin-dropped codex review commands (local plugin assets)
+.claude/commands/codex-*.md
+
 # Codex CLI — local files, keep checked-in subdirs
 .codex/*
 !.codex/skills/
