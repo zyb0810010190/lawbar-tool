@@ -38,6 +38,8 @@
 
 import { isIP } from "node:net";
 import { request as httpsRequest } from "node:https";
+import type { IncomingMessage } from "node:http";
+import { Buffer } from "node:buffer";
 
 import type { DnsAddress, HttpsTransport, HttpsTransportResponse } from "./types.js";
 import { HttpsTransportError } from "./httpsTransportErrors.js";
@@ -350,6 +352,210 @@ function hasIPv4MappedHexShape(addr: string): boolean {
 // public surface.
 
 // ---------------------------------------------------------------------
+// WI-03c — Response adapter helpers
+// ---------------------------------------------------------------------
+
+/**
+ * Parse a single Content-Length header from `res.rawHeaders`, enforcing
+ * WI-03c rules:
+ *
+ *   - count = 0 → header absent → return `null`; transport streams
+ *     under the existing per-page size cap; no size hint.
+ *   - count = 1 → validate syntax (base-10 non-negative integer, no
+ *     leading zero on non-`"0"`, no sign, no decimal, no whitespace).
+ *   - count > 1 → throw `RESPONSE_CONTENT_LENGTH_DUPLICATE`.
+ *
+ * Duplicate detection MUST use `res.rawHeaders` (raw occurrence
+ * sequence) rather than `res.headers` because Node collapses duplicate
+ * `content-length` entries in the parsed `headers` object, masking the
+ * multiplicity that ADR §6 requires us to reject.
+ *
+ * Messages intentionally do NOT include the raw header value (audit
+ * 1a9f55c lesson — public `FetcherError.message` embeds internal
+ * `err.message`; embedding raw values risks leaking into log sinks).
+ */
+function parseStrictContentLength(res: IncomingMessage): number | null {
+  let count = 0;
+  let value: string | undefined;
+  const raw = res.rawHeaders;
+  for (let i = 0; i < raw.length; i += 2) {
+    if (raw[i]!.toLowerCase() === "content-length") {
+      count++;
+      if (count > 1) {
+        throw new HttpsTransportError(
+          "response Content-Length header appears more than once",
+          { code: "RESPONSE_CONTENT_LENGTH_DUPLICATE" },
+        );
+      }
+      value = raw[i + 1];
+    }
+  }
+  if (count === 0) return null;
+  if (typeof value !== "string" || !isValidContentLengthValue(value)) {
+    throw new HttpsTransportError(
+      "response Content-Length has invalid syntax",
+      { code: "RESPONSE_CONTENT_LENGTH_INVALID" },
+    );
+  }
+  const parsed = Number.parseInt(value, 10);
+  // Re-check after parseInt: Number.MAX_SAFE_INTEGER bound is policy;
+  // anything outside the safe-integer range can not faithfully compare
+  // against `received` byte counts.
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > Number.MAX_SAFE_INTEGER) {
+    throw new HttpsTransportError(
+      "response Content-Length is out of range",
+      { code: "RESPONSE_CONTENT_LENGTH_INVALID" },
+    );
+  }
+  return parsed;
+}
+
+function isValidContentLengthValue(v: string): boolean {
+  if (v.length === 0) return false;
+  // Strict syntax: digits only, no whitespace, no sign, no decimal, no
+  // exponent. Leading zero only allowed for literal "0" (the empty-body
+  // case); "0123" is rejected.
+  if (!/^[0-9]+$/.test(v)) return false;
+  if (v.length > 1 && v.startsWith("0")) return false;
+  return true;
+}
+
+/**
+ * Build the public `Headers` object from `IncomingMessage`. Multi-value
+ * headers (e.g. `set-cookie`) are forwarded via `append`. Undefined
+ * values are skipped. Content-Length multiplicity is enforced separately
+ * by `parseStrictContentLength`; this function never throws.
+ */
+function buildResponseHeaders(res: IncomingMessage): Headers {
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(res.headers)) {
+    if (Array.isArray(v)) {
+      for (const item of v) headers.append(k, item);
+    } else if (v !== undefined) {
+      headers.set(k, String(v));
+    }
+  }
+  return headers;
+}
+
+/**
+ * Adapt Node `IncomingMessage` (which yields `Buffer` chunks) into a
+ * strict `AsyncIterable<Uint8Array>` per ADR §6 and WI-03c:
+ *
+ *   - Every yielded chunk satisfies `chunk.constructor === Uint8Array`.
+ *     `Buffer` chunks are rewrapped as a zero-copy `Uint8Array` view
+ *     over the same memory (`new Uint8Array(buf.buffer, buf.byteOffset,
+ *     buf.byteLength)`), preserving `byteLength` for the fetcher's
+ *     existing size-cap loop.
+ *   - On `AbortSignal` abort the iterator throws `RESPONSE_ABORTED`
+ *     (never ends as a partial success). The transport calls
+ *     `res.destroy()` so socket resources are released.
+ *   - On end-of-stream the running byte count is compared against the
+ *     pre-validated Content-Length (if present); a mismatch throws
+ *     `RESPONSE_CONTENT_LENGTH_INVALID`.
+ *   - Listener-symmetry: the abort listener attached on the signal is
+ *     removed in the generator's `finally` regardless of completion,
+ *     error, or abort exit.
+ *
+ * For 3xx responses the iterable is returned eagerly but lazy — no
+ * chunks are pre-read until the caller iterates. If the caller never
+ * iterates (the fetcher's 3xx branch returns early before the body
+ * loop, or the fetcher's existing `AbortController` deadline fires
+ * before iteration begins), the eager abort listener installed by
+ * `installUnconsumedBodyCleanup` calls `res.destroy()` so the socket
+ * is released. That eager listener is removed via `onConsumed` as
+ * soon as this generator starts iterating, handing ownership of the
+ * abort hook to the in-flight body iterator.
+ */
+async function* adaptBody(
+  res: IncomingMessage,
+  expectedBytes: number | null,
+  signal: AbortSignal,
+  onConsumed: () => void,
+): AsyncGenerator<Uint8Array, void, unknown> {
+  // Body iteration is starting — release the eager unconsumed-body
+  // cleanup listener and take ownership of the abort hook below. The
+  // callback is idempotent so abort/error paths can also invoke it
+  // safely.
+  onConsumed();
+
+  // Fast-fail if the signal is already aborted before iteration begins.
+  // We still attach + remove a listener below for symmetry, but the
+  // pre-check skips the for-await entirely so no `res.destroy()` race
+  // can deliver bytes to the caller before the throw.
+  if (signal.aborted) {
+    res.destroy();
+    throw new HttpsTransportError("body iteration aborted", {
+      code: "RESPONSE_ABORTED",
+    });
+  }
+
+  const onAbort = () => {
+    res.destroy();
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+
+  let received = 0;
+  try {
+    for await (const chunk of res as AsyncIterable<unknown>) {
+      if (signal.aborted) {
+        throw new HttpsTransportError("body iteration aborted", {
+          code: "RESPONSE_ABORTED",
+        });
+      }
+      const adapted = adaptChunk(chunk);
+      received += adapted.byteLength;
+      yield adapted;
+    }
+    if (expectedBytes !== null && received !== expectedBytes) {
+      throw new HttpsTransportError(
+        "response body byte count does not match declared Content-Length",
+        { code: "RESPONSE_CONTENT_LENGTH_INVALID" },
+      );
+    }
+  } catch (err) {
+    if (
+      signal.aborted &&
+      !(err instanceof HttpsTransportError && err.code === "RESPONSE_ABORTED")
+    ) {
+      throw new HttpsTransportError("body iteration aborted", {
+        code: "RESPONSE_ABORTED",
+        cause: err,
+      });
+    }
+    throw err;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+/**
+ * Convert a single body chunk to a strict `Uint8Array` (constructor
+ * identity, not `instanceof`). `Buffer` is rewrapped as a zero-copy
+ * view; bare `Uint8Array` passes through; anything else throws
+ * `RESPONSE_BODY_CHUNK_INVALID`.
+ */
+function adaptChunk(chunk: unknown): Uint8Array {
+  if (chunk instanceof Buffer) {
+    const view = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+    if (view.constructor !== Uint8Array) {
+      throw new HttpsTransportError(
+        "response body chunk did not adapt to strict Uint8Array",
+        { code: "RESPONSE_BODY_CHUNK_INVALID" },
+      );
+    }
+    return view;
+  }
+  if (chunk instanceof Uint8Array && chunk.constructor === Uint8Array) {
+    return chunk;
+  }
+  throw new HttpsTransportError(
+    "response body yielded unexpected chunk type",
+    { code: "RESPONSE_BODY_CHUNK_INVALID" },
+  );
+}
+
+// ---------------------------------------------------------------------
 // Transport factory
 // ---------------------------------------------------------------------
 
@@ -441,11 +647,26 @@ function makeTransportFromRequestFactory(
 
       return new Promise<HttpsTransportResponse>((resolve, reject) => {
         const pinned = init.allowedAddresses[0]!;
+        let settled = false;
+        const settle = (action: () => void) => {
+          if (settled) return;
+          settled = true;
+          action();
+        };
 
         const req = requestFactory(
           url,
           {
             method: "GET",
+            // WI-03c phase-1/phase-2 abort wiring. Node listens to this
+            // signal internally and will emit 'error' on the request with
+            // an AbortError when the signal fires before the response
+            // yields. Our `req.on("error")` handler below checks
+            // `signal.aborted` and rewraps as `RESPONSE_ABORTED`. We do
+            // NOT add our own AbortSignal listener at this phase because
+            // Node already owns the wiring; the body iterator (phase 3)
+            // adds its own listener separately and tears it down on every
+            // exit so listener-symmetry tests can verify add/remove parity.
             signal: init.signal,
             agent: false,
             rejectUnauthorized: true,
@@ -462,40 +683,102 @@ function makeTransportFromRequestFactory(
           (res) => {
             // Defense-in-depth: an `https.IncomingMessage` without a
             // statusCode would mean Node delivered a response object
-            // before the status line parsed. Surfacing this as a
-            // transport error (mapped to https_network_error by the
-            // fetcher's existing wrapTimeoutError → generic-error
-            // path) is safer than fabricating status 0 and letting
-            // the fetcher's HTTPS_STATUS_UNEXPECTED branch misclassify it.
+            // before the status line parsed. Surface as
+            // RESPONSE_CONTENT_LENGTH_INVALID rather than fabricating a
+            // status so the fetcher does not misclassify.
             if (res.statusCode === undefined) {
-              reject(new Error("transport: response missing statusCode"));
+              res.destroy();
+              settle(() =>
+                reject(
+                  new HttpsTransportError("response missing statusCode", {
+                    code: "RESPONSE_CONTENT_LENGTH_INVALID",
+                  }),
+                ),
+              );
               return;
             }
-            // Convert Node's plain-object headers to the Web Headers
-            // contract HttpsTransportResponse promises. Multi-value
-            // headers are forwarded via append; undefined values are
-            // skipped. Strict Content-Length parsing is deferred to
-            // WI-03c, so we do not validate the header value here.
-            const headers = new Headers();
-            for (const [k, v] of Object.entries(res.headers)) {
-              if (Array.isArray(v)) {
-                for (const item of v) headers.append(k, item);
-              } else if (v !== undefined) {
-                headers.set(k, String(v));
-              }
+
+            // WI-03c — Content-Length parsing happens BEFORE yielding
+            // the response. Duplicate detection uses `res.rawHeaders`
+            // (the canonical raw-occurrence source); `res.headers` would
+            // collapse duplicates and miss the multiplicity check.
+            let expectedBytes: number | null;
+            try {
+              expectedBytes = parseStrictContentLength(res);
+            } catch (err) {
+              res.destroy();
+              settle(() => reject(err));
+              return;
             }
-            resolve({
-              status: res.statusCode,
-              headers,
-              // IncomingMessage is an async iterable yielding Buffer
-              // chunks. Buffer is a Uint8Array subclass, so this works
-              // at runtime; WI-03c will tighten to strict
-              // `chunk.constructor === Uint8Array` per ADR §6.
-              body: res as unknown as AsyncIterable<Uint8Array>,
-            });
+
+            // Convert Node's plain-object headers to the Web Headers
+            // contract `HttpsTransportResponse` promises. Multi-value
+            // headers are forwarded via append; undefined values skipped.
+            const headers = buildResponseHeaders(res);
+
+            // WI-03c audit fix (audit-mpdnpa8n-iusz79): when a caller
+            // never iterates the body (e.g. the fetcher's 3xx branch
+            // throws REDIRECT_UNSUPPORTED before the body loop), the
+            // underlying `IncomingMessage` and its socket would
+            // otherwise be held until Node times out. Install an eager
+            // abort listener that calls `res.destroy()` so the
+            // fetcher's `AbortController` deadline reliably releases
+            // resources even when the body is never consumed. The
+            // listener is removed as soon as the body generator starts
+            // iterating, handing ownership to the in-iterator abort
+            // hook (so listener-symmetry holds on every exit).
+            let bodyConsumed = false;
+            const onAbortEager = () => {
+              if (bodyConsumed) return;
+              // Idempotent removal: if abort already fired, the second
+              // remove is a no-op.
+              init.signal.removeEventListener("abort", onAbortEager);
+              res.destroy();
+            };
+            init.signal.addEventListener("abort", onAbortEager);
+            const onBodyConsumed = () => {
+              if (bodyConsumed) return;
+              bodyConsumed = true;
+              init.signal.removeEventListener("abort", onAbortEager);
+            };
+
+            // WI-03c — wrap `res` in an async generator that yields
+            // strict `Uint8Array` chunks, propagates abort via
+            // `RESPONSE_ABORTED`, and verifies the Content-Length /
+            // body-bytes match on end-of-stream. The generator is lazy:
+            // no chunks are pre-read here. For 3xx responses the body
+            // is still returned as an `AsyncIterable<Uint8Array>` (may
+            // be empty, never undefined); the fetcher decides whether
+            // to consume it.
+            const body = adaptBody(res, expectedBytes, init.signal, onBodyConsumed);
+
+            settle(() =>
+              resolve({
+                status: res.statusCode!,
+                headers,
+                body,
+              }),
+            );
           },
         );
-        req.on("error", reject);
+
+        req.on("error", (err) => {
+          // Phase-1 / phase-2 abort: Node emits 'error' with the abort
+          // reason. If the signal is already aborted, classify as
+          // RESPONSE_ABORTED so the fetcher maps to https_timeout.
+          if (init.signal.aborted) {
+            settle(() =>
+              reject(
+                new HttpsTransportError("request aborted before response yielded", {
+                  code: "RESPONSE_ABORTED",
+                  cause: err,
+                }),
+              ),
+            );
+            return;
+          }
+          settle(() => reject(err));
+        });
         req.end();
       });
     },

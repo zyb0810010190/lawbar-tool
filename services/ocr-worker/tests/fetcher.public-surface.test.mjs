@@ -80,3 +80,37 @@ test("internal symbols are reachable via the internal `dist/fetcher/...` paths (
     "makeNodeHttpsRequestTransportForTest must exist in the internal transport module",
   );
 });
+
+test("WI-03c internal error codes are constructible and pass the type guard (without surfacing publicly)", async () => {
+  // WI-03c added four new internal codes to the HttpsTransportErrorCode
+  // union: RESPONSE_CONTENT_LENGTH_INVALID, RESPONSE_CONTENT_LENGTH_DUPLICATE,
+  // RESPONSE_BODY_CHUNK_INVALID, RESPONSE_ABORTED. These are string literals
+  // on the existing class; they introduce no new exported names. Verify
+  // each is constructible via the internal module AND that the public
+  // barrels still don't leak the class.
+  const { HttpsTransportError, isHttpsTransportError } = await import(
+    "../dist/fetcher/httpsTransportErrors.js"
+  );
+  const codes = [
+    "RESPONSE_CONTENT_LENGTH_INVALID",
+    "RESPONSE_CONTENT_LENGTH_DUPLICATE",
+    "RESPONSE_BODY_CHUNK_INVALID",
+    "RESPONSE_ABORTED",
+  ];
+  for (const code of codes) {
+    const err = new HttpsTransportError(`sanity-${code}`, { code });
+    assert.equal(err.code, code);
+    assert.equal(err.name, "HttpsTransportError");
+    assert.ok(isHttpsTransportError(err));
+  }
+  // Public barrels still must not expose any of these.
+  const publicTop = await import("../dist/index.js");
+  const publicFetcher = await import("../dist/fetcher/index.js");
+  for (const name of [
+    "HttpsTransportError",
+    "isHttpsTransportError",
+  ]) {
+    assert.equal(Object.prototype.hasOwnProperty.call(publicTop, name), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(publicFetcher, name), false);
+  }
+});

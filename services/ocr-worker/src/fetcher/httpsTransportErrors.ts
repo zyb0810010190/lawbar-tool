@@ -25,6 +25,7 @@
  * mapping.
  */
 export type HttpsTransportErrorCode =
+  // WI-03b — preflight allowedAddresses validation
   | "MISSING_ALLOWED_ADDRESSES"
   | "ALLOWED_ADDRESSES_NOT_ARRAY"
   | "EMPTY_ALLOWED_ADDRESSES"
@@ -36,7 +37,12 @@ export type HttpsTransportErrorCode =
   | "ADDRESS_INVALID_LITERAL"
   | "ADDRESS_FAMILY_MISMATCH"
   | "ADDRESS_FAMILY_INVALID"
-  | "ADDRESS_PRIVATE";
+  | "ADDRESS_PRIVATE"
+  // WI-03c — response adapter: Content-Length + body shape + abort
+  | "RESPONSE_CONTENT_LENGTH_INVALID"
+  | "RESPONSE_CONTENT_LENGTH_DUPLICATE"
+  | "RESPONSE_BODY_CHUNK_INVALID"
+  | "RESPONSE_ABORTED";
 
 /**
  * Internal transport-input error. Always carries a stable `code`.

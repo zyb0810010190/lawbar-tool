@@ -510,7 +510,20 @@ async function fetchFromHttps(
     // run BEFORE the generic abort/network catch-all below — otherwise
     // the network-error branch would swallow validation failures
     // without preserving the discriminator chain.
+    //
+    // WI-03c extension: response-adapter aborts (`RESPONSE_ABORTED`)
+    // map to the existing public `https_timeout` code instead. All
+    // other internal codes — including response-adapter
+    // Content-Length / body-chunk failures and WI-03b preflight codes
+    // — continue to map to `https_network_error`. `cause` is preserved
+    // in both branches.
     if (isHttpsTransportError(err)) {
+      if (err.code === "RESPONSE_ABORTED") {
+        return new FetcherError(
+          `https fetch aborted: ${err.message}`,
+          { code: FETCHER_ERROR_CODES.HTTPS_TIMEOUT, cause: err },
+        );
+      }
       return new FetcherError(
         `https transport input validation failed: ${err.message}`,
         { code: FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR, cause: err },
