@@ -1046,6 +1046,10 @@ Goal: Promote a TLS test harness (cert helper + local HTTPS server lifecycle, st
 
 Predecessor: WI-03c (commit `74ac1db`). The pinned transport (WI-03a), preflight validation + internal error module (WI-03b), and response adapter (WI-03c) are all landed. WI-03d only adds the TLS test harness and un-skips the remaining cases; it does NOT modify the production transport.
 
+#### Execution precondition (binding)
+
+WI-03d tests require Node 22+. This matches the contract package's existing floor and the project-wide `@types/node ^22.0.0` typing. The TLS fixture/harness uses `crypto.X509Certificate` and `tls.createSecureContext` APIs available before Node 22, but pinning Node 22+ inside WI-03d avoids CI drift and matches the rest of the project's execution contract. CI runners on older Node versions MUST fail this work item rather than skip its tests.
+
 #### Public-API policy (binding)
 
 - WI-03d **does NOT remove** `makeNodeFetchHttpsTransport` or any other public export.
@@ -1146,7 +1150,10 @@ All three e2e cases use the same local HTTPS server lifecycle:
 - `services/ocr-worker/tests/helpers/tls-server.mjs` starts the server.
 - DNS stub for the fetcher's resolver returns `[{ address: "127.0.0.1", family: 4 }]` (single entry; bypasses the host-allowlist + private-IP DNS pre-check via fixture URL pointing at a public-looking hostname `allowed-host.test` allowlisted in deps).
 - Fetcher deps: `allowedHttpsHosts = new Set(["allowed-host.test"])`, fixed clock, deterministic submission with `mime_type: "image/png"`, `byte_size` matching server response, `expected_sha256` omitted unless test-specific.
-- All three cases assert public code AND `err.cause instanceof HttpsTransportError` AND `err.cause.code === <expected internal code>` (matches the WI-03b/c cause-chain pattern).
+- Cause-chain expectations DIFFER between Case 6 and Cases 7/8:
+  - Cases 7 and 8 assert `err.cause instanceof HttpsTransportError` AND `err.cause.code === <expected internal code>` (matches the WI-03b/c cause-chain pattern, because the transport's own preflight/adapter throws the failure).
+  - Case 6 asserts the cause is a Node `Error` with `code` in `{ ERR_TLS_CERT_ALTNAME_INVALID, ERR_OSSL_X509_HOST_MISMATCH }`. This matches the WI-03b/c mapping path: native TLS hostname-mismatch failures are NOT wrapped as `HttpsTransportError`; they fall through the generic network-error branch with the original Node TLS error preserved as `cause` (the `isHttpsTransportError` check in `wrapTimeoutError` returns false for a bare Node `Error`, so the generic branch fires).
+- All three cases assert the public `err.code` per the table below.
 - No new public fetcher error code introduced.
 
 | # | Title | Server fixture / setup | Expected public code | Expected `err.cause.code` |
