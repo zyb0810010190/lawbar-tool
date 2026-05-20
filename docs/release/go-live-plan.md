@@ -1042,36 +1042,242 @@ v1 bucket: v1-blocking
 
 ### WI-03d - TLS Test Harness + Un-skip All Transport Tests
 
-Goal: Promote a TLS test harness (cert helper + local HTTPS server lifecycle, static TEST-ONLY PEM fixtures) under `services/ocr-worker/tests/`, un-skip the remaining ~18 transport tests in `fetcher.https.transport.test.mjs` (TLS scenarios, manual 3xx, e2e mapping, no-reorder), and produce the post-WI-03 readiness summary.
+Goal: Promote a TLS test harness (cert helper + local HTTPS server lifecycle, static TEST-ONLY PEM fixtures) under `services/ocr-worker/tests/`, un-skip exactly the 8 remaining `"Unlocked by WI-03d"` cases in `fetcher.https.transport.test.mjs` (TLS scenarios ×3, no-reorder, phase-2 abort, e2e mappings ×3), and produce the post-WI-03 readiness summary. WI-03d does NOT remove any public exports.
 
-Predecessor: WI-03c
+Predecessor: WI-03c (commit `74ac1db`). The pinned transport (WI-03a), preflight validation + internal error module (WI-03b), and response adapter (WI-03c) are all landed. WI-03d only adds the TLS test harness and un-skips the remaining cases; it does NOT modify the production transport.
 
-Likely files:
-- `services/ocr-worker/tests/helpers/tls-server.mjs` (new — server lifecycle + capability probes including 127.0.0.2)
+#### Public-API policy (binding)
+
+- WI-03d **does NOT remove** `makeNodeFetchHttpsTransport` or any other public export.
+- `makeNodeFetchHttpsTransport` remains a public compatibility wrapper, exported from BOTH:
+  - `services/ocr-worker/src/index.ts`
+  - `services/ocr-worker/src/fetcher/index.ts`
+- `makeNodeHttpsRequestTransport` remains the canonical factory.
+- Any future removal or deprecation of the legacy wrapper is a separate follow-up WI with explicit migration + release-note decision.
+- WI-03d may update internal default wiring only if strictly necessary for a test or production-correctness gap, but BOTH public exports must remain present and the package surface listed in `fetcher.public-surface.test.mjs` must be unchanged.
+
+#### Likely files
+
+- `services/ocr-worker/tests/helpers/tls-server.mjs` (new — local HTTPS server lifecycle helpers + capability probes including `127.0.0.2`)
 - `services/ocr-worker/tests/helpers/tls-fixtures.mjs` (new — static fixture loader)
-- `services/ocr-worker/tests/fixtures/tls/README.md` (new — TEST-ONLY warning, regeneration instructions)
-- `services/ocr-worker/tests/fixtures/tls/ca.crt` (new — TEST-ONLY)
-- `services/ocr-worker/tests/fixtures/tls/server-hostname.{key,crt}` (new — TEST-ONLY; cert valid for `allowed-host.test`)
-- `services/ocr-worker/tests/fixtures/tls/server-ip-only.{key,crt}` (new — TEST-ONLY; cert valid only for IP literal)
-- `services/ocr-worker/tests/fixtures/tls/server-wrong-host.{key,crt}` (new — TEST-ONLY; cert valid for `other-host.test`)
-- `services/ocr-worker/tests/fetcher.https.transport.test.mjs` (un-skip remaining cases)
-- `docs/adr/ocr-fetcher-https-dns-pinning-step-11d-2-a.md` (status + §2.1 update)
-- `dev-memo/regen-tls-fixtures.md` (new — one-off OpenSSL regeneration script docs)
+- `services/ocr-worker/tests/fixtures/tls/README.md` (new — TEST-ONLY warning, regeneration instructions, fixture metadata)
+- `services/ocr-worker/tests/fixtures/tls/ca.crt` (new — TEST-ONLY root CA)
+- `services/ocr-worker/tests/fixtures/tls/server-hostname.{key,crt}` (new — TEST-ONLY; SAN: DNS:`allowed-host.test`)
+- `services/ocr-worker/tests/fixtures/tls/server-ip-only.{key,crt}` (new — TEST-ONLY; SAN: IP:`127.0.0.1` only — no DNS SAN)
+- `services/ocr-worker/tests/fixtures/tls/server-wrong-host.{key,crt}` (new — TEST-ONLY; SAN: DNS:`other-host.test`)
+- `services/ocr-worker/tests/fetcher.https.transport.test.mjs` (un-skip exactly the 8 cases enumerated below)
+- `docs/adr/ocr-fetcher-https-dns-pinning-step-11d-2-a.md` (Status + §2.1/§3/§4/§5/§6/§7 update — verbatim text below)
+- `dev-memo/regen-tls-fixtures.md` (new — exact OpenSSL regeneration commands + SAN config + filename map)
+- `docs/release/test-and-audit-report.md` (new or appended — post-WI-03 readiness summary section)
 
-Acceptance criteria:
-- TLS fixtures under `services/ocr-worker/tests/fixtures/tls/` are static checked-in PEM files. Each `.key` file is accompanied by a clear comment / adjacent README marking it as **TEST-ONLY, NOT A SECRET**. Regenerating the fixtures uses a documented one-off OpenSSL script (in `dev-memo/`); the test suite itself does not require OpenSSL at runtime.
-- `services/ocr-worker/tests/helpers/tls-server.mjs` provides start/stop helpers for local HTTPS servers bound to `127.0.0.1`, with optional `127.0.0.2` binding gated on a capability probe. Servers expose distinct response markers so the no-reorder test can identify entry[0] vs entry[1].
-- The no-reorder test runs both sub-cases when 127.0.0.2 is available; when not, it skips ONLY the alias-dependent sub-case (not the entire transport suite) with a platform-specific reason naming the missing capability.
-- TLS scenarios: cert-valid-for-hostname passes (status 200, server saw original hostname in Host + SNI, socket peer is 127.0.0.1); IP-only cert fails with hostname-verification error (`ERR_TLS_CERT_ALTNAME_INVALID` or `ERR_OSSL_X509_HOST_MISMATCH` — narrow accept set per WI-01 prototype audit); wrong-host cert fails identically.
-- Manual 3xx test: local server returns 302 + Location header; transport returns `{status: 302, headers, body: empty}` without following.
-- All remaining `Unlocked by WI-03` skips in `fetcher.https.transport.test.mjs` are removed; the file has zero residual `Unlocked by WI-03` skips at WI-03d completion.
-- The legacy `makeNodeFetchHttpsTransport` (if still present from WI-02) is fully removed in WI-03d (or earlier in WI-03a per that sub-WI's deprecation choice); all production deps wiring uses `makeNodeHttpsRequestTransport`.
-- ADR top-level Status changes from "Partial: seam (WI-02) landed; production transport rewrite (WI-03) pending" to a final state explicitly noting that WI-03a/b/c/d closed the implementation gap and that post-WI-03 security sign-off is the remaining gate. ADR §3 / §4 / §5 / §6 / §7 / §2.1 are updated to reflect each section's landed state.
-- Post-WI-03 readiness summary appended to `docs/release/test-and-audit-report.md` (or equivalent) noting: implementation gap closed; cli.spawn:260 SIGINT flake remains pre-existing and out of scope; security sign-off still required before claiming SSRF fixed in production.
-- No new public fetcher error codes; no new runtime dependencies.
+#### Exact tests to un-skip (8 — verbatim titles from `services/ocr-worker/tests/fetcher.https.transport.test.mjs`)
+
+| # | Line | Verbatim test title | Category |
+|---|------|---------------------|----------|
+| 1 | ~487 | `transport connects to the FIRST element of allowedAddresses, no reordering` | resolver order / no-reorder |
+| 2 | ~526 | `TLS: cert valid for hostname → transport returns 200 + Headers; server saw Host + SNI = url.hostname` | TLS success |
+| 3 | ~540 | `TLS: cert valid only for IP literal → transport throws (mapped to https_network_error by fetcher)` | TLS IP-only mismatch |
+| 4 | ~551 | `TLS: cert valid only for wrong hostname → transport throws (mapped to https_network_error)` | TLS wrong-host mismatch |
+| 5 | ~908 | `abort: signal fired AFTER connect but BEFORE response headers` | phase-2 abort |
+| 6 | ~930 | `e2e: TLS hostname mismatch via real transport → fetcher returns https_network_error` | e2e mapping |
+| 7 | ~940 | `e2e: malformed Content-Length via real transport → fetcher returns https_network_error` | e2e mapping |
+| 8 | ~946 | `e2e: abort during body via real transport → fetcher returns https_timeout` | e2e mapping |
+
+The legend comment at the top of the file MUST be updated so the file has **zero residual `"Unlocked by WI-03d"` skips** at WI-03d completion. The only acceptable residual skip is a deterministic platform skip on the no-reorder test's `127.0.0.2`-alias-dependent sub-case when the capability probe reports the alias is unavailable; that skip MUST use a distinct reason such as `"Skipped: 127.0.0.2 loopback alias unavailable on this platform"` and MUST NOT use the `"Unlocked by WI-03d"` token.
+
+#### Per-case acceptance contract
+
+##### Case 1 — no-reorder (`transport connects to the FIRST element of allowedAddresses, no reordering`)
+
+- Two reachable local HTTPS endpoints are required when the `127.0.0.2` capability is available.
+- `127.0.0.1` and `127.0.0.2` MUST run distinct local HTTPS servers (independent ephemeral ports; do not require the same port across A/B endpoints).
+- Each server returns a distinct marker via BOTH:
+  - response header `x-wi03d-marker: A` vs `x-wi03d-marker: B`,
+  - body byte/string payload `marker:A` vs `marker:B`.
+- Test asserts both the header AND body marker.
+- Sub-case 1: `allowedAddresses = [{127.0.0.1, 4}, {127.0.0.2, 4}]` → expect marker A.
+- Sub-case 2: `allowedAddresses = [{127.0.0.2, 4}, {127.0.0.1, 4}]` → expect marker B.
+- One-reachable-one-unreachable variant is **forbidden** as proof — both endpoints must be reachable so that a buggy "retry second if first fails" implementation cannot coincidentally pass.
+- Test proves the chosen endpoint corresponds to `allowedAddresses[0]`, not a fallback / reorder.
+
+##### Case 2 — TLS success (`TLS: cert valid for hostname → ...`)
+
+- Local HTTPS server uses `server-hostname` fixture (SAN: DNS:`allowed-host.test`).
+- Server bound on `127.0.0.1`, pinned via `allowedAddresses=[{127.0.0.1, 4}]`.
+- Transport call uses URL `https://allowed-host.test/...`, per-request `ca` = TEST-ONLY root CA.
+- Assertions:
+  - response `status === 200`.
+  - `response.headers instanceof Headers`.
+  - server-side captured `Host` header === `allowed-host.test`.
+  - server-side captured `req.socket.servername` === `allowed-host.test`.
+  - server-side `req.socket.localAddress` resolves to `127.0.0.1` (strip any `::ffff:` IPv4-mapped prefix).
+  - body iterable yields strict `Uint8Array` chunks (cross-check WI-03c body adapter under TLS).
+
+##### Case 3 — TLS IP-only mismatch (`TLS: cert valid only for IP literal → ...`)
+
+- Local HTTPS server uses `server-ip-only` fixture (SAN: `IP:127.0.0.1` only — no DNS SAN).
+- Same transport call as Case 2.
+- Transport must throw a hostname-verification error.
+- Public mapping via fetcher = `https_network_error` (no new public code).
+- Narrow accept set for the underlying Node error code:
+  - `err.code in { "ERR_TLS_CERT_ALTNAME_INVALID", "ERR_OSSL_X509_HOST_MISMATCH" }`.
+- Bare cert errors (`UNKNOWN_CA`, `BAD_CERTIFICATE`, `SELF_SIGNED_CERT_IN_CHAIN`) FAIL this assertion — those would indicate a broken CA chain (TLS misconfig), not hostname verification.
+- The test also asserts the error message mentions hostname-mismatch semantics (substring check) to reduce brittle false-negatives across OpenSSL builds.
+
+##### Case 4 — TLS wrong-host mismatch (`TLS: cert valid only for wrong hostname → ...`)
+
+- Local HTTPS server uses `server-wrong-host` fixture (SAN: DNS:`other-host.test`).
+- Same transport call as Case 2.
+- Same hostname-verification expectations as Case 3 (same narrow Node error-code accept set; same UNKNOWN_CA/BAD_CERT/SELF_SIGNED exclusions).
+- Confirms wrong-host certificate (signed by the SAME test CA) fails hostname verification — distinguishes wrong-hostname from CA-trust failure.
+
+##### Case 5 — phase-2 abort (`abort: signal fired AFTER connect but BEFORE response headers`)
+
+- Local HTTPS server accepts the connection (TLS handshake completes) but does NOT write the response headers (e.g. server stalls on a `setTimeout` before `res.writeHead`).
+- Abort signal fires after the socket connect/TLS handshake completes but before response headers arrive.
+- Transport's request promise rejects with internal `HttpsTransportError({ code: "RESPONSE_ABORTED" })`.
+- Fetcher-level mapping (round-trip through `fetchPageBytes`) returns public `FetcherError({ code: "https_timeout", cause: HttpsTransportError, cause.code: "RESPONSE_ABORTED" })`.
+- Listener cleanup: counting AbortSignal asserts add-count === remove-count on the abort exit.
+- Test must NOT hang; total runtime ≤ 5s under deadline.
+
+##### Cases 6, 7, 8 — e2e mappings (full round-trip through `fetchPageBytes` with the real production transport)
+
+All three e2e cases use the same local HTTPS server lifecycle:
+- `services/ocr-worker/tests/helpers/tls-server.mjs` starts the server.
+- DNS stub for the fetcher's resolver returns `[{ address: "127.0.0.1", family: 4 }]` (single entry; bypasses the host-allowlist + private-IP DNS pre-check via fixture URL pointing at a public-looking hostname `allowed-host.test` allowlisted in deps).
+- Fetcher deps: `allowedHttpsHosts = new Set(["allowed-host.test"])`, fixed clock, deterministic submission with `mime_type: "image/png"`, `byte_size` matching server response, `expected_sha256` omitted unless test-specific.
+- All three cases assert public code AND `err.cause instanceof HttpsTransportError` AND `err.cause.code === <expected internal code>` (matches the WI-03b/c cause-chain pattern).
+- No new public fetcher error code introduced.
+
+| # | Title | Server fixture / setup | Expected public code | Expected `err.cause.code` |
+|---|-------|------------------------|----------------------|---------------------------|
+| 6 | `e2e: TLS hostname mismatch via real transport → fetcher returns https_network_error` | `server-wrong-host` fixture, server bound on `127.0.0.1` | `https_network_error` | undefined (cause is a Node `Error` with `code === "ERR_TLS_CERT_ALTNAME_INVALID"` or `"ERR_OSSL_X509_HOST_MISMATCH"`) — assert cause's Node `code` instead of `HttpsTransportError.code` |
+| 7 | `e2e: malformed Content-Length via real transport → fetcher returns https_network_error` | `server-hostname` fixture; server emits malformed Content-Length (e.g. duplicate `Content-Length: 100` + `Content-Length: 200`, or non-integer `12.5`) | `https_network_error` | `RESPONSE_CONTENT_LENGTH_DUPLICATE` (or `RESPONSE_CONTENT_LENGTH_INVALID` if the test uses the non-integer variant) |
+| 8 | `e2e: abort during body via real transport → fetcher returns https_timeout` | `server-hostname` fixture; server starts streaming body, holds before final chunk | `https_timeout` | `RESPONSE_ABORTED` |
+
+#### TLS fixture strategy
+
+Static, checked-in TEST-ONLY PEM fixtures under `services/ocr-worker/tests/fixtures/tls/`:
+
+- Fixture set:
+  - `ca.crt` — TEST-ONLY root CA used to sign all three server certs.
+  - `ca.key` — TEST-ONLY root CA key (committed; **TEST-ONLY, NOT A SECRET**).
+  - `server-hostname.{crt,key}` — leaf signed by `ca.crt`; SAN: `DNS:allowed-host.test`.
+  - `server-ip-only.{crt,key}` — leaf signed by `ca.crt`; SAN: `IP:127.0.0.1` only (no DNS SAN).
+  - `server-wrong-host.{crt,key}` — leaf signed by `ca.crt`; SAN: `DNS:other-host.test`.
+- Each `.key` file MUST carry a top-of-file comment block: `# TEST-ONLY KEY — NOT A SECRET. Used by services/ocr-worker tests to drive a local HTTPS server. Regenerate via dev-memo/regen-tls-fixtures.md.`
+- `services/ocr-worker/tests/fixtures/tls/README.md` MUST document:
+  - TEST-ONLY warning + that committing the keys is intentional.
+  - Validity period (recommended: 10 years to avoid expiry churn) and the explicit expiry date stamped in the fixture filenames or in README so a reviewer can detect drift.
+  - Serial-number convention (deterministic, e.g. 1, 2, 3 for the three leaves).
+  - SAN profile per fixture (matching the table above).
+  - Key type / size (recommended: `prime256v1` ECDSA or `rsa:2048` — pin one).
+  - Whether each cert is CA-signed (all three leaves are) vs self-signed (only the CA itself).
+  - Regeneration recipe link.
+- The test suite MUST NOT shell out to OpenSSL at runtime. Fixture loading is pure file-read via `fs.readFileSync` (or async equivalent) and `tls.createSecureContext` / `https.createServer` use the loaded Buffers directly.
+
+#### Fixture regeneration recipe (`dev-memo/regen-tls-fixtures.md`)
+
+This is developer-only maintenance — not part of test execution. The memo MUST contain:
+
+- Exact OpenSSL invocation (or equivalent script) for generating each leaf + the CA, including:
+  - Key generation parameters (`openssl genpkey -algorithm ec -pkeyopt ec_paramgen_curve:P-256 -out ...`).
+  - CSR generation with the documented Subject DN.
+  - SAN configuration via a `-config` file or `-addext "subjectAltName=..."` flag, with the exact SAN string per fixture.
+  - Signing step (`openssl x509 -req -in ... -CA ca.crt -CAkey ca.key -set_serial N -days 3650 -extfile ...`).
+- Deterministic filename map (matches the fixture set above).
+- Instructions for replacing fixtures before expiry (rough date and process).
+- Note that running this script is developer maintenance only; CI MUST NOT regenerate fixtures.
+
+#### Fixture correctness preflight
+
+A non-skipped fixture-self-check test (e.g. `services/ocr-worker/tests/fixtures/tls/fixture-self-check.test.mjs`) MUST verify:
+
+- Each leaf's SAN matches the documented profile (parsing PEM via Node's `crypto.X509Certificate`).
+- Each leaf is signed by the test CA (issuer DN match + signature verification).
+- Each leaf's validity window covers `Date.now()` and at least 30 days into the future (otherwise CI flags drift before tests start failing).
+- Wronghost fixture is trusted by the test CA (so the failure mode in Case 4 is hostname-mismatch, not CA-trust).
+- Success fixture passes hostname verification for `allowed-host.test`.
+- Failures from this self-check block the WI-03d test run; they MUST NOT be masked as `UNKNOWN_CA` / `BAD_CERTIFICATE` / `SELF_SIGNED_CERT_IN_CHAIN` in the hostname-mismatch cases.
+
+#### HTTPS server lifecycle + teardown
+
+- Every local HTTPS server MUST bind to loopback only (`127.0.0.1` and, when capability allows, `127.0.0.2`). No `0.0.0.0`, no external interface.
+- Servers MUST close via `t.after(...)` / `try/finally` blocks regardless of success / error / abort exit.
+- Open sockets MUST be destroyed on teardown — track via `server.on("connection", ...)` if needed; do not rely on Node's garbage collection to close lingering sockets.
+- Tests MUST NOT depend on external network. Every assertion exercises only loopback.
+- Tests MUST allocate ports dynamically (`server.listen(0, ...)`) — do NOT hard-code ports.
+- Teardown MUST run on both success and failure of the test body (use `t.after` not bare `finally` so the test runner records the teardown in its report).
+
+#### `127.0.0.2` capability behavior
+
+- The test helper exposes `await probe127_0_0_2_loopback(): Promise<{ available: boolean, reason: string | null }>`.
+- The no-reorder test calls the probe before sub-case 2. If `available === false`, sub-case 2 is skipped with the platform-specific reason from the probe (e.g. `"127.0.0.2 loopback alias unavailable on this platform: <reason>"`).
+- Sub-case 1 (which only needs `127.0.0.1`) runs unconditionally.
+- The TLS / phase-2 abort / e2e cases do NOT depend on the alias and run unconditionally.
+- CI MUST log the probe result (`available: true|false`) so a silent-permanent-skip cannot hide indefinitely. If the probe errors (neither available nor explicitly unsupported), the test FAILS — it does NOT skip.
+
+#### ADR Status update — verbatim text
+
+The WI-03d implementer MUST update `docs/adr/ocr-fetcher-https-dns-pinning-step-11d-2-a.md` top-level Status block to the verbatim wording below, and apply the matching per-section deltas to §2.1 / §3 / §4 / §5 / §6 / §7 (each section's "Status" line moves from the current "Partial: ..." or "Pending: ..." state to a Landed-by-WI-03d statement).
+
+Top-level Status (verbatim):
+
+> WI-03d completes the TLS-backed transport verification matrix for the pinned `node:https.request` transport: certificate success/failure behavior, original-hostname SNI/Host preservation, local HTTPS e2e mapping, abort phase-2 coverage where deterministic, and resolver-order/no-reorder proof where the `127.0.0.2` capability is available. WI-03d does not remove public compatibility exports. Implementation complete; production SSRF closure claim blocked on security sign-off.
+
+Per-section delta template:
+
+> §N — Status: **Landed by WI-03a/b/c/d (commit `<sha>`)**. <one-line summary of the landed behavior referencing the relevant fetcher.https.transport.test.mjs test names>.
+
+#### Post-WI-03 readiness summary
+
+Append a new section to `docs/release/test-and-audit-report.md` (create the file if it does not exist):
+
+- Heading: `## Post-WI-03 readiness summary`.
+- Bullets:
+  - `Implementation gap closed: pinned node:https.request transport (WI-03a) + preflight allowedAddresses validation (WI-03b) + response adapter (WI-03c) + TLS test harness (WI-03d) all landed.`
+  - `All fetcher.https.transport.test.mjs cases active and green (except the documented 127.0.0.2-alias sub-case when the loopback alias capability is unavailable).`
+  - `cli.spawn.test.mjs:260 SIGINT flake remains a pre-existing baseline issue (not introduced by WI-03; tracked separately).` — exact subsection title for this residual-risk note: `### Residual baseline issues`; format: one-line per issue with rationale.
+  - `Public fetcher error surface unchanged. No new public codes.`
+  - `Security sign-off still required before claiming SSRF closure in production. WI-03d does NOT by itself constitute go-live readiness.`
+
+#### Implementation order (mandatory)
+
+1. Generate fixtures via the recipe in `dev-memo/regen-tls-fixtures.md`; commit fixtures.
+2. Add fixture self-check test; confirm it passes before any other WI-03d test is touched.
+3. Add `tls-server.mjs` + `tls-fixtures.mjs` helpers; capability probe; teardown contract.
+4. Un-skip Case 1 (no-reorder) sub-case 1 (no alias dependency); confirm green; then sub-case 2 if alias available.
+5. Un-skip Cases 2, 3, 4 (TLS scenarios); confirm green.
+6. Un-skip Case 5 (phase-2 abort); confirm green.
+7. Un-skip Cases 6, 7, 8 (e2e mappings); confirm green.
+8. Re-run the full WI-03b + WI-03c regression set (transport + fetcher + public-surface) — all must still pass before WI-03d may claim done.
+9. Update the ADR Status block + per-section deltas per the verbatim text above.
+10. Append the Post-WI-03 readiness summary to `docs/release/test-and-audit-report.md`.
+
+WI-03d is not complete until: (a) all 8 enumerated cases pass (modulo the documented `127.0.0.2` sub-case skip when capability is unavailable), (b) the WI-03b + WI-03c regression set is still green, (c) the public-barrel smoke test still passes (both public exports `makeNodeHttpsRequestTransport` and `makeNodeFetchHttpsTransport` still present; no internal symbols leaked), and (d) the ADR Status + Post-WI-03 readiness summary are updated.
+
+#### Security claim boundary
+
+- WI-03d may claim the implementation/test matrix for the pinned HTTPS transport is **complete** only after all non-platform-skipped WI-03d tests are active and green AND the WI-03b + WI-03c regression set is still green.
+- WI-03d MAY NOT claim go-live readiness by itself.
+- Post-WI-03d security sign-off remains a separate gate. The ADR Status text above pins this explicitly.
+
+#### Acceptance criteria (summary)
+
+- TLS fixtures under `services/ocr-worker/tests/fixtures/tls/` are static checked-in PEM files. Each `.key` carries a TEST-ONLY comment. README documents metadata + regeneration recipe. Test suite does NOT shell out to OpenSSL at runtime.
+- Fixture self-check test verifies SAN, issuer, validity (+30d buffer), trust chain, and hostname expectations.
+- `tls-server.mjs` provides start/stop helpers for loopback-only HTTPS servers with independent ephemeral ports; capability probe for `127.0.0.2`; deterministic teardown.
+- The 8 enumerated `"Unlocked by WI-03d"` tests are un-skipped and pass per their case acceptance contracts. The only acceptable residual skip is sub-case 2 of the no-reorder test when the `127.0.0.2` probe reports unavailable.
+- Public-API exports unchanged: BOTH `makeNodeHttpsRequestTransport` and `makeNodeFetchHttpsTransport` remain in `src/index.ts` and `src/fetcher/index.ts`. Public-barrel smoke test passes unchanged.
+- ADR Status block + §2.1/§3/§4/§5/§6/§7 updated to the verbatim text above.
+- Post-WI-03 readiness summary appended to `docs/release/test-and-audit-report.md`.
+- No new public fetcher error codes. No new runtime dependencies.
 
 Tests to run:
 - `node --test services/ocr-worker/tests/fetcher.https.transport.test.mjs`
+- `node --test services/ocr-worker/tests/fetcher.https.test.mjs`
+- `node --test services/ocr-worker/tests/fetcher.public-surface.test.mjs`
+- `node --test services/ocr-worker/tests/fixtures/tls/fixture-self-check.test.mjs`
 - `npm --prefix services/ocr-worker test`
 - Cross-package smoke: `npm --prefix docs/contracts test && npm --prefix services/ocr-persistence test && npm --prefix services/ocr-ingestion test && npm --prefix services/ocr-review test`
 
