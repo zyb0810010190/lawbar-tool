@@ -114,3 +114,67 @@ Notes that must be carried into WI-09b runbook + WI-09b operator checklist + WI-
 ✓ **PASS** — all WI-00 subgoals (1a/1b/1c/1d/1e) plus rollback acknowledgement met. One HIGH CVE surfaced (WI-00-CVE-fast-uri-001) and resolved as part of the preflight cycle. No outstanding Critical/High audit findings. Test matrix clean on the pinned Node version.
 
 WI-00 predecessor for downstream WIs is now complete; WI-09a already followed and is also complete. Next executable WI per plan: WI-01 (HTTPS DNS-Pinning TLS Prototype Gate).
+
+## Post-WI-03 readiness summary
+
+WI-03 ships. The HTTPS DNS-pinning implementation gap that ADR-11D.2-A
+opened in May 2026 is now closed across four sub-WIs:
+
+- Implementation gap closed: pinned `node:https.request` transport
+  (WI-03a, commit `0c8211f`) + preflight `allowedAddresses` validation
+  with internal `HttpsTransportError` discriminators (WI-03b, commit
+  `1a9f55c`) + response adapter — strict Content-Length parsing via
+  `res.rawHeaders` + Buffer→Uint8Array body adapter + abort wiring +
+  3xx return-shape (WI-03c, commit `74ac1db`) + TLS test harness with
+  static fixtures, fixture self-check, local HTTPS server lifecycle,
+  `127.0.0.2` capability probe, the 8 remaining-test un-skip set, and
+  generic-branch `cause` preservation in `wrapTimeoutError` (WI-03d).
+- All `services/ocr-worker/tests/fetcher.https.transport.test.mjs`
+  cases active and green (except the documented `127.0.0.2`-alias
+  sub-case when the loopback alias capability is unavailable on the
+  platform).
+- Public fetcher error surface unchanged. `FETCHER_ERROR_CODES`
+  contains the same set across WI-03a/b/c/d. No new public codes.
+- WI-03b's internal `HttpsTransportError` discriminators, the
+  `makeNodeHttpsRequestTransportForTest` test seam, and the WI-03c
+  internal codes (`RESPONSE_CONTENT_LENGTH_INVALID`,
+  `RESPONSE_CONTENT_LENGTH_DUPLICATE`, `RESPONSE_BODY_CHUNK_INVALID`,
+  `RESPONSE_ABORTED`) remain absent from both public barrels — enforced
+  at runtime by `services/ocr-worker/tests/fetcher.public-surface.test.mjs`.
+- TLS test harness uses static checked-in TEST-ONLY PEM fixtures under
+  `services/ocr-worker/tests/fixtures/tls/`. No external network
+  dependency. No OpenSSL execution at test time. Fixtures are
+  regenerated via the developer-only memo at
+  `dev-memo/regen-tls-fixtures.md`.
+- Legacy `makeNodeFetchHttpsTransport` is preserved as a public
+  compatibility wrapper. Any future removal is gated on a dedicated
+  follow-up WI with migration + release-note decision.
+- Security sign-off still required before claiming SSRF closure in
+  production. WI-03d does NOT by itself constitute go-live readiness.
+
+### Residual baseline issues
+
+These are pre-existing issues NOT introduced by WI-03. They are tracked
+separately and remain out of scope for WI-03's go-live claim.
+
+- `cli.spawn.test.mjs:260` SIGINT flake — pre-existing baseline; not
+  introduced by WI-03; tracked separately.
+- `better-sqlite3` native-module ABI mismatch under
+  `NODE_MODULE_VERSION 127 ≠ 137` (Node 22 native binding under Node 24)
+  — surfaces 3 failures in `cli.sqlite.test.mjs:38/101` and
+  `pipeline.real-engine.e2e.test.mjs:217` when the active Node ABI
+  differs from the compile-time ABI. Mitigation: `npm rebuild` in
+  `services/ocr-persistence` and `services/ocr-worker` after every
+  Node-version change. Documented in WI-00's Operational Notes #1
+  above; reaffirmed here as the WI-03 post-implementation state.
+
+### Targeted-suite verification at WI-03d completion
+
+- `services/ocr-worker/tests/fetcher.https.transport.test.mjs`: 41 pass,
+  0 fail, 0 skip (modulo the documented `127.0.0.2` alias sub-case).
+- `services/ocr-worker/tests/fetcher.https.test.mjs`: all green.
+- `services/ocr-worker/tests/fetcher.public-surface.test.mjs`: all green.
+- `services/ocr-worker/tests/fixtures/tls/fixture-self-check.test.mjs`:
+  all green.
+- Combined WI-03b/c/d regression set (108 tests across the four files
+  above): 108 pass, 0 fail, 0 skip.

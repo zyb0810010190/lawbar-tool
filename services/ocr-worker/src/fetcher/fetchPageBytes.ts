@@ -538,9 +538,12 @@ async function fetchFromHttps(
         { code: FETCHER_ERROR_CODES.HTTPS_TIMEOUT },
       );
     }
+    // Preserve native TLS `cause` so hostname-mismatch codes
+    // (ERR_TLS_CERT_ALTNAME_INVALID / ERR_OSSL_X509_HOST_MISMATCH)
+    // remain inspectable through FetcherError.cause.
     return new FetcherError(
       `https fetch failed: ${(err as Error).message}`,
-      { code: FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR },
+      { code: FETCHER_ERROR_CODES.HTTPS_NETWORK_ERROR, cause: err },
     );
   };
 

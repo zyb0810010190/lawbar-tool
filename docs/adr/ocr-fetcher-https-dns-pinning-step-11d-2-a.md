@@ -2,8 +2,35 @@
 
 ## Status
 
-Partial: seam (WI-02) landed; production transport rewrite (WI-03)
-pending. SSRF closure is NOT complete until WI-03 ships.
+WI-03d completes the TLS-backed transport verification matrix for the
+pinned `node:https.request` transport: certificate success/failure
+behavior, original-hostname SNI/Host preservation, local HTTPS e2e
+mapping, abort phase-2 coverage where deterministic, and resolver-order/
+no-reorder proof where the `127.0.0.2` capability is available. WI-03d
+does not remove public compatibility exports. Implementation complete;
+production SSRF closure claim blocked on security sign-off.
+
+Landed sub-WIs:
+- WI-02 (seam) — `HttpsTransport` accepts `allowedAddresses`; default
+  transport accepts the field as a no-op.
+- WI-03a — `makeNodeHttpsRequestTransport` pinned `node:https.request`
+  transport with custom `lookup`, per-request `ca`, TLS fail-closed
+  defaults. Legacy `makeNodeFetchHttpsTransport` retained as
+  compatibility wrapper.
+- WI-03b — preflight `allowedAddresses` validation with internal
+  `HttpsTransportError` discriminators; internal error module not
+  re-exported from public barrels; fetcher maps to existing
+  `https_network_error` with `cause` preserved.
+- WI-03c — strict Content-Length parsing (multiplicity via
+  `res.rawHeaders` + syntax), Buffer → strict `Uint8Array` body
+  adapter, 3xx return-shape contract, `RESPONSE_ABORTED` discriminator
+  with fetcher mapping to existing `https_timeout`, listener-symmetry
+  via counting AbortSignal, eager unconsumed-body cleanup.
+- WI-03d — static TEST-ONLY TLS fixtures + fixture self-check, local
+  HTTPS server lifecycle helpers + `127.0.0.2` capability probe,
+  un-skipped 8 remaining transport tests (resolver no-reorder, TLS
+  scenarios ×3, phase-2 abort, e2e mappings ×3), generic-branch
+  `cause: err` preservation in `wrapTimeoutError`.
 
 ## Context
 
@@ -82,24 +109,24 @@ resolution result and must fail closed.
 
 ### §3 ADR-11D.2 §2 replacement interface
 
-**WI-02 landing status**: the type/signature change below is in
-production (`services/ocr-worker/src/fetcher/types.ts`,
-`services/ocr-worker/src/fetcher/fetchPageBytes.ts`,
-`services/ocr-worker/src/fetcher/httpsTransport.ts`,
-commit history under `WI-02`). The runtime validation requirements
-in §5 and the production transport behavior in §4 are NOT yet
-implemented; those land in WI-03.
+**§3 — Status: Landed by WI-03a/b/c/d.** Interface contract (`HttpsTransport.fetch(url, { signal, allowedAddresses })`) shipped in WI-02; pinned `node:https.request` production transport pinning to `allowedAddresses[0]` shipped in WI-03a; preflight validation + internal error discriminators landed in WI-03b; response adapter (Content-Length, Uint8Array body, abort, 3xx) landed in WI-03c; TLS-backed test matrix + e2e mapping coverage landed in WI-03d. The canonical factory `makeNodeHttpsRequestTransport` and the types `HttpsTransport` / `DnsAddress` are re-exported from both `services/ocr-worker/src/fetcher/index.ts` and `services/ocr-worker/src/index.ts`. Go-live security sign-off remains a separate, post-WI-03 gate.
 
-**WI-03a landing status**: WI-03a lands the pinned
-`node:https.request` transport core and package exports only.
-WI-03b runtime validation, WI-03c response adapter strictness, and
-WI-03d full TLS harness/test activation remain pending. WI-03a does
-not by itself complete the full WI-03 verification matrix or
-go-live security sign-off. The canonical factory
-`makeNodeHttpsRequestTransport` and the types `HttpsTransport` /
-`DnsAddress` are re-exported from both
-`services/ocr-worker/src/fetcher/index.ts` and
-`services/ocr-worker/src/index.ts`.
+> **Historical landing notes (superseded by the §3 status block above)** — the two paragraphs below describe the partial state during WI-02 and WI-03a respectively. They are kept verbatim only as historical context; for the current state, read the §3 status block above.
+>
+> **WI-02 landing status**: the type/signature change below is in
+> production (`services/ocr-worker/src/fetcher/types.ts`,
+> `services/ocr-worker/src/fetcher/fetchPageBytes.ts`,
+> `services/ocr-worker/src/fetcher/httpsTransport.ts`,
+> commit history under `WI-02`). The runtime validation requirements
+> in §5 and the production transport behavior in §4 are NOT yet
+> implemented; those land in WI-03.
+>
+> **WI-03a landing status**: WI-03a lands the pinned
+> `node:https.request` transport core and package exports only.
+> WI-03b runtime validation, WI-03c response adapter strictness, and
+> WI-03d full TLS harness/test activation remain pending. WI-03a does
+> not by itself complete the full WI-03 verification matrix or
+> go-live security sign-off.
 
 Replace ADR-11D.2 §2 `HttpsTransport` seam with:
 
@@ -140,33 +167,28 @@ signature.
 
 ### §4 Production transport
 
-**WI-02 landing status**: the production default transport
-(`makeNodeFetchHttpsTransport` in
-`services/ocr-worker/src/fetcher/httpsTransport.ts`) currently
-accepts `init.allowedAddresses` as a no-op and continues to use
-global `fetch`. The behavior described below — `node:https.request`
-with custom `lookup`, per-request `ca`, `agent: false`, etc. —
-lands in WI-03. SSRF closure (no TOCTOU between fetcher DNS check
-and socket DNS resolution) completes at WI-03, not WI-02.
+**§4 — Status: Landed by WI-03a/b/c/d.** Pinned `node:https.request` factory `makeNodeHttpsRequestTransport(options?: { ca?: string | Buffer | Array<string | Buffer> })` is the canonical production transport; legacy `makeNodeFetchHttpsTransport()` retained as a thin compatibility wrapper that delegates to `makeNodeHttpsRequestTransport({})`, so the existing `fetchPageBytes.ts` default callsite continues unchanged. WI-03b adds preflight `allowedAddresses` validation; WI-03c adds the strict response adapter; WI-03d proves the TLS hostname-verification + e2e mapping matrix end-to-end against local fixtures. The lookup callback pins to `allowedAddresses[0]` in both `options.all === true` (single-element array) and legacy single-address modes; the full vetted list is never returned wholesale to Node's lookup.
 
-**WI-03a landing status**: WI-03a lands the pinned
-`node:https.request` transport core and package exports only.
-WI-03b runtime validation, WI-03c response adapter strictness, and
-WI-03d full TLS harness/test activation remain pending. WI-03a does
-not by itself complete the full WI-03 verification matrix or
-go-live security sign-off. The new canonical factory is
-`makeNodeHttpsRequestTransport(options?: { ca?: string | Buffer |
-Array<string | Buffer> })`; legacy `makeNodeFetchHttpsTransport()`
-is retained as a thin compatibility wrapper that delegates to
-`makeNodeHttpsRequestTransport({})`, so the existing
-`fetchPageBytes.ts` default callsite continues unchanged. The
-lookup callback pins to `allowedAddresses[0]` in both
-`options.all === true` (single-element array) and legacy
-single-address modes; the full vetted list is never returned
-wholesale to Node's lookup. Strict runtime validation (§5), strict
-Content-Length parsing + body adaptation (§6), and the abort-phase
-mechanics + error mapping (§6/§7) remain WI-03b/c work and are not
-yet implemented.
+> **Historical landing notes (superseded by the §4 status block above)** — the two paragraphs below describe the partial state during WI-02 and WI-03a respectively. Kept verbatim only as historical context.
+>
+> **WI-02 landing status**: the production default transport
+> (`makeNodeFetchHttpsTransport` in
+> `services/ocr-worker/src/fetcher/httpsTransport.ts`) currently
+> accepts `init.allowedAddresses` as a no-op and continues to use
+> global `fetch`. The behavior described below — `node:https.request`
+> with custom `lookup`, per-request `ca`, `agent: false`, etc. —
+> lands in WI-03. SSRF closure (no TOCTOU between fetcher DNS check
+> and socket DNS resolution) completes at WI-03, not WI-02.
+>
+> **WI-03a landing status**: WI-03a lands the pinned
+> `node:https.request` transport core and package exports only.
+> WI-03b runtime validation, WI-03c response adapter strictness, and
+> WI-03d full TLS harness/test activation remain pending. WI-03a does
+> not by itself complete the full WI-03 verification matrix or
+> go-live security sign-off. Strict runtime validation (§5), strict
+> Content-Length parsing + body adaptation (§6), and the abort-phase
+> mechanics + error mapping (§6/§7) remain WI-03b/c work and are not
+> yet implemented.
 
 Default transport switches from global `fetch` to `node:https.request`.
 `https.request(url, options)` accepts `http.request` options and TLS
@@ -219,6 +241,8 @@ required, that needs a separate ADR.
 
 ### §5 Runtime address validation
 
+**§5 — Status: Landed by WI-03b.** Production preflight runs synchronously inside `transport.fetch` before `https.request`, before the custom lookup, and before any socket activity. Pinned validation order: container → plain-object → own-data-property descriptors → typeof → trim → mapped/scoped literal → `net.isIP` → family match → `isPrivateIp`. First invalid element rejects with `HttpsTransportError` carrying a stable internal code; the fetcher maps internal codes to existing public `https_network_error` while preserving `cause`. 22 preflight tests pass in `services/ocr-worker/tests/fetcher.https.transport.test.mjs`.
+
 At transport entry, production must validate:
 - `allowedAddresses` is a non-empty array.
 - Every element is a plain object.
@@ -241,6 +265,8 @@ The transport must also reject:
 - Addresses that fail `isPrivateIp`.
 
 ### §6 Response adapter
+
+**§6 — Status: Landed by WI-03c/d.** Production response callback validates Content-Length via `res.rawHeaders` multiplicity + strict syntax before yielding the response; body iterator yields strict `Uint8Array` (Buffer chunks rewrapped); 3xx responses return `{ status, headers, body }` with a lazy AsyncIterable body and no pre-read; abort across all three phases throws `HttpsTransportError({ code: "RESPONSE_ABORTED" })` which the fetcher maps to existing public `https_timeout`. Listener-symmetry verified via counting AbortSignal. Eager unconsumed-body cleanup hooks `res.destroy()` on signal abort even when the caller never iterates. WI-03d's local HTTPS test harness exercises malformed-Content-Length, mid-body abort, and the 3xx return-shape end-to-end via real TLS connections.
 
 `https.request` returns `http.IncomingMessage`, not Web `Response`.
 The default transport must adapt it to `HttpsTransportResponse`.
@@ -272,6 +298,8 @@ Body handling:
   a timeout-mapped error, not end as a partial-content success.
 
 ### §7 Error-code mapping
+
+**§7 — Status: Landed by WI-03b/c/d.** Internal `HttpsTransportError` codes live in `services/ocr-worker/src/fetcher/httpsTransportErrors.ts` (NOT re-exported from public barrels — enforced by `fetcher.public-surface.test.mjs`). Fetcher mapping in `fetchPageBytes.ts` `wrapTimeoutError`: `RESPONSE_ABORTED` → public `https_timeout`; all other internal codes → public `https_network_error`; both branches preserve `cause`. WI-03d additionally extended the generic catch-all branch to preserve `cause: err` so native TLS hostname-mismatch errors (`ERR_TLS_CERT_ALTNAME_INVALID` / `ERR_OSSL_X509_HOST_MISMATCH`) surface through the public `FetcherError.cause` chain. `FETCHER_ERROR_CODES` remains unchanged across all four sub-WIs.
 
 No new public fetcher error codes are introduced by this ADR.
 
@@ -398,7 +426,11 @@ TLS fixtures:
 - CA injection uses the per-request `ca` option, keeping global TLS
   process state unaffected.
 
-#### §2.1 Test files (authored by WI-02t)
+#### §2.1 Test files
+
+**§2.1 — Status: Landed by WI-02t / WI-03a/b/c/d.** All originally-skipped transport tests are now active and green. WI-03b un-skipped the 15 runtime-validation cases. WI-03c un-skipped the 6 Content-Length + 1 body-shape + 1 transport-3xx + 2 abort cases (phase-1, mid-body). WI-03d un-skipped the 8 remaining cases (resolver no-reorder ×2 sub-cases, TLS scenarios ×3, phase-2 abort, e2e mappings ×3) and added the fixture self-check test under `services/ocr-worker/tests/fixtures/tls/fixture-self-check.test.mjs`. The only acceptable residual skip is sub-case 2 of the no-reorder test on platforms where the `127.0.0.2` loopback alias is unavailable.
+
+
 
 - `services/ocr-worker/tests/fetcher.https.test.mjs` — fetcher-level
   tests against a stub transport. Existing tests cover scheme,
