@@ -15,9 +15,13 @@ import {
   classAllowsExternal,
   validateMatter,
   validateOcrLink,
+  validateFact,
   assertCaseBoxIsSubordinateToOcr,
   OcrSubordinationError,
   ocrLinkSchema,
+  isFactCandidateOnly,
+  factWasMachineExtracted,
+  isMachineExtractedCandidate,
 } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -118,12 +122,66 @@ test("every entity fixture carries tenant_id and actor_user_id", () => {
     "evidence-item.valid.json",
     "ocr-link.valid.json",
     "audit-event.valid.json",
+    "fact-candidate-lawyer-authored.valid.json",
+    "fact-candidate-llm.valid.json",
+    "fact-candidate-ocr-excerpt.valid.json",
+    "fact-candidate-imported.valid.json",
+    "fact-accepted-lawyer-authored.valid.json",
+    "fact-accepted-supersedes-prior.valid.json",
+    "fact-rejected.valid.json",
   ];
   for (const f of fixtures) {
     const data = readJson(join(validDir, f));
     assert.equal(typeof data.tenant_id, "string", `${f} missing tenant_id`);
     assert.equal(typeof data.actor_user_id, "string", `${f} missing actor_user_id`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Fact helpers.
+// ---------------------------------------------------------------------------
+
+test("isFactCandidateOnly truth table", () => {
+  assert.equal(isFactCandidateOnly({ status: "candidate" }), true);
+  assert.equal(isFactCandidateOnly({ status: "reviewed" }), false);
+  assert.equal(isFactCandidateOnly({ status: "accepted" }), false);
+  assert.equal(isFactCandidateOnly({ status: "rejected" }), false);
+});
+
+test("factWasMachineExtracted: machine source types true, lawyer false", () => {
+  assert.equal(factWasMachineExtracted({ source_type: "llm_extraction" }), true);
+  assert.equal(factWasMachineExtracted({ source_type: "ocr_excerpt" }), true);
+  assert.equal(factWasMachineExtracted({ source_type: "imported" }), true);
+  assert.equal(factWasMachineExtracted({ source_type: "lawyer_authored" }), false);
+});
+
+test("isMachineExtractedCandidate true iff candidate AND machine source", () => {
+  assert.equal(isMachineExtractedCandidate({ status: "candidate", source_type: "llm_extraction" }), true);
+  assert.equal(isMachineExtractedCandidate({ status: "candidate", source_type: "lawyer_authored" }), false);
+  assert.equal(isMachineExtractedCandidate({ status: "accepted",  source_type: "llm_extraction" }), false);
+  assert.equal(isMachineExtractedCandidate({ status: "rejected",  source_type: "ocr_excerpt" }), false);
+});
+
+test("valid fact fixtures all parse via validateFact", () => {
+  const fixtures = [
+    "fact-candidate-lawyer-authored.valid.json",
+    "fact-candidate-llm.valid.json",
+    "fact-candidate-ocr-excerpt.valid.json",
+    "fact-candidate-imported.valid.json",
+    "fact-accepted-lawyer-authored.valid.json",
+    "fact-accepted-supersedes-prior.valid.json",
+    "fact-rejected.valid.json",
+  ];
+  for (const f of fixtures) {
+    const r = validateFact(readJson(join(validDir, f)));
+    assert.equal(r.ok, true, `${f} should validate (got ${r.ok === false ? r.summary : "ok"})`);
+  }
+});
+
+test("fact source_ocr_job_id remains opaque string (OCR subordination preserved)", () => {
+  const ocrExcerpt = readJson(join(validDir, "fact-candidate-ocr-excerpt.valid.json"));
+  assert.equal(typeof ocrExcerpt.source_ocr_job_id, "string");
+  // schema does not cross-$ref to OCR; the value is a free string, not a UUID/ULID constraint inherited from OCR.
 });
 
 test("party fixture (embedded shape) does NOT require tenant/actor (lives inside matter)", () => {

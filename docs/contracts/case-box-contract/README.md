@@ -15,6 +15,7 @@ Wire-format and semantic contract for the case-box domain layer:
 - **CaseBoxEvidenceItem** — v1-simplified evidence binding (matter, source document, page range, lawyer weight).
 - **CaseBoxOcrLink** — read-only mirror of OCR job state; `direction: "read-only"` is contractually enforced.
 - **CaseBoxAuditEvent** — append-only event with hash-chain shape (chain integrity is persistence's job).
+- **CaseBoxFact** — statement-level fact derived from a document, an LLM, an OCR excerpt, an import, or authored by the lawyer. Carries source + extractor provenance + review trail + supersession pointer. v1 invariant: **all facts created in status=candidate**; no auto-promote.
 
 ## What this package is NOT
 
@@ -37,6 +38,9 @@ See `src/index.ts`. Validators, state-machine helpers, errors, semantic helpers 
 - `CaseBoxOcrLink.direction === "read-only"` (OCR is a subordinate data feed).
 - `CaseBoxDeadline` `missed → met` transition requires `transition_reason`.
 - `CaseBoxEvidenceItem.status === "superseded"` requires `supersedes_evidence_id`.
+- **`CaseBoxFact` no-auto-accept**: enforced in three layers — state machine bans `candidate → accepted`, schema requires reviewer fields for `accepted`/`rejected`/`reviewed`, and `assertValidNewFact` rejects any new fact whose `status !== "candidate"`. Machine-extracted facts (LLM / OCR excerpt / imported) MUST land as `candidate`.
+- **`CaseBoxFact` supersession** is a relationship, not a row state. A new accepted fact's `supersedes_fact_id` points to the old accepted fact it replaces; both rows remain `accepted`. There is no row-level `superseded` state. Self-cycle caught by `assertFactPromotionInvariants`; broader chain-cycle detection is persistence's job.
+- **`CaseBoxFact` source-type coherence**: `lawyer_authored` MUST NOT carry extractor metadata; `llm_extraction` and `imported` MUST carry `extractor_name`; `ocr_excerpt` MUST carry `source_document_id`, `source_ocr_job_id`, `source_page_number`, and `source_excerpt`.
 
 ## Test commands
 

@@ -16,7 +16,12 @@ import {
   validateEvidenceItem,
   validateOcrLink,
   validateAuditEvent,
+  validateFact,
   assertCaseBoxIsSubordinateToOcr,
+  assertFactPromotionInvariants,
+  assertValidNewFact,
+  FactPromotionInvariantError,
+  FactCreationInvariantError,
   OcrSubordinationError,
 } from "../dist/index.js";
 
@@ -70,6 +75,50 @@ test("validateAuditEvent happy path returns ok=true", () => {
   assert.equal(r.ok, true);
 });
 
+test("validateFact happy path: candidate-lawyer-authored ok=true", () => {
+  const r = validateFact(readJson(join(validDir, "fact-candidate-lawyer-authored.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(r.value.status, "candidate");
+  assert.equal(r.value.source_type, "lawyer_authored");
+});
+
+test("validateFact happy path: candidate-llm ok=true", () => {
+  const r = validateFact(readJson(join(validDir, "fact-candidate-llm.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(r.value.extractor_name, "claude-opus-4-7");
+});
+
+test("validateFact happy path: candidate-ocr-excerpt ok=true", () => {
+  const r = validateFact(readJson(join(validDir, "fact-candidate-ocr-excerpt.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(r.value.source_type, "ocr_excerpt");
+});
+
+test("validateFact happy path: candidate-imported ok=true", () => {
+  const r = validateFact(readJson(join(validDir, "fact-candidate-imported.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(r.value.extractor_name, "clio-import-v1");
+});
+
+test("validateFact happy path: accepted-lawyer-authored ok=true", () => {
+  const r = validateFact(readJson(join(validDir, "fact-accepted-lawyer-authored.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(r.value.status, "accepted");
+});
+
+test("validateFact happy path: accepted-supersedes-prior ok=true", () => {
+  const r = validateFact(readJson(join(validDir, "fact-accepted-supersedes-prior.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(typeof r.value.supersedes_fact_id, "string");
+});
+
+test("validateFact happy path: rejected ok=true", () => {
+  const r = validateFact(readJson(join(validDir, "fact-rejected.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(r.value.status, "rejected");
+  assert.equal(typeof r.value.rejection_reason, "string");
+});
+
 // ---------------------------------------------------------------------------
 // Error paths — every validator returns ok=false with non-empty errors[] and
 // a sane summary string.
@@ -111,6 +160,124 @@ test("validateOcrLink error path returns ok=false (bad direction)", () => {
 test("validateAuditEvent error path returns ok=false (privilege-waive without reason)", () => {
   const r = validateAuditEvent(readJson(join(invalidDir, "audit-event-privilege-waive-no-reason.json")));
   assert.equal(r.ok, false);
+});
+
+test("validateFact error path: candidate with accepted_at returns ok=false (N1)", () => {
+  const r = validateFact(readJson(join(invalidDir, "fact-candidate-with-accepted-at.json")));
+  assert.equal(r.ok, false);
+});
+
+test("validateFact error path: accepted with no reviewer returns ok=false (N3)", () => {
+  const r = validateFact(readJson(join(invalidDir, "fact-accepted-no-reviewer.json")));
+  assert.equal(r.ok, false);
+});
+
+test("validateFact error path: rejected with no reason returns ok=false (N4)", () => {
+  const r = validateFact(readJson(join(invalidDir, "fact-rejected-no-reason.json")));
+  assert.equal(r.ok, false);
+});
+
+test("validateFact error path: lawyer_authored with extractor_name returns ok=false (N5)", () => {
+  const r = validateFact(readJson(join(invalidDir, "fact-lawyer-authored-with-extractor.json")));
+  assert.equal(r.ok, false);
+});
+
+test("validateFact error path: llm_extraction without extractor_name returns ok=false (N6)", () => {
+  const r = validateFact(readJson(join(invalidDir, "fact-llm-without-extractor-name.json")));
+  assert.equal(r.ok, false);
+});
+
+test("validateFact error path: imported without extractor_name returns ok=false (N6.5)", () => {
+  const r = validateFact(readJson(join(invalidDir, "fact-imported-without-extractor-name.json")));
+  assert.equal(r.ok, false);
+});
+
+test("validateFact error path: ocr_excerpt missing fields returns ok=false (N7)", () => {
+  const r = validateFact(readJson(join(invalidDir, "fact-ocr-excerpt-missing-fields.json")));
+  assert.equal(r.ok, false);
+});
+
+// ---------------------------------------------------------------------------
+// assertFactPromotionInvariants — validator-only checks.
+// ---------------------------------------------------------------------------
+
+test("assertFactPromotionInvariants passes on accepted with no supersedes", () => {
+  const fact = readJson(join(validDir, "fact-accepted-lawyer-authored.valid.json"));
+  assert.doesNotThrow(() => assertFactPromotionInvariants(fact));
+});
+
+test("assertFactPromotionInvariants passes on accepted with supersedes pointing elsewhere", () => {
+  const fact = readJson(join(validDir, "fact-accepted-supersedes-prior.valid.json"));
+  assert.doesNotThrow(() => assertFactPromotionInvariants(fact));
+});
+
+test("assertFactPromotionInvariants throws on self-cycle (id === supersedes_fact_id)", () => {
+  const fact = readJson(join(root, "fixtures", "semantic-invalid", "fact-superseded-self-cycle.json"));
+  assert.throws(() => assertFactPromotionInvariants(fact), FactPromotionInvariantError);
+});
+
+test("assertFactPromotionInvariants throws when supersedes set on non-accepted status", () => {
+  const fact = {
+    id: "01jrcasebox000000000000fxa",
+    status: "candidate",
+    supersedes_fact_id: "01jrcasebox000000000000fxb",
+  };
+  assert.throws(() => assertFactPromotionInvariants(fact), FactPromotionInvariantError);
+});
+
+test("assertFactPromotionInvariants treats undefined supersedes_fact_id as null (no throw)", () => {
+  const fact = { id: "01jrcasebox000000000000fxc", status: "candidate" };
+  assert.doesNotThrow(() => assertFactPromotionInvariants(fact));
+});
+
+// ---------------------------------------------------------------------------
+// assertValidNewFact — creation-rule guard. Every promotion field must be null
+// and status must be candidate. No exceptions.
+// ---------------------------------------------------------------------------
+
+test("assertValidNewFact passes for a clean candidate row", () => {
+  const fact = readJson(join(validDir, "fact-candidate-lawyer-authored.valid.json"));
+  assert.doesNotThrow(() => assertValidNewFact(fact));
+});
+
+test("assertValidNewFact throws when status !== candidate (load-bearing for no-auto-accept)", () => {
+  const fact = readJson(join(validDir, "fact-accepted-lawyer-authored.valid.json"));
+  assert.throws(() => assertValidNewFact(fact), FactCreationInvariantError);
+});
+
+test("assertValidNewFact throws when status=candidate but reviewer_actor_user_id set", () => {
+  const fact = { status: "candidate", reviewer_actor_user_id: "local-user" };
+  assert.throws(() => assertValidNewFact(fact), FactCreationInvariantError);
+});
+
+test("assertValidNewFact throws when status=candidate but accepted_at set", () => {
+  const fact = { status: "candidate", accepted_at: "2026-05-20T12:00:00.000Z" };
+  assert.throws(() => assertValidNewFact(fact), FactCreationInvariantError);
+});
+
+test("assertValidNewFact throws when status=candidate but supersedes_fact_id set", () => {
+  const fact = { status: "candidate", supersedes_fact_id: "01jrcasebox000000000000aaa" };
+  assert.throws(() => assertValidNewFact(fact), FactCreationInvariantError);
+});
+
+test("assertValidNewFact throws for status=reviewed (only candidate is allowed at creation)", () => {
+  const fact = {
+    status: "reviewed",
+    reviewer_actor_user_id: "local-user",
+    reviewed_at: "2026-05-20T12:00:00.000Z",
+  };
+  assert.throws(() => assertValidNewFact(fact), FactCreationInvariantError);
+});
+
+test("assertValidNewFact throws for status=rejected", () => {
+  const fact = {
+    status: "rejected",
+    reviewer_actor_user_id: "local-user",
+    reviewed_at: "2026-05-20T12:00:00.000Z",
+    rejected_at: "2026-05-20T12:00:30.000Z",
+    rejection_reason: "no",
+  };
+  assert.throws(() => assertValidNewFact(fact), FactCreationInvariantError);
 });
 
 // ---------------------------------------------------------------------------

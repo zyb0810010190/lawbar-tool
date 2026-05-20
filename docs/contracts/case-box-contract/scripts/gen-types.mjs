@@ -36,6 +36,7 @@ const items = [
   { schema: "case-box-evidence-item.schema.json",  name: "CaseBoxEvidenceItem",  out: "case-box-evidence-item.ts" },
   { schema: "case-box-ocr-link.schema.json",       name: "CaseBoxOcrLink",       out: "case-box-ocr-link.ts" },
   { schema: "case-box-audit-event.schema.json",    name: "CaseBoxAuditEvent",    out: "case-box-audit-event.ts" },
+  { schema: "case-box-fact.schema.json",           name: "CaseBoxFact",          out: "case-box-fact.ts" },
 ];
 
 for (const { schema, name, out } of items) {

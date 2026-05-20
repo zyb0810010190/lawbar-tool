@@ -13,6 +13,7 @@ const expectedFns = [
   "validateEvidenceItem",
   "validateOcrLink",
   "validateAuditEvent",
+  "validateFact",
   "assertCaseBoxIsSubordinateToOcr",
   "isLocalOnlyActor",
   "defaultsAreLocalFirst",
@@ -21,14 +22,22 @@ const expectedFns = [
   "isTerminalDocumentState",
   "isTerminalEvidenceState",
   "isTerminalDeadlineState",
+  "isTerminalFactState",
   "isAllowedMatterTransition",
   "isAllowedDocumentTransition",
   "isAllowedEvidenceTransition",
   "isAllowedDeadlineTransition",
+  "isAllowedFactTransition",
   "assertValidMatterTransition",
   "assertValidDocumentTransition",
   "assertValidEvidenceTransition",
   "assertValidDeadlineTransition",
+  "assertValidFactTransition",
+  "assertFactPromotionInvariants",
+  "assertValidNewFact",
+  "isFactCandidateOnly",
+  "factWasMachineExtracted",
+  "isMachineExtractedCandidate",
 ];
 
 const expectedArrays = [
@@ -40,10 +49,13 @@ const expectedArrays = [
   "TERMINAL_EVIDENCE_STATES",
   "DEADLINE_STATES",
   "TERMINAL_DEADLINE_STATES",
+  "FACT_STATES",
+  "TERMINAL_FACT_STATES",
   "ALLOWED_MATTER_EDGES",
   "ALLOWED_DOCUMENT_EDGES",
   "ALLOWED_EVIDENCE_EDGES",
   "ALLOWED_DEADLINE_EDGES",
+  "ALLOWED_FACT_EDGES",
 ];
 
 const expectedObjects = [
@@ -54,6 +66,7 @@ const expectedObjects = [
   "evidenceItemSchema",
   "ocrLinkSchema",
   "auditEventSchema",
+  "factSchema",
 ];
 
 const expectedConstants = [
@@ -63,6 +76,8 @@ const expectedConstants = [
 const expectedErrorCtors = [
   "IllegalTransitionError",
   "OcrSubordinationError",
+  "FactPromotionInvariantError",
+  "FactCreationInvariantError",
 ];
 
 test("every expected function is exported and callable", () => {
@@ -80,10 +95,12 @@ test("every expected array is exported and non-empty (where applicable)", () => 
   assert.ok(pkg.DOCUMENT_STATES.length > 0);
   assert.ok(pkg.EVIDENCE_STATES.length > 0);
   assert.ok(pkg.DEADLINE_STATES.length > 0);
+  assert.ok(pkg.FACT_STATES.length > 0);
   assert.ok(pkg.ALLOWED_MATTER_EDGES.length > 0);
   assert.ok(pkg.ALLOWED_DOCUMENT_EDGES.length > 0);
   assert.ok(pkg.ALLOWED_EVIDENCE_EDGES.length > 0);
   assert.ok(pkg.ALLOWED_DEADLINE_EDGES.length > 0);
+  assert.ok(pkg.ALLOWED_FACT_EDGES.length > 0);
 });
 
 test("every expected schema is exported and frozen", () => {
@@ -114,4 +131,14 @@ test("error constructors produce Error instances with named .name", () => {
   const e2 = new pkg.OcrSubordinationError("boom");
   assert.ok(e2 instanceof Error);
   assert.equal(e2.name, "OcrSubordinationError");
+
+  const e3 = new pkg.FactPromotionInvariantError("self-cycle");
+  assert.ok(e3 instanceof Error);
+  assert.equal(e3.name, "FactPromotionInvariantError");
+  assert.equal(e3.violation, "self-cycle");
+
+  const e4 = new pkg.FactCreationInvariantError("not candidate");
+  assert.ok(e4 instanceof Error);
+  assert.equal(e4.name, "FactCreationInvariantError");
+  assert.equal(e4.violation, "not candidate");
 });

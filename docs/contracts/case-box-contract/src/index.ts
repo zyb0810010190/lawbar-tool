@@ -13,6 +13,7 @@ export { validateDeadline } from "./validateDeadline.js";
 export { validateEvidenceItem } from "./validateEvidenceItem.js";
 export { validateOcrLink, assertCaseBoxIsSubordinateToOcr } from "./validateOcrLink.js";
 export { validateAuditEvent } from "./validateAuditEvent.js";
+export { validateFact } from "./validateFact.js";
 
 // --- State machines + transition helpers ---
 export {
@@ -28,24 +29,31 @@ export {
   DEADLINE_STATES,
   TERMINAL_DEADLINE_STATES,
   isTerminalDeadlineState,
+  FACT_STATES,
+  TERMINAL_FACT_STATES,
+  isTerminalFactState,
   ALLOWED_MATTER_EDGES,
   ALLOWED_DOCUMENT_EDGES,
   ALLOWED_EVIDENCE_EDGES,
   ALLOWED_DEADLINE_EDGES,
+  ALLOWED_FACT_EDGES,
   isAllowedMatterTransition,
   isAllowedDocumentTransition,
   isAllowedEvidenceTransition,
   isAllowedDeadlineTransition,
+  isAllowedFactTransition,
   assertValidMatterTransition,
   assertValidDocumentTransition,
   assertValidEvidenceTransition,
   assertValidDeadlineTransition,
+  assertValidFactTransition,
   IllegalTransitionError,
   OcrSubordinationError,
   type MatterState,
   type DocumentState,
   type EvidenceState,
   type DeadlineState,
+  type FactState,
   type CaseBoxActor,
   type AllowedEdge,
 } from "./transitions.js";
@@ -57,6 +65,17 @@ export {
   defaultsAreLocalFirst,
   classAllowsExternal,
 } from "./invariants.js";
+
+// --- Fact-specific invariants and creation rule ---
+export {
+  assertFactPromotionInvariants,
+  assertValidNewFact,
+  isFactCandidateOnly,
+  factWasMachineExtracted,
+  isMachineExtractedCandidate,
+  FactPromotionInvariantError,
+  FactCreationInvariantError,
+} from "./fact-invariants.js";
 
 // --- Shared validation result types ---
 export type {
@@ -75,6 +94,7 @@ export type { CaseBoxDeadline } from "./generated/case-box-deadline.js";
 export type { CaseBoxEvidenceItem } from "./generated/case-box-evidence-item.js";
 export type { CaseBoxOcrLink } from "./generated/case-box-ocr-link.js";
 export type { CaseBoxAuditEvent } from "./generated/case-box-audit-event.js";
+export type { CaseBoxFact } from "./generated/case-box-fact.js";
 
 // --- Deep-frozen public schemas ---
 //
@@ -90,6 +110,7 @@ import {
   evidenceItemSchema as rawEvidenceItemSchema,
   ocrLinkSchema as rawOcrLinkSchema,
   auditEventSchema as rawAuditEventSchema,
+  factSchema as rawFactSchema,
 } from "./loadSchemas.js";
 
 function deepFreeze<T>(value: T): T {
@@ -109,3 +130,4 @@ export const deadlineSchema = deepFreeze(structuredClone(rawDeadlineSchema));
 export const evidenceItemSchema = deepFreeze(structuredClone(rawEvidenceItemSchema));
 export const ocrLinkSchema = deepFreeze(structuredClone(rawOcrLinkSchema));
 export const auditEventSchema = deepFreeze(structuredClone(rawAuditEventSchema));
+export const factSchema = deepFreeze(structuredClone(rawFactSchema));

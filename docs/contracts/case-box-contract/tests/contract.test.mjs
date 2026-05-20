@@ -33,6 +33,7 @@ const deadlineSchema     = readJson(join(schemasDir, "case-box-deadline.schema.j
 const evidenceItemSchema = readJson(join(schemasDir, "case-box-evidence-item.schema.json"));
 const ocrLinkSchema      = readJson(join(schemasDir, "case-box-ocr-link.schema.json"));
 const auditEventSchema   = readJson(join(schemasDir, "case-box-audit-event.schema.json"));
+const factSchema         = readJson(join(schemasDir, "case-box-fact.schema.json"));
 
 const validateMatter       = ajv.compile(matterSchema);
 const validateDocument     = ajv.compile(documentSchema);
@@ -41,6 +42,7 @@ const validateDeadline     = ajv.compile(deadlineSchema);
 const validateEvidenceItem = ajv.compile(evidenceItemSchema);
 const validateOcrLink      = ajv.compile(ocrLinkSchema);
 const validateAuditEvent   = ajv.compile(auditEventSchema);
+const validateFact         = ajv.compile(factSchema);
 
 const errs = (v) => (v.errors || []).map((e) => `${e.instancePath} ${e.message}`).join("; ");
 
@@ -74,6 +76,34 @@ test("valid: ocr-link passes ocr-link schema (direction=read-only)", () => {
 
 test("valid: audit-event (create) passes audit-event schema", () => {
   assert.equal(validateAuditEvent(readJson(join(validDir, "audit-event.valid.json"))), true, errs(validateAuditEvent));
+});
+
+test("valid: fact-candidate-lawyer-authored passes fact schema", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-candidate-lawyer-authored.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-candidate-llm passes fact schema", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-candidate-llm.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-candidate-ocr-excerpt passes fact schema", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-candidate-ocr-excerpt.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-candidate-imported passes fact schema", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-candidate-imported.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-accepted-lawyer-authored passes fact schema", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-accepted-lawyer-authored.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-accepted-supersedes-prior passes fact schema", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-accepted-supersedes-prior.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-rejected passes fact schema", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-rejected.valid.json"))), true, errs(validateFact));
 });
 
 // ---------------------------------------------------------------------------
@@ -135,4 +165,74 @@ test("invalid: audit-event privilege-waive without reason is rejected", () => {
     e.keyword === "required" && (e.params?.missingProperty === "reason")
   );
   assert.ok(offenders.length > 0, "expected required-property error on reason");
+});
+
+// ---------------------------------------------------------------------------
+// Fact — invalid fixtures cover N1, N3, N4, N5, N6, N6.5, N7.
+// Self-cycle (validator-only) is under fixtures/semantic-invalid/.
+// ---------------------------------------------------------------------------
+
+test("invalid: fact-candidate-with-accepted-at is rejected (N1)", () => {
+  const fixture = readJson(join(invalidDir, "fact-candidate-with-accepted-at.json"));
+  assert.equal(validateFact(fixture), false);
+  const offenders = (validateFact.errors || []).filter((e) => e.instancePath === "/accepted_at");
+  assert.ok(offenders.length > 0, `expected error on /accepted_at (got ${errs(validateFact)})`);
+});
+
+test("invalid: fact-accepted-no-reviewer is rejected (N3)", () => {
+  const fixture = readJson(join(invalidDir, "fact-accepted-no-reviewer.json"));
+  assert.equal(validateFact(fixture), false);
+  // Fields are present but null; schema's `then.properties` enforces `type: string`,
+  // so Ajv emits `type` errors on each reviewer field rather than `required`.
+  const offenders = (validateFact.errors || []).filter((e) =>
+    ["/reviewer_actor_user_id", "/reviewed_at", "/accepted_at"].includes(e.instancePath)
+  );
+  assert.ok(offenders.length > 0, `expected type errors on reviewer fields (got ${errs(validateFact)})`);
+});
+
+test("invalid: fact-rejected-no-reason is rejected (N4)", () => {
+  const fixture = readJson(join(invalidDir, "fact-rejected-no-reason.json"));
+  assert.equal(validateFact(fixture), false);
+  const offenders = (validateFact.errors || []).filter((e) =>
+    (e.instancePath === "/rejection_reason") ||
+    (e.keyword === "required" && e.params?.missingProperty === "rejection_reason")
+  );
+  assert.ok(offenders.length > 0, `expected error on rejection_reason (got ${errs(validateFact)})`);
+});
+
+test("invalid: fact-lawyer-authored-with-extractor is rejected (N5)", () => {
+  const fixture = readJson(join(invalidDir, "fact-lawyer-authored-with-extractor.json"));
+  assert.equal(validateFact(fixture), false);
+  const offenders = (validateFact.errors || []).filter((e) => e.instancePath === "/extractor_name");
+  assert.ok(offenders.length > 0, `expected error on /extractor_name (got ${errs(validateFact)})`);
+});
+
+test("invalid: fact-llm-without-extractor-name is rejected (N6)", () => {
+  const fixture = readJson(join(invalidDir, "fact-llm-without-extractor-name.json"));
+  assert.equal(validateFact(fixture), false);
+  const offenders = (validateFact.errors || []).filter((e) =>
+    (e.instancePath === "/extractor_name") ||
+    (e.keyword === "required" && e.params?.missingProperty === "extractor_name")
+  );
+  assert.ok(offenders.length > 0, `expected error citing extractor_name (got ${errs(validateFact)})`);
+});
+
+test("invalid: fact-imported-without-extractor-name is rejected (N6.5)", () => {
+  const fixture = readJson(join(invalidDir, "fact-imported-without-extractor-name.json"));
+  assert.equal(validateFact(fixture), false);
+  const offenders = (validateFact.errors || []).filter((e) =>
+    (e.instancePath === "/extractor_name") ||
+    (e.keyword === "required" && e.params?.missingProperty === "extractor_name")
+  );
+  assert.ok(offenders.length > 0, `expected error citing extractor_name (got ${errs(validateFact)})`);
+});
+
+test("invalid: fact-ocr-excerpt-missing-fields is rejected (N7)", () => {
+  const fixture = readJson(join(invalidDir, "fact-ocr-excerpt-missing-fields.json"));
+  assert.equal(validateFact(fixture), false);
+  const offenders = (validateFact.errors || []).filter((e) =>
+    (e.instancePath === "/source_document_id") ||
+    (e.keyword === "required" && e.params?.missingProperty === "source_document_id")
+  );
+  assert.ok(offenders.length > 0, `expected error citing source_document_id (got ${errs(validateFact)})`);
 });

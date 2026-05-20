@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-fact.schema.json",
+  "title": "CaseBoxFact",
+  "description": "Statement-level fact derived from a document, an LLM, an OCR excerpt, an import, or authored by the lawyer. v1 invariants: all facts created in status=candidate; no auto-promote from candidate to accepted; supersedes_fact_id (on the NEW row) points to the old row it replaces (no row-level superseded state). See docs/adr/case-box-step-2-fact-promotion-and-provenance.md.",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "actor_user_id",
+    "matter_id",
+    "statement_text",
+    "status",
+    "source_type",
+    "source_document_id",
+    "source_page_number",
+    "source_excerpt",
+    "source_ocr_job_id",
+    "extractor_name",
+    "extractor_version",
+    "extraction_confidence",
+    "reviewer_actor_user_id",
+    "reviewed_at",
+    "accepted_at",
+    "rejected_at",
+    "rejection_reason",
+    "supersedes_fact_id",
+    "created_at"
+  ],
+  "properties": {
+    "id":            { "$ref": "#/$defs/ulid" },
+    "tenant_id":     { "type": "string", "minLength": 1 },
+    "actor_user_id": { "type": "string", "minLength": 1, "description": "Creator. v1 sentinel: \"local-user\"." },
+    "matter_id":     { "$ref": "#/$defs/ulid" },
+    "statement_text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The fact's prose. Lawyer-authored or extractor-generated."
+    },
+    "status": {
+      "enum": ["candidate", "reviewed", "accepted", "rejected"]
+    },
+    "source_type": {
+      "enum": ["lawyer_authored", "llm_extraction", "ocr_excerpt", "imported"],
+      "description": "Where the fact came from. Machine sources (llm_extraction, ocr_excerpt, imported) MUST be created as candidate and cannot be auto-accepted."
+    },
+    "source_document_id": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/ulid" }
+      ],
+      "description": "CaseBoxDocument id. Required for ocr_excerpt; optional for other sources."
+    },
+    "source_page_number": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "integer", "minimum": 1 }
+      ],
+      "description": "1-based page number within the source document. Required for ocr_excerpt."
+    },
+    "source_excerpt": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "The text the fact derives from. Required for ocr_excerpt."
+    },
+    "source_ocr_job_id": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "Opaque READ-ONLY reference to ocr-persistence; case-box never FKs to OCR. Required for ocr_excerpt."
+    },
+    "extractor_name": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "Extractor identity for machine sources (e.g. \"claude-opus-4-7\", \"clio-import-v1\"). Required for llm_extraction and imported. MUST be null for lawyer_authored."
+    },
+    "extractor_version": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "Extractor version for reproducibility. MUST be null for lawyer_authored."
+    },
+    "extraction_confidence": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "number", "minimum": 0, "maximum": 1 }
+      ],
+      "description": "Informational 0..1 confidence. MUST be null for lawyer_authored."
+    },
+    "reviewer_actor_user_id": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "Lawyer who reviewed. Set when status leaves candidate. MUST be null when status is candidate."
+    },
+    "reviewed_at": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date-time" }
+      ]
+    },
+    "accepted_at": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date-time" }
+      ],
+      "description": "Set iff status === accepted."
+    },
+    "rejected_at": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date-time" }
+      ],
+      "description": "Set iff status === rejected."
+    },
+    "rejection_reason": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "Free-form lawyer note. Required when status === rejected. MUST be null otherwise."
+    },
+    "supersedes_fact_id": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/ulid" }
+      ],
+      "description": "On a NEW accepted fact, points to the prior accepted fact it semantically replaces. MUST be null unless status === accepted. Self-cycle (id === supersedes_fact_id) caught by validator-helper, not schema."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if":   { "properties": { "status": { "const": "candidate" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "reviewer_actor_user_id": { "type": "null" },
+          "reviewed_at":            { "type": "null" },
+          "accepted_at":            { "type": "null" },
+          "rejected_at":            { "type": "null" },
+          "rejection_reason":       { "type": "null" },
+          "supersedes_fact_id":     { "type": "null" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "status": { "const": "reviewed" } }, "required": ["status"] },
+      "then": {
+        "required": ["reviewer_actor_user_id", "reviewed_at"],
+        "properties": {
+          "reviewer_actor_user_id": { "type": "string", "minLength": 1 },
+          "reviewed_at":            { "type": "string", "format": "date-time" },
+          "accepted_at":            { "type": "null" },
+          "rejected_at":            { "type": "null" },
+          "rejection_reason":       { "type": "null" },
+          "supersedes_fact_id":     { "type": "null" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "status": { "const": "accepted" } }, "required": ["status"] },
+      "then": {
+        "required": ["reviewer_actor_user_id", "reviewed_at", "accepted_at"],
+        "properties": {
+          "reviewer_actor_user_id": { "type": "string", "minLength": 1 },
+          "reviewed_at":            { "type": "string", "format": "date-time" },
+          "accepted_at":            { "type": "string", "format": "date-time" },
+          "rejected_at":            { "type": "null" },
+          "rejection_reason":       { "type": "null" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "status": { "const": "rejected" } }, "required": ["status"] },
+      "then": {
+        "required": ["reviewer_actor_user_id", "reviewed_at", "rejected_at", "rejection_reason"],
+        "properties": {
+          "reviewer_actor_user_id": { "type": "string", "minLength": 1 },
+          "reviewed_at":            { "type": "string", "format": "date-time" },
+          "rejected_at":            { "type": "string", "format": "date-time" },
+          "rejection_reason":       { "type": "string", "minLength": 1 },
+          "accepted_at":            { "type": "null" },
+          "supersedes_fact_id":     { "type": "null" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "source_type": { "const": "lawyer_authored" } }, "required": ["source_type"] },
+      "then": {
+        "properties": {
+          "extractor_name":        { "type": "null" },
+          "extractor_version":     { "type": "null" },
+          "extraction_confidence": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "source_type": { "const": "llm_extraction" } }, "required": ["source_type"] },
+      "then": {
+        "required": ["extractor_name"],
+        "properties": {
+          "extractor_name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "source_type": { "const": "imported" } }, "required": ["source_type"] },
+      "then": {
+        "required": ["extractor_name"],
+        "properties": {
+          "extractor_name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "source_type": { "const": "ocr_excerpt" } }, "required": ["source_type"] },
+      "then": {
+        "required": ["source_document_id", "source_ocr_job_id", "source_page_number", "source_excerpt"],
+        "properties": {
+          "source_document_id":  { "$ref": "#/$defs/ulid" },
+          "source_ocr_job_id":   { "type": "string", "minLength": 1 },
+          "source_page_number":  { "type": "integer", "minimum": 1 },
+          "source_excerpt":      { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$"
+    }
+  }
+}

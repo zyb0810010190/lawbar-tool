@@ -9,6 +9,7 @@ import deadlineSchema from "../schemas/case-box-deadline.schema.json" with { typ
 import evidenceItemSchema from "../schemas/case-box-evidence-item.schema.json" with { type: "json" };
 import ocrLinkSchema from "../schemas/case-box-ocr-link.schema.json" with { type: "json" };
 import auditEventSchema from "../schemas/case-box-audit-event.schema.json" with { type: "json" };
+import factSchema from "../schemas/case-box-fact.schema.json" with { type: "json" };
 
 export {
   matterSchema,
@@ -18,4 +19,5 @@ export {
   evidenceItemSchema,
   ocrLinkSchema,
   auditEventSchema,
+  factSchema,
 };

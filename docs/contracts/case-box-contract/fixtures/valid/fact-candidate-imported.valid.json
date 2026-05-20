@@ -1,0 +1,23 @@
+{
+  "id": "01jrcasebox0000000000000f4",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "statement_text": "Imported note: client first contacted office on 2026-01-08.",
+  "status": "candidate",
+  "source_type": "imported",
+  "source_document_id": null,
+  "source_page_number": null,
+  "source_excerpt": null,
+  "source_ocr_job_id": null,
+  "extractor_name": "clio-import-v1",
+  "extractor_version": "2026-04-30",
+  "extraction_confidence": null,
+  "reviewer_actor_user_id": null,
+  "reviewed_at": null,
+  "accepted_at": null,
+  "rejected_at": null,
+  "rejection_reason": null,
+  "supersedes_fact_id": null,
+  "created_at": "2026-05-20T11:12:00.000Z"
+}

@@ -83,6 +83,31 @@ export function isTerminalEvidenceState(state: EvidenceState): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Fact lifecycle
+// ---------------------------------------------------------------------------
+
+export type FactState = "candidate" | "reviewed" | "accepted" | "rejected";
+
+export const FACT_STATES: readonly FactState[] = Object.freeze([
+  "candidate",
+  "reviewed",
+  "accepted",
+  "rejected",
+] as const);
+
+// Accepted and rejected are terminal. Supersession is a relationship between
+// rows (a new accepted fact's `supersedes_fact_id` points to an old accepted
+// fact), NOT a row-level state. See case-box-step-2 ADR §3.
+export const TERMINAL_FACT_STATES: readonly FactState[] = Object.freeze([
+  "accepted",
+  "rejected",
+] as const);
+
+export function isTerminalFactState(state: FactState): boolean {
+  return TERMINAL_FACT_STATES.includes(state);
+}
+
+// ---------------------------------------------------------------------------
 // Deadline lifecycle
 // ---------------------------------------------------------------------------
 
@@ -143,6 +168,18 @@ export const ALLOWED_EVIDENCE_EDGES: readonly AllowedEdge<EvidenceState>[] = fre
   { from: "proposed", to: "accepted",   by: ["lawyer"] },
   { from: "proposed", to: "rejected",   by: ["lawyer"] },
   { from: "accepted", to: "superseded", by: ["lawyer"], note: "supersedes_evidence_id required" },
+]);
+
+// Fact promotion edges. `candidate → accepted` is intentionally absent: it
+// would defeat no-auto-accept. Every promotion edge is `by: ["lawyer"]`;
+// coordinator / ingestion / review cannot promote a fact. Accepted is
+// terminal at the state-machine layer; replacement happens via a new row
+// whose `supersedes_fact_id` points to the old accepted row.
+export const ALLOWED_FACT_EDGES: readonly AllowedEdge<FactState>[] = freezeEdges<FactState>([
+  { from: "candidate", to: "reviewed", by: ["lawyer"] },
+  { from: "candidate", to: "rejected", by: ["lawyer"], note: "shortcut: reject without intermediate review" },
+  { from: "reviewed",  to: "accepted", by: ["lawyer"], note: "promotion to SoT — load-bearing for no-auto-accept" },
+  { from: "reviewed",  to: "rejected", by: ["lawyer"] },
 ]);
 
 export const ALLOWED_DEADLINE_EDGES: readonly AllowedEdge<DeadlineState>[] = freezeEdges<DeadlineState>([
@@ -230,6 +267,14 @@ export function isAllowedDeadlineTransition(
   return isAllowed(ALLOWED_DEADLINE_EDGES, from, to, controlled_by);
 }
 
+export function isAllowedFactTransition(
+  from: FactState,
+  to: FactState,
+  controlled_by: CaseBoxActor,
+): boolean {
+  return isAllowed(ALLOWED_FACT_EDGES, from, to, controlled_by);
+}
+
 function assertNonTerminal<S extends string>(
   terminals: readonly S[],
   from: S,
@@ -305,5 +350,19 @@ export function assertValidDeadlineTransition(
         `transition '${from}' -> '${to}' requires a non-empty reason`,
       );
     }
+  }
+}
+
+export function assertValidFactTransition(
+  from: FactState,
+  to: FactState,
+  controlled_by: CaseBoxActor,
+): void {
+  assertNonTerminal(TERMINAL_FACT_STATES, from, to, controlled_by);
+  if (from === to) {
+    throw new IllegalTransitionError(from, to, controlled_by, "self-transition rejected");
+  }
+  if (!isAllowedFactTransition(from, to, controlled_by)) {
+    throw new IllegalTransitionError(from, to, controlled_by);
   }
 }

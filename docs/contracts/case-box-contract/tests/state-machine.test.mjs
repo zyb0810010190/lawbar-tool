@@ -17,18 +17,23 @@ import {
   TERMINAL_EVIDENCE_STATES,
   DEADLINE_STATES,
   TERMINAL_DEADLINE_STATES,
+  FACT_STATES,
+  TERMINAL_FACT_STATES,
   ALLOWED_MATTER_EDGES,
   ALLOWED_DOCUMENT_EDGES,
   ALLOWED_EVIDENCE_EDGES,
   ALLOWED_DEADLINE_EDGES,
+  ALLOWED_FACT_EDGES,
   isAllowedMatterTransition,
   isAllowedDocumentTransition,
   isAllowedEvidenceTransition,
   isAllowedDeadlineTransition,
+  isAllowedFactTransition,
   assertValidMatterTransition,
   assertValidDocumentTransition,
   assertValidEvidenceTransition,
   assertValidDeadlineTransition,
+  assertValidFactTransition,
   IllegalTransitionError,
 } from "../dist/index.js";
 
@@ -41,6 +46,7 @@ test("state lists are non-empty", () => {
   assert.ok(DOCUMENT_STATES.length >= 2);
   assert.ok(EVIDENCE_STATES.length >= 2);
   assert.ok(DEADLINE_STATES.length >= 2);
+  assert.ok(FACT_STATES.length >= 2);
 });
 
 test("terminal lists are subsets of state lists", () => {
@@ -48,6 +54,7 @@ test("terminal lists are subsets of state lists", () => {
   for (const s of TERMINAL_DOCUMENT_STATES) assert.ok(DOCUMENT_STATES.includes(s));
   for (const s of TERMINAL_EVIDENCE_STATES) assert.ok(EVIDENCE_STATES.includes(s));
   for (const s of TERMINAL_DEADLINE_STATES) assert.ok(DEADLINE_STATES.includes(s));
+  for (const s of TERMINAL_FACT_STATES) assert.ok(FACT_STATES.includes(s));
 });
 
 // ---------------------------------------------------------------------------
@@ -174,6 +181,7 @@ test("no edge table contains a self-loop", () => {
   for (const e of ALLOWED_DOCUMENT_EDGES) assert.notEqual(e.from, e.to);
   for (const e of ALLOWED_EVIDENCE_EDGES) assert.notEqual(e.from, e.to);
   for (const e of ALLOWED_DEADLINE_EDGES) assert.notEqual(e.from, e.to);
+  for (const e of ALLOWED_FACT_EDGES)     assert.notEqual(e.from, e.to);
 });
 
 // ---------------------------------------------------------------------------
@@ -186,8 +194,70 @@ test("every edge cites at least one actor", () => {
     ...ALLOWED_DOCUMENT_EDGES,
     ...ALLOWED_EVIDENCE_EDGES,
     ...ALLOWED_DEADLINE_EDGES,
+    ...ALLOWED_FACT_EDGES,
   ];
   for (const e of allEdges) {
     assert.ok(Array.isArray(e.by) && e.by.length > 0, `edge ${e.from}→${e.to} has no actor`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Fact lifecycle
+// ---------------------------------------------------------------------------
+
+test("fact: candidate → reviewed by lawyer is allowed", () => {
+  assert.doesNotThrow(() => assertValidFactTransition("candidate", "reviewed", "lawyer"));
+});
+
+test("fact: candidate → rejected by lawyer is allowed (shortcut)", () => {
+  assert.doesNotThrow(() => assertValidFactTransition("candidate", "rejected", "lawyer"));
+});
+
+test("fact: reviewed → accepted by lawyer is allowed (promotion to SoT)", () => {
+  assert.doesNotThrow(() => assertValidFactTransition("reviewed", "accepted", "lawyer"));
+});
+
+test("fact: reviewed → rejected by lawyer is allowed", () => {
+  assert.doesNotThrow(() => assertValidFactTransition("reviewed", "rejected", "lawyer"));
+});
+
+test("fact: candidate → accepted by lawyer is REJECTED — load-bearing no-auto-accept gate", () => {
+  assert.equal(isAllowedFactTransition("candidate", "accepted", "lawyer"), false);
+  assert.throws(() => assertValidFactTransition("candidate", "accepted", "lawyer"), IllegalTransitionError);
+});
+
+test("fact: every promotion edge by coordinator is rejected (actor gating)", () => {
+  for (const [from, to] of [["candidate", "reviewed"], ["candidate", "rejected"], ["reviewed", "accepted"], ["reviewed", "rejected"]]) {
+    assert.throws(() => assertValidFactTransition(from, to, "coordinator"), IllegalTransitionError, `${from}→${to} by coordinator must throw`);
+  }
+});
+
+test("fact: every promotion edge by ingestion is rejected (actor gating)", () => {
+  for (const [from, to] of [["candidate", "reviewed"], ["candidate", "rejected"], ["reviewed", "accepted"], ["reviewed", "rejected"]]) {
+    assert.throws(() => assertValidFactTransition(from, to, "ingestion"), IllegalTransitionError, `${from}→${to} by ingestion must throw`);
+  }
+});
+
+test("fact: every promotion edge by review is rejected (actor gating)", () => {
+  for (const [from, to] of [["candidate", "reviewed"], ["candidate", "rejected"], ["reviewed", "accepted"], ["reviewed", "rejected"]]) {
+    assert.throws(() => assertValidFactTransition(from, to, "review"), IllegalTransitionError, `${from}→${to} by review must throw`);
+  }
+});
+
+test("fact: accepted is terminal — every accepted→* transition rejected", () => {
+  for (const to of ["candidate", "reviewed", "rejected"]) {
+    assert.throws(() => assertValidFactTransition("accepted", to, "lawyer"), IllegalTransitionError, `accepted→${to} must throw`);
+  }
+});
+
+test("fact: rejected is terminal — every rejected→* transition rejected", () => {
+  for (const to of ["candidate", "reviewed", "accepted"]) {
+    assert.throws(() => assertValidFactTransition("rejected", to, "lawyer"), IllegalTransitionError, `rejected→${to} must throw`);
+  }
+});
+
+test("fact: self-transitions all rejected", () => {
+  for (const s of ["candidate", "reviewed", "accepted", "rejected"]) {
+    assert.throws(() => assertValidFactTransition(s, s, "lawyer"), IllegalTransitionError, `${s}→${s} must throw`);
   }
 });
