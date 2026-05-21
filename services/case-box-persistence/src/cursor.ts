@@ -11,7 +11,10 @@
 import { createHash } from "node:crypto";
 import { CaseBoxPersistenceError } from "./errors.js";
 
-export type CaseBoxCursorKind = "documents_by_matter" | "audit_events_by_matter";
+export type CaseBoxCursorKind =
+  | "documents_by_matter"
+  | "audit_events_by_matter"
+  | "classifications_by_matter";
 
 export interface CursorPayload {
   v: 1;
@@ -82,7 +85,11 @@ export function decodeCursor(
   if (p.v !== 1) {
     throw new CaseBoxPersistenceError("invalid_argument", `malformed cursor: unsupported version ${String(p.v)}`);
   }
-  if (p.kind !== "documents_by_matter" && p.kind !== "audit_events_by_matter") {
+  if (
+    p.kind !== "documents_by_matter" &&
+    p.kind !== "audit_events_by_matter" &&
+    p.kind !== "classifications_by_matter"
+  ) {
     throw new CaseBoxPersistenceError("invalid_argument", `malformed cursor: invalid kind ${String(p.kind)}`);
   }
   if (p.kind !== expected.kind) {
@@ -121,6 +128,17 @@ export function decodeCursor(
       throw new CaseBoxPersistenceError(
         "invalid_argument",
         `malformed cursor: audit_events_by_matter requires last_sort_tuple [sequence:integer]`,
+      );
+    }
+  } else if (p.kind === "classifications_by_matter") {
+    if (
+      p.last_sort_tuple.length !== 2 ||
+      typeof p.last_sort_tuple[0] !== "string" ||
+      typeof p.last_sort_tuple[1] !== "string"
+    ) {
+      throw new CaseBoxPersistenceError(
+        "invalid_argument",
+        `malformed cursor: classifications_by_matter requires last_sort_tuple [set_at:string, id:string]`,
       );
     }
   }

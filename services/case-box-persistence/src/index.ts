@@ -1,4 +1,4 @@
-// Public surface of case-box-persistence (Phase A1).
+// Public surface of case-box-persistence (Phase A1 + A2).
 
 export { InMemoryCaseBoxPersistence } from "./inMemoryRepo.js";
 export type { InMemoryCaseBoxPersistenceOptions } from "./inMemoryRepo.js";
@@ -18,4 +18,10 @@ export type {
   ChainVerifyOk,
   ChainVerifyErr,
   AuditEventHash,
+  GetEffectiveClassificationQuery,
+  EffectiveClassificationResult,
+  ListConfidentialityClassificationsQuery,
+  ListConfidentialityClassificationsPage,
+  ConfidentialityChangeReasonCode,
+  ConfidentialityLevel,
 } from "./types.js";

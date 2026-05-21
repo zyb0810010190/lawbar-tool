@@ -47,12 +47,25 @@ import type {
   ArchiveMatterOpts,
   AuditChainHead,
   CaseBoxPersistence,
+  EffectiveClassificationResult,
+  GetEffectiveClassificationQuery,
   ListAuditEventsPage,
   ListAuditEventsQuery,
+  ListConfidentialityClassificationsPage,
+  ListConfidentialityClassificationsQuery,
   ListDocumentsPage,
   ListDocumentsQuery,
   VerifyAuditChainResult,
 } from "./types.js";
+
+import type { CaseBoxConfidentialityClassification } from "case-box-contract";
+import {
+  computeEffectiveLevel,
+  createClassificationState,
+  listClassifications,
+  prepareAppendClassification,
+  type ClassificationState,
+} from "./inMemoryClassification.js";
 
 interface InternalState {
   readonly matters: Map<string, CaseBoxMatter>;
@@ -60,6 +73,8 @@ interface InternalState {
   readonly documents: Map<string, { document: CaseBoxDocument; matter_id: string }>;
   /** matter_id → append-only sequence of stored events */
   readonly auditByMatter: Map<string, StoredAuditEvent[]>;
+  /** Phase A2 — confidentiality classification storage + duplicate-id index. */
+  readonly classification: ClassificationState;
 }
 
 const _state = new WeakMap<InMemoryCaseBoxPersistence, InternalState>();
@@ -82,6 +97,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
       matters: new Map(),
       documents: new Map(),
       auditByMatter: new Map(),
+      classification: createClassificationState(),
     });
   }
 
@@ -367,6 +383,108 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     const stored = state.auditByMatter.get(matterId) ?? [];
     const events = stored.map((s) => s.event);
     return verifyAuditChain(events, { eventHashFn });
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase A2 — confidentiality classification delegates
+  // -------------------------------------------------------------------------
+
+  async appendConfidentialityClassification(input: unknown): Promise<CaseBoxConfidentialityClassification> {
+    const state = stateOf(this);
+    const matterIdFromInput = input !== null && typeof input === "object"
+      ? (input as { matter_id?: unknown }).matter_id
+      : undefined;
+    // Pre-validate matter existence BEFORE prepareAppendClassification runs
+    // generators (audit Dim 1 #2). The matter check is cheap and belongs in
+    // the validate-everything-first phase.
+    if (typeof matterIdFromInput === "string" && !state.matters.has(matterIdFromInput)) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterIdFromInput}`);
+    }
+    const prepared = prepareAppendClassification(state.classification, input, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: () => {
+        if (typeof matterIdFromInput !== "string") return [];
+        return state.auditByMatter.get(matterIdFromInput) ?? [];
+      },
+      getDocument: (documentId) => {
+        const entry = state.documents.get(documentId);
+        return entry === undefined ? null : { document: entry.document };
+      },
+    });
+    // Defense-in-depth: re-check matter existence after prepare (the
+    // document target's matter_id should match prepared.matterId, but
+    // explicit guard surfaces typos faster).
+    if (!state.matters.has(prepared.matterId)) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${prepared.matterId}`);
+    }
+
+    // Commit
+    const arr = state.classification.classificationsByMatter.get(prepared.matterId) ?? [];
+    arr.push(prepared.row);
+    state.classification.classificationsByMatter.set(prepared.matterId, arr);
+    state.classification.classificationIds.add(prepared.row.id);
+    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
+    stored.push(prepared.audit);
+    state.auditByMatter.set(prepared.matterId, stored);
+    return structuredClone(prepared.row) as CaseBoxConfidentialityClassification;
+  }
+
+  async getEffectiveClassification(query: GetEffectiveClassificationQuery): Promise<EffectiveClassificationResult> {
+    const state = stateOf(this);
+    const matter = state.matters.get(query.matter_id);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
+    }
+    if (matter.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    if (query.target_type !== "document") {
+      throw new CaseBoxPersistenceError(
+        "invalid_argument",
+        `getEffectiveClassification accepts target_type "document" only in A2 (got ${JSON.stringify(query.target_type)})`,
+      );
+    }
+    const docEntry = state.documents.get(query.target_id);
+    if (docEntry === undefined) {
+      throw new CaseBoxPersistenceError("unknown_document", `unknown document target: ${query.target_id}`);
+    }
+    if (docEntry.document.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `document.tenant_id (${docEntry.document.tenant_id}) does not match query.tenant_id (${query.tenant_id})`,
+      );
+    }
+    if (docEntry.document.matter_id !== query.matter_id) {
+      throw new CaseBoxPersistenceError(
+        "matter_id_mismatch",
+        `document.matter_id (${docEntry.document.matter_id}) does not match query.matter_id (${query.matter_id})`,
+      );
+    }
+    return computeEffectiveLevel(
+      state.classification,
+      query.matter_id,
+      query.target_type,
+      query.target_id,
+    );
+  }
+
+  async listConfidentialityClassifications(query: ListConfidentialityClassificationsQuery): Promise<ListConfidentialityClassificationsPage> {
+    const state = stateOf(this);
+    const matter = state.matters.get(query.matter_id);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
+    }
+    if (matter.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    return listClassifications(state.classification, query);
   }
 
   // -------------------------------------------------------------------------

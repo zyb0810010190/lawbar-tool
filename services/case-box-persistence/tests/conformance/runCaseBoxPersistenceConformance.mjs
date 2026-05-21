@@ -6,8 +6,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  DEFAULT_DOCUMENT_ID,
   DEFAULT_MATTER_ID,
   DEFAULT_TENANT_ID,
+  makeClassificationInput,
   makeClock,
   makeDocumentInput,
   makeIdGenerator,
@@ -372,6 +374,396 @@ export function runConformance(label, factory) {
     for (const evt of page.rows) {
       assert.match(evt.id, /^[0-9a-z]{26}$/);
     }
+  });
+
+  // ===========================================================================
+  // Phase A2 — confidentiality classification
+  // ===========================================================================
+
+  const seedMatterDoc = async () => {
+    const { p } = make();
+    await p.createMatter(makeMatterInput());
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput());
+    return p;
+  };
+
+  test(`${label}: 6.A2.1 appendConfidentialityClassification SET happy path`, async () => {
+    const p = await seedMatterDoc();
+    const row = await p.appendConfidentialityClassification(makeClassificationInput());
+    assert.equal(row.level, "normal");
+    const eff = await p.getEffectiveClassification({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      target_type: "document", target_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(eff.effectiveLevel, "normal");
+    assert.equal(eff.history.length, 1);
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    // matter + document + classification = 3 events; last is SET
+    assert.equal(page.rows.length, 3);
+    assert.equal(page.rows[2].entity_type, "confidentiality_classification");
+    assert.equal(page.rows[2].action, "create");
+    assert.equal(page.rows[2].reason, undefined);
+  });
+
+  test(`${label}: 6.A2.2 appendConfidentialityClassification rejects target_type="matter"`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendConfidentialityClassification(makeClassificationInput({ target_type: "matter" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A2.3 appendConfidentialityClassification rejects target_type="fact"`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendConfidentialityClassification(makeClassificationInput({ target_type: "fact" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A2.4 rejects unknown document target → unknown_document`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendConfidentialityClassification(makeClassificationInput({ target_id: "01nonexistdocmockid0000007" })),
+      "unknown_document",
+    );
+  });
+
+  test(`${label}: 6.A2.5 rejects tenant mismatch → tenant_mismatch`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendConfidentialityClassification(makeClassificationInput({ tenant_id: "other-tenant" })),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A2.6 rejects matter_id mismatch → matter_id_mismatch`, async () => {
+    const p = await seedMatterDoc();
+    // Use a different matter_id but the same document id. Need to create the other matter to satisfy the resolution path.
+    const otherMatter = makeMatterInput({ id: "01jothermattermockid0a2008" });
+    await p.createMatter(otherMatter);
+    await assertRejectsCode(
+      () => p.appendConfidentialityClassification(makeClassificationInput({ matter_id: "01jothermattermockid0a2008" })),
+      "matter_id_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A2.7 rejects duplicate id → duplicate_id`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendConfidentialityClassification(makeClassificationInput());
+    await assertRejectsCode(
+      () => p.appendConfidentialityClassification(makeClassificationInput({ set_at: "2026-05-21T10:00:00.000Z", prior_level: "normal", level: "confidential" })),
+      "duplicate_id",
+    );
+  });
+
+  test(`${label}: 6.A2.8 schema-invalid → invalid_payload`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendConfidentialityClassification(makeClassificationInput({ id: "BAD" })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A2.9 UPGRADED — normal → confidential, reason absent`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendConfidentialityClassification(makeClassificationInput());
+    await p.appendConfidentialityClassification(makeClassificationInput({
+      id: "01jcaseclassmockid00000002",
+      prior_level: "normal", level: "confidential",
+      set_at: "2026-05-21T10:00:00.000Z",
+    }));
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.entity_type, "confidentiality_classification");
+    assert.equal(evt.action, "create");
+    assert.equal(evt.reason, undefined, "UPGRADED audit must NOT carry reason");
+  });
+
+  test(`${label}: 6.A2.9a same-level (normal → normal) rejects → invalid_argument`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendConfidentialityClassification(makeClassificationInput());
+    await assertRejectsCode(
+      () => p.appendConfidentialityClassification(makeClassificationInput({
+        id: "01jcaseclassmockid00000002",
+        prior_level: "normal", level: "normal",
+        set_at: "2026-05-21T10:00:00.000Z",
+      })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A2.9b unclassified → normal UPGRADED`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendConfidentialityClassification(makeClassificationInput({ level: "unclassified" }));
+    await p.appendConfidentialityClassification(makeClassificationInput({
+      id: "01jcaseclassmockid00000002",
+      prior_level: "unclassified", level: "normal",
+      set_at: "2026-05-21T10:00:00.000Z",
+    }));
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.reason, undefined);
+  });
+
+  test(`${label}: 6.A2.10 DOWNGRADED requires reason; reason equals change_reason_code`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendConfidentialityClassification(makeClassificationInput({ level: "confidential" }));
+    // Missing reason for downgrade — contract throws inside; our code maps to invalid_payload.
+    await assertRejectsCode(
+      () => p.appendConfidentialityClassification(makeClassificationInput({
+        id: "01jcaseclassmockid00000002",
+        prior_level: "confidential", level: "normal",
+        set_at: "2026-05-21T10:00:00.000Z",
+      })),
+      "invalid_payload",
+    );
+    const row = await p.appendConfidentialityClassification(makeClassificationInput({
+      id: "01jcaseclassmockid00000003",
+      prior_level: "confidential", level: "normal",
+      change_reason_code: "change_in_legal_assessment",
+      change_reason_text: null,
+      set_at: "2026-05-21T11:00:00.000Z",
+    }));
+    assert.equal(row.level, "normal");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.reason, "change_in_legal_assessment");
+  });
+
+  test(`${label}: 6.A2.11 RESET_TO_UNCLASSIFIED requires reason`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendConfidentialityClassification(makeClassificationInput({ level: "confidential" }));
+    await assertRejectsCode(
+      () => p.appendConfidentialityClassification(makeClassificationInput({
+        id: "01jcaseclassmockid00000002",
+        prior_level: "confidential", level: "unclassified",
+        set_at: "2026-05-21T10:00:00.000Z",
+      })),
+      "invalid_payload",
+    );
+    const row = await p.appendConfidentialityClassification(makeClassificationInput({
+      id: "01jcaseclassmockid00000003",
+      prior_level: "confidential", level: "unclassified",
+      change_reason_code: "change_in_legal_assessment",
+      change_reason_text: null,
+      set_at: "2026-05-21T11:00:00.000Z",
+    }));
+    assert.equal(row.level, "unclassified");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.reason, "change_in_legal_assessment");
+  });
+
+  test(`${label}: 6.A2.12 prior_level mismatch with stored prior → invalid_payload`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendConfidentialityClassification(makeClassificationInput({ level: "normal" }));
+    await assertRejectsCode(
+      () => p.appendConfidentialityClassification(makeClassificationInput({
+        id: "01jcaseclassmockid00000002",
+        prior_level: "confidential", level: "highly_confidential",
+        set_at: "2026-05-21T10:00:00.000Z",
+      })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A2.13 getEffectiveClassification empty history → unclassified`, async () => {
+    const p = await seedMatterDoc();
+    const eff = await p.getEffectiveClassification({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      target_type: "document", target_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(eff.effectiveLevel, "unclassified");
+    assert.equal(eff.history.length, 0);
+  });
+
+  test(`${label}: 6.A2.14 getEffectiveClassification latest-wins ordering`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendConfidentialityClassification(makeClassificationInput({ level: "normal" }));
+    await p.appendConfidentialityClassification(makeClassificationInput({
+      id: "01jcaseclassmockid00000002",
+      prior_level: "normal", level: "confidential",
+      set_at: "2026-05-21T10:00:00.000Z",
+    }));
+    await p.appendConfidentialityClassification(makeClassificationInput({
+      id: "01jcaseclassmockid00000003",
+      prior_level: "confidential", level: "normal",
+      change_reason_code: "change_in_legal_assessment",
+      change_reason_text: null,
+      set_at: "2026-05-21T11:00:00.000Z",
+    }));
+    const eff = await p.getEffectiveClassification({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      target_type: "document", target_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(eff.effectiveLevel, "normal");
+    assert.equal(eff.history.length, 3);
+    // History sorted set_at DESC
+    assert.ok(eff.history[0].set_at >= eff.history[1].set_at);
+    assert.ok(eff.history[1].set_at >= eff.history[2].set_at);
+  });
+
+  test(`${label}: 6.A2.15 getEffectiveClassification unknown document → unknown_document`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.getEffectiveClassification({
+        tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+        target_type: "document", target_id: "01nonexistdocmockid000007",
+      }),
+      "unknown_document",
+    );
+  });
+
+  test(`${label}: 6.A2.16 listConfidentialityClassifications empty matter`, async () => {
+    const p = await seedMatterDoc();
+    const page = await p.listConfidentialityClassifications({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    assert.deepEqual(page.rows, []);
+    assert.equal(page.next_cursor, null);
+  });
+
+  test(`${label}: 6.A2.17 listConfidentialityClassifications ordered by set_at ASC independent of insertion order`, async () => {
+    const p = await seedMatterDoc();
+    // Sequence: contract requires each new row's prior_level === latest-by-set_at level.
+    // Insert order: r1 (set_at=03:00, normal) → r2 (set_at=04:00, confidential)
+    //   → r3 (set_at=02:00, confidential, prior=confidential rejected since same-level)
+    //   → r3' (set_at=02:00, highly_confidential, prior=confidential)
+    //   → r4 (set_at=01:00, highly_confidential same-level — rejected)
+    //   → r4' (set_at=01:00, restricted, prior=confidential — latest by set_at is still r2 at insert)
+    // Actually after r3' is inserted, latest by set_at is STILL r2 (04:00 > 02:00). So r4's prior must = r2.level = "confidential".
+    // Insert r1: prior=null, level=normal, set_at=03:00
+    // Insert r2: prior=normal, level=confidential, set_at=04:00 (now latest)
+    // Insert r3: latest by set_at DESC = r2 (confidential); set_at=02:00. prior=confidential, level=highly_confidential → upgrade
+    // Insert r4: latest still r2 (04:00 max); set_at=01:00. prior=confidential, level=restricted → upgrade
+    // List by set_at ASC: r4(01:00), r3(02:00), r1(03:00), r2(04:00)
+    // Insertion order: r1, r2, r3, r4 → list order: r4, r3, r1, r2 ≠ insertion order.
+    await p.appendConfidentialityClassification(makeClassificationInput({
+      id: "01jcaseclassmockorder0001a",
+      prior_level: null, level: "normal",
+      set_at: "2026-05-21T03:00:00.000Z",
+    }));
+    await p.appendConfidentialityClassification(makeClassificationInput({
+      id: "01jcaseclassmockorder0002b",
+      prior_level: "normal", level: "confidential",
+      set_at: "2026-05-21T04:00:00.000Z",
+    }));
+    await p.appendConfidentialityClassification(makeClassificationInput({
+      id: "01jcaseclassmockorder0003c",
+      prior_level: "confidential", level: "highly_confidential",
+      set_at: "2026-05-21T02:00:00.000Z",
+    }));
+    await p.appendConfidentialityClassification(makeClassificationInput({
+      id: "01jcaseclassmockorder0004d",
+      prior_level: "confidential", level: "restricted",
+      set_at: "2026-05-21T01:00:00.000Z",
+    }));
+    const page = await p.listConfidentialityClassifications({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    assert.equal(page.rows.length, 4);
+    // ASC by set_at: 01:00 (r4), 02:00 (r3), 03:00 (r1), 04:00 (r2)
+    assert.equal(page.rows[0].id, "01jcaseclassmockorder0004d");
+    assert.equal(page.rows[1].id, "01jcaseclassmockorder0003c");
+    assert.equal(page.rows[2].id, "01jcaseclassmockorder0001a");
+    assert.equal(page.rows[3].id, "01jcaseclassmockorder0002b");
+  });
+
+  test(`${label}: 6.A2.18 listConfidentialityClassifications cursor-paginates correctly`, async () => {
+    const p = await seedMatterDoc();
+    let prior = null;
+    for (let i = 0; i < 4; i++) {
+      const lv = ["normal", "confidential", "highly_confidential", "restricted"][i];
+      await p.appendConfidentialityClassification(makeClassificationInput({
+        id: `01jcaseclassmockpage0000${(i + 0x10).toString(16)}`,
+        prior_level: prior, level: lv,
+        set_at: `2026-05-21T0${i + 1}:00:00.000Z`,
+      }));
+      prior = lv;
+    }
+    const page1 = await p.listConfidentialityClassifications({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, limit: 2,
+    });
+    assert.equal(page1.rows.length, 2);
+    assert.equal(typeof page1.next_cursor, "string");
+    const page2 = await p.listConfidentialityClassifications({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, limit: 2, cursor: page1.next_cursor,
+    });
+    assert.equal(page2.rows.length, 2);
+    assert.equal(page2.next_cursor, null);
+    const seen = new Set([...page1.rows, ...page2.rows].map((r) => r.id));
+    assert.equal(seen.size, 4);
+  });
+
+  test(`${label}: 6.A2.19 listConfidentialityClassifications unknown matter → unknown_matter`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.listConfidentialityClassifications({ tenant_id: DEFAULT_TENANT_ID, matter_id: "01nonexistmatter00000000xx" }),
+      "unknown_matter",
+    );
+  });
+
+  test(`${label}: 6.A2.20 listConfidentialityClassifications tenant mismatch → tenant_mismatch`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.listConfidentialityClassifications({ tenant_id: "other-tenant", matter_id: DEFAULT_MATTER_ID }),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A2.21 listConfidentialityClassifications wrong-filter cursor → invalid_argument`, async () => {
+    const p = await seedMatterDoc();
+    for (let i = 0; i < 3; i++) {
+      const lv = ["normal", "confidential", "highly_confidential"][i];
+      await p.appendConfidentialityClassification(makeClassificationInput({
+        id: `01jcaseclasswfilt0000000${(i + 0x10).toString(16)}`,
+        prior_level: i === 0 ? null : ["normal", "confidential"][i - 1],
+        level: lv,
+        set_at: `2026-05-21T0${i + 1}:00:00.000Z`,
+      }));
+    }
+    const page = await p.listConfidentialityClassifications({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, limit: 1,
+    });
+    const cursor = page.next_cursor;
+    assert.ok(cursor);
+    // Try using the cursor with a different filter (added target_type filter).
+    await assertRejectsCode(
+      () => p.listConfidentialityClassifications({
+        tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, limit: 1,
+        target_type: "document", cursor,
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A2.22 list filtered by target_type + target_id`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendConfidentialityClassification(makeClassificationInput());
+    const page = await p.listConfidentialityClassifications({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      target_type: "document", target_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(page.rows.length, 1);
+    assert.equal(page.rows[0].target_id, DEFAULT_DOCUMENT_ID);
+  });
+
+  test(`${label}: 6.A2.23 list filtered by target_type alone`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendConfidentialityClassification(makeClassificationInput());
+    const page = await p.listConfidentialityClassifications({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      target_type: "document",
+    });
+    assert.equal(page.rows.length, 1);
+  });
+
+  test(`${label}: 6.A2.24 list target_id without target_type → invalid_argument`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.listConfidentialityClassifications({
+        tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+        target_id: DEFAULT_DOCUMENT_ID,
+      }),
+      "invalid_argument",
+    );
   });
 }
 

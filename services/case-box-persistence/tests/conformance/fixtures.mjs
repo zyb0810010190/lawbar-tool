@@ -82,3 +82,21 @@ export function makeDocumentInput(overrides = {}) {
 
 export const DEFAULT_MATTER_ID = VALID_MATTER_ID;
 export const DEFAULT_TENANT_ID = VALID_TENANT_ID;
+export const DEFAULT_DOCUMENT_ID = "01jcasedocmockid000000001a";
+
+export function makeClassificationInput(overrides = {}) {
+  return {
+    id: "01jcaseclassmockid00000001",
+    tenant_id: VALID_TENANT_ID,
+    actor_user_id: "local-user",
+    matter_id: VALID_MATTER_ID,
+    target_type: "document",
+    target_id: DEFAULT_DOCUMENT_ID,
+    level: "normal",
+    prior_level: null,
+    change_reason_code: null,
+    change_reason_text: null,
+    set_at: "2026-05-21T09:00:00.000Z",
+    ...overrides,
+  };
+}
