@@ -12,7 +12,7 @@ applies-to: "**"
 cc-suite is the orchestration layer between Claude (writer / executor) and Codex (independent reviewer / auditor / verifier). The plugin owns:
 
 - **Delegation discipline** — `/cc-suite:review-plan`, `/cc-suite:audit`, `/cc-suite:verify`, `/cc-suite:audit-fix` encode the persona, the provenance disclosure ("the artifacts you are reviewing were produced by Anthropic's Claude — apply full rigor"), the prompt template, the sandbox, and the approval policy for each kind of cross-model review.
-- **Job tracking + memory** — every cc-suite run registers a job in the workspace's `.cc-suite/<jobId>/` directory; `/cc-suite:status` lists in-flight jobs; `/cc-suite:result` retrieves stored output by job id; `/cc-suite:continue <threadId>` resumes a prior Codex thread with cumulative context.
+- **Job tracking + memory** — every cc-suite run registers a job in the shared codex-toolkit state directory at `${CLAUDE_PLUGIN_DATA}/state/<workspace-slug>-<hash>/jobs/<jobId>.{json,log}`; `/cc-suite:status` lists in-flight jobs; `/cc-suite:result` retrieves stored output by job id; `/cc-suite:continue <threadId>` resumes a prior Codex thread with cumulative context. (NOTE: this is NOT the workspace's `.cc-suite/` directory — see §"State-store path".)
 - **Shared review artifacts** — all reviews land in a consistent location, with a consistent format, retrievable across sessions and across human + agent participants.
 
 Bypassing cc-suite — calling `mcp__plugin_codex-toolkit_codex__codex` directly or shelling out to `codex exec` — loses ALL of the above. The Codex review still happens, but the workspace can no longer:
@@ -58,7 +58,8 @@ node {runnerPath} --kind {review-plan | audit | verify | audit-fix} \
 
 - `runnerPath` is RESOLVED DYNAMICALLY at every invocation — never hardcoded. See §"Runner path resolution".
 - Output: JSON envelope `{ jobId, status, rawOutput, threadId? }` on stdout.
-- Side effects: registers a job in the workspace's `.cc-suite/` state dir; `/cc-suite:status` and `/cc-suite:result` can retrieve it.
+- Side effects: registers a job in the **codex-toolkit shared state directory** at `${CLAUDE_PLUGIN_DATA}/state/<workspace-slug>-<hash>/`. The runner does NOT write to `.cc-suite/` at the workspace root (that subdirectory is legacy WI patches only).
+- `/cc-suite:status` and `/cc-suite:result` retrieve from the SAME env-var-indirected path the runner writes to. They are symmetric. A successful runner exit (`status:"completed"`) guarantees `/cc-suite:status` will see the job.
 - This path is **equivalent** to the user typing `/cc-suite:{kind}` and is the **default** for assistant-driven high-risk-WI reviews/audits/verifies.
 
 ### Path 2 — Direct Codex MCP (`mcp__plugin_codex-toolkit_codex__codex`) — **fallback only**
@@ -101,6 +102,15 @@ The assistant MUST capture the resolved path in the WI's commit message or plan 
 
 If the glob returns nothing, Path 1 is unavailable — fall through to Path 2.
 
+## State-store path (env-var-indirected; do NOT hardcode plugin-data subdir name)
+
+The runner persists job state under `${CLAUDE_PLUGIN_DATA}/state/<workspace-slug>-<hash>/`. The env var is set by Claude Code's harness; in this repo it resolves to `~/.claude/plugins/data/codex-toolkit-xiaolai/state/<slug>-<hash>/` because cc-suite and the underlying codex-toolkit plugin share one state store. Two important consequences:
+
+- **Do NOT inspect `~/.claude/plugins/data/cc-suite-xiaolai/state/`** to verify retrievability — that path is a decoy and may legitimately be empty. The runner doesn't write there.
+- **Prefer `/cc-suite:status` over manual filesystem inspection.** Both the runner (writer) and the slash commands (reader) call the same `resolveStateDir(cwd)` helper, so a successful runner exit guarantees the job is retrievable. Filesystem checks against the wrong path produce false-negative "broker degraded" recordings, as happened in commit `5de5530` Phase A1 (see `dev-memo/cc-suite-runner-tracking-investigation.md` for the diagnosis).
+
+The workspace's `.cc-suite/` directory at the repo root is NOT the runner's state dir. It contains only legacy WI baseline patches and is gitignored. Treat it as historical artifacts, not as job-tracking state.
+
 ## Decision matrix (updated)
 
 ```
@@ -133,7 +143,7 @@ High-risk categories (any one triggers the requirement):
 
 The list intentionally overlaps with the [[autonomy]] hard-stop list. Even when the autonomy rule itself does NOT trigger a hard-stop (e.g. a docs-only ADR that DESCRIBES a security boundary), the cc-suite review-plan gate may still apply because the plan governs the eventual high-risk work.
 
-**Why the broker is required, not just Codex**: a Codex review without the broker is a one-shot artifact that disappears at process exit (Path 3) or persists only as a Codex `threadId` (Path 2). High-risk WIs need persistent, retrievable review artifacts in the workspace so subsequent audits, verifies, and human reviews can correlate findings across time and across the audit chain. cc-suite's `.cc-suite/<jobId>/` storage is the load-bearing artifact; direct calls bypass it.
+**Why the broker is required, not just Codex**: a Codex review without the broker is a one-shot artifact that disappears at process exit (Path 3) or persists only as a Codex `threadId` (Path 2). High-risk WIs need persistent, retrievable review artifacts in the workspace so subsequent audits, verifies, and human reviews can correlate findings across time and across the audit chain. The codex-toolkit shared state store at `${CLAUDE_PLUGIN_DATA}/state/<slug>-<hash>/jobs/` is the load-bearing artifact; direct calls bypass it.
 
 ## Low-risk WIs (self-review fallback IS allowed)
 
@@ -154,8 +164,8 @@ EVERY automated cc-suite run via Path 1, 2, or 3 MUST record the following — i
 4. **Model / effort / sandbox / approval-policy** — the values actually used. Defaults come from `.codex-toolkit.md` (`gpt-5.5` / `high` / per-command default).
 5. **Job ID** (Path 1, if emitted) — from the runner's JSON envelope.
 6. **Codex `threadId`** (Path 1 or 2, if emitted) — needed for `/cc-suite:continue`.
-7. **Output / result location** — for Path 1: `.cc-suite/<jobId>/`. For Path 2/3: inline in the WI report.
-8. **`/cc-suite:status` / `/cc-suite:result` retrievable?** — YES iff Path 1 was used.
+7. **Output / result location** — for Path 1: `${CLAUDE_PLUGIN_DATA}/state/<workspace-slug>-<hash>/jobs/<jobId>.{json,log}` (the assistant SHOULD NOT inspect this path manually for verification — see §"State-store path"). For Path 2/3: inline in the WI report.
+8. **`/cc-suite:status` / `/cc-suite:result` retrievable?** — YES iff Path 1 was used AND the runner returned `status:"completed"` or `status:"failed"` (both are retrievable). The assistant determines this from the runner's stdout JSON envelope, NOT from filesystem spot-checks against the wrong directory.
 
 Recording these eight fields is the contract for "automation that preserves cc-suite memory semantics." Without them, the run is undistinguishable from self-review.
 
