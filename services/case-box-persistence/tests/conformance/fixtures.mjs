@@ -85,6 +85,41 @@ export const DEFAULT_TENANT_ID = VALID_TENANT_ID;
 export const DEFAULT_DOCUMENT_ID = "01jcasedocmockid000000001a";
 export const DEFAULT_PRIVILEGE_MARKER_ID = "01jcasepmkmockid0000000001";
 export const DEFAULT_FACT_ID = "01jcasefactmockid000000001";
+export const DEFAULT_DOCKET_ENTRY_ID = "01jcasedockmockid000000001";
+export const DEFAULT_DEADLINE_ID = "01jcasedlinemockid00000001";
+
+export function makeDocketEntryInput(overrides = {}) {
+  return {
+    id: DEFAULT_DOCKET_ENTRY_ID,
+    tenant_id: VALID_TENANT_ID,
+    actor_user_id: "local-user",
+    matter_id: VALID_MATTER_ID,
+    source_type: "manual",
+    proposed_kind: "filing",
+    proposed_due_at: "2026-06-15T17:00:00.000Z",
+    proposed_due_at_kind: "datetime",
+    proposed_due_at_timezone: "America/New_York",
+    proposed_owner_user_id: "local-user",
+    source_rule_citation: null,
+    extractor_name: null,
+    extractor_version: null,
+    extraction_confidence: null,
+    source_document_id: null,
+    source_page_number: null,
+    source_excerpt: null,
+    reminder_offsets: [],
+    confirmation_state: "proposed",
+    proposed_at: "2026-05-21T20:00:00.000Z",
+    confirmation_actor_user_id: null,
+    confirmed_at: null,
+    confirmed_deadline_id: null,
+    dismissal_actor_user_id: null,
+    dismissed_at: null,
+    dismissal_reason: null,
+    created_at: "2026-05-21T20:00:00.000Z",
+    ...overrides,
+  };
+}
 
 export function makeFactInput(overrides = {}) {
   return {

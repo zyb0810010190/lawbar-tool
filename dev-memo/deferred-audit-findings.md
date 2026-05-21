@@ -26,6 +26,20 @@
 
 ---
 
+## Phase A5 — docket entries + deadline materialization (commit `<pending A5 commit hash>`)
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mpfktk5e-pac8by` | `verify-mpfl8uz3-ajvcvj` |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| _no deferred findings_ | — | All findings (1 Low stale-imports) fixed inline rather than deferred. | n/a | YES | n/a | Verify verdict ALL CLOSED. |
+
+Backlog relabel (NOT a closure): A2 F4.3's `Target` field updated from "future A5-fact-targets WI" to "future fact-target broadening WI" — A5 is dockets/deadlines, not fact-targets; the original label was a misnomer.
+
+---
+
 ## Phase A4 — facts (commit `<pending A4 commit hash>`)
 
 | Audit job | Verify job |
@@ -66,7 +80,7 @@
 | F3.1 | Low | Cleanup-only — `unknown_document` code retained for forward compatibility per the documented 10-code set; not emitted by A2 methods. | cleanup-accepted (no follow-up planned) | YES | open | A3 introduced paths that DO emit `unknown_document` (appendPrivilegeMarker, getPrivilegeStatus). Mark for **review on A4 close**: if at least one A3 conformance case exercises every documented code, this row can flip to `closed`. |
 | F3.2 | Low | Cleanup-only — invariants test §6.2.6 SAMPLES error codes rather than exhaustively triggering each. Acceptable per audit. | cleanup-accepted (no follow-up planned) | YES | open | Same paired observation as F3.1 — if A3+ tests reach full code coverage, the §6.2.6 sampled comment can be rephrased to "comprehensive" without code changes. |
 | F4.2 | Low | Cleanup-only — whitespace-only reasons accepted by `appendConfidentialityClassification` for codes other than `"other"`. Audit accepted. | cleanup-accepted (no follow-up planned) | YES | open | Persistence DOES reject whitespace for `change_reason_code === "other"` (added during A2 audit-fix). Other reason codes are enum-bound so the whitespace concern is bounded. |
-| F4.3 | Low | Out-of-scope — `listConfidentialityClassifications` returns empty for never-classified documents while `getEffectiveClassification` returns `unclassified`. Distinction is intended; only conformance pinning was missing. | future "A5-fact-targets" WI (retargeted from A4; A4 did not broaden classification to accept fact targets so the pinning test is naturally paired with that future broadening) | YES | open | Pure test gap; behavior is correct. Retargeted by Phase A4 (commit `<pending A4>`) per the A4 plan's L5.2 reconciliation; A4 itself does not close this row. |
+| F4.3 | Low | Out-of-scope — `listConfidentialityClassifications` returns empty for never-classified documents while `getEffectiveClassification` returns `unclassified`. Distinction is intended; only conformance pinning was missing. | future fact-target broadening WI (relabeled by A5 — A5 is dockets/deadlines, NOT fact-targets; the original "A5-fact-targets" label set by A4 was a misnomer) | YES | open | Pure test gap; behavior is correct. Target field relabeled by Phase A5 (commit `<pending A5>`); row remains open. |
 
 ---
 

@@ -17,11 +17,6 @@
 // cannot reach it.
 
 import {
-  assertValidMatterTransition,
-  buildCaseBoxAuditEvent,
-  IllegalTransitionError,
-  validateDocument,
-  validateMatter,
   verifyAuditChain,
   type CaseBoxAuditEvent,
   type CaseBoxAuditEventKind,
@@ -38,24 +33,29 @@ import {
   resolveLimit,
 } from "./cursor.js";
 import {
-  entityStateHash,
   eventHashFn,
-  priorHeadOf,
   type StoredAuditEvent,
 } from "./auditChain.js";
 import type {
   ArchiveMatterOpts,
   AuditChainHead,
   CaseBoxPersistence,
+  ConfirmDocketEntryOpts,
+  ConfirmDocketEntryResult,
+  DeadlineTransitionOpts,
+  DismissDocketEntryOpts,
   EffectiveClassificationResult,
   FactTransitionOpts,
-  GetFactQuery,
+  GetDocketEntryQuery,
   GetEffectiveClassificationQuery,
+  GetFactQuery,
   GetPrivilegeStatusQuery,
   ListAuditEventsPage,
   ListAuditEventsQuery,
   ListConfidentialityClassificationsPage,
   ListConfidentialityClassificationsQuery,
+  ListDocketEntriesPage,
+  ListDocketEntriesQuery,
   ListDocumentsPage,
   ListDocumentsQuery,
   ListFactsPage,
@@ -68,6 +68,8 @@ import type {
 
 import type {
   CaseBoxConfidentialityClassification,
+  CaseBoxDeadline,
+  CaseBoxDocketEntry,
   CaseBoxFact,
   CaseBoxPrivilegeMarker,
   PrivilegeResolution,
@@ -94,6 +96,24 @@ import {
   prepareTransitionFact,
   type FactState,
 } from "./inMemoryFact.js";
+import {
+  createDocketState,
+  listDocketEntries as listDocketEntriesImpl,
+  prepareAppendDocketEntry,
+  prepareConfirmDocketEntry,
+  prepareDismissDocketEntry,
+  type DocketState,
+} from "./inMemoryDocket.js";
+import {
+  createDeadlineState,
+  prepareTransitionDeadline,
+  type DeadlineState,
+} from "./inMemoryDeadline.js";
+import {
+  prepareCreateMatter,
+  prepareMatterTransition,
+} from "./inMemoryMatter.js";
+import { prepareRegisterDocument } from "./inMemoryDocument.js";
 
 interface InternalState {
   readonly matters: Map<string, CaseBoxMatter>;
@@ -107,6 +127,10 @@ interface InternalState {
   readonly privilege: PrivilegeState;
   /** Phase A4 — fact storage + duplicate-id index + fact→matter index + fact→row index. */
   readonly fact: FactState;
+  /** Phase A5 — docket-entry storage. */
+  readonly docket: DocketState;
+  /** Phase A5 — deadline storage. */
+  readonly deadline: DeadlineState;
 }
 
 const _state = new WeakMap<InMemoryCaseBoxPersistence, InternalState>();
@@ -132,6 +156,8 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
       classification: createClassificationState(),
       privilege: createPrivilegeState(),
       fact: createFactState(),
+      docket: createDocketState(),
+      deadline: createDeadlineState(),
     });
   }
 
@@ -141,64 +167,45 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
 
   async createMatter(input: unknown): Promise<CaseBoxMatter> {
     const state = stateOf(this);
-    const v = validateMatter(input);
-    if (!v.ok) {
-      throw new CaseBoxPersistenceError("invalid_payload", `invalid matter submission: ${v.summary}`);
-    }
-    const matter = structuredClone(v.value) as CaseBoxMatter;
-
-    if (matter.status !== "active") {
-      throw new CaseBoxPersistenceError("invalid_initial_state", `matter must be created with status="active" (got ${JSON.stringify(matter.status)})`);
-    }
-    if (matter.archived_at !== undefined) {
-      throw new CaseBoxPersistenceError("invalid_initial_state", `matter must be created with archived_at unset`);
-    }
-    if (
-      matter.external_ocr_authorized === true ||
-      matter.sync_grant_present === true ||
-      matter.llm_extraction_opt_in === true
-    ) {
-      throw new CaseBoxPersistenceError(
-        "local_only_external_flag_rejected",
-        `matter cannot be created with any of external_ocr_authorized, sync_grant_present, llm_extraction_opt_in set true; opt-in must happen via a future audited write API`,
-      );
-    }
-
-    if (state.matters.has(matter.id)) {
-      throw new CaseBoxPersistenceError("duplicate_id", `matter already exists: ${matter.id}`);
-    }
-
-    const afterHash = entityStateHash(matter);
-    const stamp = this.#nowIso();
-    const eventInput = {
-      kind: "MATTER_REGISTERED" as CaseBoxAuditEventKind,
-      id: this.#generateId(),
-      tenant_id: matter.tenant_id,
-      actor_user_id: matter.actor_user_id,
-      matter_id: matter.id,
-      entity_id: matter.id,
-      before_state_hash: null,
-      after_state_hash: afterHash,
-      prev_event_hash: null,
-      timestamp: stamp,
-    };
-    const built = buildCaseBoxAuditEvent(eventInput);
-    if (!built.ok) {
-      throw new CaseBoxPersistenceError("invalid_payload", `audit-event builder rejected: ${built.summary}`);
-    }
-
-    // Commit (mutation step) — no validators or builders fire after this.
-    state.matters.set(matter.id, matter);
-    state.auditByMatter.set(matter.id, [{ sequence: 1, event: built.value }]);
-    return structuredClone(matter) as CaseBoxMatter;
+    const prepared = prepareCreateMatter(
+      input,
+      (id) => state.matters.has(id),
+      { generateId: () => this.#generateId(), nowIso: () => this.#nowIso() },
+    );
+    state.matters.set(prepared.matter.id, prepared.matter);
+    state.auditByMatter.set(prepared.matter.id, [prepared.audit]);
+    return structuredClone(prepared.matter) as CaseBoxMatter;
   }
 
   async archiveMatter(matterId: string, opts: ArchiveMatterOpts): Promise<CaseBoxMatter> {
-    return this.#transitionMatter(matterId, opts, "archived", "MATTER_ARCHIVED");
+    return this.#applyMatterTransition(matterId, opts, "archived", "MATTER_ARCHIVED");
   }
 
   async unarchiveMatter(matterId: string, opts: ArchiveMatterOpts): Promise<CaseBoxMatter> {
-    return this.#transitionMatter(matterId, opts, "active", "MATTER_UNARCHIVED");
+    return this.#applyMatterTransition(matterId, opts, "active", "MATTER_UNARCHIVED");
+  }
+
+  async #applyMatterTransition(
+    matterId: string,
+    opts: ArchiveMatterOpts,
+    to: CaseBoxMatter["status"],
+    kind: CaseBoxAuditEventKind,
+  ): Promise<CaseBoxMatter> {
+    const state = stateOf(this);
+    const matter = state.matters.get(matterId);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
+    }
+    const prepared = prepareMatterTransition(matter, opts, to, kind, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: () => state.auditByMatter.get(matterId) ?? [],
+    });
+    state.matters.set(matterId, prepared.next);
+    const stored = state.auditByMatter.get(matterId) ?? [];
+    stored.push(prepared.audit);
+    state.auditByMatter.set(matterId, stored);
+    return structuredClone(prepared.next) as CaseBoxMatter;
   }
 
   // -------------------------------------------------------------------------
@@ -221,59 +228,22 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     if (matter === undefined) {
       throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
     }
-    const v = validateDocument(input);
-    if (!v.ok) {
-      throw new CaseBoxPersistenceError("invalid_payload", `invalid document submission: ${v.summary}`);
-    }
-    const document = structuredClone(v.value) as CaseBoxDocument;
-
-    if (document.matter_id !== matterId) {
-      throw new CaseBoxPersistenceError(
-        "matter_id_mismatch",
-        `document.matter_id (${document.matter_id}) does not match matterId argument (${matterId})`,
-      );
-    }
-    if (document.tenant_id !== matter.tenant_id) {
-      throw new CaseBoxPersistenceError(
-        "tenant_mismatch",
-        `document.tenant_id (${document.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
-      );
-    }
-    if (document.status !== "registered") {
-      throw new CaseBoxPersistenceError(
-        "invalid_initial_state",
-        `document must be created with status="registered" (got ${JSON.stringify(document.status)})`,
-      );
-    }
-    if (state.documents.has(document.id)) {
-      throw new CaseBoxPersistenceError("duplicate_id", `document already exists: ${document.id}`);
-    }
-
-    const afterHash = entityStateHash(document);
+    const prepared = prepareRegisterDocument(
+      matterId,
+      matter,
+      input,
+      (id) => state.documents.has(id),
+      {
+        generateId: () => this.#generateId(),
+        nowIso: () => this.#nowIso(),
+        storedAuditEventsForMatter: () => state.auditByMatter.get(matterId) ?? [],
+      },
+    );
+    state.documents.set(prepared.document.id, { document: prepared.document, matter_id: matterId });
     const stored = state.auditByMatter.get(matterId) ?? [];
-    const prevHash = priorHeadOf(stored);
-    const stamp = this.#nowIso();
-    const built = buildCaseBoxAuditEvent({
-      kind: "DOCUMENT_REGISTERED",
-      id: this.#generateId(),
-      tenant_id: document.tenant_id,
-      actor_user_id: document.actor_user_id,
-      matter_id: matterId,
-      entity_id: document.id,
-      before_state_hash: null,
-      after_state_hash: afterHash,
-      prev_event_hash: prevHash,
-      timestamp: stamp,
-    });
-    if (!built.ok) {
-      throw new CaseBoxPersistenceError("invalid_payload", `audit-event builder rejected: ${built.summary}`);
-    }
-
-    // Commit
-    state.documents.set(document.id, { document, matter_id: matterId });
-    stored.push({ sequence: stored.length + 1, event: built.value });
+    stored.push(prepared.audit);
     state.auditByMatter.set(matterId, stored);
-    return structuredClone(document) as CaseBoxDocument;
+    return structuredClone(prepared.document) as CaseBoxDocument;
   }
 
   // -------------------------------------------------------------------------
@@ -745,6 +715,155 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
   }
 
   // -------------------------------------------------------------------------
+  // Phase A5 — docket-entry + deadline delegates
+  // -------------------------------------------------------------------------
+
+  async appendDocketEntry(input: unknown): Promise<CaseBoxDocketEntry> {
+    const state = stateOf(this);
+    const matterIdFromInput = input !== null && typeof input === "object"
+      ? (input as { matter_id?: unknown }).matter_id
+      : undefined;
+    if (typeof matterIdFromInput === "string" && !state.matters.has(matterIdFromInput)) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterIdFromInput}`);
+    }
+    const prepared = prepareAppendDocketEntry(state.docket, input, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: () => {
+        if (typeof matterIdFromInput !== "string") return [];
+        return state.auditByMatter.get(matterIdFromInput) ?? [];
+      },
+      getDocument: (documentId) => {
+        const entry = state.documents.get(documentId);
+        return entry === undefined ? null : { document: entry.document };
+      },
+    });
+    const matter = state.matters.get(prepared.matterId);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${prepared.matterId}`);
+    }
+    if (matter.tenant_id !== prepared.row.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `entry.tenant_id (${prepared.row.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    // Commit
+    const arr = state.docket.entriesByMatter.get(prepared.matterId) ?? [];
+    arr.push(prepared.row);
+    state.docket.entriesByMatter.set(prepared.matterId, arr);
+    state.docket.docketIds.add(prepared.row.id);
+    state.docket.docketIndex.set(prepared.row.id, prepared.matterId);
+    state.docket.docketById.set(prepared.row.id, prepared.row);
+    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
+    stored.push(prepared.audit);
+    state.auditByMatter.set(prepared.matterId, stored);
+    return structuredClone(prepared.row) as CaseBoxDocketEntry;
+  }
+
+  async confirmDocketEntry(entryId: string, opts: ConfirmDocketEntryOpts): Promise<ConfirmDocketEntryResult> {
+    const state = stateOf(this);
+    const prepared = prepareConfirmDocketEntry(state.docket, state.deadline, entryId, opts, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: (matterId) => state.auditByMatter.get(matterId) ?? [],
+    });
+    if (prepared.idempotent) {
+      return {
+        entry: structuredClone(prepared.entry) as CaseBoxDocketEntry,
+        deadline: structuredClone(prepared.deadline) as CaseBoxDeadline,
+        idempotent: true,
+      };
+    }
+    // Atomic commit: entry patch + deadline create + 2 audit events.
+    const arr = state.docket.entriesByMatter.get(prepared.matterId)!;
+    const idx = arr.findIndex((e) => e.id === entryId);
+    arr[idx] = prepared.entry;
+    state.docket.docketById.set(entryId, prepared.entry);
+    const darr = state.deadline.deadlinesByMatter.get(prepared.matterId) ?? [];
+    darr.push(prepared.deadline);
+    state.deadline.deadlinesByMatter.set(prepared.matterId, darr);
+    state.deadline.deadlineIds.add(prepared.deadline.id);
+    state.deadline.deadlineIndex.set(prepared.deadline.id, prepared.matterId);
+    state.deadline.deadlineById.set(prepared.deadline.id, prepared.deadline);
+    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
+    stored.push(prepared.audits[0]!);
+    stored.push(prepared.audits[1]!);
+    state.auditByMatter.set(prepared.matterId, stored);
+    return {
+      entry: structuredClone(prepared.entry) as CaseBoxDocketEntry,
+      deadline: structuredClone(prepared.deadline) as CaseBoxDeadline,
+      idempotent: false,
+    };
+  }
+
+  async dismissDocketEntry(entryId: string, opts: DismissDocketEntryOpts): Promise<CaseBoxDocketEntry> {
+    const state = stateOf(this);
+    const prepared = prepareDismissDocketEntry(state.docket, entryId, opts, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: (matterId) => state.auditByMatter.get(matterId) ?? [],
+    });
+    const arr = state.docket.entriesByMatter.get(prepared.matterId)!;
+    const idx = arr.findIndex((e) => e.id === entryId);
+    arr[idx] = prepared.next;
+    state.docket.docketById.set(entryId, prepared.next);
+    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
+    stored.push(prepared.audit);
+    state.auditByMatter.set(prepared.matterId, stored);
+    return structuredClone(prepared.next) as CaseBoxDocketEntry;
+  }
+
+  async getDocketEntry(query: GetDocketEntryQuery): Promise<CaseBoxDocketEntry | null> {
+    const state = stateOf(this);
+    const matter = state.matters.get(query.matter_id);
+    if (matter === undefined) return null;
+    if (matter.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    const row = state.docket.docketById.get(query.entry_id);
+    if (row === undefined) return null;
+    if (row.matter_id !== query.matter_id) return null;
+    if (row.tenant_id !== query.tenant_id) return null;
+    return structuredClone(row) as CaseBoxDocketEntry;
+  }
+
+  async listDocketEntries(query: ListDocketEntriesQuery): Promise<ListDocketEntriesPage> {
+    const state = stateOf(this);
+    const matter = state.matters.get(query.matter_id);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
+    }
+    if (matter.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    return listDocketEntriesImpl(state.docket, query);
+  }
+
+  async transitionDeadline(deadlineId: string, opts: DeadlineTransitionOpts): Promise<CaseBoxDeadline> {
+    const state = stateOf(this);
+    const prepared = prepareTransitionDeadline(state.deadline, deadlineId, opts, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: (matterId) => state.auditByMatter.get(matterId) ?? [],
+    });
+    const arr = state.deadline.deadlinesByMatter.get(prepared.matterId)!;
+    const idx = arr.findIndex((d) => d.id === deadlineId);
+    arr[idx] = prepared.next;
+    state.deadline.deadlineById.set(deadlineId, prepared.next);
+    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
+    stored.push(prepared.audit);
+    state.auditByMatter.set(prepared.matterId, stored);
+    return structuredClone(prepared.next) as CaseBoxDeadline;
+  }
+
+  // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
 
@@ -762,81 +881,6 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     return iso;
   }
 
-  async #transitionMatter(
-    matterId: string,
-    opts: ArchiveMatterOpts,
-    to: CaseBoxMatter["status"],
-    kind: CaseBoxAuditEventKind,
-  ): Promise<CaseBoxMatter> {
-    const state = stateOf(this);
-    const matter = state.matters.get(matterId);
-    if (matter === undefined) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
-    }
-    if (typeof opts.reason !== "string" || opts.reason.length === 0) {
-      throw new CaseBoxPersistenceError("invalid_argument", `reason must be a non-empty string`);
-    }
-    if (typeof opts.actor_user_id !== "string" || opts.actor_user_id.length === 0) {
-      throw new CaseBoxPersistenceError("invalid_argument", `actor_user_id must be a non-empty string`);
-    }
-    // Use the contract state-machine guard as the single source of truth
-    // (per audit Dim 1 #1). Drift between the contract's allowed-edges
-    // table and any manual check here is now impossible.
-    try {
-      assertValidMatterTransition(matter.status, to, "lawyer");
-    } catch (e) {
-      if (e instanceof IllegalTransitionError) {
-        throw new CaseBoxPersistenceError("illegal_transition", e.message);
-      }
-      throw e;
-    }
-    // Capture one timestamp per write so archived_at and audit timestamp
-    // agree (per audit Dim 1 #3).
-    const stamp = this.#nowIso();
-    const beforeHash = entityStateHash(matter);
-    const next: CaseBoxMatter = {
-      ...structuredClone(matter),
-      status: to,
-    };
-    if (to === "archived") {
-      next.archived_at = stamp;
-    } else if (to === "active") {
-      // Unarchive clears the archived_at field per Step-1 lifecycle.
-      delete (next as { archived_at?: string }).archived_at;
-    }
-    // Re-validate the next matter shape against the contract before any
-    // mutation (per audit Dim 1 #2). Catches drift if the lifecycle
-    // field set ever changes.
-    const nextValid = validateMatter(next);
-    if (!nextValid.ok) {
-      throw new CaseBoxPersistenceError("invalid_payload", `post-transition matter invalid: ${nextValid.summary}`);
-    }
-    const afterHash = entityStateHash(next);
-    const stored = state.auditByMatter.get(matterId) ?? [];
-    const prevHash = priorHeadOf(stored);
-    const built = buildCaseBoxAuditEvent({
-      kind,
-      id: this.#generateId(),
-      tenant_id: matter.tenant_id,
-      actor_user_id: opts.actor_user_id,
-      matter_id: matterId,
-      entity_id: matterId,
-      before_state_hash: beforeHash,
-      after_state_hash: afterHash,
-      prev_event_hash: prevHash,
-      timestamp: stamp,
-      reason: opts.reason,
-    });
-    if (!built.ok) {
-      throw new CaseBoxPersistenceError("invalid_payload", `audit-event builder rejected: ${built.summary}`);
-    }
-
-    // Commit
-    state.matters.set(matterId, next);
-    stored.push({ sequence: stored.length + 1, event: built.value });
-    state.auditByMatter.set(matterId, stored);
-    return structuredClone(next) as CaseBoxMatter;
-  }
 }
 
 function stateOf(p: InMemoryCaseBoxPersistence): InternalState {

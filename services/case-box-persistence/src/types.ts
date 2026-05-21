@@ -7,6 +7,8 @@
 import type {
   CaseBoxAuditEvent,
   CaseBoxConfidentialityClassification,
+  CaseBoxDeadline,
+  CaseBoxDocketEntry,
   CaseBoxDocument,
   CaseBoxFact,
   CaseBoxMatter,
@@ -23,6 +25,8 @@ export type {
   ChainVerifyErr,
   ChainVerifyOk,
   AuditEventHash,
+  CaseBoxDeadline,
+  CaseBoxDocketEntry,
   CaseBoxFact,
   CaseBoxPrivilegeMarker,
   ConfidentialityChangeReasonCode,
@@ -127,6 +131,60 @@ export interface CaseBoxPersistence {
   transitionFact(factId: string, opts: FactTransitionOpts): Promise<CaseBoxFact>;
   getFact(query: GetFactQuery): Promise<CaseBoxFact | null>;
   listFacts(query: ListFactsQuery): Promise<ListFactsPage>;
+
+  // Docket entries + deadline materialization (Phase A5)
+  appendDocketEntry(input: unknown): Promise<CaseBoxDocketEntry>;
+  confirmDocketEntry(entryId: string, opts: ConfirmDocketEntryOpts): Promise<ConfirmDocketEntryResult>;
+  dismissDocketEntry(entryId: string, opts: DismissDocketEntryOpts): Promise<CaseBoxDocketEntry>;
+  getDocketEntry(query: GetDocketEntryQuery): Promise<CaseBoxDocketEntry | null>;
+  listDocketEntries(query: ListDocketEntriesQuery): Promise<ListDocketEntriesPage>;
+  transitionDeadline(deadlineId: string, opts: DeadlineTransitionOpts): Promise<CaseBoxDeadline>;
+}
+
+export interface ConfirmDocketEntryOpts {
+  readonly confirmation_actor_user_id: string;
+  readonly confirmed_at: string;
+  readonly deadline_id: string;
+}
+
+export interface ConfirmDocketEntryResult {
+  readonly entry: CaseBoxDocketEntry;
+  readonly deadline: CaseBoxDeadline;
+  /** True iff Mode B's idempotency preflight fired (no audit emitted). */
+  readonly idempotent: boolean;
+}
+
+export interface DismissDocketEntryOpts {
+  readonly dismissal_actor_user_id: string;
+  readonly dismissed_at: string;
+  readonly dismissal_reason: string;
+}
+
+export interface GetDocketEntryQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly entry_id: string;
+}
+
+export interface ListDocketEntriesQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly confirmation_state?: "proposed" | "confirmed" | "dismissed";
+  readonly source_type?: "manual" | "court_order_excerpt" | "llm_extraction" | "imported";
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export interface ListDocketEntriesPage {
+  readonly rows: ReadonlyArray<CaseBoxDocketEntry>;
+  readonly next_cursor: string | null;
+}
+
+export interface DeadlineTransitionOpts {
+  readonly to: "met" | "missed" | "withdrawn";
+  readonly actor_user_id: string;
+  readonly at: string;
+  readonly transition_reason?: string;
 }
 
 export interface GetFactQuery {

@@ -125,15 +125,19 @@ test("6.2.6 CaseBoxPersistenceError code is one of the documented set", async ()
 // 6.2.7 Prototype allowlist — exactly the 10 documented methods + constructor
 // ---------------------------------------------------------------------------
 
-test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented method allowlist (A1+A2+A3+A4 = 22)", () => {
+test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented method allowlist (A1+A2+A3+A4+A5 = 28)", () => {
   const expected = [
     "appendConfidentialityClassification",
+    "appendDocketEntry",
     "appendFact",
     "appendPrivilegeMarker",
     "archiveMatter",
+    "confirmDocketEntry",
     "constructor",
     "createMatter",
+    "dismissDocketEntry",
     "getAuditChainHead",
+    "getDocketEntry",
     "getDocument",
     "getEffectiveClassification",
     "getFact",
@@ -141,10 +145,12 @@ test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented meth
     "getPrivilegeStatus",
     "listAuditEvents",
     "listConfidentialityClassifications",
+    "listDocketEntries",
     "listDocuments",
     "listFacts",
     "listPrivilegeMarkers",
     "registerDocument",
+    "transitionDeadline",
     "transitionFact",
     "transitionPrivilegeMarker",
     "unarchiveMatter",

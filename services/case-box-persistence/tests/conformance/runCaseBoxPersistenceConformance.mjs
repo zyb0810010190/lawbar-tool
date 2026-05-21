@@ -6,6 +6,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  DEFAULT_DEADLINE_ID,
+  DEFAULT_DOCKET_ENTRY_ID,
   DEFAULT_DOCUMENT_ID,
   DEFAULT_FACT_ID,
   DEFAULT_MATTER_ID,
@@ -13,6 +15,7 @@ import {
   DEFAULT_TENANT_ID,
   makeClassificationInput,
   makeClock,
+  makeDocketEntryInput,
   makeDocumentInput,
   makeFactInput,
   makeIdGenerator,
@@ -1682,6 +1685,567 @@ export function runConformance(label, factory) {
     await assertRejectsCode(
       () => p.listFacts({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, source_document_id: otherDoc }),
       "tenant_mismatch",
+    );
+  });
+
+  // ===========================================================================
+  // Phase A5 — docket entries + deadline materialization
+  // ===========================================================================
+
+  test(`${label}: 6.A5.1 appendDocketEntry proposed happy path (datetime + IANA tz)`, async () => {
+    const p = await seedMatterDoc();
+    const row = await p.appendDocketEntry(makeDocketEntryInput());
+    assert.equal(row.confirmation_state, "proposed");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.entity_type, "docket_entry");
+    assert.equal(evt.action, "create");
+    assert.equal(evt.reason, undefined);
+  });
+
+  test(`${label}: 6.A5.2 appendDocketEntry rejects confirmation_state=confirmed`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendDocketEntry(makeDocketEntryInput({ confirmation_state: "confirmed" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A5.3 appendDocketEntry rejects confirmation_state=dismissed`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendDocketEntry(makeDocketEntryInput({ confirmation_state: "dismissed" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A5.4 appendDocketEntry rejects invalid IANA timezone on datetime entry`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendDocketEntry(makeDocketEntryInput({ proposed_due_at_timezone: "NotARealZone/Foo" })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A5.4b appendDocketEntry rejects invalid IANA timezone on date_only entry`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendDocketEntry(makeDocketEntryInput({
+        proposed_due_at_kind: "date_only",
+        proposed_due_at_timezone: "NotARealZone/Foo",
+      })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A5.5 appendDocketEntry rejects datetime entry with null timezone`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendDocketEntry(makeDocketEntryInput({ proposed_due_at_timezone: null })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A5.6 appendDocketEntry accepts date_only entry (null timezone OK)`, async () => {
+    const p = await seedMatterDoc();
+    const row = await p.appendDocketEntry(makeDocketEntryInput({
+      proposed_due_at_kind: "date_only",
+      proposed_due_at_timezone: null,
+    }));
+    assert.equal(row.proposed_due_at_kind, "date_only");
+  });
+
+  test(`${label}: 6.A5.7 appendDocketEntry rejects non-null confirmation fields`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendDocketEntry(makeDocketEntryInput({ confirmation_actor_user_id: "lawyer-01" })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A5.8 appendDocketEntry rejects unknown matter`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendDocketEntry(makeDocketEntryInput({ matter_id: "01nonexistmatter00000000xx" })),
+      "unknown_matter",
+    );
+  });
+
+  test(`${label}: 6.A5.9 appendDocketEntry rejects matter-level tenant mismatch`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendDocketEntry(makeDocketEntryInput({ tenant_id: "other-tenant" })),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A5.10 appendDocketEntry rejects unknown source_document_id`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendDocketEntry(makeDocketEntryInput({ source_document_id: "01nonexistdocmockid0000007" })),
+      "unknown_document",
+    );
+  });
+
+  test(`${label}: 6.A5.11 appendDocketEntry rejects cross-matter source_document_id`, async () => {
+    const p = await seedMatterDoc();
+    const otherMatter = "01jotherdocmockmatter54a11";
+    const otherDoc = "01jotherdockmockdocs5a4a11";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    await p.registerDocument(otherMatter, makeDocumentInput({ id: otherDoc, matter_id: otherMatter }));
+    await assertRejectsCode(
+      () => p.appendDocketEntry(makeDocketEntryInput({ source_document_id: otherDoc })),
+      "matter_id_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A5.12 appendDocketEntry rejects duplicate id`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await assertRejectsCode(
+      () => p.appendDocketEntry(makeDocketEntryInput()),
+      "duplicate_id",
+    );
+  });
+
+  test(`${label}: 6.A5.13 confirmDocketEntry Mode B happy path`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    const result = await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    assert.equal(result.idempotent, false);
+    assert.equal(result.entry.confirmation_state, "confirmed");
+    assert.equal(result.entry.confirmed_deadline_id, DEFAULT_DEADLINE_ID);
+    assert.equal(result.deadline.id, DEFAULT_DEADLINE_ID);
+    assert.equal(result.deadline.status, "pending");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const e1 = page.rows[page.rows.length - 2];
+    const e2 = page.rows[page.rows.length - 1];
+    assert.equal(e1.entity_type, "docket_entry");
+    assert.equal(e1.action, "update");
+    assert.equal(e2.entity_type, "deadline");
+    assert.equal(e2.action, "create");
+    assert.equal(e2.before_state_hash, null);
+    const ver = await p.verifyAuditChainForMatter(DEFAULT_MATTER_ID);
+    assert.equal(ver.ok, true);
+  });
+
+  test(`${label}: 6.A5.14 confirmDocketEntry rejects date_only confirmation`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput({
+      proposed_due_at_kind: "date_only",
+      proposed_due_at_timezone: null,
+    }));
+    await assertRejectsCode(
+      () => p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+        confirmation_actor_user_id: "lawyer-01",
+        confirmed_at: "2026-05-21T21:00:00.000Z",
+        deadline_id: DEFAULT_DEADLINE_ID,
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A5.15 confirmDocketEntry idempotent re-confirm`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    const first = await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    const auditCountAfterFirst = (await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID })).rows.length;
+    const second = await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-02",
+      confirmed_at: "2026-05-21T22:00:00.000Z",
+      deadline_id: "01anyotherdeadlineid000000",
+    });
+    assert.equal(second.idempotent, true);
+    assert.equal(second.deadline.id, first.deadline.id);
+    const auditCountAfterSecond = (await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID })).rows.length;
+    assert.equal(auditCountAfterSecond, auditCountAfterFirst);
+  });
+
+  test(`${label}: 6.A5.16 confirmDocketEntry rejects unknown entryId`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.confirmDocketEntry("01nonexistdocketid00000000", {
+        confirmation_actor_user_id: "lawyer-01",
+        confirmed_at: "2026-05-21T21:00:00.000Z",
+        deadline_id: DEFAULT_DEADLINE_ID,
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A5.17 confirmDocketEntry rejects confirming a dismissed entry`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.dismissDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      dismissal_actor_user_id: "lawyer-01",
+      dismissed_at: "2026-05-21T21:00:00.000Z",
+      dismissal_reason: "withdrawn",
+    });
+    await assertRejectsCode(
+      () => p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+        confirmation_actor_user_id: "lawyer-01",
+        confirmed_at: "2026-05-21T22:00:00.000Z",
+        deadline_id: DEFAULT_DEADLINE_ID,
+      }),
+      "illegal_transition",
+    );
+  });
+
+  test(`${label}: 6.A5.18a confirmDocketEntry Mode B atomicity — duplicate deadline_id`, async () => {
+    const p = await seedMatterDoc();
+    // Confirm a first entry to create a deadline.
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    // Create a second entry.
+    const secondEntry = "01jcasedock2mockid0000018a";
+    await p.appendDocketEntry(makeDocketEntryInput({
+      id: secondEntry, proposed_at: "2026-05-21T22:00:00.000Z", created_at: "2026-05-21T22:00:00.000Z",
+    }));
+    const auditsBefore = (await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID })).rows.length;
+    // Attempt confirm with DUPLICATE deadline_id.
+    await assertRejectsCode(
+      () => p.confirmDocketEntry(secondEntry, {
+        confirmation_actor_user_id: "lawyer-01",
+        confirmed_at: "2026-05-21T23:00:00.000Z",
+        deadline_id: DEFAULT_DEADLINE_ID,
+      }),
+      "duplicate_id",
+    );
+    // Entry unchanged
+    const entry2 = await p.getDocketEntry({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, entry_id: secondEntry });
+    assert.equal(entry2.confirmation_state, "proposed");
+    // Zero audit events emitted from the failed confirm
+    const auditsAfter = (await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID })).rows.length;
+    assert.equal(auditsAfter, auditsBefore);
+  });
+
+  test(`${label}: 6.A5.18b confirmDocketEntry Mode B atomicity — validateDeadline failure (malformed deadline_id)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    const auditsBefore = (await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID })).rows.length;
+    await assertRejectsCode(
+      () => p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+        confirmation_actor_user_id: "lawyer-01",
+        confirmed_at: "2026-05-21T21:00:00.000Z",
+        deadline_id: "BAD-ID-NOT-ULID",
+      }),
+      "invalid_argument",
+    );
+    const entry = await p.getDocketEntry({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, entry_id: DEFAULT_DOCKET_ENTRY_ID });
+    assert.equal(entry.confirmation_state, "proposed");
+    const auditsAfter = (await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID })).rows.length;
+    assert.equal(auditsAfter, auditsBefore);
+  });
+
+  test(`${label}: 6.A5.19 confirmDocketEntry deadline materialization field mapping`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput({
+      proposed_kind: "hearing",
+      proposed_due_at: "2026-07-01T10:00:00.000Z",
+      proposed_owner_user_id: "owner-x",
+    }));
+    const { deadline } = await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    assert.equal(deadline.kind, "hearing");
+    assert.equal(deadline.due_at, "2026-07-01T10:00:00.000Z");
+    assert.equal(deadline.owner_user_id, "owner-x");
+    assert.equal(deadline.actor_user_id, "lawyer-01");
+    assert.equal(deadline.status, "pending");
+  });
+
+  test(`${label}: 6.A5.19b confirmDocketEntry omits null source_rule_citation`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput()); // source_rule_citation default null
+    const { deadline } = await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    assert.ok(!Object.prototype.hasOwnProperty.call(deadline, "source_rule_citation"));
+  });
+
+  test(`${label}: 6.A5.19c confirmDocketEntry confirming-actor binding`, async () => {
+    const p = await seedMatterDoc();
+    // Proposer = alice
+    await p.appendDocketEntry(makeDocketEntryInput({ actor_user_id: "alice" }));
+    // Confirmer = bob
+    const { deadline } = await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "bob",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    assert.equal(deadline.actor_user_id, "bob");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const e1 = page.rows[page.rows.length - 2];
+    const e2 = page.rows[page.rows.length - 1];
+    assert.equal(e1.actor_user_id, "bob");
+    assert.equal(e2.actor_user_id, "bob");
+  });
+
+  test(`${label}: 6.A5.20 dismissDocketEntry requires reason`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await assertRejectsCode(
+      () => p.dismissDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+        dismissal_actor_user_id: "lawyer-01",
+        dismissed_at: "2026-05-21T21:00:00.000Z",
+        dismissal_reason: "",
+      }),
+      "invalid_argument",
+    );
+    const row = await p.dismissDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      dismissal_actor_user_id: "lawyer-01",
+      dismissed_at: "2026-05-21T21:00:00.000Z",
+      dismissal_reason: "court_withdrew",
+    });
+    assert.equal(row.confirmation_state, "dismissed");
+    assert.equal(row.dismissal_reason, "court_withdrew");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.reason, "court_withdrew");
+  });
+
+  test(`${label}: 6.A5.21 dismissDocketEntry rejects re-dismissing dismissed entry`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.dismissDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      dismissal_actor_user_id: "lawyer-01",
+      dismissed_at: "2026-05-21T21:00:00.000Z",
+      dismissal_reason: "first",
+    });
+    await assertRejectsCode(
+      () => p.dismissDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+        dismissal_actor_user_id: "lawyer-01",
+        dismissed_at: "2026-05-21T22:00:00.000Z",
+        dismissal_reason: "second",
+      }),
+      "illegal_transition",
+    );
+  });
+
+  test(`${label}: 6.A5.22 dismissDocketEntry rejects dismissing confirmed entry`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    await assertRejectsCode(
+      () => p.dismissDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+        dismissal_actor_user_id: "lawyer-01",
+        dismissed_at: "2026-05-21T22:00:00.000Z",
+        dismissal_reason: "too_late",
+      }),
+      "illegal_transition",
+    );
+  });
+
+  test(`${label}: 6.A5.23 getDocketEntry scoped`, async () => {
+    const p = await seedMatterDoc();
+    const missing = await p.getDocketEntry({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, entry_id: "01nonexistdock00000a5a02300",
+    });
+    assert.equal(missing, null);
+    await p.appendDocketEntry(makeDocketEntryInput());
+    const found = await p.getDocketEntry({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, entry_id: DEFAULT_DOCKET_ENTRY_ID,
+    });
+    assert.equal(found.id, DEFAULT_DOCKET_ENTRY_ID);
+    const otherMatter = "01jcasea5dockscope00m23a02";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    const cross = await p.getDocketEntry({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: otherMatter, entry_id: DEFAULT_DOCKET_ENTRY_ID,
+    });
+    assert.equal(cross, null);
+    const otherTen = "01jcasea5dockscope00t23a02";
+    await p.createMatter(makeMatterInput({ id: otherTen, tenant_id: "other-tenant" }));
+    await assertRejectsCode(
+      () => p.getDocketEntry({ tenant_id: DEFAULT_TENANT_ID, matter_id: otherTen, entry_id: DEFAULT_DOCKET_ENTRY_ID }),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A5.24 listDocketEntries cursor + filter`, async () => {
+    const p = await seedMatterDoc();
+    for (let i = 0; i < 4; i++) {
+      await p.appendDocketEntry(makeDocketEntryInput({
+        id: `01jcasedockmocklist000a5${(i + 0x10).toString(16)}`,
+        proposed_at: `2026-05-21T2${i}:00:00.000Z`,
+      }));
+    }
+    const page1 = await p.listDocketEntries({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, limit: 2 });
+    assert.equal(page1.rows.length, 2);
+    const page2 = await p.listDocketEntries({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, limit: 2, cursor: page1.next_cursor });
+    assert.equal(page2.rows.length, 2);
+    assert.equal(page2.next_cursor, null);
+  });
+
+  test(`${label}: 6.A5.25 listDocketEntries unknown matter`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.listDocketEntries({ tenant_id: DEFAULT_TENANT_ID, matter_id: "01nonexistmatter00000000xx" }),
+      "unknown_matter",
+    );
+  });
+
+  test(`${label}: 6.A5.26 transitionDeadline pending → met`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    const row = await p.transitionDeadline(DEFAULT_DEADLINE_ID, {
+      to: "met",
+      actor_user_id: "lawyer-01",
+      at: "2026-06-15T17:00:00.000Z",
+    });
+    assert.equal(row.status, "met");
+    assert.equal(row.met_at, "2026-06-15T17:00:00.000Z");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.entity_type, "deadline");
+    assert.equal(evt.action, "update");
+    assert.equal(evt.reason, undefined);
+  });
+
+  test(`${label}: 6.A5.27 transitionDeadline pending → missed`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    const row = await p.transitionDeadline(DEFAULT_DEADLINE_ID, {
+      to: "missed",
+      actor_user_id: "lawyer-01",
+      at: "2026-06-15T17:00:00.000Z",
+    });
+    assert.equal(row.status, "missed");
+    // Confirm contract: no missed_at field exists in the deadline schema.
+    assert.ok(!Object.prototype.hasOwnProperty.call(row, "missed_at"));
+  });
+
+  test(`${label}: 6.A5.28 transitionDeadline pending → withdrawn`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    const row = await p.transitionDeadline(DEFAULT_DEADLINE_ID, {
+      to: "withdrawn",
+      actor_user_id: "lawyer-01",
+      at: "2026-06-15T17:00:00.000Z",
+    });
+    assert.equal(row.status, "withdrawn");
+    assert.ok(!Object.prototype.hasOwnProperty.call(row, "withdrawn_at"));
+  });
+
+  test(`${label}: 6.A5.29 transitionDeadline missed → met requires reason`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    await p.transitionDeadline(DEFAULT_DEADLINE_ID, {
+      to: "missed",
+      actor_user_id: "lawyer-01",
+      at: "2026-06-15T17:00:00.000Z",
+    });
+    await assertRejectsCode(
+      () => p.transitionDeadline(DEFAULT_DEADLINE_ID, {
+        to: "met",
+        actor_user_id: "lawyer-01",
+        at: "2026-06-16T10:00:00.000Z",
+      }),
+      "invalid_argument",
+    );
+    const row = await p.transitionDeadline(DEFAULT_DEADLINE_ID, {
+      to: "met",
+      actor_user_id: "lawyer-01",
+      at: "2026-06-16T10:00:00.000Z",
+      transition_reason: "extension_granted",
+    });
+    assert.equal(row.status, "met");
+    assert.equal(row.previous_status, "missed");
+    assert.equal(row.transition_reason, "extension_granted");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.reason, "extension_granted");
+  });
+
+  test(`${label}: 6.A5.30 transitionDeadline rejects met → missed (terminal)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    await p.transitionDeadline(DEFAULT_DEADLINE_ID, {
+      to: "met",
+      actor_user_id: "lawyer-01",
+      at: "2026-06-15T17:00:00.000Z",
+    });
+    await assertRejectsCode(
+      () => p.transitionDeadline(DEFAULT_DEADLINE_ID, {
+        to: "missed",
+        actor_user_id: "lawyer-01",
+        at: "2026-06-16T10:00:00.000Z",
+      }),
+      "illegal_transition",
+    );
+  });
+
+  test(`${label}: 6.A5.31 transitionDeadline unknown deadlineId`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.transitionDeadline("01nonexistdline00000a5a031", {
+        to: "met",
+        actor_user_id: "lawyer-01",
+        at: "2026-06-15T17:00:00.000Z",
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A5.32 transitionDeadline malformed opts.at`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    await assertRejectsCode(
+      () => p.transitionDeadline(DEFAULT_DEADLINE_ID, {
+        to: "met",
+        actor_user_id: "lawyer-01",
+        at: "June 15 2026",
+      }),
+      "invalid_argument",
     );
   });
 

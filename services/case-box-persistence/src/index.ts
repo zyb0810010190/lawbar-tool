@@ -35,4 +35,13 @@ export type {
   GetFactQuery,
   ListFactsQuery,
   ListFactsPage,
+  CaseBoxDocketEntry,
+  CaseBoxDeadline,
+  ConfirmDocketEntryOpts,
+  ConfirmDocketEntryResult,
+  DismissDocketEntryOpts,
+  GetDocketEntryQuery,
+  ListDocketEntriesQuery,
+  ListDocketEntriesPage,
+  DeadlineTransitionOpts,
 } from "./types.js";
