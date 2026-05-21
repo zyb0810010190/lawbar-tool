@@ -2750,6 +2750,402 @@ export function runConformance(label, factory) {
     );
   });
 
+  // ===========================================================================
+  // Phase A8 — read-side aggregations
+  // ===========================================================================
+
+  test(`${label}: 6.A8.1 listMatters empty tenant returns empty`, async () => {
+    const { p } = make();
+    const page = await p.listMatters({ tenant_id: DEFAULT_TENANT_ID });
+    assert.deepEqual(page.rows, []);
+    assert.equal(page.next_cursor, null);
+  });
+
+  test(`${label}: 6.A8.2 listMatters ordered created_at DESC + cursor`, async () => {
+    const { p } = make();
+    for (let i = 0; i < 4; i++) {
+      await p.createMatter(makeMatterInput({
+        id: `01jcasea8mattersmocklist${(i + 0x10).toString(16)}`,
+        created_at: `2026-05-2${i}T09:00:00.000Z`,
+      }));
+    }
+    const page1 = await p.listMatters({ tenant_id: DEFAULT_TENANT_ID, limit: 2 });
+    assert.equal(page1.rows.length, 2);
+    assert.ok(page1.rows[0].created_at >= page1.rows[1].created_at);
+    const page2 = await p.listMatters({ tenant_id: DEFAULT_TENANT_ID, limit: 2, cursor: page1.next_cursor });
+    assert.equal(page2.rows.length, 2);
+  });
+
+  test(`${label}: 6.A8.3 listMatters filter by status=archived`, async () => {
+    const { p } = make();
+    await p.createMatter(makeMatterInput());
+    await p.archiveMatter(DEFAULT_MATTER_ID, { actor_user_id: "local-user", reason: "test" });
+    const page = await p.listMatters({ tenant_id: DEFAULT_TENANT_ID, status: "archived" });
+    assert.equal(page.rows.length, 1);
+    assert.equal(page.rows[0].status, "archived");
+  });
+
+  test(`${label}: 6.A8.4 getMatterSummary unknown matter returns null`, async () => {
+    const { p } = make();
+    const r = await p.getMatterSummary({ tenant_id: DEFAULT_TENANT_ID, matter_id: "01nonexistmatter00000000xx" });
+    assert.equal(r, null);
+  });
+
+  test(`${label}: 6.A8.5 getMatterSummary cross-tenant throws`, async () => {
+    const { p } = make();
+    await p.createMatter(makeMatterInput());
+    await assertRejectsCode(
+      () => p.getMatterSummary({ tenant_id: "other-tenant", matter_id: DEFAULT_MATTER_ID }),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A8.6 getMatterSummary empty matter returns zero counts`, async () => {
+    const { p } = make();
+    await p.createMatter(makeMatterInput());
+    const r = await p.getMatterSummary({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    assert.equal(r.counts.documents, 0);
+    assert.equal(r.counts.facts_by_status.candidate, 0);
+    assert.equal(r.counts.deadlines_by_status.pending, 0);
+    assert.equal(r.counts.privilege_markers, 0);
+    assert.equal(r.counts.docket_entries_by_state.proposed, 0);
+    assert.equal(r.counts.confidentiality_classifications, 0);
+    assert.equal(r.counts.evidence_items_by_status.proposed, 0);
+    assert.equal(r.counts.ocr_links, 0);
+  });
+
+  test(`${label}: 6.A8.7 getMatterSummary populated counts correct`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    await p.appendEvidenceItem(makeEvidenceItemInput());
+    await p.upsertOcrLink(makeOcrLinkInput());
+    const r = await p.getMatterSummary({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    assert.equal(r.counts.documents, 1);
+    assert.equal(r.counts.facts_by_status.candidate, 1);
+    assert.equal(r.counts.evidence_items_by_status.proposed, 1);
+    assert.equal(r.counts.ocr_links, 1);
+  });
+
+  test(`${label}: 6.A8.8 getDocumentDetail unknown document returns null`, async () => {
+    const p = await seedMatterDoc();
+    const r = await p.getDocumentDetail({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, document_id: "01nonexistdocmockid0000007",
+    });
+    assert.equal(r, null);
+  });
+
+  test(`${label}: 6.A8.9 getDocumentDetail cross-matter returns null`, async () => {
+    const p = await seedMatterDoc();
+    const otherMatter = "01jcasea8doxmcrossm9009007";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    const r = await p.getDocumentDetail({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: otherMatter, document_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(r, null);
+  });
+
+  test(`${label}: 6.A8.10 getDocumentDetail cross-tenant throws`, async () => {
+    const p = await seedMatterDoc();
+    const otherTen = "01jcasea8doxtxxten9010007a";
+    await p.createMatter(makeMatterInput({ id: otherTen, tenant_id: "other-tenant" }));
+    await assertRejectsCode(
+      () => p.getDocumentDetail({ tenant_id: DEFAULT_TENANT_ID, matter_id: otherTen, document_id: DEFAULT_DOCUMENT_ID }),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A8.11 getDocumentDetail bundle shape`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    const r = await p.getDocumentDetail({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, document_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(r.document.id, DEFAULT_DOCUMENT_ID);
+    assert.equal(r.ocr_link, null);
+    assert.equal(r.effective_classification.effectiveLevel, "unclassified");
+    assert.equal(r.privilege_status.hasProtectiveAssertion, false);
+    assert.equal(r.fact_candidates.length, 0); // fact has no source_document_id by default
+  });
+
+  test(`${label}: 6.A8.12 getDeadline unknown returns null`, async () => {
+    const p = await seedMatterDoc();
+    const r = await p.getDeadline({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, deadline_id: "01nonexistdline000a8a012b1",
+    });
+    assert.equal(r, null);
+  });
+
+  test(`${label}: 6.A8.12b listDeadlines unknown matter`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.listDeadlines({ tenant_id: DEFAULT_TENANT_ID, matter_id: "01nonexistmatter00000000xx" }),
+      "unknown_matter",
+    );
+  });
+
+  test(`${label}: 6.A8.12c listDeadlines cross-tenant`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.listDeadlines({ tenant_id: "other-tenant", matter_id: DEFAULT_MATTER_ID }),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A8.14 getDeadline+listDeadlines populated`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    const got = await p.getDeadline({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, deadline_id: DEFAULT_DEADLINE_ID });
+    assert.equal(got.id, DEFAULT_DEADLINE_ID);
+    const list = await p.listDeadlines({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    assert.equal(list.rows.length, 1);
+  });
+
+  test(`${label}: 6.A8.19 getDeadlineCalendar from + to bounds (inclusive)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    // The deadline's due_at is 2026-06-15T17:00:00Z by fixture.
+    const inRange = await p.getDeadlineCalendar({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      from: "2026-06-01T00:00:00.000Z", to: "2026-06-30T00:00:00.000Z",
+    });
+    assert.equal(inRange.length, 1);
+    const outOfRange = await p.getDeadlineCalendar({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      from: "2027-01-01T00:00:00.000Z",
+    });
+    assert.equal(outOfRange.length, 0);
+  });
+
+  test(`${label}: 6.A8.19b getDeadlineCalendar cross-tenant`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.getDeadlineCalendar({ tenant_id: "other-tenant", matter_id: DEFAULT_MATTER_ID }),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A8.20 getDeadlineCalendar unbounded returns all`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    const all = await p.getDeadlineCalendar({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    assert.equal(all.length, 1);
+  });
+
+  test(`${label}: 6.A8.21 getFactSupersessionChain single fact returns [fact]`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    const chain = await p.getFactSupersessionChain({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, fact_id: DEFAULT_FACT_ID,
+    });
+    assert.equal(chain.length, 1);
+    assert.equal(chain[0].id, DEFAULT_FACT_ID);
+  });
+
+  test(`${label}: 6.A8.22 getFactSupersessionChain 3-fact chain`, async () => {
+    const p = await seedMatterDoc();
+    const factA = DEFAULT_FACT_ID;
+    const factB = "01jcasea8factchainb00a8a22";
+    const factC = "01jcasea8factchainc00a8a22";
+    // A accepted (no supersedes)
+    await p.appendFact(makeFactInput());
+    await p.transitionFact(factA, { to: "reviewed", reviewer_actor_user_id: "l", at: "2026-05-22T01:00:00.000Z" });
+    await p.transitionFact(factA, { to: "accepted", reviewer_actor_user_id: "l", at: "2026-05-22T02:00:00.000Z" });
+    // B accepted, supersedes A
+    await p.appendFact(makeFactInput({ id: factB, created_at: "2026-05-22T03:00:00.000Z" }));
+    await p.transitionFact(factB, { to: "reviewed", reviewer_actor_user_id: "l", at: "2026-05-22T04:00:00.000Z" });
+    await p.transitionFact(factB, { to: "accepted", reviewer_actor_user_id: "l", at: "2026-05-22T05:00:00.000Z", supersedes_fact_id: factA });
+    // C accepted, supersedes B
+    await p.appendFact(makeFactInput({ id: factC, created_at: "2026-05-22T06:00:00.000Z" }));
+    await p.transitionFact(factC, { to: "reviewed", reviewer_actor_user_id: "l", at: "2026-05-22T07:00:00.000Z" });
+    await p.transitionFact(factC, { to: "accepted", reviewer_actor_user_id: "l", at: "2026-05-22T08:00:00.000Z", supersedes_fact_id: factB });
+    // Walk from C → B → A.
+    const chain = await p.getFactSupersessionChain({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, fact_id: factC,
+    });
+    assert.equal(chain.length, 3);
+    assert.equal(chain[0].id, factC);
+    assert.equal(chain[1].id, factB);
+    assert.equal(chain[2].id, factA);
+  });
+
+  test(`${label}: 6.A8.23 getFactSupersessionChain unknown returns []`, async () => {
+    const p = await seedMatterDoc();
+    const chain = await p.getFactSupersessionChain({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, fact_id: "01nonexistfactchain0000007",
+    });
+    assert.equal(chain.length, 0);
+  });
+
+  test(`${label}: 6.A8.A1 audit-count stable after all A8 reads`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    const headBefore = await p.getAuditChainHead(DEFAULT_MATTER_ID);
+    await p.listMatters({ tenant_id: DEFAULT_TENANT_ID });
+    await p.getMatterSummary({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    await p.getDocumentDetail({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, document_id: DEFAULT_DOCUMENT_ID });
+    await p.getDeadline({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, deadline_id: DEFAULT_DEADLINE_ID });
+    await p.listDeadlines({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    await p.getDeadlineCalendar({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    await p.getFactSupersessionChain({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, fact_id: DEFAULT_FACT_ID });
+    const headAfter = await p.getAuditChainHead(DEFAULT_MATTER_ID);
+    assert.equal(headAfter.count, headBefore.count);
+    assert.equal(headAfter.headHash, headBefore.headHash);
+  });
+
+  test(`${label}: 6.A8.A2 listDocuments with status filter (registered matches, triaged empty)`, async () => {
+    const p = await seedMatterDoc();
+    // Documents are always created as "registered" (Step 1 initial-state rule;
+    // a future OCR-driven workflow would transition to triaged/etc.). Verify
+    // the filter mechanism executes correctly: matching status returns the
+    // row, non-matching returns empty.
+    const matching = await p.listDocuments({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, status: "registered" });
+    assert.equal(matching.rows.length, 1);
+    const nonMatching = await p.listDocuments({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, status: "triaged" });
+    assert.equal(nonMatching.rows.length, 0);
+  });
+
+  test(`${label}: 6.A8.13 getDeadline cross-tenant throws`, async () => {
+    const p = await seedMatterDoc();
+    const otherTen = "01jcasea8dlxtnttest13aaaa1";
+    await p.createMatter(makeMatterInput({ id: otherTen, tenant_id: "other-tenant" }));
+    await assertRejectsCode(
+      () => p.getDeadline({ tenant_id: DEFAULT_TENANT_ID, matter_id: otherTen, deadline_id: DEFAULT_DEADLINE_ID }),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A8.15 listDeadlines empty returns empty`, async () => {
+    const p = await seedMatterDoc();
+    const page = await p.listDeadlines({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    assert.deepEqual(page.rows, []);
+  });
+
+  test(`${label}: 6.A8.16+17 listDeadlines ordered by due_at ASC + status + kind filters`, async () => {
+    const p = await seedMatterDoc();
+    // Insert 3 deadlines via 3 docket entries with DESCENDING proposed_due_at
+    // so insertion-order does NOT match expected output-order. Fails if sort
+    // is not applied.
+    const entries = [
+      { docketId: "01jcasea8dock16a1700aaaa01", deadlineId: "01jcasea8dline16ord0aa0101", due: "2026-09-15T17:00:00.000Z" },
+      { docketId: "01jcasea8dock16a1700aaaa02", deadlineId: "01jcasea8dline16ord0aa0102", due: "2026-07-15T17:00:00.000Z" },
+      { docketId: "01jcasea8dock16a1700aaaa03", deadlineId: "01jcasea8dline16ord0aa0103", due: "2026-08-15T17:00:00.000Z" },
+    ];
+    for (const e of entries) {
+      await p.appendDocketEntry(makeDocketEntryInput({ id: e.docketId, proposed_due_at: e.due }));
+      await p.confirmDocketEntry(e.docketId, {
+        confirmation_actor_user_id: "lawyer-01",
+        confirmed_at: "2026-05-21T21:00:00.000Z",
+        deadline_id: e.deadlineId,
+      });
+    }
+    const all = await p.listDeadlines({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    assert.equal(all.rows.length, 3);
+    // Expected output order: July → August → September (due_at ASC).
+    assert.ok(all.rows[0].due_at < all.rows[1].due_at, `expected ascending: got ${all.rows.map(r=>r.due_at).join(", ")}`);
+    assert.ok(all.rows[1].due_at < all.rows[2].due_at);
+    assert.equal(all.rows[0].due_at, "2026-07-15T17:00:00.000Z");
+    assert.equal(all.rows[2].due_at, "2026-09-15T17:00:00.000Z");
+    // Pagination preserves ordering across pages.
+    const page1 = await p.listDeadlines({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, limit: 2 });
+    assert.equal(page1.rows.length, 2);
+    assert.equal(page1.rows[0].due_at, "2026-07-15T17:00:00.000Z");
+    assert.ok(page1.next_cursor !== null);
+    const page2 = await p.listDeadlines({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, limit: 2, cursor: page1.next_cursor });
+    assert.equal(page2.rows.length, 1);
+    assert.equal(page2.rows[0].due_at, "2026-09-15T17:00:00.000Z");
+    // Filters.
+    const pending = await p.listDeadlines({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, status: "pending" });
+    assert.equal(pending.rows.length, 3);
+    const met = await p.listDeadlines({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, status: "met" });
+    assert.equal(met.rows.length, 0);
+    const filingKind = await p.listDeadlines({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, kind: "filing" });
+    assert.equal(filingKind.rows.length, 3);
+    const wrongKind = await p.listDeadlines({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, kind: "hearing" });
+    assert.equal(wrongKind.rows.length, 0);
+  });
+
+  test(`${label}: 6.A8.19c getDeadlineCalendar from > to returns empty`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    const empty = await p.getDeadlineCalendar({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      from: "2027-01-01T00:00:00.000Z", to: "2026-01-01T00:00:00.000Z",
+    });
+    assert.equal(empty.length, 0);
+  });
+
+  test(`${label}: 6.A8.24 getFactSupersessionChain cross-tenant throws`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    await assertRejectsCode(
+      () => p.getFactSupersessionChain({ tenant_id: "other-tenant", matter_id: DEFAULT_MATTER_ID, fact_id: DEFAULT_FACT_ID }),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A8.24b getFactSupersessionChain cross-matter returns []`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    const otherMatter = "01jcasea8factcrossm24bb007";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    const chain = await p.getFactSupersessionChain({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: otherMatter, fact_id: DEFAULT_FACT_ID,
+    });
+    assert.equal(chain.length, 0);
+  });
+
+  test(`${label}: 6.A8.11b getDocumentDetail fact_candidates cap`, async () => {
+    const p = await seedMatterDoc();
+    // Create 55 candidate facts with source_document_id = DEFAULT_DOCUMENT_ID.
+    for (let i = 0; i < 55; i++) {
+      await p.appendFact(makeFactInput({
+        id: `01jcasea8factcanda${(i + 0x100).toString(16).padStart(8, "0")}`,
+        source_type: "ocr_excerpt",
+        source_document_id: DEFAULT_DOCUMENT_ID,
+        source_page_number: 1,
+        source_excerpt: `excerpt ${i}`,
+        source_ocr_job_id: "01jocrjobtestmocka8cap0001",
+        extractor_name: "test",
+        extractor_version: "1",
+        extraction_confidence: 0.9,
+        created_at: `2026-05-22T${(10 + Math.floor(i / 10)).toString().padStart(2, "0")}:${(i % 60).toString().padStart(2, "0")}:00.000Z`,
+      }));
+    }
+    const detail = await p.getDocumentDetail({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, document_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(detail.fact_candidates.length, 50);
+  });
+
+  test(`${label}: 6.A8.A2b listDocuments with doc_type filter`, async () => {
+    const p = await seedMatterDoc();
+    const doc2 = "01jcasea8doxdoctyflt2b08aa";
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({ id: doc2, doc_type: "contract" }));
+    const page = await p.listDocuments({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, doc_type: "contract" });
+    assert.equal(page.rows.length, 1);
+    assert.equal(page.rows[0].doc_type, "contract");
+  });
+
   test(`${label}: 6.A4.28 getFact unknown returns null + scoped lookup`, async () => {
     const p = await seedMatterDoc();
     // Unknown fact id returns null.

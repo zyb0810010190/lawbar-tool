@@ -118,7 +118,12 @@ export function listDocumentsHelper(
     );
   }
   const limit = resolveLimit(query.limit);
-  const filters = { tenant_id: query.tenant_id, matter_id: query.matter_id };
+  const filters = {
+    tenant_id: query.tenant_id,
+    matter_id: query.matter_id,
+    status: query.status,
+    doc_type: query.doc_type,
+  };
   const filters_hash = computeFiltersHash(filters);
   const cursor =
     query.cursor !== undefined
@@ -128,6 +133,9 @@ export function listDocumentsHelper(
   for (const entry of documents.values()) {
     if (entry.matter_id !== query.matter_id) continue;
     if (entry.document.tenant_id !== query.tenant_id) continue;
+    // A8 added optional status + doc_type filters (parent §4.4 closure).
+    if (query.status !== undefined && entry.document.status !== query.status) continue;
+    if (query.doc_type !== undefined && entry.document.doc_type !== query.doc_type) continue;
     rows.push(entry.document);
   }
   rows.sort((a, b) => {

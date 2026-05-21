@@ -56,6 +56,17 @@ import type {
   ListOcrLinksQuery,
   GetOcrLinkQuery,
   UpsertOcrLinkResult,
+  ListMattersPage,
+  ListMattersQuery,
+  GetMatterSummaryQuery,
+  MatterSummary,
+  GetDocumentDetailQuery,
+  DocumentDetail,
+  GetDeadlineQuery,
+  ListDeadlinesPage,
+  ListDeadlinesQuery,
+  DeadlineCalendarQuery,
+  GetFactSupersessionChainQuery,
   ListFactsPage,
   ListFactsQuery,
   ListPrivilegeMarkersPage,
@@ -136,6 +147,15 @@ import {
   listOcrLinks as listOcrLinksImpl,
   type OcrLinkState,
 } from "./inMemoryOcrLink.js";
+import {
+  getDeadlineCalendarHelper,
+  getDeadlineHelper,
+  getDocumentDetailHelper,
+  getFactSupersessionChainHelper,
+  getMatterSummaryHelper,
+  listDeadlinesHelper,
+  listMattersHelper,
+} from "./inMemoryAggregations.js";
 
 interface InternalState {
   readonly matters: Map<string, CaseBoxMatter>;
@@ -632,6 +652,38 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
   async listOcrLinks(query: ListOcrLinksQuery): Promise<ListOcrLinksPage> {
     const state = stateOf(this);
     return listOcrLinksImpl(state.ocrLink, state.matters, query);
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase A8 — read-side aggregation delegates
+  // -------------------------------------------------------------------------
+
+  async listMatters(query: ListMattersQuery): Promise<ListMattersPage> {
+    return listMattersHelper(stateOf(this), query);
+  }
+
+  async getMatterSummary(query: GetMatterSummaryQuery): Promise<MatterSummary | null> {
+    return getMatterSummaryHelper(stateOf(this), query);
+  }
+
+  async getDocumentDetail(query: GetDocumentDetailQuery): Promise<DocumentDetail | null> {
+    return getDocumentDetailHelper(stateOf(this), query);
+  }
+
+  async getDeadline(query: GetDeadlineQuery): Promise<CaseBoxDeadline | null> {
+    return getDeadlineHelper(stateOf(this), query);
+  }
+
+  async listDeadlines(query: ListDeadlinesQuery): Promise<ListDeadlinesPage> {
+    return listDeadlinesHelper(stateOf(this), query);
+  }
+
+  async getDeadlineCalendar(query: DeadlineCalendarQuery): Promise<ReadonlyArray<CaseBoxDeadline>> {
+    return getDeadlineCalendarHelper(stateOf(this), query);
+  }
+
+  async getFactSupersessionChain(query: GetFactSupersessionChainQuery): Promise<ReadonlyArray<CaseBoxFact>> {
+    return getFactSupersessionChainHelper(stateOf(this), query);
   }
 
   async transitionDeadline(deadlineId: string, opts: DeadlineTransitionOpts): Promise<CaseBoxDeadline> {

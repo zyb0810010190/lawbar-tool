@@ -44,6 +44,8 @@ export type VerifyAuditChainResult = ChainVerifyOk | ChainVerifyErr;
 export interface ListDocumentsQuery {
   readonly tenant_id: string;
   readonly matter_id: string;
+  readonly status?: "registered" | "ocr_pending" | "ocr_complete" | "ocr_failed" | "triaged" | "tagged" | "reviewed";
+  readonly doc_type?: "pleading" | "contract" | "correspondence" | "transcript" | "exhibit" | "other";
   readonly cursor?: string;
   readonly limit?: number;
 }
@@ -154,6 +156,93 @@ export interface CaseBoxPersistence {
   upsertOcrLink(input: unknown): Promise<UpsertOcrLinkResult>;
   getOcrLink(query: GetOcrLinkQuery): Promise<CaseBoxOcrLink | null>;
   listOcrLinks(query: ListOcrLinksQuery): Promise<ListOcrLinksPage>;
+
+  // Read-side aggregations (Phase A8)
+  listMatters(query: ListMattersQuery): Promise<ListMattersPage>;
+  getMatterSummary(query: GetMatterSummaryQuery): Promise<MatterSummary | null>;
+  getDocumentDetail(query: GetDocumentDetailQuery): Promise<DocumentDetail | null>;
+  getDeadline(query: GetDeadlineQuery): Promise<CaseBoxDeadline | null>;
+  listDeadlines(query: ListDeadlinesQuery): Promise<ListDeadlinesPage>;
+  getDeadlineCalendar(query: DeadlineCalendarQuery): Promise<ReadonlyArray<CaseBoxDeadline>>;
+  getFactSupersessionChain(query: GetFactSupersessionChainQuery): Promise<ReadonlyArray<CaseBoxFact>>;
+}
+
+export interface ListMattersQuery {
+  readonly tenant_id: string;
+  readonly status?: "active" | "archived";
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export interface ListMattersPage {
+  readonly rows: ReadonlyArray<CaseBoxMatter>;
+  readonly next_cursor: string | null;
+}
+
+export interface GetMatterSummaryQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+}
+
+export interface MatterSummary {
+  readonly matter: CaseBoxMatter;
+  readonly counts: {
+    readonly documents: number;
+    readonly facts_by_status: { candidate: number; reviewed: number; accepted: number; rejected: number };
+    readonly deadlines_by_status: { pending: number; met: number; missed: number; withdrawn: number };
+    readonly privilege_markers: number;
+    readonly docket_entries_by_state: { proposed: number; confirmed: number; dismissed: number };
+    readonly confidentiality_classifications: number;
+    readonly evidence_items_by_status: { proposed: number; accepted: number; rejected: number; superseded: number };
+    readonly ocr_links: number;
+  };
+}
+
+export interface GetDocumentDetailQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly document_id: string;
+}
+
+export interface DocumentDetail {
+  readonly document: CaseBoxDocument;
+  readonly ocr_link: CaseBoxOcrLink | null;
+  readonly effective_classification: EffectiveClassificationResult;
+  readonly privilege_status: PrivilegeResolution;
+  readonly fact_candidates: ReadonlyArray<CaseBoxFact>;
+}
+
+export interface GetDeadlineQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly deadline_id: string;
+}
+
+export interface ListDeadlinesQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly status?: "pending" | "met" | "missed" | "withdrawn";
+  readonly kind?: "statute_of_limitations" | "court_order" | "discovery" | "filing" | "hearing" | "internal";
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export interface ListDeadlinesPage {
+  readonly rows: ReadonlyArray<CaseBoxDeadline>;
+  readonly next_cursor: string | null;
+}
+
+export interface DeadlineCalendarQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly from?: string;
+  readonly to?: string;
+}
+
+export interface GetFactSupersessionChainQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly fact_id: string;
 }
 
 export interface UpsertOcrLinkResult {
