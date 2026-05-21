@@ -30,4 +30,9 @@ export type {
   GetPrivilegeStatusQuery,
   ListPrivilegeMarkersQuery,
   ListPrivilegeMarkersPage,
+  CaseBoxFact,
+  FactTransitionOpts,
+  GetFactQuery,
+  ListFactsQuery,
+  ListFactsPage,
 } from "./types.js";

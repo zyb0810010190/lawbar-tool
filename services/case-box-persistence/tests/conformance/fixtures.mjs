@@ -84,6 +84,34 @@ export const DEFAULT_MATTER_ID = VALID_MATTER_ID;
 export const DEFAULT_TENANT_ID = VALID_TENANT_ID;
 export const DEFAULT_DOCUMENT_ID = "01jcasedocmockid000000001a";
 export const DEFAULT_PRIVILEGE_MARKER_ID = "01jcasepmkmockid0000000001";
+export const DEFAULT_FACT_ID = "01jcasefactmockid000000001";
+
+export function makeFactInput(overrides = {}) {
+  return {
+    id: DEFAULT_FACT_ID,
+    tenant_id: VALID_TENANT_ID,
+    actor_user_id: "local-user",
+    matter_id: VALID_MATTER_ID,
+    statement_text: "Plaintiff signed contract on 2024-01-15.",
+    status: "candidate",
+    source_type: "lawyer_authored",
+    source_document_id: null,
+    source_page_number: null,
+    source_excerpt: null,
+    source_ocr_job_id: null,
+    extractor_name: null,
+    extractor_version: null,
+    extraction_confidence: null,
+    reviewer_actor_user_id: null,
+    reviewed_at: null,
+    accepted_at: null,
+    rejected_at: null,
+    rejection_reason: null,
+    supersedes_fact_id: null,
+    created_at: "2026-05-21T15:00:00.000Z",
+    ...overrides,
+  };
+}
 
 export function makePrivilegeMarkerInput(overrides = {}) {
   return {

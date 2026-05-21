@@ -48,6 +48,8 @@ import type {
   AuditChainHead,
   CaseBoxPersistence,
   EffectiveClassificationResult,
+  FactTransitionOpts,
+  GetFactQuery,
   GetEffectiveClassificationQuery,
   GetPrivilegeStatusQuery,
   ListAuditEventsPage,
@@ -56,6 +58,8 @@ import type {
   ListConfidentialityClassificationsQuery,
   ListDocumentsPage,
   ListDocumentsQuery,
+  ListFactsPage,
+  ListFactsQuery,
   ListPrivilegeMarkersPage,
   ListPrivilegeMarkersQuery,
   PrivilegeTransitionOpts,
@@ -64,6 +68,7 @@ import type {
 
 import type {
   CaseBoxConfidentialityClassification,
+  CaseBoxFact,
   CaseBoxPrivilegeMarker,
   PrivilegeResolution,
 } from "case-box-contract";
@@ -82,6 +87,13 @@ import {
   prepareTransitionPrivilegeMarker,
   type PrivilegeState,
 } from "./inMemoryPrivilege.js";
+import {
+  createFactState,
+  listFacts as listFactsImpl,
+  prepareAppendFact,
+  prepareTransitionFact,
+  type FactState,
+} from "./inMemoryFact.js";
 
 interface InternalState {
   readonly matters: Map<string, CaseBoxMatter>;
@@ -93,6 +105,8 @@ interface InternalState {
   readonly classification: ClassificationState;
   /** Phase A3 — privilege-marker storage + duplicate-id index + marker→matter index. */
   readonly privilege: PrivilegeState;
+  /** Phase A4 — fact storage + duplicate-id index + fact→matter index + fact→row index. */
+  readonly fact: FactState;
 }
 
 const _state = new WeakMap<InMemoryCaseBoxPersistence, InternalState>();
@@ -117,6 +131,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
       auditByMatter: new Map(),
       classification: createClassificationState(),
       privilege: createPrivilegeState(),
+      fact: createFactState(),
     });
   }
 
@@ -617,6 +632,119 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
   }
 
   // -------------------------------------------------------------------------
+  // Phase A4 — fact delegates
+  // -------------------------------------------------------------------------
+
+  async appendFact(input: unknown): Promise<CaseBoxFact> {
+    const state = stateOf(this);
+    const matterIdFromInput = input !== null && typeof input === "object"
+      ? (input as { matter_id?: unknown }).matter_id
+      : undefined;
+    if (typeof matterIdFromInput === "string" && !state.matters.has(matterIdFromInput)) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterIdFromInput}`);
+    }
+    const prepared = prepareAppendFact(state.fact, input, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: () => {
+        if (typeof matterIdFromInput !== "string") return [];
+        return state.auditByMatter.get(matterIdFromInput) ?? [];
+      },
+      getDocument: (documentId) => {
+        const entry = state.documents.get(documentId);
+        return entry === undefined ? null : { document: entry.document };
+      },
+    });
+    const matter = state.matters.get(prepared.matterId);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${prepared.matterId}`);
+    }
+    if (matter.tenant_id !== prepared.row.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `fact.tenant_id (${prepared.row.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+
+    // Commit
+    const arr = state.fact.factsByMatter.get(prepared.matterId) ?? [];
+    arr.push(prepared.row);
+    state.fact.factsByMatter.set(prepared.matterId, arr);
+    state.fact.factIds.add(prepared.row.id);
+    state.fact.factIndex.set(prepared.row.id, prepared.matterId);
+    state.fact.factById.set(prepared.row.id, prepared.row);
+    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
+    stored.push(prepared.audit);
+    state.auditByMatter.set(prepared.matterId, stored);
+    return structuredClone(prepared.row) as CaseBoxFact;
+  }
+
+  async transitionFact(factId: string, opts: FactTransitionOpts): Promise<CaseBoxFact> {
+    const state = stateOf(this);
+    const prepared = prepareTransitionFact(state.fact, factId, opts, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: (matterId) => state.auditByMatter.get(matterId) ?? [],
+    });
+    const arr = state.fact.factsByMatter.get(prepared.matterId)!;
+    const idx = arr.findIndex((f) => f.id === factId);
+    arr[idx] = prepared.next;
+    state.fact.factById.set(factId, prepared.next);
+    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
+    stored.push(prepared.audit);
+    state.auditByMatter.set(prepared.matterId, stored);
+    return structuredClone(prepared.next) as CaseBoxFact;
+  }
+
+  async getFact(query: GetFactQuery): Promise<CaseBoxFact | null> {
+    const state = stateOf(this);
+    // Tenant/matter isolation guard (audit Dim 5 #1 fix): callers MUST
+    // supply tenant_id + matter_id + fact_id; persistence verifies the
+    // requested fact belongs to the requested scope before returning.
+    // Unknown matter is treated as `null` (not an error) to match
+    // get-style methods' "not-found returns null" convention.
+    const matter = state.matters.get(query.matter_id);
+    if (matter === undefined) return null;
+    if (matter.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    const row = state.fact.factById.get(query.fact_id);
+    if (row === undefined) return null;
+    if (row.matter_id !== query.matter_id) {
+      // Fact exists but belongs to a different matter — treat as not-found
+      // for this scope (do not leak the existence of cross-matter ids).
+      return null;
+    }
+    if (row.tenant_id !== query.tenant_id) {
+      return null;
+    }
+    return structuredClone(row) as CaseBoxFact;
+  }
+
+  async listFacts(query: ListFactsQuery): Promise<ListFactsPage> {
+    const state = stateOf(this);
+    const matter = state.matters.get(query.matter_id);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
+    }
+    if (matter.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    return listFactsImpl(state.fact, query, {
+      getDocument: (documentId) => {
+        const entry = state.documents.get(documentId);
+        return entry === undefined ? null : { document: entry.document };
+      },
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
 
@@ -750,4 +878,18 @@ export function _tamperStoredEventForTest(
   }
   const tampered = mutator(structuredClone(stored[idx]!.event));
   stored[idx] = { sequence: stored[idx]!.sequence, event: tampered };
+}
+
+/**
+ * Test-only accessor for the fact-state slot. Audit Dim 1 #1 fix: lets
+ * conformance §6.A4.22 inject pre-corrupt supersedes pointers so the
+ * cycle walk can be exercised. Module-local function (not on the
+ * prototype) so the §6.2.7 allowlist stays at 22.
+ */
+export function _internalFactStateForTest(p: InMemoryCaseBoxPersistence): import("./inMemoryFact.js").FactState {
+  const state = _state.get(p);
+  if (state === undefined) {
+    throw new Error("_internalFactStateForTest: persistence has no internal state");
+  }
+  return state.fact;
 }

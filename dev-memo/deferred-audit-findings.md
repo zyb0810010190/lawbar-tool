@@ -26,6 +26,18 @@
 
 ---
 
+## Phase A4 — facts (commit `<pending A4 commit hash>`)
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mpfi97ns-kf42ma` | `verify-mpfijdi4-6cdzoi` |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| _no deferred findings_ | — | All Medium/High closed; no Lows deferred (one Low — `PrepareTransitionResult.prior` dead surface — was fixed inline rather than deferred). | n/a | YES | n/a | Verify verdict ALL CLOSED. The audit re-verified the round-1 reconciliation; no residual issues. |
+
+---
+
 ## Phase A3 — privilege markers (commit `b2ef9f1`)
 
 | Audit job | Verify job |
@@ -34,8 +46,8 @@
 
 | Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
 |---|---|---|---|---|---|---|
-| F2.1 | Low | Cleanup-only — local interfaces in `inMemoryPrivilege` duplicate the public types in `types.ts`. No behavior or invariant impact. Audit accepted deferral. | Phase A4 (broader sibling-module refactor when fact entities land) | YES | open | Type-duplication. The duplication is intentional for now (keeps `inMemoryPrivilege` self-contained); A4 may extract a shared internal type-helper module if the pattern repeats. |
-| F2.2 | Low | Out-of-scope — tenant/matter/document consistency path overlaps with `inMemoryClassification`. Resurfaces in A4 when facts add a third sibling. Audit accepted deferral. | Phase A4 (extract `resolveDocumentTarget` helper) | YES | open | Helper-extraction. Reviewer noted: "tolerable for A3, but it is now repeated enough that A4 will likely compound it." |
+| F2.1 | Low | Cleanup-only — local interfaces in `inMemoryPrivilege` duplicate the public types in `types.ts`. No behavior or invariant impact. Audit accepted deferral. | Phase A4 (broader sibling-module refactor when fact entities land) | YES | closed | Closed in Phase A4 (commit `<pending A4>`). `ListPrivilegeMarkersQuery` and `ListPrivilegeMarkersPage` were removed from `inMemoryPrivilege.ts` and imported from `types.ts` instead; same refactor applied to `inMemoryClassification.ts` for the parallel `ListClassifications*` types. |
+| F2.2 | Low | Out-of-scope — tenant/matter/document consistency path overlaps with `inMemoryClassification`. Resurfaces in A4 when facts add a third sibling. Audit accepted deferral. | Phase A4 (extract `resolveDocumentTarget` helper) | YES | closed | Closed in Phase A4 (commit `<pending A4>`). New shared helper `src/resolveTarget.ts` consumed by `inMemoryClassification`, `inMemoryPrivilege`, and `inMemoryFact`. Preserves the exact error-code semantics (unknown_document / tenant_mismatch / matter_id_mismatch). |
 | F4.2 | Low | Cleanup-only — defensive markerIndex behavior is acceptable (no delete API exists; an index miss throws before mutation). Audit verdict: "no code change required". | cleanup-accepted (no follow-up planned) | YES | open | Defense-in-depth defensive path. Resurfaces only if A3+ introduces a marker-delete API; reopen this row at that time. |
 | F5.2 | Low | Audit verdict was CLEAN — no tenant/matter leak found in `getPrivilegeStatus`. Recorded as "deferred" only in the sense that it stayed an inspected-and-accepted item; no fix required. | cleanup-accepted (no follow-up planned) | YES | open | Persistent-cleanliness witness. Keep an eye on it during A4 when `target_type === "fact"` opens up. |
 | F5.3 | Low | Audit verdict was CLEAN — no disclosure-safety inference from `hasProtectiveAssertion` in any persistence path. Recorded as "deferred" only in the same sense as F5.2. | cleanup-accepted (no follow-up planned) | YES | open | Anti-disclosure-clearance invariant witness. Defended by invariants test §6.2.A3.2; that test must not be deleted or weakened without an ADR. |
@@ -50,11 +62,11 @@
 
 | Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
 |---|---|---|---|---|---|---|
-| F2.2 | Low | Out-of-scope — tenant/matter/document consistency check pattern repeated across append and get-effective paths. Small now; would grow with facts. Audit accepted deferral. | Phase A4 (extract `resolveDocumentTarget` helper) | YES | open | Same root pattern as A3 F2.2 — they should resolve together when A4 lands. |
+| F2.2 | Low | Out-of-scope — tenant/matter/document consistency check pattern repeated across append and get-effective paths. Small now; would grow with facts. Audit accepted deferral. | Phase A4 (extract `resolveDocumentTarget` helper) | YES | closed | Closed in Phase A4 (commit `<pending A4>`) alongside A3 F2.2 — shared `resolveDocumentTarget` helper now consumed by `inMemoryClassification`. |
 | F3.1 | Low | Cleanup-only — `unknown_document` code retained for forward compatibility per the documented 10-code set; not emitted by A2 methods. | cleanup-accepted (no follow-up planned) | YES | open | A3 introduced paths that DO emit `unknown_document` (appendPrivilegeMarker, getPrivilegeStatus). Mark for **review on A4 close**: if at least one A3 conformance case exercises every documented code, this row can flip to `closed`. |
 | F3.2 | Low | Cleanup-only — invariants test §6.2.6 SAMPLES error codes rather than exhaustively triggering each. Acceptable per audit. | cleanup-accepted (no follow-up planned) | YES | open | Same paired observation as F3.1 — if A3+ tests reach full code coverage, the §6.2.6 sampled comment can be rephrased to "comprehensive" without code changes. |
 | F4.2 | Low | Cleanup-only — whitespace-only reasons accepted by `appendConfidentialityClassification` for codes other than `"other"`. Audit accepted. | cleanup-accepted (no follow-up planned) | YES | open | Persistence DOES reject whitespace for `change_reason_code === "other"` (added during A2 audit-fix). Other reason codes are enum-bound so the whitespace concern is bounded. |
-| F4.3 | Low | Out-of-scope — `listConfidentialityClassifications` returns empty for never-classified documents while `getEffectiveClassification` returns `unclassified`. Distinction is intended; only conformance pinning was missing. | Phase A4 (add the pinning test alongside fact-target additions) | YES | open | Pure test gap; behavior is correct. |
+| F4.3 | Low | Out-of-scope — `listConfidentialityClassifications` returns empty for never-classified documents while `getEffectiveClassification` returns `unclassified`. Distinction is intended; only conformance pinning was missing. | future "A5-fact-targets" WI (retargeted from A4; A4 did not broaden classification to accept fact targets so the pinning test is naturally paired with that future broadening) | YES | open | Pure test gap; behavior is correct. Retargeted by Phase A4 (commit `<pending A4>`) per the A4 plan's L5.2 reconciliation; A4 itself does not close this row. |
 
 ---
 

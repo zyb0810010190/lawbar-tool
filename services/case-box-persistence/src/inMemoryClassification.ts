@@ -35,6 +35,13 @@ import {
   priorHeadOf,
   type StoredAuditEvent,
 } from "./auditChain.js";
+import { resolveDocumentTarget } from "./resolveTarget.js";
+// Closure of A3 F2.1 — use public types instead of locally-redeclared
+// ListClassificationsQuery / ListClassificationsPage.
+import type {
+  ListConfidentialityClassificationsPage as ListClassificationsPage,
+  ListConfidentialityClassificationsQuery as ListClassificationsQuery,
+} from "./types.js";
 
 /** State slot held by InMemoryCaseBoxPersistence; passed into every helper. */
 export interface ClassificationState {
@@ -140,7 +147,7 @@ export interface AppendDeps {
   nowIso: () => string;
   storedAuditEventsForMatter: () => StoredAuditEvent[];
   /** Document lookup. Returns null when unknown. */
-  getDocument: (documentId: string) => { document: { id: string; tenant_id: string; matter_id: string } } | null;
+  getDocument: (documentId: string) => { document: import("case-box-contract").CaseBoxDocument } | null;
 }
 
 export interface AppendResult {
@@ -204,21 +211,16 @@ export function prepareAppendClassification(
     throw new CaseBoxPersistenceError("duplicate_id", `classification already exists: ${row.id}`);
   }
 
-  // Tenant + matter consistency via the document target.
+  // Tenant + matter consistency via the document target (shared helper —
+  // closes A2 F2.2 + A3 F2.2 deferred-audit-backlog rows).
   if (row.target_type !== "document") {
     // schema enum already restricts to document|fact; we've rejected fact above.
     throw new CaseBoxPersistenceError("invalid_argument", `unexpected target_type ${JSON.stringify(row.target_type)}`);
   }
-  const doc = deps.getDocument(row.target_id);
-  if (doc === null) {
-    throw new CaseBoxPersistenceError("unknown_document", `unknown document target: ${row.target_id}`);
-  }
-  if (doc.document.tenant_id !== row.tenant_id) {
-    throw new CaseBoxPersistenceError("tenant_mismatch", `classification.tenant_id (${row.tenant_id}) does not match document.tenant_id (${doc.document.tenant_id})`);
-  }
-  if (doc.document.matter_id !== row.matter_id) {
-    throw new CaseBoxPersistenceError("matter_id_mismatch", `classification.matter_id (${row.matter_id}) does not match document.matter_id (${doc.document.matter_id})`);
-  }
+  resolveDocumentTarget(
+    { getDocument: deps.getDocument },
+    { tenant_id: row.tenant_id, matter_id: row.matter_id, target_id: row.target_id },
+  );
 
   // Reject same-level (prior_level === level) writes per the plan's transition table.
   if (row.prior_level !== null && row.prior_level === row.level) {
@@ -288,19 +290,8 @@ export function prepareAppendClassification(
   };
 }
 
-export interface ListClassificationsQuery {
-  readonly tenant_id: string;
-  readonly matter_id: string;
-  readonly target_type?: "document" | "fact";
-  readonly target_id?: string;
-  readonly cursor?: string;
-  readonly limit?: number;
-}
-
-export interface ListClassificationsPage {
-  readonly rows: ReadonlyArray<CaseBoxConfidentialityClassification>;
-  readonly next_cursor: string | null;
-}
+// (A3 F2.1 closure: locally-redeclared interfaces removed; types imported
+//  from ./types.js at the top of this module.)
 
 export function listClassifications(
   state: ClassificationState,

@@ -11,3 +11,8 @@
 // `Object.getOwnPropertyNames` stays clean.
 
 export { _tamperStoredEventForTest as tamperStoredEvent } from "../dist/inMemoryRepo.js";
+export { _tamperFactSupersedesForTest } from "../dist/inMemoryFact.js";
+// Module-private fact-state accessor for the conformance harness. Lets
+// the cycle-walk test inject pre-corrupt state. Not re-exported from
+// src/index.ts — invisible to package consumers.
+export { _internalFactStateForTest } from "../dist/inMemoryRepo.js";

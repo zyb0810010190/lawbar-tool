@@ -8,6 +8,7 @@ import type {
   CaseBoxAuditEvent,
   CaseBoxConfidentialityClassification,
   CaseBoxDocument,
+  CaseBoxFact,
   CaseBoxMatter,
   CaseBoxPrivilegeMarker,
   ChainVerifyErr,
@@ -22,6 +23,7 @@ export type {
   ChainVerifyErr,
   ChainVerifyOk,
   AuditEventHash,
+  CaseBoxFact,
   CaseBoxPrivilegeMarker,
   ConfidentialityChangeReasonCode,
   ConfidentialityLevel,
@@ -119,6 +121,41 @@ export interface CaseBoxPersistence {
   transitionPrivilegeMarker(markerId: string, opts: PrivilegeTransitionOpts): Promise<CaseBoxPrivilegeMarker>;
   getPrivilegeStatus(query: GetPrivilegeStatusQuery): Promise<PrivilegeResolution>;
   listPrivilegeMarkers(query: ListPrivilegeMarkersQuery): Promise<ListPrivilegeMarkersPage>;
+
+  // Facts (Phase A4)
+  appendFact(input: unknown): Promise<CaseBoxFact>;
+  transitionFact(factId: string, opts: FactTransitionOpts): Promise<CaseBoxFact>;
+  getFact(query: GetFactQuery): Promise<CaseBoxFact | null>;
+  listFacts(query: ListFactsQuery): Promise<ListFactsPage>;
+}
+
+export interface GetFactQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly fact_id: string;
+}
+
+export interface FactTransitionOpts {
+  readonly to: "reviewed" | "accepted" | "rejected";
+  readonly reviewer_actor_user_id: string;
+  readonly at: string;
+  readonly rejection_reason?: string;
+  readonly supersedes_fact_id?: string;
+}
+
+export interface ListFactsQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly status?: "candidate" | "reviewed" | "accepted" | "rejected";
+  readonly source_type?: "lawyer_authored" | "llm_extraction" | "ocr_excerpt" | "imported";
+  readonly source_document_id?: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export interface ListFactsPage {
+  readonly rows: ReadonlyArray<CaseBoxFact>;
+  readonly next_cursor: string | null;
 }
 
 export interface PrivilegeTransitionOpts {

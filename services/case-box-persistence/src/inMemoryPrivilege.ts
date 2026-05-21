@@ -28,6 +28,7 @@ import {
 } from "case-box-contract";
 
 import { CaseBoxPersistenceError } from "./errors.js";
+import { resolveDocumentTarget } from "./resolveTarget.js";
 import {
   computeFiltersHash,
   decodeCursor,
@@ -75,7 +76,7 @@ interface AppendDeps {
   generateId: () => string;
   nowIso: () => string;
   storedAuditEventsForMatter: () => StoredAuditEvent[];
-  getDocument: (documentId: string) => { document: { id: string; tenant_id: string; matter_id: string } } | null;
+  getDocument: (documentId: string) => { document: import("case-box-contract").CaseBoxDocument } | null;
 }
 
 interface PrepareAppendResult {
@@ -143,22 +144,11 @@ export function prepareAppendPrivilegeMarker(
   if (row.target_type !== "document") {
     throw new CaseBoxPersistenceError("invalid_argument", `unexpected target_type ${JSON.stringify(row.target_type)}`);
   }
-  const doc = deps.getDocument(row.target_id);
-  if (doc === null) {
-    throw new CaseBoxPersistenceError("unknown_document", `unknown document target: ${row.target_id}`);
-  }
-  if (doc.document.tenant_id !== row.tenant_id) {
-    throw new CaseBoxPersistenceError(
-      "tenant_mismatch",
-      `marker.tenant_id (${row.tenant_id}) does not match document.tenant_id (${doc.document.tenant_id})`,
-    );
-  }
-  if (doc.document.matter_id !== row.matter_id) {
-    throw new CaseBoxPersistenceError(
-      "matter_id_mismatch",
-      `marker.matter_id (${row.matter_id}) does not match document.matter_id (${doc.document.matter_id})`,
-    );
-  }
+  // Shared helper (closes A3 F2.2 deferred-audit-backlog row).
+  resolveDocumentTarget(
+    { getDocument: deps.getDocument },
+    { tenant_id: row.tenant_id, matter_id: row.matter_id, target_id: row.target_id },
+  );
 
   const stamp = deps.nowIso();
   const stored = deps.storedAuditEventsForMatter();
@@ -361,21 +351,12 @@ export function getEffectivePrivilege(
   return effectivePrivilegeStatus(targetType, targetId, cloned);
 }
 
-export interface ListPrivilegeMarkersQuery {
-  readonly tenant_id: string;
-  readonly matter_id: string;
-  readonly target_type?: "document" | "fact";
-  readonly target_id?: string;
-  readonly status?: "proposed" | "confirmed" | "dismissed" | "waived";
-  readonly kind?: "attorney_client" | "work_product" | "joint_defense" | "common_interest";
-  readonly cursor?: string;
-  readonly limit?: number;
-}
-
-export interface ListPrivilegeMarkersPage {
-  readonly rows: ReadonlyArray<CaseBoxPrivilegeMarker>;
-  readonly next_cursor: string | null;
-}
+// (A3 F2.1 closure: locally-redeclared ListPrivilegeMarkers{Query,Page}
+//  removed; types imported from ./types.js at the top of this module.)
+import type {
+  ListPrivilegeMarkersPage,
+  ListPrivilegeMarkersQuery,
+} from "./types.js";
 
 export function listPrivilegeMarkers(
   state: PrivilegeState,

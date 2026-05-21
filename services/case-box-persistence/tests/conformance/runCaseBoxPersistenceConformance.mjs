@@ -7,12 +7,14 @@ import assert from "node:assert/strict";
 
 import {
   DEFAULT_DOCUMENT_ID,
+  DEFAULT_FACT_ID,
   DEFAULT_MATTER_ID,
   DEFAULT_PRIVILEGE_MARKER_ID,
   DEFAULT_TENANT_ID,
   makeClassificationInput,
   makeClock,
   makeDocumentInput,
+  makeFactInput,
   makeIdGenerator,
   makeMatterInput,
   makePrivilegeMarkerInput,
@@ -1189,6 +1191,528 @@ export function runConformance(label, factory) {
     await assertRejectsCode(
       () => p.listPrivilegeMarkers({ tenant_id: DEFAULT_TENANT_ID, matter_id: "01nonexistmatter00000000xx" }),
       "unknown_matter",
+    );
+  });
+
+  // ===========================================================================
+  // Phase A4 — facts
+  // ===========================================================================
+
+  test(`${label}: 6.A4.1 appendFact candidate happy path`, async () => {
+    const p = await seedMatterDoc();
+    const row = await p.appendFact(makeFactInput());
+    assert.equal(row.status, "candidate");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.entity_type, "fact");
+    assert.equal(evt.action, "create");
+    assert.equal(evt.reason, undefined);
+  });
+
+  test(`${label}: 6.A4.2 appendFact rejects status=reviewed`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendFact(makeFactInput({ status: "reviewed", reviewer_actor_user_id: "lawyer-01", reviewed_at: "2026-05-21T16:00:00.000Z" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A4.3 appendFact rejects status=accepted`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendFact(makeFactInput({ status: "accepted" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A4.4 appendFact rejects status=rejected`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendFact(makeFactInput({ status: "rejected" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A4.5 appendFact rejects non-null reviewer fields on new row`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendFact(makeFactInput({ reviewer_actor_user_id: "lawyer-01" })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A4.6 appendFact rejects non-null supersedes_fact_id`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendFact(makeFactInput({ supersedes_fact_id: "01jcasefactmockid000000099" })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A4.7 appendFact rejects unknown matter`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendFact(makeFactInput({ matter_id: "01nonexistmatter00000000xx" })),
+      "unknown_matter",
+    );
+  });
+
+  test(`${label}: 6.A4.8 appendFact rejects tenant mismatch (matter level)`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendFact(makeFactInput({ tenant_id: "other-tenant" })),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A4.9 appendFact rejects matter_id mismatch`, async () => {
+    const p = await seedMatterDoc();
+    await p.createMatter(makeMatterInput({ id: "01jotherfactmattera4009007", tenant_id: "other-tenant" }));
+    await assertRejectsCode(
+      // fact has default tenant but matter has other-tenant → matter-level tenant_mismatch
+      () => p.appendFact(makeFactInput({ matter_id: "01jotherfactmattera4009007" })),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A4.10 appendFact rejects unknown source_document_id`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendFact(makeFactInput({
+        source_type: "ocr_excerpt",
+        source_document_id: "01nonexistdocmockid0000007",
+        source_page_number: 1,
+        source_excerpt: "test",
+        source_ocr_job_id: "01jocrjobmockid0a4t00000007",
+        extractor_name: "test",
+        extractor_version: "1",
+        extraction_confidence: 0.9,
+      })),
+      "unknown_document",
+    );
+  });
+
+  test(`${label}: 6.A4.10b appendFact rejects source_document_id from different matter`, async () => {
+    const p = await seedMatterDoc();
+    // Create a second matter + document under same tenant.
+    const otherMatter = "01jothfactsrcmatter004010b";
+    const otherDoc = "01jothfactsrcdoc000a04010b";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    await p.registerDocument(otherMatter, makeDocumentInput({ id: otherDoc, matter_id: otherMatter }));
+    await assertRejectsCode(
+      () => p.appendFact(makeFactInput({
+        source_type: "ocr_excerpt",
+        source_document_id: otherDoc,
+        source_page_number: 1,
+        source_excerpt: "test",
+        source_ocr_job_id: "01jocrjobmockid0a4t00000007",
+        extractor_name: "test",
+        extractor_version: "1",
+        extraction_confidence: 0.9,
+      })),
+      "matter_id_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A4.10c appendFact rejects source_document_id from different tenant`, async () => {
+    const p = await seedMatterDoc();
+    // Create a second matter with different tenant; register doc under it.
+    const otherMatter = "01jothfactsrcmatter004010c";
+    const otherDoc = "01jothfactsrcdoc000a04010c";
+    await p.createMatter(makeMatterInput({ id: otherMatter, tenant_id: "other-tenant" }));
+    await p.registerDocument(otherMatter, makeDocumentInput({
+      id: otherDoc, matter_id: otherMatter, tenant_id: "other-tenant",
+    }));
+    await assertRejectsCode(
+      () => p.appendFact(makeFactInput({
+        source_type: "ocr_excerpt",
+        source_document_id: otherDoc,
+        source_page_number: 1,
+        source_excerpt: "test",
+        source_ocr_job_id: "01jocrjobmockid0a4t00000007",
+        extractor_name: "test",
+        extractor_version: "1",
+        extraction_confidence: 0.9,
+      })),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A4.11 appendFact accepts null source_document_id for lawyer_authored`, async () => {
+    const p = await seedMatterDoc();
+    const row = await p.appendFact(makeFactInput());
+    assert.equal(row.source_document_id, null);
+  });
+
+  test(`${label}: 6.A4.12 appendFact rejects ocr_excerpt without source_document_id`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendFact(makeFactInput({
+        source_type: "ocr_excerpt",
+        source_document_id: null,
+      })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A4.13 appendFact rejects duplicate id`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    await assertRejectsCode(
+      () => p.appendFact(makeFactInput()),
+      "duplicate_id",
+    );
+  });
+
+  test(`${label}: 6.A4.14 transitionFact rejects unknown factId`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.transitionFact("01nonexistfactmockid000000z", {
+        to: "reviewed",
+        reviewer_actor_user_id: "lawyer-01",
+        at: "2026-05-21T16:00:00.000Z",
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A4.15 transitionFact candidate → reviewed`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    const row = await p.transitionFact(DEFAULT_FACT_ID, {
+      to: "reviewed",
+      reviewer_actor_user_id: "lawyer-01",
+      at: "2026-05-21T16:00:00.000Z",
+    });
+    assert.equal(row.status, "reviewed");
+    assert.equal(row.reviewer_actor_user_id, "lawyer-01");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.entity_type, "fact");
+    assert.equal(evt.action, "update");
+    assert.equal(evt.reason, undefined);
+  });
+
+  test(`${label}: 6.A4.16 transitionFact candidate → rejected (shortcut, reason required)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    await assertRejectsCode(
+      () => p.transitionFact(DEFAULT_FACT_ID, {
+        to: "rejected",
+        reviewer_actor_user_id: "lawyer-01",
+        at: "2026-05-21T16:00:00.000Z",
+      }),
+      "invalid_argument",
+    );
+    const row = await p.transitionFact(DEFAULT_FACT_ID, {
+      to: "rejected",
+      reviewer_actor_user_id: "lawyer-01",
+      at: "2026-05-21T16:00:00.000Z",
+      rejection_reason: "not_relevant",
+    });
+    assert.equal(row.status, "rejected");
+    assert.equal(row.rejection_reason, "not_relevant");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.reason, "not_relevant");
+  });
+
+  test(`${label}: 6.A4.17 transitionFact reviewed → accepted (no supersession)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    await p.transitionFact(DEFAULT_FACT_ID, {
+      to: "reviewed",
+      reviewer_actor_user_id: "lawyer-01",
+      at: "2026-05-21T16:00:00.000Z",
+    });
+    const row = await p.transitionFact(DEFAULT_FACT_ID, {
+      to: "accepted",
+      reviewer_actor_user_id: "lawyer-01",
+      at: "2026-05-21T17:00:00.000Z",
+    });
+    assert.equal(row.status, "accepted");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.action, "update");
+  });
+
+  test(`${label}: 6.A4.18 transitionFact reviewed → accepted WITH supersedes_fact_id`, async () => {
+    const p = await seedMatterDoc();
+    // First accepted fact
+    await p.appendFact(makeFactInput());
+    await p.transitionFact(DEFAULT_FACT_ID, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T16:00:00.000Z" });
+    await p.transitionFact(DEFAULT_FACT_ID, { to: "accepted", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T17:00:00.000Z" });
+    // Second fact (replacement)
+    const replacementId = "01jcasefactmockid000000002";
+    await p.appendFact(makeFactInput({ id: replacementId, created_at: "2026-05-21T18:00:00.000Z" }));
+    await p.transitionFact(replacementId, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T19:00:00.000Z" });
+    const row = await p.transitionFact(replacementId, {
+      to: "accepted",
+      reviewer_actor_user_id: "lawyer-01",
+      at: "2026-05-21T20:00:00.000Z",
+      supersedes_fact_id: DEFAULT_FACT_ID,
+    });
+    assert.equal(row.status, "accepted");
+    assert.equal(row.supersedes_fact_id, DEFAULT_FACT_ID);
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.entity_type, "fact");
+    assert.equal(evt.action, "create");
+    assert.equal(evt.before_state_hash, null);
+    // Verify chain still valid spanning the create-action replacement
+    const ver = await p.verifyAuditChainForMatter(DEFAULT_MATTER_ID);
+    assert.equal(ver.ok, true);
+  });
+
+  test(`${label}: 6.A4.19 transitionFact reviewed → rejected (reason required)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    await p.transitionFact(DEFAULT_FACT_ID, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T16:00:00.000Z" });
+    await assertRejectsCode(
+      () => p.transitionFact(DEFAULT_FACT_ID, { to: "rejected", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T17:00:00.000Z" }),
+      "invalid_argument",
+    );
+    const row = await p.transitionFact(DEFAULT_FACT_ID, {
+      to: "rejected",
+      reviewer_actor_user_id: "lawyer-01",
+      at: "2026-05-21T17:00:00.000Z",
+      rejection_reason: "post_review_rejection",
+    });
+    assert.equal(row.status, "rejected");
+    assert.equal(row.rejection_reason, "post_review_rejection");
+  });
+
+  test(`${label}: 6.A4.20 transitionFact illegal candidate → accepted`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    await assertRejectsCode(
+      () => p.transitionFact(DEFAULT_FACT_ID, {
+        to: "accepted",
+        reviewer_actor_user_id: "lawyer-01",
+        at: "2026-05-21T16:00:00.000Z",
+      }),
+      "illegal_transition",
+    );
+  });
+
+  test(`${label}: 6.A4.21 transitionFact self-supersession`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    await p.transitionFact(DEFAULT_FACT_ID, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T16:00:00.000Z" });
+    await assertRejectsCode(
+      () => p.transitionFact(DEFAULT_FACT_ID, {
+        to: "accepted",
+        reviewer_actor_user_id: "lawyer-01",
+        at: "2026-05-21T17:00:00.000Z",
+        supersedes_fact_id: DEFAULT_FACT_ID,
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A4.22 transitionFact 2-cycle detected via tamper seam (corrupt state defense)`, async () => {
+    // A 2-cycle is not constructible through the legal API because accepted
+    // is terminal. To exercise the cycle walk's defense against pre-corrupt
+    // state, this test uses the test-only tamper seam to inject a back-edge,
+    // then asserts the walk rejects a new transition that would close the
+    // cycle. Audit Dim 1 #1 fix: replaces a previously-trivial assert.
+    const p = await seedMatterDoc();
+    const factA = DEFAULT_FACT_ID;
+    const factB = "01jcasefactcyclb000a4022bz"; // 26 chars
+    await p.appendFact(makeFactInput());
+    await p.transitionFact(factA, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T16:00:00.000Z" });
+    await p.transitionFact(factA, { to: "accepted", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T16:30:00.000Z" });
+    await p.appendFact(makeFactInput({ id: factB, created_at: "2026-05-21T17:00:00.000Z" }));
+    await p.transitionFact(factB, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T17:30:00.000Z" });
+    await p.transitionFact(factB, {
+      to: "accepted",
+      reviewer_actor_user_id: "lawyer-01",
+      at: "2026-05-21T18:00:00.000Z",
+      supersedes_fact_id: factA,
+    });
+    // Inject corruption: make A point back to B (impossible via API).
+    const { _tamperFactSupersedesForTest, _internalFactStateForTest } = await import("../internals.mjs");
+    _tamperFactSupersedesForTest(_internalFactStateForTest(p), factA, factB);
+    // Now create C and try to transition it to accepted with supersedes=A.
+    // The walk from A → B → A would loop; persistence must detect.
+    const factC = "01jcasefactcyclc000a4022cz";
+    await p.appendFact(makeFactInput({ id: factC, created_at: "2026-05-21T19:00:00.000Z" }));
+    await p.transitionFact(factC, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T19:30:00.000Z" });
+    await assertRejectsCode(
+      () => p.transitionFact(factC, {
+        to: "accepted",
+        reviewer_actor_user_id: "lawyer-01",
+        at: "2026-05-21T20:00:00.000Z",
+        supersedes_fact_id: factA,
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A4.23 transitionFact N-cycle via chain walk (defensive on corrupt state)`, async () => {
+    const p = await seedMatterDoc();
+    // Build a chain: A accepted, B accepted (supersedes A), C in reviewed.
+    // Attempting C.supersedes_fact_id = B should succeed (creates A←B←C chain, no cycle).
+    const factA = DEFAULT_FACT_ID;
+    const factB = "01jcasefactcyclb000a4023b9";
+    const factC = "01jcasefactcyclb000a4023c9";
+    await p.appendFact(makeFactInput());
+    await p.transitionFact(factA, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T16:00:00.000Z" });
+    await p.transitionFact(factA, { to: "accepted", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T16:30:00.000Z" });
+    await p.appendFact(makeFactInput({ id: factB, created_at: "2026-05-21T17:00:00.000Z" }));
+    await p.transitionFact(factB, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T17:30:00.000Z" });
+    await p.transitionFact(factB, {
+      to: "accepted",
+      reviewer_actor_user_id: "lawyer-01",
+      at: "2026-05-21T18:00:00.000Z",
+      supersedes_fact_id: factA,
+    });
+    await p.appendFact(makeFactInput({ id: factC, created_at: "2026-05-21T19:00:00.000Z" }));
+    await p.transitionFact(factC, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T19:30:00.000Z" });
+    // C.supersedes = B → chain is C→B→A. No cycle. Should succeed.
+    const rowC = await p.transitionFact(factC, {
+      to: "accepted",
+      reviewer_actor_user_id: "lawyer-01",
+      at: "2026-05-21T20:00:00.000Z",
+      supersedes_fact_id: factB,
+    });
+    assert.equal(rowC.supersedes_fact_id, factB);
+  });
+
+  test(`${label}: 6.A4.24 transitionFact supersedes pointer references non-accepted fact`, async () => {
+    const p = await seedMatterDoc();
+    const factA = DEFAULT_FACT_ID;
+    const factB = "01jcasefactnacb000a4024b97";
+    await p.appendFact(makeFactInput());
+    // Leave factA in candidate state.
+    await p.appendFact(makeFactInput({ id: factB, created_at: "2026-05-21T17:00:00.000Z" }));
+    await p.transitionFact(factB, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T17:30:00.000Z" });
+    await assertRejectsCode(
+      () => p.transitionFact(factB, {
+        to: "accepted",
+        reviewer_actor_user_id: "lawyer-01",
+        at: "2026-05-21T18:00:00.000Z",
+        supersedes_fact_id: factA,
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A4.25 transitionFact supersedes pointer references fact in different matter`, async () => {
+    const p = await seedMatterDoc();
+    const factA = DEFAULT_FACT_ID;
+    await p.appendFact(makeFactInput());
+    await p.transitionFact(factA, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T16:00:00.000Z" });
+    await p.transitionFact(factA, { to: "accepted", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T16:30:00.000Z" });
+    // Other matter with its own document + fact
+    const otherMatter = "01jothmatterfactcrs0a4025c";
+    const otherDoc = "01jothdoccolfactcrs0a4025d";
+    const otherFact = "01jothfactcrsa4025c97698b1";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    await p.registerDocument(otherMatter, makeDocumentInput({ id: otherDoc, matter_id: otherMatter }));
+    await p.appendFact(makeFactInput({
+      id: otherFact, matter_id: otherMatter,
+      created_at: "2026-05-21T17:00:00.000Z",
+    }));
+    await p.transitionFact(otherFact, { to: "reviewed", reviewer_actor_user_id: "lawyer-01", at: "2026-05-21T17:30:00.000Z" });
+    await assertRejectsCode(
+      () => p.transitionFact(otherFact, {
+        to: "accepted",
+        reviewer_actor_user_id: "lawyer-01",
+        at: "2026-05-21T18:00:00.000Z",
+        supersedes_fact_id: factA, // factA is in default matter, not otherMatter
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A4.26 transitionFact malformed opts.at`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput());
+    await assertRejectsCode(
+      () => p.transitionFact(DEFAULT_FACT_ID, {
+        to: "reviewed",
+        reviewer_actor_user_id: "lawyer-01",
+        at: "May 21 2026",
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A4.27 listFacts filter+chronological+cursor`, async () => {
+    const p = await seedMatterDoc();
+    for (let i = 0; i < 4; i++) {
+      await p.appendFact(makeFactInput({
+        id: `01jcasefactlist0000000a4${(i + 0x10).toString(16)}`,
+        created_at: `2026-05-21T1${i}:00:00.000Z`,
+      }));
+    }
+    const page1 = await p.listFacts({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, status: "candidate", limit: 2 });
+    assert.equal(page1.rows.length, 2);
+    assert.equal(typeof page1.next_cursor, "string");
+    const page2 = await p.listFacts({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, status: "candidate", limit: 2, cursor: page1.next_cursor });
+    assert.equal(page2.rows.length, 2);
+    assert.equal(page2.next_cursor, null);
+    const all = [...page1.rows, ...page2.rows];
+    for (let i = 1; i < all.length; i++) {
+      assert.ok(all[i - 1].created_at <= all[i].created_at);
+    }
+  });
+
+  test(`${label}: 6.A4.27b listFacts source_document_id from different matter → matter_id_mismatch`, async () => {
+    const p = await seedMatterDoc();
+    const otherMatter = "01jothfactlsmatter04027b07";
+    const otherDoc = "01jothfactlsdoc000a4027b07";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    await p.registerDocument(otherMatter, makeDocumentInput({ id: otherDoc, matter_id: otherMatter }));
+    await assertRejectsCode(
+      () => p.listFacts({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, source_document_id: otherDoc }),
+      "matter_id_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A4.27c listFacts source_document_id from different tenant → tenant_mismatch`, async () => {
+    const p = await seedMatterDoc();
+    const otherMatter = "01jothfactlsmatter04027c07";
+    const otherDoc = "01jothfactlsdoc000a4027c07";
+    await p.createMatter(makeMatterInput({ id: otherMatter, tenant_id: "other-tenant" }));
+    await p.registerDocument(otherMatter, makeDocumentInput({
+      id: otherDoc, matter_id: otherMatter, tenant_id: "other-tenant",
+    }));
+    await assertRejectsCode(
+      () => p.listFacts({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, source_document_id: otherDoc }),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A4.28 getFact unknown returns null + scoped lookup`, async () => {
+    const p = await seedMatterDoc();
+    // Unknown fact id returns null.
+    const missing = await p.getFact({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, fact_id: "01nonexistfactmockid000000z",
+    });
+    assert.equal(missing, null);
+    // Known fact returns the row when scope matches.
+    await p.appendFact(makeFactInput());
+    const found = await p.getFact({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, fact_id: DEFAULT_FACT_ID,
+    });
+    assert.equal(found.id, DEFAULT_FACT_ID);
+    // Cross-matter scope returns null (does not leak existence).
+    const otherMatter = "01jothmatscopefacta4028z01";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    const crossMatter = await p.getFact({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: otherMatter, fact_id: DEFAULT_FACT_ID,
+    });
+    assert.equal(crossMatter, null);
+    // Cross-tenant matter throws tenant_mismatch.
+    const otherTenantMatter = "01jothtenscopefacta4028z01";
+    await p.createMatter(makeMatterInput({ id: otherTenantMatter, tenant_id: "other-tenant" }));
+    await assertRejectsCode(
+      () => p.getFact({
+        tenant_id: DEFAULT_TENANT_ID, matter_id: otherTenantMatter, fact_id: DEFAULT_FACT_ID,
+      }),
+      "tenant_mismatch",
     );
   });
 }
