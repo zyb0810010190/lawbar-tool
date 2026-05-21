@@ -44,4 +44,9 @@ export type {
   ListDocketEntriesQuery,
   ListDocketEntriesPage,
   DeadlineTransitionOpts,
+  CaseBoxEvidenceItem,
+  EvidenceTransitionOpts,
+  GetEvidenceItemQuery,
+  ListEvidenceItemsQuery,
+  ListEvidenceItemsPage,
 } from "./types.js";

@@ -9,6 +9,7 @@ import {
   DEFAULT_DEADLINE_ID,
   DEFAULT_DOCKET_ENTRY_ID,
   DEFAULT_DOCUMENT_ID,
+  DEFAULT_EVIDENCE_ID,
   DEFAULT_FACT_ID,
   DEFAULT_MATTER_ID,
   DEFAULT_PRIVILEGE_MARKER_ID,
@@ -17,6 +18,7 @@ import {
   makeClock,
   makeDocketEntryInput,
   makeDocumentInput,
+  makeEvidenceItemInput,
   makeFactInput,
   makeIdGenerator,
   makeMatterInput,
@@ -2228,6 +2230,328 @@ export function runConformance(label, factory) {
         at: "2026-06-15T17:00:00.000Z",
       }),
       "invalid_argument",
+    );
+  });
+
+  // ===========================================================================
+  // Phase A6 — evidence items
+  // ===========================================================================
+
+  test(`${label}: 6.A6.1 appendEvidenceItem proposed happy path`, async () => {
+    const p = await seedMatterDoc();
+    const row = await p.appendEvidenceItem(makeEvidenceItemInput());
+    assert.equal(row.status, "proposed");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.entity_type, "evidence_item");
+    assert.equal(evt.action, "create");
+  });
+
+  test(`${label}: 6.A6.2 rejects status=accepted`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendEvidenceItem(makeEvidenceItemInput({ status: "accepted" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A6.3 rejects status=rejected`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendEvidenceItem(makeEvidenceItemInput({ status: "rejected" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A6.4 rejects status=superseded`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendEvidenceItem(makeEvidenceItemInput({ status: "superseded" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A6.5 rejects non-null supersedes_evidence_id at append`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendEvidenceItem(makeEvidenceItemInput({ supersedes_evidence_id: "01anyotherevidence00000a6a" })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A6.5b accepts proposed append with omitted supersedes_evidence_id`, async () => {
+    const p = await seedMatterDoc();
+    const input = makeEvidenceItemInput();
+    delete input.supersedes_evidence_id;
+    const row = await p.appendEvidenceItem(input);
+    assert.equal(row.status, "proposed");
+  });
+
+  test(`${label}: 6.A6.6 rejects unknown matter`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendEvidenceItem(makeEvidenceItemInput({ matter_id: "01nonexistmatter00000000xx" })),
+      "unknown_matter",
+    );
+  });
+
+  test(`${label}: 6.A6.7 rejects matter-level tenant mismatch`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendEvidenceItem(makeEvidenceItemInput({ tenant_id: "other-tenant" })),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A6.8 rejects unknown source_document_id`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendEvidenceItem(makeEvidenceItemInput({ source_document_id: "01nonexistdocmockid0000007" })),
+      "unknown_document",
+    );
+  });
+
+  test(`${label}: 6.A6.9 rejects cross-matter source_document_id`, async () => {
+    const p = await seedMatterDoc();
+    const otherMatter = "01jothereviddocmatter6a009";
+    const otherDoc = "01jotherevidcrossdoc6a009a";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    await p.registerDocument(otherMatter, makeDocumentInput({ id: otherDoc, matter_id: otherMatter }));
+    await assertRejectsCode(
+      () => p.appendEvidenceItem(makeEvidenceItemInput({ source_document_id: otherDoc })),
+      "matter_id_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A6.10 rejects duplicate id`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendEvidenceItem(makeEvidenceItemInput());
+    await assertRejectsCode(
+      () => p.appendEvidenceItem(makeEvidenceItemInput()),
+      "duplicate_id",
+    );
+  });
+
+  test(`${label}: 6.A6.11 transitionEvidenceItem proposed → accepted`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendEvidenceItem(makeEvidenceItemInput());
+    const row = await p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, {
+      to: "accepted",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T23:00:00.000Z",
+    });
+    assert.equal(row.status, "accepted");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.action, "update");
+  });
+
+  test(`${label}: 6.A6.12 transitionEvidenceItem proposed → rejected`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendEvidenceItem(makeEvidenceItemInput());
+    const row = await p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, {
+      to: "rejected",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T23:00:00.000Z",
+    });
+    assert.equal(row.status, "rejected");
+  });
+
+  test(`${label}: 6.A6.13 accepted → superseded with replacement_evidence_id`, async () => {
+    const p = await seedMatterDoc();
+    // First evidence (will be superseded)
+    await p.appendEvidenceItem(makeEvidenceItemInput());
+    await p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, { to: "accepted", actor_user_id: "lawyer-01", at: "2026-05-21T23:00:00.000Z" });
+    // Replacement
+    const replacementId = "01jcaseevidmockid000000002";
+    await p.appendEvidenceItem(makeEvidenceItemInput({ id: replacementId, created_at: "2026-05-22T00:00:00.000Z" }));
+    await p.transitionEvidenceItem(replacementId, { to: "accepted", actor_user_id: "lawyer-01", at: "2026-05-22T01:00:00.000Z" });
+    // Supersede the original
+    const row = await p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, {
+      to: "superseded",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-22T02:00:00.000Z",
+      replacement_evidence_id: replacementId,
+    });
+    assert.equal(row.status, "superseded");
+    assert.equal(row.supersedes_evidence_id, replacementId);
+  });
+
+  test(`${label}: 6.A6.14 accepted → superseded without replacement_evidence_id`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendEvidenceItem(makeEvidenceItemInput());
+    await p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, { to: "accepted", actor_user_id: "lawyer-01", at: "2026-05-21T23:00:00.000Z" });
+    await assertRejectsCode(
+      () => p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, {
+        to: "superseded",
+        actor_user_id: "lawyer-01",
+        at: "2026-05-22T00:00:00.000Z",
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A6.15 accepted → superseded with unknown replacement_evidence_id`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendEvidenceItem(makeEvidenceItemInput());
+    await p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, { to: "accepted", actor_user_id: "lawyer-01", at: "2026-05-21T23:00:00.000Z" });
+    await assertRejectsCode(
+      () => p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, {
+        to: "superseded",
+        actor_user_id: "lawyer-01",
+        at: "2026-05-22T00:00:00.000Z",
+        replacement_evidence_id: "01nonexistreplevidid000000",
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A6.16 accepted → superseded with cross-matter replacement`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendEvidenceItem(makeEvidenceItemInput());
+    await p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, { to: "accepted", actor_user_id: "lawyer-01", at: "2026-05-21T23:00:00.000Z" });
+    const otherMatter = "01jothmatterevcross6a016a0";
+    const otherEvidence = "01jothmevcrossid006a016a02";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    await p.appendEvidenceItem(makeEvidenceItemInput({ id: otherEvidence, matter_id: otherMatter, created_at: "2026-05-22T00:00:00.000Z" }));
+    await assertRejectsCode(
+      () => p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, {
+        to: "superseded",
+        actor_user_id: "lawyer-01",
+        at: "2026-05-22T01:00:00.000Z",
+        replacement_evidence_id: otherEvidence,
+      }),
+      "matter_id_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A6.17 rejects illegal proposed → superseded`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendEvidenceItem(makeEvidenceItemInput());
+    // Skip the accept step; try to supersede directly from proposed.
+    const replacementId = "01jcaseevidmockid000000003";
+    await p.appendEvidenceItem(makeEvidenceItemInput({ id: replacementId, created_at: "2026-05-22T00:00:00.000Z" }));
+    await p.transitionEvidenceItem(replacementId, { to: "accepted", actor_user_id: "lawyer-01", at: "2026-05-22T01:00:00.000Z" });
+    await assertRejectsCode(
+      () => p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, {
+        to: "superseded",
+        actor_user_id: "lawyer-01",
+        at: "2026-05-22T02:00:00.000Z",
+        replacement_evidence_id: replacementId,
+      }),
+      "illegal_transition",
+    );
+  });
+
+  test(`${label}: 6.A6.18b rejects re-transitioning a superseded entry (terminal)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendEvidenceItem(makeEvidenceItemInput());
+    await p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, { to: "accepted", actor_user_id: "lawyer-01", at: "2026-05-21T23:00:00.000Z" });
+    const replacementId = "01jcaseevidmockid0006a018b";
+    await p.appendEvidenceItem(makeEvidenceItemInput({ id: replacementId, created_at: "2026-05-22T00:00:00.000Z" }));
+    await p.transitionEvidenceItem(replacementId, { to: "accepted", actor_user_id: "lawyer-01", at: "2026-05-22T01:00:00.000Z" });
+    await p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, {
+      to: "superseded", actor_user_id: "lawyer-01", at: "2026-05-22T02:00:00.000Z",
+      replacement_evidence_id: replacementId,
+    });
+    // superseded is terminal; any further transition rejects.
+    await assertRejectsCode(
+      () => p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, {
+        to: "rejected", actor_user_id: "lawyer-01", at: "2026-05-22T03:00:00.000Z",
+      }),
+      "illegal_transition",
+    );
+  });
+
+  test(`${label}: 6.A6.18 rejects re-transitioning a rejected entry`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendEvidenceItem(makeEvidenceItemInput());
+    await p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, { to: "rejected", actor_user_id: "lawyer-01", at: "2026-05-21T23:00:00.000Z" });
+    await assertRejectsCode(
+      () => p.transitionEvidenceItem(DEFAULT_EVIDENCE_ID, {
+        to: "accepted",
+        actor_user_id: "lawyer-01",
+        at: "2026-05-22T00:00:00.000Z",
+      }),
+      "illegal_transition",
+    );
+  });
+
+  test(`${label}: 6.A6.19 getEvidenceItem scoped`, async () => {
+    const p = await seedMatterDoc();
+    const missing = await p.getEvidenceItem({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, evidence_id: "01nonexistevidlookup6a019a",
+    });
+    assert.equal(missing, null);
+    await p.appendEvidenceItem(makeEvidenceItemInput());
+    const found = await p.getEvidenceItem({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, evidence_id: DEFAULT_EVIDENCE_ID,
+    });
+    assert.equal(found.id, DEFAULT_EVIDENCE_ID);
+    const otherMatter = "01jothmatterevidscope6a019";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    const cross = await p.getEvidenceItem({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: otherMatter, evidence_id: DEFAULT_EVIDENCE_ID,
+    });
+    assert.equal(cross, null);
+    const otherTen = "01jothteneveidscope006a019";
+    await p.createMatter(makeMatterInput({ id: otherTen, tenant_id: "other-tenant" }));
+    await assertRejectsCode(
+      () => p.getEvidenceItem({ tenant_id: DEFAULT_TENANT_ID, matter_id: otherTen, evidence_id: DEFAULT_EVIDENCE_ID }),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A6.20 listEvidenceItems cursor + status filter + chronological ASC`, async () => {
+    const p = await seedMatterDoc();
+    for (let i = 0; i < 4; i++) {
+      await p.appendEvidenceItem(makeEvidenceItemInput({
+        id: `01jcaseevidlistmock000a6${(i + 0x10).toString(16)}`,
+        created_at: `2026-05-22T0${i}:00:00.000Z`,
+      }));
+    }
+    const page1 = await p.listEvidenceItems({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, status: "proposed", limit: 2 });
+    assert.equal(page1.rows.length, 2);
+    const page2 = await p.listEvidenceItems({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, status: "proposed", limit: 2, cursor: page1.next_cursor });
+    assert.equal(page2.rows.length, 2);
+    assert.equal(page2.next_cursor, null);
+    const all = [...page1.rows, ...page2.rows];
+    for (let i = 1; i < all.length; i++) {
+      assert.ok(all[i - 1].created_at <= all[i].created_at);
+    }
+  });
+
+  test(`${label}: 6.A6.21b listEvidenceItems source_document_id cross-tenant`, async () => {
+    const p = await seedMatterDoc();
+    const otherMatter = "01jothmevlistxten6a021b012";
+    const otherDoc = "01jothmevxtendocs0006a021b";
+    await p.createMatter(makeMatterInput({ id: otherMatter, tenant_id: "other-tenant" }));
+    await p.registerDocument(otherMatter, makeDocumentInput({
+      id: otherDoc, matter_id: otherMatter, tenant_id: "other-tenant",
+    }));
+    await assertRejectsCode(
+      () => p.listEvidenceItems({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, source_document_id: otherDoc }),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A6.21 listEvidenceItems source_document_id cross-matter`, async () => {
+    const p = await seedMatterDoc();
+    const otherMatter = "01jothmevlistxmat6a021m012";
+    const otherDoc = "01jothmevxmatdocs0006a021d";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    await p.registerDocument(otherMatter, makeDocumentInput({ id: otherDoc, matter_id: otherMatter }));
+    await assertRejectsCode(
+      () => p.listEvidenceItems({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, source_document_id: otherDoc }),
+      "matter_id_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A6.22 listEvidenceItems unknown matter`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.listEvidenceItems({ tenant_id: DEFAULT_TENANT_ID, matter_id: "01nonexistmatter00000000xx" }),
+      "unknown_matter",
     );
   });
 

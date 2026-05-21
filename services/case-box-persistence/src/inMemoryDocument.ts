@@ -1,4 +1,4 @@
-// Document-registration extraction for Phase A5 LOC discipline.
+// Document-registration + list extraction for Phase A5/A6 LOC discipline.
 //
 // Mechanical move of registerDocument's body from inMemoryRepo so the
 // repo class stays under the 800 pure-LOC fail threshold. Behavior is
@@ -14,10 +14,20 @@ import {
 
 import { CaseBoxPersistenceError } from "./errors.js";
 import {
+  computeFiltersHash,
+  decodeCursor,
+  encodeCursor,
+  resolveLimit,
+} from "./cursor.js";
+import {
   entityStateHash,
   priorHeadOf,
   type StoredAuditEvent,
 } from "./auditChain.js";
+import type {
+  ListDocumentsPage,
+  ListDocumentsQuery,
+} from "./types.js";
 
 interface PrepareRegisterDocumentResult {
   document: CaseBoxDocument;
@@ -86,4 +96,64 @@ export function prepareRegisterDocument(
     document,
     audit: { sequence: stored.length + 1, event: built.value },
   };
+}
+
+// ---------------------------------------------------------------------------
+// listDocuments helper — extracted from inMemoryRepo for A6 LOC discipline.
+// ---------------------------------------------------------------------------
+
+export function listDocumentsHelper(
+  matters: Map<string, CaseBoxMatter>,
+  documents: Map<string, { document: CaseBoxDocument; matter_id: string }>,
+  query: ListDocumentsQuery,
+): ListDocumentsPage {
+  const matter = matters.get(query.matter_id);
+  if (matter === undefined) {
+    throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
+  }
+  if (matter.tenant_id !== query.tenant_id) {
+    throw new CaseBoxPersistenceError(
+      "tenant_mismatch",
+      `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+    );
+  }
+  const limit = resolveLimit(query.limit);
+  const filters = { tenant_id: query.tenant_id, matter_id: query.matter_id };
+  const filters_hash = computeFiltersHash(filters);
+  const cursor =
+    query.cursor !== undefined
+      ? decodeCursor(query.cursor, { kind: "documents_by_matter", filters_hash })
+      : null;
+  let rows: CaseBoxDocument[] = [];
+  for (const entry of documents.values()) {
+    if (entry.matter_id !== query.matter_id) continue;
+    if (entry.document.tenant_id !== query.tenant_id) continue;
+    rows.push(entry.document);
+  }
+  rows.sort((a, b) => {
+    if (a.received_at < b.received_at) return 1;
+    if (a.received_at > b.received_at) return -1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  if (cursor !== null) {
+    const [tReceived, tId] = cursor.last_sort_tuple as [string, string];
+    rows = rows.filter((d) => {
+      if (d.received_at < tReceived) return true;
+      if (d.received_at === tReceived && d.id > tId) return true;
+      return false;
+    });
+  }
+  const hasMore = rows.length > limit;
+  const slice = hasMore ? rows.slice(0, limit) : rows;
+  const last = slice[slice.length - 1];
+  const next_cursor =
+    hasMore && last !== undefined
+      ? encodeCursor({
+          v: 1,
+          kind: "documents_by_matter",
+          filters_hash,
+          last_sort_tuple: [last.received_at, last.id],
+        })
+      : null;
+  return { rows: slice.map((d) => structuredClone(d) as CaseBoxDocument), next_cursor };
 }

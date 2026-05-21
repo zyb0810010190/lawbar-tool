@@ -87,6 +87,23 @@ export const DEFAULT_PRIVILEGE_MARKER_ID = "01jcasepmkmockid0000000001";
 export const DEFAULT_FACT_ID = "01jcasefactmockid000000001";
 export const DEFAULT_DOCKET_ENTRY_ID = "01jcasedockmockid000000001";
 export const DEFAULT_DEADLINE_ID = "01jcasedlinemockid00000001";
+export const DEFAULT_EVIDENCE_ID = "01jcaseevidmockid000000001";
+
+export function makeEvidenceItemInput(overrides = {}) {
+  return {
+    id: DEFAULT_EVIDENCE_ID,
+    tenant_id: VALID_TENANT_ID,
+    actor_user_id: "local-user",
+    matter_id: VALID_MATTER_ID,
+    source_document_id: null,
+    exhibit_page_range: null,
+    lawyer_weight: "moderate",
+    status: "proposed",
+    supersedes_evidence_id: null,
+    created_at: "2026-05-21T22:00:00.000Z",
+    ...overrides,
+  };
+}
 
 export function makeDocketEntryInput(overrides = {}) {
   return {

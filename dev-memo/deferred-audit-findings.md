@@ -26,6 +26,18 @@
 
 ---
 
+## Phase A6 — evidence items (commit `<pending A6 commit hash>`)
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mpfm9yx3-u37dx3` | `verify-mpfmi1u1-m2rzhh` |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| F5.1 | Low | Cleanup-only — defensive cross-tenant supersession branch is unreachable through the public API (matter-tenant binding enforces; same-matter cross-tenant evidence would require direct state tampering). Plan's §6.A6.16b test was never added; helper's defensive code retained for forward compatibility. Audit accepted the deferral. | cleanup-accepted (no follow-up planned; revisit only if a future WI introduces a path that allows same-matter cross-tenant rows) | YES | open | Defense-in-depth witness. No test fixture available without a tamper seam. |
+
+---
+
 ## Phase A5 — docket entries + deadline materialization (commit `<pending A5 commit hash>`)
 
 | Audit job | Verify job |

@@ -10,6 +10,7 @@ import type {
   CaseBoxDeadline,
   CaseBoxDocketEntry,
   CaseBoxDocument,
+  CaseBoxEvidenceItem,
   CaseBoxFact,
   CaseBoxMatter,
   CaseBoxPrivilegeMarker,
@@ -27,6 +28,7 @@ export type {
   AuditEventHash,
   CaseBoxDeadline,
   CaseBoxDocketEntry,
+  CaseBoxEvidenceItem,
   CaseBoxFact,
   CaseBoxPrivilegeMarker,
   ConfidentialityChangeReasonCode,
@@ -139,6 +141,38 @@ export interface CaseBoxPersistence {
   getDocketEntry(query: GetDocketEntryQuery): Promise<CaseBoxDocketEntry | null>;
   listDocketEntries(query: ListDocketEntriesQuery): Promise<ListDocketEntriesPage>;
   transitionDeadline(deadlineId: string, opts: DeadlineTransitionOpts): Promise<CaseBoxDeadline>;
+
+  // Evidence items (Phase A6)
+  appendEvidenceItem(input: unknown): Promise<CaseBoxEvidenceItem>;
+  transitionEvidenceItem(evidenceId: string, opts: EvidenceTransitionOpts): Promise<CaseBoxEvidenceItem>;
+  getEvidenceItem(query: GetEvidenceItemQuery): Promise<CaseBoxEvidenceItem | null>;
+  listEvidenceItems(query: ListEvidenceItemsQuery): Promise<ListEvidenceItemsPage>;
+}
+
+export interface EvidenceTransitionOpts {
+  readonly to: "accepted" | "rejected" | "superseded";
+  readonly actor_user_id: string;
+  readonly replacement_evidence_id?: string;
+}
+
+export interface GetEvidenceItemQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly evidence_id: string;
+}
+
+export interface ListEvidenceItemsQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly status?: "proposed" | "accepted" | "rejected" | "superseded";
+  readonly source_document_id?: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export interface ListEvidenceItemsPage {
+  readonly rows: ReadonlyArray<CaseBoxEvidenceItem>;
+  readonly next_cursor: string | null;
 }
 
 export interface ConfirmDocketEntryOpts {
