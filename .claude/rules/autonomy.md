@@ -48,4 +48,6 @@ Stop and ask the user before any of the following, even under bypassPermissions 
 
 When a WI completes verification + audit cleanly and the next WI is unblocked under the Autonomous Choice Policy, **continue** without prompting. Do not ask "should I proceed?" for routine forward progress.
 
-Related: [[staging-hygiene]], [[security-boundary]], [[client-local-first]].
+**Pre-flight gate** — before continuing into the next WI on a long `/goal` or `/project-autopilot` run, [[loc-guardian]] requires a `/loc-guardian:scan` and a clean verdict for hand-written source/test files. If the scan reports a fail, the loop stops until the violation is split/refactored or the user explicitly authorizes deferral.
+
+Related: [[staging-hygiene]], [[security-boundary]], [[client-local-first]], [[loc-guardian]].
