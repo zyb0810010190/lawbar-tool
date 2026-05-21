@@ -47,6 +47,8 @@ Apply the selection algorithm from [[../../commands/continue-project]] step 4. P
 
 **cc-suite commands are slash commands OR plugin-runner invocations, NOT Skills.** Never invoke as `Skill(cc-suite:*)` — see [[../../rules/cc-suite]]. Assistant-driven runs use the plugin runner `codex-runner.mjs` (Path 1) by default; direct Codex MCP is the fallback (Path 2); `codex exec` is the last resort (Path 3); if all three fail, stop and ask the user (Path 4). Self-review remains forbidden for high-risk WIs unless the user explicitly authorizes the fallback in the same turn.
 
+**High-risk `review-plan` runs follow the retry policy** in [[../../rules/cc-suite]] §"Retry policy": Path 1 full packet → Path 1 compact packet (on `spawnSync codex ETIMEDOUT`) → Path 2 compact packet (on second timeout) → Path 3 last resort. Plans for high-risk WIs MUST carry a `## Review packet (compact)` section so the second attempt has a narrow prompt ready. Every failure (and its retry trace) lands in `dev-memo/cc-suite-reliability-log.md`. The eleven recording fields in [[../../rules/cc-suite]] §"Required recording" now include failure classification, retry-attempt log, and fallback reason.
+
 ### 5. Verify gate
 
 - Run package tests touched by the WI.

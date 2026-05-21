@@ -23,9 +23,11 @@ Workflow for a single bounded security WI. Triggered by [[../../commands/continu
 
 ### 2. Plan review
 
-- Run **`/cc-suite:review-plan`** via the cc-suite plugin runner (`codex-runner.mjs`, Path 1) per [[../../rules/cc-suite]]. NEVER invoke via `Skill(cc-suite:review-plan)`. Direct Codex MCP is the fallback only when the runner is unavailable.
+- The plan doc MUST carry a `## Review packet (compact)` section per [[../../rules/cc-suite]] §"Review packet" — review-plan invocations for high-risk WIs (which security WIs always are) follow the retry policy that falls back to the compact packet on the second attempt.
+- Run **`/cc-suite:review-plan`** via the cc-suite plugin runner (`codex-runner.mjs`, Path 1) per [[../../rules/cc-suite]]. NEVER invoke via `Skill(cc-suite:review-plan)`.
+- Follow the retry policy in [[../../rules/cc-suite]] §"Retry policy": Path 1 full → Path 1 compact (on TIMEOUT) → Path 2 compact (on second TIMEOUT) → Path 3 last resort → Path 4 stop-and-ask.
 - Security WIs are in the [[../../rules/cc-suite]] high-risk category — self-review fallback is **NOT acceptable**. If all of Paths 1 / 2 / 3 fail, **stop and ask the user** to run it manually and paste back the findings.
-- Every automated invocation MUST record the eight fields listed in [[../../rules/cc-suite]] §"Required recording".
+- Every automated invocation MUST record the eleven fields listed in [[../../rules/cc-suite]] §"Required recording" — including the failure classification, retry-attempt log, and fallback reason when those apply.
 - Apply review fixes. Re-run review until clean.
 - **Branch:** if review demands product-direction changes outside the WI scope, open a sub-WI rather than expanding.
 

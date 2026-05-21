@@ -166,8 +166,12 @@ EVERY automated cc-suite run via Path 1, 2, or 3 MUST record the following — i
 6. **Codex `threadId`** (Path 1 or 2, if emitted) — needed for `/cc-suite:continue`.
 7. **Output / result location** — for Path 1: `${CLAUDE_PLUGIN_DATA}/state/<workspace-slug>-<hash>/jobs/<jobId>.{json,log}` (the assistant SHOULD NOT inspect this path manually for verification — see §"State-store path"). For Path 2/3: inline in the WI report.
 8. **`/cc-suite:status` / `/cc-suite:result` retrievable?** — YES iff Path 1 was used AND the runner returned `status:"completed"` or `status:"failed"` (both are retrievable). The assistant determines this from the runner's stdout JSON envelope, NOT from filesystem spot-checks against the wrong directory.
+9. **Failure classification** (when the invocation failed or required fallback) — one of TIMEOUT / MODEL_API_ERROR / RUNNER_ERROR / PROMPT_CONTEXT_ERROR per §"Timeout / failure classification". Omitted when the invocation succeeded on the first attempt.
+10. **Retry attempts** (review-plan only) — for review-plan invocations that took more than one attempt, list each attempt with its path, packet variant (full / compact), and outcome. Required so the reliability log can see the policy working.
+11. **Fallback reason** — when Path 2 or Path 3 was used, one sentence explaining which Path 1 attempt(s) failed and why fallback was justified.
 
-Recording these eight fields is the contract for "automation that preserves cc-suite memory semantics." Without them, the run is undistinguishable from self-review.
+Recording these eleven fields is the contract for "automation that preserves cc-suite memory semantics." Without them, the run is undistinguishable from self-review.
+
 
 ## Verify must consume explicit audit artifacts
 
@@ -208,9 +212,52 @@ Phrase the request precisely so the user can copy-paste:
 
 After the user provides the findings, treat them as a normal review-output pass: apply fixes, optionally re-request review, then commit.
 
+## Review packet (HIGH-RISK review-plan invocations)
+
+For HIGH-RISK WIs (per §"High-risk WIs"), the plan author MUST include a **compact review packet** at the top of the plan file under a section labeled `## Review packet (compact)`. The packet contains ONLY the load-bearing pieces a reviewer needs in the first attempt:
+
+1. **Active plan summary** — 3-5 sentences naming the WI, its scope cut, its dependency on prior phases.
+2. **Exact target files** — list (NOT "everything in this directory").
+3. **Exact acceptance criteria** — list (NOT "the standard acceptance pattern").
+4. **Exact out-of-scope list** — list. The reviewer needs this to avoid flagging deferred items.
+5. **Essential ADR references** — 2-3 max. The contract docs the WI directly depends on. NOT every ADR in the series.
+6. **Review questions** — 3-5 specific questions the reviewer should answer. Targeted.
+
+The full plan body sits BELOW the packet and provides depth on demand. The packet is the prompt budget for the second attempt of the retry policy (see §"Retry policy").
+
+`audit` and `verify` invocations do NOT require a packet — their scope is the diff (audit) or the prior audit report (verify), which is naturally bounded. Only `review-plan` runs the packet discipline.
+
+## Retry policy (`review-plan`)
+
+The recurring failure mode for `review-plan` is `spawnSync codex ETIMEDOUT` (codex-runner.mjs hits its 30-minute internal timeout) when the prompt is too wide. The fix is to retry with a narrower prompt, then fall back if even the narrow prompt times out.
+
+Sequence:
+
+| Attempt | Path | Prompt | If success | If `ETIMEDOUT` |
+|---|---|---|---|---|
+| 1 | Path 1 runner | FULL packet — full plan + parent + supporting ADRs + contract refs | Record result; done. | Go to attempt 2. |
+| 2 | Path 1 runner | COMPACT packet — only the §"Review packet (compact)" section | Record result; note "retry with compact packet succeeded"; done. | Go to attempt 3. |
+| 3 | Path 2 direct MCP | COMPACT packet | Record threadId; note "Path 2 fallback after two Path 1 timeouts"; done. | Go to attempt 4. |
+| 4 | Path 3 (`codex exec`) | COMPACT packet | Record; note "Path 3 last resort". | Stop and ask user (Path 4 of the §"Invocation paths" decision matrix). |
+
+The retry policy applies ONLY to `review-plan`. For `audit` and `verify`, a Path 1 failure goes straight to Path 2 per §"Failure handling".
+
+## Timeout / failure classification
+
+Every recorded cc-suite invocation MUST classify its outcome into one of these classes (also referenced in `dev-memo/cc-suite-reliability-log.md`):
+
+| Class | Signature | Retry policy |
+|---|---|---|
+| **TIMEOUT** | `spawnSync codex ETIMEDOUT` from runner stdout | review-plan: retry per §"Retry policy". audit/verify: skip to Path 2. |
+| **MODEL_API_ERROR** | Codex MCP returns 5xx / auth / quota / model-not-available | Surface to user; do NOT retry blindly. |
+| **RUNNER_ERROR** | codex-runner.mjs itself exits non-zero with its OWN error (not Codex's) | Surface to user; check runner version; Path 2 fallback acceptable for the WI but the runner needs separate repair. |
+| **PROMPT_CONTEXT_ERROR** | Runner returns success but Codex's `rawOutput` refuses the task / cannot read files / returns obvious off-target answer | Fix the prompt; re-attempt Path 1. NOT a Path 1 failure. |
+
+The §"Required recording" field set is extended with the class. See §"Required recording" updates below.
+
 ## Failure handling
 
-- Path 1 emits `{ status: "failed", error: <msg> }` — surface the error to the user, then attempt Path 2.
+- Path 1 emits `{ status: "failed", error: <msg> }` — classify per §"Timeout / failure classification"; for `review-plan` TIMEOUT, follow §"Retry policy"; otherwise surface to user and attempt Path 2.
 - Path 2 returns `[Tool result missing due to internal error]` or empty — do NOT retry; attempt Path 3.
 - Path 3 nonzero exit — stop and ask the user (Path 4).
 - `/cc-suite:status` returning an unhealthy / un-authenticated bridge state — surface to user; do NOT proceed.
@@ -226,3 +273,5 @@ After the user provides the findings, treat them as a normal review-output pass:
 - [[../skills/project-autopilot/SKILL]] — autopilot loop; same.
 - [[../skills/client-architecture-reconcile/SKILL]] — reconciliation skill; low-risk by default, self-review fallback allowed with recording.
 - `dev-memo/cc-suite-automation-investigation.md` — the investigation that produced the Path 1/2/3/4 ordering; documents the three invocation paths and the underlying Codex MCP tool name.
+- `dev-memo/cc-suite-runner-tracking-investigation.md` (CCSUITE-01) — confirms Path 1 broker tracking works at `${CLAUDE_PLUGIN_DATA}/state/lawbar-tool-<hash>/`.
+- `dev-memo/cc-suite-reliability-log.md` (CCSUITE-02) — append-only log of every Path 1/2/3 invocation failure and its retry outcome. New entries land here whenever the retry policy fires.
