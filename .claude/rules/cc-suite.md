@@ -1,23 +1,53 @@
 ---
-description: cc-suite workflow — assistant-driven automation via the cc-suite plugin's codex-runner.mjs is the default for high-risk WIs; never invoke via the Skill tool; self-review remains forbidden for high-risk WIs.
+description: cc-suite is the workflow broker between Claude and Codex. Use it (slash command or codex-runner.mjs), not raw Codex calls. Path 1 default for high-risk WIs; never invoke via the Skill tool; self-review remains forbidden for high-risk WIs.
 applies-to: "**"
 ---
 
 # cc-suite Workflow
 
-The cc-suite plugin (`cc-suite@xiaolai`) provides **Claude Code slash commands**, NOT Skills. Earlier autonomy text in this repo conflated the two; this rule corrects that. The rule was updated again on 2026-05-20 (after `dev-memo/cc-suite-automation-investigation.md`) to make assistant-driven automation via `codex-runner.mjs` the default for high-risk WIs, preserving cc-suite job/result memory semantics.
+## Framing — cc-suite is the workflow broker, not merely Codex as a raw tool
 
-## Hard rule (unchanged)
+**Use cc-suite as the workflow broker, not merely Codex as a raw tool.**
+
+cc-suite is the orchestration layer between Claude (writer / executor) and Codex (independent reviewer / auditor / verifier). The plugin owns:
+
+- **Delegation discipline** — `/cc-suite:review-plan`, `/cc-suite:audit`, `/cc-suite:verify`, `/cc-suite:audit-fix` encode the persona, the provenance disclosure ("the artifacts you are reviewing were produced by Anthropic's Claude — apply full rigor"), the prompt template, the sandbox, and the approval policy for each kind of cross-model review.
+- **Job tracking + memory** — every cc-suite run registers a job in the workspace's `.cc-suite/<jobId>/` directory; `/cc-suite:status` lists in-flight jobs; `/cc-suite:result` retrieves stored output by job id; `/cc-suite:continue <threadId>` resumes a prior Codex thread with cumulative context.
+- **Shared review artifacts** — all reviews land in a consistent location, with a consistent format, retrievable across sessions and across human + agent participants.
+
+Bypassing cc-suite — calling `mcp__plugin_codex-toolkit_codex__codex` directly or shelling out to `codex exec` — loses ALL of the above. The Codex review still happens, but the workspace can no longer:
+
+- list which reviews ran when;
+- replay a prior review's findings;
+- continue a thread with cumulative context;
+- correlate review artifacts to commits.
+
+This rule therefore treats direct Codex calls as **fallback only**, not as a preference for speed or token cost. The broker is the point.
+
+### Role separation (locked)
+
+| Component | Role | Notes |
+|---|---|---|
+| cc-suite | **Workflow broker** | Owns delegation pattern, job tracking, prompt templates, sandbox policy, status/result retrieval. NEVER bypassed for high-risk WIs. |
+| Claude Code | **Writer / executor** | Authors plans, code, tests, docs. Invokes cc-suite to obtain independent Codex review. Applies fixes from review findings. |
+| Codex (via MCP) | **Independent reviewer / auditor / verifier** | Reviews Claude's output adversarially per cc-suite's persona + provenance disclosure. NEVER writes code unless the WI explicitly authorizes Codex-writes per `AGENTS.md`. |
+| Skill tool | **NOT a cc-suite invocation surface** | `Skill(cc-suite:*)` fails with `Unknown skill`. Hard prohibition. |
+
+## Hard rule
 
 **Never invoke** `Skill(cc-suite:review-plan)` / `Skill(cc-suite:audit)` / `Skill(cc-suite:verify)` (or any `Skill(cc-suite:*)`). The Skill tool returns `Unknown skill: cc-suite:review-plan` and the WI cannot rely on it.
 
-cc-suite commands surface as user-typed slash commands AND as assistant-driven runner invocations. Both drive the same underlying Codex agent.
+cc-suite commands surface as user-typed slash commands AND as assistant-driven runner invocations. Both drive the same underlying Codex agent **through the broker** — that is what makes them cc-suite invocations rather than raw Codex calls.
 
 ## Invocation paths (priority order)
 
-The assistant uses these paths in order. Drop to the next one only when the current path is unavailable.
+The assistant uses these paths in order. Drop to the next one **only when the current path is unavailable**, not for convenience, latency, or token-cost reasons. Each downgrade loses broker discipline; the lower paths are listed for resilience, not preference.
 
-### Path 1 (default) — Plugin runner: `codex-runner.mjs`
+### Path 0 — User-typed slash command in the Claude Code session
+
+When the user types `/cc-suite:review-plan <scope>` (or any other cc-suite command) directly into the session, that IS the canonical cc-suite invocation. The assistant does NOT replicate it. Paths 1-3 below are for **assistant-driven autonomous execution**, not for user-driven turns.
+
+### Path 1 (default for assistant-driven) — Plugin runner: `codex-runner.mjs`
 
 ```
 node {runnerPath} --kind {review-plan | audit | verify | audit-fix} \
@@ -31,19 +61,21 @@ node {runnerPath} --kind {review-plan | audit | verify | audit-fix} \
 - Side effects: registers a job in the workspace's `.cc-suite/` state dir; `/cc-suite:status` and `/cc-suite:result` can retrieve it.
 - This path is **equivalent** to the user typing `/cc-suite:{kind}` and is the **default** for assistant-driven high-risk-WI reviews/audits/verifies.
 
-### Path 2 — Direct Codex MCP (`mcp__plugin_codex-toolkit_codex__codex`)
+### Path 2 — Direct Codex MCP (`mcp__plugin_codex-toolkit_codex__codex`) — **fallback only**
 
-Only when Path 1 fails (runner script missing, `node` unavailable, plugin cache corrupt, etc.). Direct MCP preserves:
+Only when Path 1 fails (runner script missing, `node` unavailable, plugin cache corrupt, `spawnSync codex ETIMEDOUT`, etc.). Direct MCP bypasses the broker, so the WI **loses** job tracking, `/cc-suite:status` retrievability, and `/cc-suite:result` storage. It does NOT lose Codex's review itself — the prompt template, persona, provenance disclosure, and parameters are replicated. But broker discipline is degraded.
+
+Direct MCP preserves:
 
 - Same prompt template (read from the slash command `.md` file in the runner-resolved plugin cache).
 - Same `model`, `config.model_reasoning_effort`, `sandbox`, `approval-policy`, `developer-instructions`.
-- `threadId` capture.
+- `threadId` capture (so `/cc-suite:continue {threadId}` can resume the Codex thread later, restoring partial broker continuity).
 
-Direct MCP does NOT register a `/cc-suite:status` job. The assistant MUST record the `threadId` explicitly in the WI's commit message or plan file so the user can later run `/cc-suite:continue {threadId}`.
+The assistant MUST record the `threadId` explicitly in the WI's commit message or plan file. The WI's recording per §"Required recording" MUST mark `/cc-suite:status / /cc-suite:result retrievable?` as **NO** when Path 2 was used.
 
-### Path 3 — `codex exec` CLI
+### Path 3 — `codex exec` CLI — **last resort**
 
-Only when Paths 1 and 2 both fail. Same prompt template; same model/effort/sandbox. No job tracking. No `threadId` capture. Use only as a last resort.
+Only when Paths 1 AND 2 both fail. This is the rawest tool — same prompt template, same model/effort/sandbox, but no job tracking and no `threadId` capture (CLI prints stdout and exits; the thread is lost on process exit). The WI loses essentially all broker semantics.
 
 ### Path 4 — Stop and ask the user
 
@@ -85,20 +117,23 @@ high-risk WI? ─→ YES ─→ Path 1 (runner) available?
             listed in §"Self-review fallback recording".
 ```
 
-## High-risk WIs (Path 1+ required; self-review NOT acceptable)
+## High-risk WIs — broker is REQUIRED
 
-If the WI touches any of the following, self-review fallback is NOT acceptable. Use Paths 1 / 2 / 3 / 4 in order:
+For high-risk WIs, cc-suite review/audit/verify is **required**. Self-review fallback is NOT acceptable regardless of recording. The broker — not just Codex — must run. Use Paths 0 / 1 / 2 / 3 / 4 in priority order.
 
-- Persistence / database (including new package introduction).
-- Security / TLS / DNS / SSRF / auth / sandboxing / crypto.
-- Cloud / sync / external document exposure / external account.
-- Public API / wire-format / schema / CLI breaking changes.
-- Framework / runtime dependency choices (Electron / Tauri / SQLite / native modules).
-- Irreversible migrations or production data operations.
-- LLM extractor implementation (Step 8 future-implementation gate).
-- Sync bridge implementation (`docs/adr/sync-bridge-architecture.md` SYNC-01+).
+High-risk categories (any one triggers the requirement):
+
+- **Persistence / database** (including new package introduction; SQLite / native-module work).
+- **Security** — TLS / DNS / SSRF / auth / sandboxing / crypto.
+- **Cloud / sync** — external document exposure / external account / sync bridge.
+- **Public API changes** — wire-format / schema / CLI breaking changes.
+- **Framework / runtime dependencies** — Electron / Tauri / SQLite / native modules / new top-level deps.
+- **Irreversible migrations** — production data operations / non-reversible schema changes.
+- **LLM implementation** — any actual LLM-extractor execution (Step 8 future-implementation gate).
 
 The list intentionally overlaps with the [[autonomy]] hard-stop list. Even when the autonomy rule itself does NOT trigger a hard-stop (e.g. a docs-only ADR that DESCRIBES a security boundary), the cc-suite review-plan gate may still apply because the plan governs the eventual high-risk work.
+
+**Why the broker is required, not just Codex**: a Codex review without the broker is a one-shot artifact that disappears at process exit (Path 3) or persists only as a Codex `threadId` (Path 2). High-risk WIs need persistent, retrievable review artifacts in the workspace so subsequent audits, verifies, and human reviews can correlate findings across time and across the audit chain. cc-suite's `.cc-suite/<jobId>/` storage is the load-bearing artifact; direct calls bypass it.
 
 ## Low-risk WIs (self-review fallback IS allowed)
 
@@ -172,10 +207,12 @@ After the user provides the findings, treat them as a normal review-output pass:
 
 ## Cross-references
 
+- `AGENTS.md` §"CC-Suite Integration Policy" — `cc-suite` is the default bridge for Claude ↔ Codex coordination. This rule extends that policy to the path order + recording requirements.
+- `AGENTS.md` §"Mutation policy" — Codex-side tools are reviewers by default; Codex MUST NOT write code unless the WI explicitly authorizes implementation. The cc-suite broker's persona + approval-policy on review/audit/verify commands lock Codex into reviewer mode.
 - [[autonomy]] — hard-stop list; cc-suite-required categories often overlap with autonomy hard-stops.
 - [[security-boundary]] — security-sensitive scope; cc-suite review-plan is required before implementation.
 - [[loc-guardian]] — orthogonal gate; LOC + cc-suite both apply.
 - [[../skills/security-wi-loop/SKILL]] — security WI loop; review-plan step now uses Path 1 by default.
 - [[../skills/project-autopilot/SKILL]] — autopilot loop; same.
 - [[../skills/client-architecture-reconcile/SKILL]] — reconciliation skill; low-risk by default, self-review fallback allowed with recording.
-- `dev-memo/cc-suite-automation-investigation.md` — the investigation that produced this revision; documents the three invocation paths and the underlying Codex MCP tool name.
+- `dev-memo/cc-suite-automation-investigation.md` — the investigation that produced the Path 1/2/3/4 ordering; documents the three invocation paths and the underlying Codex MCP tool name.
