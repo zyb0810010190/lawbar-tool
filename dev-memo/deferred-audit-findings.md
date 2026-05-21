@@ -1,0 +1,86 @@
+# Deferred Audit Findings — Backlog
+
+**Status**: append-only-ish backlog of cc-suite audit findings that were not fixed in their originating WI. Started 2026-05-21.
+
+**Purpose**: provide a durable, scannable location for every Low (and any escalated Medium-or-higher) the assistant chose not to fix inside its originating WI. The commit-message recording per `.claude/rules/cc-suite.md` §"Audit remediation policy" is per-WI; this file is the project-wide rollup so future WIs can find prior deferrals without scraping `git log`.
+
+**Update rules**:
+
+- **Append on every WI close** when the audit deferred any finding. Group entries by WI / commit.
+- **Update `status`** (open / closed / superseded) when a later WI addresses an open entry. Do NOT delete rows — flip the status and add a "resolved-in" reference. The historical evidence stays visible.
+- **Group several findings into one row** only when they share severity + deferral category + target backlog label. Otherwise keep one row per finding for greppability.
+- **Security-adjacent Lows** (SSRF / TLS / DNS / auth / sandbox per `.claude/rules/security-boundary.md`) MUST NOT appear here as `status: open` — `.claude/skills/security-wi-loop/SKILL.md` §6 requires escalation, not deferral, for those.
+
+**Column legend**:
+
+- `WI` — work-item label and resolution commit short hash.
+- `Audit job` — `/cc-suite:status`-retrievable Path-1 job id from the originating WI.
+- `Verify job` — `/cc-suite:status`-retrievable verify-pass job id that recorded the deferral.
+- `Finding ID` — the auditor's identifier (e.g. `F2.1`, `Dim 3 #1`).
+- `Severity` — Critical / High / Medium / Low. Anything above Low SHOULD appear as `status: escalated`, NOT `status: open` per `.claude/rules/cc-suite.md` §"Audit remediation policy" item 1.
+- `Reason for deferral` — one sentence citing which clause of §"Resolution rules" item 2 applies.
+- `Target` — future WI label, backlog tag, or `cleanup-accepted (no follow-up planned)`.
+- `Safe-to-proceed?` — `YES` / `NO`. `NO` means this row should already be an escalation, not a deferral.
+- `Status` — `open` / `closed` / `superseded`. `closed` means a later WI addressed it (cite the resolution commit in `Notes`). `superseded` means the underlying audit pattern stopped applying (e.g. the affected code was deleted).
+- `Notes` — free-form context + resolution-commit reference once closed.
+
+---
+
+## Phase A3 — privilege markers (commit `b2ef9f1`)
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mpfgref5-1drdsi` | `verify-mpfgxs2h-xxgvzi` |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| F2.1 | Low | Cleanup-only — local interfaces in `inMemoryPrivilege` duplicate the public types in `types.ts`. No behavior or invariant impact. Audit accepted deferral. | Phase A4 (broader sibling-module refactor when fact entities land) | YES | open | Type-duplication. The duplication is intentional for now (keeps `inMemoryPrivilege` self-contained); A4 may extract a shared internal type-helper module if the pattern repeats. |
+| F2.2 | Low | Out-of-scope — tenant/matter/document consistency path overlaps with `inMemoryClassification`. Resurfaces in A4 when facts add a third sibling. Audit accepted deferral. | Phase A4 (extract `resolveDocumentTarget` helper) | YES | open | Helper-extraction. Reviewer noted: "tolerable for A3, but it is now repeated enough that A4 will likely compound it." |
+| F4.2 | Low | Cleanup-only — defensive markerIndex behavior is acceptable (no delete API exists; an index miss throws before mutation). Audit verdict: "no code change required". | cleanup-accepted (no follow-up planned) | YES | open | Defense-in-depth defensive path. Resurfaces only if A3+ introduces a marker-delete API; reopen this row at that time. |
+| F5.2 | Low | Audit verdict was CLEAN — no tenant/matter leak found in `getPrivilegeStatus`. Recorded as "deferred" only in the sense that it stayed an inspected-and-accepted item; no fix required. | cleanup-accepted (no follow-up planned) | YES | open | Persistent-cleanliness witness. Keep an eye on it during A4 when `target_type === "fact"` opens up. |
+| F5.3 | Low | Audit verdict was CLEAN — no disclosure-safety inference from `hasProtectiveAssertion` in any persistence path. Recorded as "deferred" only in the same sense as F5.2. | cleanup-accepted (no follow-up planned) | YES | open | Anti-disclosure-clearance invariant witness. Defended by invariants test §6.2.A3.2; that test must not be deleted or weakened without an ADR. |
+
+---
+
+## Phase A2 — confidentiality classification (commit `f7f4bf5`)
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mpfcyd9a-l60m5r` | `verify-mpfd4e2y-6hzr6w` |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| F2.2 | Low | Out-of-scope — tenant/matter/document consistency check pattern repeated across append and get-effective paths. Small now; would grow with facts. Audit accepted deferral. | Phase A4 (extract `resolveDocumentTarget` helper) | YES | open | Same root pattern as A3 F2.2 — they should resolve together when A4 lands. |
+| F3.1 | Low | Cleanup-only — `unknown_document` code retained for forward compatibility per the documented 10-code set; not emitted by A2 methods. | cleanup-accepted (no follow-up planned) | YES | open | A3 introduced paths that DO emit `unknown_document` (appendPrivilegeMarker, getPrivilegeStatus). Mark for **review on A4 close**: if at least one A3 conformance case exercises every documented code, this row can flip to `closed`. |
+| F3.2 | Low | Cleanup-only — invariants test §6.2.6 SAMPLES error codes rather than exhaustively triggering each. Acceptable per audit. | cleanup-accepted (no follow-up planned) | YES | open | Same paired observation as F3.1 — if A3+ tests reach full code coverage, the §6.2.6 sampled comment can be rephrased to "comprehensive" without code changes. |
+| F4.2 | Low | Cleanup-only — whitespace-only reasons accepted by `appendConfidentialityClassification` for codes other than `"other"`. Audit accepted. | cleanup-accepted (no follow-up planned) | YES | open | Persistence DOES reject whitespace for `change_reason_code === "other"` (added during A2 audit-fix). Other reason codes are enum-bound so the whitespace concern is bounded. |
+| F4.3 | Low | Out-of-scope — `listConfidentialityClassifications` returns empty for never-classified documents while `getEffectiveClassification` returns `unclassified`. Distinction is intended; only conformance pinning was missing. | Phase A4 (add the pinning test alongside fact-target additions) | YES | open | Pure test gap; behavior is correct. |
+
+---
+
+## Phase A1 — case-box persistence in-memory base (commit `5de5530`)
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mpf8prhx-qenxkd` | `verify-mpf974sx-sn3hum` |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| F2.1 | Low | Cleanup-only — audit-event construction sequencing duplicated across matter create / document register / matter transition paths. Small; refactor would not change behavior. | future bounded refactor WI when a 4th audit-emitting path lands | YES | open | A2 + A3 added more audit-emitting paths (classification, privilege). The duplication factor is now ~5; consider opening a refactor WI once A4 (facts) lands. |
+| F3.1 | Low | Cleanup-only — `unknown_document` retained for forward compatibility (see A2 F3.1). | (paired with A2 F3.1) | YES | superseded by A3 | A3's `appendPrivilegeMarker` and `getPrivilegeStatus` exercise this code. Closing under that justification — see `b2ef9f1` conformance §6.A3.10, §6.A3.24. |
+| F3.2 | Low | Cleanup-only — test exhaustiveness for §6.2.6 (see A2 F3.2). | (paired with A2 F3.2) | YES | open | Cross-WI test coverage may have grown enough; revisit comment after A4. |
+| F4.2 | Low | Cleanup-only — whitespace-only `reason` accepted by `archiveMatter` / `unarchiveMatter`. Audit accepted. | cleanup-accepted (no follow-up planned) | YES | open | Same pattern as A2 F4.2; matter-transition reasons are free-text by design. |
+
+---
+
+## Legend for future entries
+
+When closing an entry, leave the row in place and update `Status` + append to `Notes` like:
+
+```
+| ... | closed | Resolved in WI-XX (commit abc1234) — extracted `resolveDocumentTarget`; conformance case 6.A4.N covers. |
+```
+
+When a finding becomes irrelevant (e.g. the affected code was removed by another WI), mark `superseded` and cite the commit that removed the underlying surface.
+
+When several rows close together (e.g. A2 F2.2 + A3 F2.1 + A3 F2.2 all close under one A4 refactor), keep them as separate rows so the grep for any one of them still surfaces the close.

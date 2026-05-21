@@ -210,9 +210,16 @@ When several Lows share the same deferral category, group them under one row wit
 
 If verify finds an undocumented open Critical / High / Medium, the WI is NOT ready to commit — escalate immediately. Verify's verdict must be `ALL CLOSED` (or `ALL CLOSED + DEFERRED-PER-WI Lows`) before commit.
 
+### Durable backlog file
+
+In addition to per-WI commit-message recording, every deferred finding MUST also be appended to `dev-memo/deferred-audit-findings.md`. That file is the project-wide rollup grouped by WI / commit so future WIs can find prior deferrals without scraping `git log`. The row format and update rules live in the backlog file's own header.
+
+Closing an entry (when a later WI fixes it) MUST update the row's `status` field in-place to `closed` and cite the resolution commit — the row stays visible. Same for `superseded` when the underlying surface is removed.
+
 ### Cross-references
 
-- §"Required recording" — the 11-field invocation log lives there; the remediation log here is per-finding and lives in the same commit message / plan file.
+- §"Required recording" — the 11-field invocation log lives there; the remediation log here is per-finding and lives in the same commit message / plan file AND in `dev-memo/deferred-audit-findings.md`.
+- `dev-memo/deferred-audit-findings.md` — project-wide backlog of deferred findings, grouped by WI.
 - `[[../skills/project-autopilot/SKILL]]` and `[[../skills/security-wi-loop/SKILL]]` — both reference this policy in their audit / verify steps.
 
 ## Verify must consume explicit audit artifacts
