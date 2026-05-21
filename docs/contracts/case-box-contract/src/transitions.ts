@@ -108,6 +108,31 @@ export function isTerminalFactState(state: FactState): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Docket-entry lifecycle (Step 6)
+// ---------------------------------------------------------------------------
+
+export type DocketEntryState = "proposed" | "confirmed" | "dismissed";
+
+export const DOCKET_ENTRY_STATES: readonly DocketEntryState[] = Object.freeze([
+  "proposed",
+  "confirmed",
+  "dismissed",
+] as const);
+
+// Confirmed AND dismissed are terminal. Confirmed materializes a CaseBoxDeadline
+// (Step-1 entity) and the docket entry stays immutable post-confirmation;
+// "this deadline didn't apply" is expressed by transitioning the CaseBoxDeadline
+// itself to status=withdrawn (existing Step-1 enum) — not the docket entry.
+export const TERMINAL_DOCKET_ENTRY_STATES: readonly DocketEntryState[] = Object.freeze([
+  "confirmed",
+  "dismissed",
+] as const);
+
+export function isTerminalDocketEntryState(state: DocketEntryState): boolean {
+  return TERMINAL_DOCKET_ENTRY_STATES.includes(state);
+}
+
+// ---------------------------------------------------------------------------
 // Privilege-marker lifecycle
 // ---------------------------------------------------------------------------
 
@@ -192,6 +217,17 @@ export const ALLOWED_EVIDENCE_EDGES: readonly AllowedEdge<EvidenceState>[] = fre
   { from: "proposed", to: "accepted",   by: ["lawyer"] },
   { from: "proposed", to: "rejected",   by: ["lawyer"] },
   { from: "accepted", to: "superseded", by: ["lawyer"], note: "supersedes_evidence_id required" },
+]);
+
+// Docket-entry edges (Step 6). proposed→confirmed is the only promotion path
+// (load-bearing for no-auto-confirm). proposed→dismissed requires a non-empty
+// reason. Confirmation is owned by the confirmation-specific helper
+// assertValidDocketEntryConfirmation (in docket-invariants.ts), which REQUIRES
+// the full entry and rejects date_only confirmation in v1. The generic
+// assertValidDocketEntryTransition here does NOT take an entry.
+export const ALLOWED_DOCKET_ENTRY_EDGES: readonly AllowedEdge<DocketEntryState>[] = freezeEdges<DocketEntryState>([
+  { from: "proposed", to: "confirmed", by: ["lawyer"], note: "lawyer affirmation — call assertValidDocketEntryConfirmation for date_only safety" },
+  { from: "proposed", to: "dismissed", by: ["lawyer"], reason_required: true, note: "lawyer rejected the proposed deadline; reason required for legal trail" },
 ]);
 
 // Privilege-marker edges. proposed→confirmed is the only promotion path
@@ -316,6 +352,14 @@ export function isAllowedPrivilegeMarkerTransition(
   return isAllowed(ALLOWED_PRIVILEGE_MARKER_EDGES, from, to, controlled_by);
 }
 
+export function isAllowedDocketEntryTransition(
+  from: DocketEntryState,
+  to: DocketEntryState,
+  controlled_by: CaseBoxActor,
+): boolean {
+  return isAllowed(ALLOWED_DOCKET_ENTRY_EDGES, from, to, controlled_by);
+}
+
 function assertNonTerminal<S extends string>(
   terminals: readonly S[],
   from: S,
@@ -422,6 +466,34 @@ export function assertValidPrivilegeMarkerTransition(
     throw new IllegalTransitionError(from, to, controlled_by);
   }
   if (edgeRequiresReason(ALLOWED_PRIVILEGE_MARKER_EDGES, from, to)) {
+    if (typeof reason !== "string" || reason.length === 0) {
+      throw new IllegalTransitionError(
+        from,
+        to,
+        controlled_by,
+        `transition '${from}' -> '${to}' requires a non-empty reason`,
+      );
+    }
+  }
+}
+
+// Generic state-machine transition for docket entries. Date_only confirmation
+// safety is owned by assertValidDocketEntryConfirmation in docket-invariants.ts;
+// callers performing a confirmation MUST use that helper, not this one.
+export function assertValidDocketEntryTransition(
+  from: DocketEntryState,
+  to: DocketEntryState,
+  controlled_by: CaseBoxActor,
+  reason?: string,
+): void {
+  assertNonTerminal(TERMINAL_DOCKET_ENTRY_STATES, from, to, controlled_by);
+  if (from === to) {
+    throw new IllegalTransitionError(from, to, controlled_by, "self-transition rejected");
+  }
+  if (!isAllowedDocketEntryTransition(from, to, controlled_by)) {
+    throw new IllegalTransitionError(from, to, controlled_by);
+  }
+  if (edgeRequiresReason(ALLOWED_DOCKET_ENTRY_EDGES, from, to)) {
     if (typeof reason !== "string" || reason.length === 0) {
       throw new IllegalTransitionError(
         from,

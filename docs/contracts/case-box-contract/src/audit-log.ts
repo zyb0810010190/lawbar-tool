@@ -34,6 +34,7 @@ export const CASE_BOX_AUDIT_ENTITY_TYPES = Object.freeze([
   "fact",
   "privilege_marker",
   "confidentiality_classification",
+  "docket_entry",
 ] as const);
 
 export type CaseBoxAuditEntityType = (typeof CASE_BOX_AUDIT_ENTITY_TYPES)[number];
@@ -110,6 +111,10 @@ export const CASE_BOX_AUDIT_EVENT_KINDS = Object.freeze({
   CLASSIFICATION_UPGRADED:             { action: "create", entity_type: "confidentiality_classification", reasonRequired: false },
   CLASSIFICATION_DOWNGRADED:           { action: "create", entity_type: "confidentiality_classification", reasonRequired: true  },
   CLASSIFICATION_RESET_TO_UNCLASSIFIED: { action: "create", entity_type: "confidentiality_classification", reasonRequired: true  },
+  // Docket entry (Step 6) — three kinds; DEADLINE_CONTINUED deliberately deferred
+  DOCKET_ENTRY_PROPOSED:               { action: "create", entity_type: "docket_entry", reasonRequired: false },
+  DOCKET_ENTRY_CONFIRMED:              { action: "update", entity_type: "docket_entry", reasonRequired: false },
+  DOCKET_ENTRY_DISMISSED:              { action: "update", entity_type: "docket_entry", reasonRequired: true  },
 } as const satisfies Record<string, AuditKindMeta>);
 
 export type CaseBoxAuditEventKind = keyof typeof CASE_BOX_AUDIT_EVENT_KINDS;

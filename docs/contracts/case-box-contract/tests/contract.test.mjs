@@ -36,6 +36,7 @@ const auditEventSchema   = readJson(join(schemasDir, "case-box-audit-event.schem
 const factSchema         = readJson(join(schemasDir, "case-box-fact.schema.json"));
 const privilegeMarkerSchema = readJson(join(schemasDir, "case-box-privilege-marker.schema.json"));
 const confidentialityClassificationSchema = readJson(join(schemasDir, "case-box-confidentiality-classification.schema.json"));
+const docketEntrySchema = readJson(join(schemasDir, "case-box-docket-entry.schema.json"));
 
 const validateMatter       = ajv.compile(matterSchema);
 const validateDocument     = ajv.compile(documentSchema);
@@ -47,6 +48,7 @@ const validateAuditEvent   = ajv.compile(auditEventSchema);
 const validateFact         = ajv.compile(factSchema);
 const validatePrivilegeMarker = ajv.compile(privilegeMarkerSchema);
 const validateConfidentialityClassification = ajv.compile(confidentialityClassificationSchema);
+const validateDocketEntry = ajv.compile(docketEntrySchema);
 
 const errs = (v) => (v.errors || []).map((e) => `${e.instancePath} ${e.message}`).join("; ");
 
@@ -446,4 +448,84 @@ test("invalid: confidentiality-missing-set-at is rejected", () => {
     e.keyword === "required" && e.params?.missingProperty === "set_at"
   );
   assert.ok(offenders.length > 0);
+});
+
+// ---------------------------------------------------------------------------
+// Step 6 — Docket entry fixtures
+// ---------------------------------------------------------------------------
+
+test("valid: docket-entry-proposed-llm passes", () => {
+  assert.equal(validateDocketEntry(readJson(join(validDir, "docket-entry-proposed-llm.valid.json"))), true, errs(validateDocketEntry));
+});
+
+test("valid: docket-entry-proposed-court-order-excerpt passes", () => {
+  assert.equal(validateDocketEntry(readJson(join(validDir, "docket-entry-proposed-court-order-excerpt.valid.json"))), true, errs(validateDocketEntry));
+});
+
+test("valid: docket-entry-proposed-manual passes", () => {
+  assert.equal(validateDocketEntry(readJson(join(validDir, "docket-entry-proposed-manual.valid.json"))), true, errs(validateDocketEntry));
+});
+
+test("valid: docket-entry-proposed-imported passes", () => {
+  assert.equal(validateDocketEntry(readJson(join(validDir, "docket-entry-proposed-imported.valid.json"))), true, errs(validateDocketEntry));
+});
+
+test("valid: docket-entry-confirmed passes", () => {
+  assert.equal(validateDocketEntry(readJson(join(validDir, "docket-entry-confirmed.valid.json"))), true, errs(validateDocketEntry));
+});
+
+test("valid: docket-entry-dismissed passes", () => {
+  assert.equal(validateDocketEntry(readJson(join(validDir, "docket-entry-dismissed.valid.json"))), true, errs(validateDocketEntry));
+});
+
+test("valid: docket-entry-with-reminder-offsets passes", () => {
+  assert.equal(validateDocketEntry(readJson(join(validDir, "docket-entry-with-reminder-offsets.valid.json"))), true, errs(validateDocketEntry));
+});
+
+test("valid: docket-entry-reminder-zero-offset passes", () => {
+  assert.equal(validateDocketEntry(readJson(join(validDir, "docket-entry-reminder-zero-offset.valid.json"))), true, errs(validateDocketEntry));
+});
+
+test("invalid: docket-entry-bad-source-type is rejected", () => {
+  assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-bad-source-type.json"))), false);
+});
+
+test("invalid: docket-entry-llm-without-extractor is rejected (D2)", () => {
+  assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-llm-without-extractor.json"))), false);
+});
+
+test("invalid: docket-entry-manual-with-extractor is rejected (D1)", () => {
+  assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-manual-with-extractor.json"))), false);
+});
+
+test("invalid: docket-entry-court-order-without-document is rejected (D4)", () => {
+  assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-court-order-without-document.json"))), false);
+});
+
+test("invalid: docket-entry-confirmed-without-deadline-id is rejected (D5)", () => {
+  assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-confirmed-without-deadline-id.json"))), false);
+});
+
+test("invalid: docket-entry-dismissed-without-reason is rejected (D6)", () => {
+  assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-dismissed-without-reason.json"))), false);
+});
+
+test("invalid: docket-entry-datetime-without-timezone is rejected (D7)", () => {
+  assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-datetime-without-timezone.json"))), false);
+});
+
+test("invalid: docket-entry-proposed-with-confirmed-at is rejected (D-proposed)", () => {
+  assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-proposed-with-confirmed-at.json"))), false);
+});
+
+test("invalid: docket-entry-reminder-negative-offset is rejected", () => {
+  assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-reminder-negative-offset.json"))), false);
+});
+
+test("invalid: docket-entry-reminder-bad-kind is rejected", () => {
+  assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-reminder-bad-kind.json"))), false);
+});
+
+test("invalid: docket-entry-reminder-extra-property is rejected (additionalProperties: false)", () => {
+  assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-reminder-extra-property.json"))), false);
 });

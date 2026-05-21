@@ -64,6 +64,18 @@ const expectedFns = [
   "assertValidNewConfidentialityClassification",
   "effectiveConfidentialityLevel",
   "assertExternalHandlingAllowed",
+  // Step 6
+  "validateDocketEntry",
+  "isAllowedDocketEntryTransition",
+  "assertValidDocketEntryTransition",
+  "isTerminalDocketEntryState",
+  "assertValidNewDocketEntry",
+  "assertValidDocketEntryConfirmation",
+  "assertValidIanaTimezone",
+  "interpretDocketEntryDueAt",
+  "isDocketEntryProposalOnly",
+  "docketEntryWasMachineExtracted",
+  "requiresHumanConfirmation",
 ];
 
 const expectedArrays = [
@@ -90,6 +102,10 @@ const expectedArrays = [
   // Step 5
   "CONFIDENTIALITY_LEVELS",
   "CONFIDENTIALITY_CHANGE_REASON_CODES",
+  // Step 6
+  "DOCKET_ENTRY_STATES",
+  "TERMINAL_DOCKET_ENTRY_STATES",
+  "ALLOWED_DOCKET_ENTRY_EDGES",
 ];
 
 const expectedObjects = [
@@ -104,6 +120,7 @@ const expectedObjects = [
   "privilegeMarkerSchema",
   "confidentialityClassificationSchema",
   "LATTICE_ORDINAL",
+  "docketEntrySchema",
 ];
 
 const expectedConstants = [
@@ -119,6 +136,9 @@ const expectedErrorCtors = [
   "AuditEventReasonRequiredError",
   "ConfidentialityTransitionError",
   "ConfidentialityCreationError",
+  "DocketEntryCreationError",
+  "DocketEntryConfirmationError",
+  "InvalidIanaTimezoneError",
 ];
 
 test("every expected function is exported and callable", () => {
@@ -147,6 +167,8 @@ test("every expected array is exported and non-empty (where applicable)", () => 
   assert.ok(pkg.CASE_BOX_AUDIT_ENTITY_TYPES.length > 0);
   assert.ok(pkg.CONFIDENTIALITY_LEVELS.length > 0);
   assert.ok(pkg.CONFIDENTIALITY_CHANGE_REASON_CODES.length > 0);
+  assert.ok(pkg.DOCKET_ENTRY_STATES.length > 0);
+  assert.ok(pkg.ALLOWED_DOCKET_ENTRY_EDGES.length > 0);
 });
 
 test("CASE_BOX_AUDIT_EVENT_KINDS is exported as a non-empty object", () => {
@@ -212,4 +234,17 @@ test("error constructors produce Error instances with named .name", () => {
   assert.ok(e8 instanceof Error);
   assert.equal(e8.name, "ConfidentialityCreationError");
   assert.equal(e8.violation, "prior mismatch");
+
+  const e9 = new pkg.DocketEntryCreationError("must start proposed");
+  assert.ok(e9 instanceof Error);
+  assert.equal(e9.name, "DocketEntryCreationError");
+
+  const e10 = new pkg.DocketEntryConfirmationError("date_only forbidden");
+  assert.ok(e10 instanceof Error);
+  assert.equal(e10.name, "DocketEntryConfirmationError");
+
+  const e11 = new pkg.InvalidIanaTimezoneError("PST");
+  assert.ok(e11 instanceof Error);
+  assert.equal(e11.name, "InvalidIanaTimezoneError");
+  assert.equal(e11.value, "PST");
 });

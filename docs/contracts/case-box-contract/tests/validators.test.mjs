@@ -54,6 +54,18 @@ import {
   assertExternalHandlingAllowed,
   ConfidentialityTransitionError,
   ConfidentialityCreationError,
+  // Step 6
+  validateDocketEntry,
+  assertValidNewDocketEntry,
+  assertValidDocketEntryConfirmation,
+  assertValidIanaTimezone,
+  interpretDocketEntryDueAt,
+  isDocketEntryProposalOnly,
+  docketEntryWasMachineExtracted,
+  requiresHumanConfirmation,
+  DocketEntryCreationError,
+  DocketEntryConfirmationError,
+  InvalidIanaTimezoneError,
 } from "../dist/index.js";
 import { createHash } from "node:crypto";
 
@@ -1156,6 +1168,138 @@ test("HandlingDecision shape has NO disclosure-clearance fields", () => {
   for (const k of banned) {
     assert.equal(k in r, false, `HandlingDecision must NOT have field ${k}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Step 6 — docket entry validator + helpers
+// ---------------------------------------------------------------------------
+
+test("validateDocketEntry happy: proposed-llm ok=true", () => {
+  const r = validateDocketEntry(readJson(join(validDir, "docket-entry-proposed-llm.valid.json")));
+  assert.equal(r.ok, true);
+});
+
+test("validateDocketEntry happy: confirmed ok=true", () => {
+  const r = validateDocketEntry(readJson(join(validDir, "docket-entry-confirmed.valid.json")));
+  assert.equal(r.ok, true);
+});
+
+test("validateDocketEntry error: dismissed-without-reason ok=false (D6)", () => {
+  const r = validateDocketEntry(readJson(join(invalidDir, "docket-entry-dismissed-without-reason.json")));
+  assert.equal(r.ok, false);
+});
+
+// --- assertValidNewDocketEntry ---
+
+test("assertValidNewDocketEntry: every source type starts proposed", () => {
+  for (const fixture of ["docket-entry-proposed-manual.valid.json", "docket-entry-proposed-llm.valid.json", "docket-entry-proposed-court-order-excerpt.valid.json", "docket-entry-proposed-imported.valid.json"]) {
+    const entry = readJson(join(validDir, fixture));
+    assert.doesNotThrow(() => assertValidNewDocketEntry(entry));
+  }
+});
+
+test("assertValidNewDocketEntry: rejects ANY source with initial confirmed (no direct-confirm path)", () => {
+  for (const source_type of ["manual", "llm_extraction", "imported", "court_order_excerpt"]) {
+    const e = { confirmation_state: "confirmed", confirmation_actor_user_id: "local-user", confirmed_at: "2026-05-20T16:00:00.000Z", confirmed_deadline_id: "01jrcasebox0000000000000dx" };
+    assert.throws(() => assertValidNewDocketEntry(e), DocketEntryCreationError);
+  }
+});
+
+test("assertValidNewDocketEntry: rejects initial dismissed (terminal)", () => {
+  const e = { confirmation_state: "dismissed", dismissal_actor_user_id: "local-user", dismissed_at: "x", dismissal_reason: "x" };
+  assert.throws(() => assertValidNewDocketEntry(e), DocketEntryCreationError);
+});
+
+test("assertValidNewDocketEntry: rejects proposed with confirmation fields populated", () => {
+  const e = { confirmation_state: "proposed", confirmation_actor_user_id: "local-user" };
+  assert.throws(() => assertValidNewDocketEntry(e), DocketEntryCreationError);
+});
+
+// --- assertValidDocketEntryConfirmation (load-bearing date_only check) ---
+
+test("assertValidDocketEntryConfirmation: datetime entry by lawyer passes", () => {
+  const entry = readJson(join(validDir, "docket-entry-proposed-manual.valid.json"));
+  assert.doesNotThrow(() => assertValidDocketEntryConfirmation(entry, "lawyer"));
+});
+
+test("assertValidDocketEntryConfirmation: date_only entry throws DocketEntryConfirmationError (LOAD-BEARING v1 rule)", () => {
+  const entry = readJson(join(root, "fixtures", "semantic-invalid", "docket-entry-date-only-confirmed.json"));
+  assert.throws(() => assertValidDocketEntryConfirmation(entry, "lawyer"), DocketEntryConfirmationError);
+});
+
+test("assertValidDocketEntryConfirmation: non-lawyer actor throws", () => {
+  const entry = readJson(join(validDir, "docket-entry-proposed-manual.valid.json"));
+  for (const actor of ["coordinator", "ingestion", "review"]) {
+    assert.throws(() => assertValidDocketEntryConfirmation(entry, actor));
+  }
+});
+
+test("assertValidDocketEntryConfirmation: terminal entry throws", () => {
+  const entry = readJson(join(validDir, "docket-entry-confirmed.valid.json"));
+  assert.throws(() => assertValidDocketEntryConfirmation(entry, "lawyer"));
+});
+
+// --- assertValidIanaTimezone (strict, denylist-first) ---
+
+test("assertValidIanaTimezone: accepts canonical zones", () => {
+  for (const tz of ["UTC", "America/New_York", "Asia/Shanghai", "Europe/London"]) {
+    assert.doesNotThrow(() => assertValidIanaTimezone(tz), `${tz} should be accepted`);
+  }
+});
+
+test("assertValidIanaTimezone: rejects deprecated alias America/Buenos_Aires (denylist-first)", () => {
+  assert.throws(() => assertValidIanaTimezone("America/Buenos_Aires"), InvalidIanaTimezoneError);
+});
+
+test("assertValidIanaTimezone: rejects abbreviations and malformed values", () => {
+  for (const bad of ["PST", "GMT", "Mars/Olympus", "", "america/new_york"]) {
+    assert.throws(() => assertValidIanaTimezone(bad), InvalidIanaTimezoneError, `${bad} should be rejected`);
+  }
+});
+
+// --- interpretDocketEntryDueAt ---
+
+test("interpretDocketEntryDueAt: datetime returns kind+instant+timezone", () => {
+  const entry = readJson(join(validDir, "docket-entry-proposed-court-order-excerpt.valid.json"));
+  const r = interpretDocketEntryDueAt(entry);
+  assert.equal(r.kind, "datetime");
+  assert.equal(r.instant, "2026-06-15T17:00:00.000Z");
+  assert.equal(r.timezone, "Asia/Shanghai");
+});
+
+test("interpretDocketEntryDueAt: date_only returns kind+calendarDate; NEVER converts to datetime", () => {
+  const entry = readJson(join(validDir, "docket-entry-proposed-llm.valid.json"));
+  const r = interpretDocketEntryDueAt(entry, { jurisdictionHint: "us-federal" });
+  assert.equal(r.kind, "date_only");
+  assert.equal(r.calendarDate, "2026-06-15");
+  assert.equal(r.jurisdictionHint, "us-federal");
+  assert.equal("instant" in r, false, "date_only return must NOT have an 'instant' field");
+});
+
+test("interpretDocketEntryDueAt: datetime with bad timezone throws InvalidIanaTimezoneError", () => {
+  const entry = { proposed_due_at: "2026-06-15T17:00:00.000Z", proposed_due_at_kind: "datetime", proposed_due_at_timezone: "PST" };
+  assert.throws(() => interpretDocketEntryDueAt(entry), InvalidIanaTimezoneError);
+});
+
+// --- predicates ---
+
+test("isDocketEntryProposalOnly truth table", () => {
+  assert.equal(isDocketEntryProposalOnly({ confirmation_state: "proposed" }), true);
+  assert.equal(isDocketEntryProposalOnly({ confirmation_state: "confirmed" }), false);
+  assert.equal(isDocketEntryProposalOnly({ confirmation_state: "dismissed" }), false);
+});
+
+test("docketEntryWasMachineExtracted truth table", () => {
+  for (const source of ["llm_extraction", "imported", "court_order_excerpt"]) {
+    assert.equal(docketEntryWasMachineExtracted({ source_type: source }), true, `${source} should be machine`);
+  }
+  assert.equal(docketEntryWasMachineExtracted({ source_type: "manual" }), false);
+});
+
+test("requiresHumanConfirmation: true only for proposed machine source", () => {
+  assert.equal(requiresHumanConfirmation({ confirmation_state: "proposed", source_type: "llm_extraction" }), true);
+  assert.equal(requiresHumanConfirmation({ confirmation_state: "proposed", source_type: "manual" }), false);
+  assert.equal(requiresHumanConfirmation({ confirmation_state: "confirmed", source_type: "llm_extraction" }), false);
 });
 
 // ---------------------------------------------------------------------------

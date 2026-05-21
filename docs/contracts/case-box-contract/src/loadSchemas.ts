@@ -12,6 +12,7 @@ import auditEventSchema from "../schemas/case-box-audit-event.schema.json" with 
 import factSchema from "../schemas/case-box-fact.schema.json" with { type: "json" };
 import privilegeMarkerSchema from "../schemas/case-box-privilege-marker.schema.json" with { type: "json" };
 import confidentialityClassificationSchema from "../schemas/case-box-confidentiality-classification.schema.json" with { type: "json" };
+import docketEntrySchema from "../schemas/case-box-docket-entry.schema.json" with { type: "json" };
 
 export {
   matterSchema,
@@ -24,4 +25,5 @@ export {
   factSchema,
   privilegeMarkerSchema,
   confidentialityClassificationSchema,
+  docketEntrySchema,
 };

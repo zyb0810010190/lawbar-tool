@@ -1,0 +1,17 @@
+{
+  "_invalid_reason": "D5: confirmation_state=confirmed requires non-null confirmation_actor_user_id + confirmed_at + confirmed_deadline_id",
+  "_target_schema": "case-box-docket-entry",
+  "id": "01jrcasebox0000000000000d5", "tenant_id": "tenant-local-v1", "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "source_type": "manual",
+  "proposed_kind": "hearing",
+  "proposed_due_at": "2026-07-10T14:00:00.000Z", "proposed_due_at_kind": "datetime", "proposed_due_at_timezone": "America/Los_Angeles",
+  "proposed_owner_user_id": "local-user", "source_rule_citation": null,
+  "extractor_name": null, "extractor_version": null, "extraction_confidence": null,
+  "source_document_id": null, "source_page_number": null, "source_excerpt": null,
+  "reminder_offsets": null,
+  "confirmation_state": "confirmed", "proposed_at": "2026-05-20T16:20:00.000Z",
+  "confirmation_actor_user_id": null, "confirmed_at": null, "confirmed_deadline_id": null,
+  "dismissal_actor_user_id": null, "dismissed_at": null, "dismissal_reason": null,
+  "created_at": "2026-05-20T16:20:00.000Z"
+}

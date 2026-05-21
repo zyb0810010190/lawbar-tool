@@ -21,23 +21,28 @@ import {
   TERMINAL_FACT_STATES,
   PRIVILEGE_MARKER_STATES,
   TERMINAL_PRIVILEGE_MARKER_STATES,
+  DOCKET_ENTRY_STATES,
+  TERMINAL_DOCKET_ENTRY_STATES,
   ALLOWED_MATTER_EDGES,
   ALLOWED_DOCUMENT_EDGES,
   ALLOWED_EVIDENCE_EDGES,
   ALLOWED_DEADLINE_EDGES,
   ALLOWED_FACT_EDGES,
   ALLOWED_PRIVILEGE_MARKER_EDGES,
+  ALLOWED_DOCKET_ENTRY_EDGES,
   isAllowedMatterTransition,
   isAllowedDocumentTransition,
   isAllowedEvidenceTransition,
   isAllowedDeadlineTransition,
   isAllowedFactTransition,
   isAllowedPrivilegeMarkerTransition,
+  isAllowedDocketEntryTransition,
   assertValidMatterTransition,
   assertValidDocumentTransition,
   assertValidEvidenceTransition,
   assertValidDeadlineTransition,
   assertValidFactTransition,
+  assertValidDocketEntryTransition,
   assertValidPrivilegeMarkerTransition,
   IllegalTransitionError,
 } from "../dist/index.js";
@@ -299,6 +304,64 @@ test("drift: schema entity_type.enum exactly matches CASE_BOX_AUDIT_ENTITY_TYPES
   const schemaEnum = auditEventSchema?.properties?.entity_type?.enum;
   assert.ok(Array.isArray(schemaEnum), "audit-event schema must declare entity_type as enum");
   assert.deepEqual([...schemaEnum].sort(), [...CASE_BOX_AUDIT_ENTITY_TYPES].sort());
+});
+
+// ---------------------------------------------------------------------------
+// Step 6 — Docket entry state machine
+// ---------------------------------------------------------------------------
+
+test("docket entry: proposed → confirmed by lawyer is allowed (generic helper)", () => {
+  assert.doesNotThrow(() => assertValidDocketEntryTransition("proposed", "confirmed", "lawyer"));
+});
+
+test("docket entry: proposed → dismissed requires non-empty reason", () => {
+  assert.throws(() => assertValidDocketEntryTransition("proposed", "dismissed", "lawyer"));
+  assert.throws(() => assertValidDocketEntryTransition("proposed", "dismissed", "lawyer", ""));
+  assert.doesNotThrow(() => assertValidDocketEntryTransition("proposed", "dismissed", "lawyer", "LLM hallucinated"));
+});
+
+test("docket entry: non-lawyer actors throw on every edge", () => {
+  for (const [from, to, reason] of [["proposed", "confirmed", undefined], ["proposed", "dismissed", "ok"]]) {
+    for (const actor of ["coordinator", "ingestion", "review"]) {
+      assert.throws(() => assertValidDocketEntryTransition(from, to, actor, reason), IllegalTransitionError, `${from}→${to} by ${actor} must throw`);
+    }
+  }
+});
+
+test("docket entry: confirmed is terminal — confirmed → * throws", () => {
+  for (const to of ["proposed", "dismissed"]) {
+    assert.throws(() => assertValidDocketEntryTransition("confirmed", to, "lawyer", "ok"), IllegalTransitionError, `confirmed→${to} must throw`);
+  }
+});
+
+test("docket entry: dismissed is terminal — dismissed → * throws", () => {
+  for (const to of ["proposed", "confirmed"]) {
+    assert.throws(() => assertValidDocketEntryTransition("dismissed", to, "lawyer", "ok"), IllegalTransitionError);
+  }
+});
+
+test("docket entry: self-transitions throw", () => {
+  for (const s of ["proposed", "confirmed", "dismissed"]) {
+    assert.throws(() => assertValidDocketEntryTransition(s, s, "lawyer", "ok"), IllegalTransitionError);
+  }
+});
+
+test("docket entry: ALLOWED_DOCKET_ENTRY_EDGES content matches documented set (drift guard)", () => {
+  const documented = [
+    { from: "proposed", to: "confirmed", by: ["lawyer"], reason_required: undefined },
+    { from: "proposed", to: "dismissed", by: ["lawyer"], reason_required: true },
+  ];
+  assert.equal(ALLOWED_DOCKET_ENTRY_EDGES.length, documented.length, "edge count drift");
+  for (const d of documented) {
+    const match = ALLOWED_DOCKET_ENTRY_EDGES.find((e) => e.from === d.from && e.to === d.to);
+    assert.ok(match, `missing edge ${d.from}→${d.to}`);
+    assert.deepEqual([...match.by], d.by);
+    assert.equal(match.reason_required === true ? true : undefined, d.reason_required);
+  }
+});
+
+test("docket entry: TERMINAL_DOCKET_ENTRY_STATES is [confirmed, dismissed]", () => {
+  assert.deepEqual([...TERMINAL_DOCKET_ENTRY_STATES].sort(), ["confirmed", "dismissed"]);
 });
 
 // ---------------------------------------------------------------------------

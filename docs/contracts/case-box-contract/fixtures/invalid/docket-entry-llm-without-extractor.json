@@ -1,0 +1,17 @@
+{
+  "_invalid_reason": "D2: llm_extraction requires non-null extractor_name",
+  "_target_schema": "case-box-docket-entry",
+  "id": "01jrcasebox0000000000000d1", "tenant_id": "tenant-local-v1", "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "source_type": "llm_extraction",
+  "proposed_kind": "filing",
+  "proposed_due_at": "2026-06-15T00:00:00.000Z", "proposed_due_at_kind": "date_only", "proposed_due_at_timezone": null,
+  "proposed_owner_user_id": "local-user", "source_rule_citation": null,
+  "extractor_name": null, "extractor_version": null, "extraction_confidence": null,
+  "source_document_id": null, "source_page_number": null, "source_excerpt": null,
+  "reminder_offsets": null,
+  "confirmation_state": "proposed", "proposed_at": "2026-05-20T16:00:00.000Z",
+  "confirmation_actor_user_id": null, "confirmed_at": null, "confirmed_deadline_id": null,
+  "dismissal_actor_user_id": null, "dismissed_at": null, "dismissal_reason": null,
+  "created_at": "2026-05-20T16:00:00.000Z"
+}

@@ -16,6 +16,7 @@ export { validateAuditEvent } from "./validateAuditEvent.js";
 export { validateFact } from "./validateFact.js";
 export { validatePrivilegeMarker } from "./validatePrivilegeMarker.js";
 export { validateConfidentialityClassification } from "./validateConfidentialityClassification.js";
+export { validateDocketEntry } from "./validateDocketEntry.js";
 
 // --- State machines + transition helpers ---
 export {
@@ -37,24 +38,30 @@ export {
   PRIVILEGE_MARKER_STATES,
   TERMINAL_PRIVILEGE_MARKER_STATES,
   isTerminalPrivilegeMarkerState,
+  DOCKET_ENTRY_STATES,
+  TERMINAL_DOCKET_ENTRY_STATES,
+  isTerminalDocketEntryState,
   ALLOWED_MATTER_EDGES,
   ALLOWED_DOCUMENT_EDGES,
   ALLOWED_EVIDENCE_EDGES,
   ALLOWED_DEADLINE_EDGES,
   ALLOWED_FACT_EDGES,
   ALLOWED_PRIVILEGE_MARKER_EDGES,
+  ALLOWED_DOCKET_ENTRY_EDGES,
   isAllowedMatterTransition,
   isAllowedDocumentTransition,
   isAllowedEvidenceTransition,
   isAllowedDeadlineTransition,
   isAllowedFactTransition,
   isAllowedPrivilegeMarkerTransition,
+  isAllowedDocketEntryTransition,
   assertValidMatterTransition,
   assertValidDocumentTransition,
   assertValidEvidenceTransition,
   assertValidDeadlineTransition,
   assertValidFactTransition,
   assertValidPrivilegeMarkerTransition,
+  assertValidDocketEntryTransition,
   IllegalTransitionError,
   OcrSubordinationError,
   type MatterState,
@@ -63,6 +70,7 @@ export {
   type DeadlineState,
   type FactState,
   type PrivilegeMarkerState,
+  type DocketEntryState,
   type CaseBoxActor,
   type AllowedEdge,
 } from "./transitions.js";
@@ -122,6 +130,21 @@ export {
   type AssertExternalHandlingInput,
 } from "./confidentiality-invariants.js";
 
+// --- Docket entry helpers (Step 6) ---
+export {
+  assertValidNewDocketEntry,
+  assertValidDocketEntryConfirmation,
+  assertValidIanaTimezone,
+  interpretDocketEntryDueAt,
+  isDocketEntryProposalOnly,
+  docketEntryWasMachineExtracted,
+  requiresHumanConfirmation,
+  DocketEntryCreationError,
+  DocketEntryConfirmationError,
+  InvalidIanaTimezoneError,
+  type DocketEntryDueAtInterpretation,
+} from "./docket-invariants.js";
+
 // --- Audit log helpers (Step 4) ---
 export {
   CASE_BOX_AUDIT_ENTITY_TYPES,
@@ -163,6 +186,7 @@ export type { CaseBoxAuditEvent } from "./generated/case-box-audit-event.js";
 export type { CaseBoxFact } from "./generated/case-box-fact.js";
 export type { CaseBoxPrivilegeMarker } from "./generated/case-box-privilege-marker.js";
 export type { CaseBoxConfidentialityClassification } from "./generated/case-box-confidentiality-classification.js";
+export type { CaseBoxDocketEntry } from "./generated/case-box-docket-entry.js";
 
 // --- Deep-frozen public schemas ---
 //
@@ -181,6 +205,7 @@ import {
   factSchema as rawFactSchema,
   privilegeMarkerSchema as rawPrivilegeMarkerSchema,
   confidentialityClassificationSchema as rawConfidentialityClassificationSchema,
+  docketEntrySchema as rawDocketEntrySchema,
 } from "./loadSchemas.js";
 
 function deepFreeze<T>(value: T): T {
@@ -203,3 +228,4 @@ export const auditEventSchema = deepFreeze(structuredClone(rawAuditEventSchema))
 export const factSchema = deepFreeze(structuredClone(rawFactSchema));
 export const privilegeMarkerSchema = deepFreeze(structuredClone(rawPrivilegeMarkerSchema));
 export const confidentialityClassificationSchema = deepFreeze(structuredClone(rawConfidentialityClassificationSchema));
+export const docketEntrySchema = deepFreeze(structuredClone(rawDocketEntrySchema));
