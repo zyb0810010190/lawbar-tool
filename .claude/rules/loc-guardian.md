@@ -24,7 +24,11 @@ A scan is NOT required before:
 
 ## Gate semantics
 
-`/loc-guardian:scan` returns a `VERDICT: N over limit, M warnings` line. Interpret per category:
+`/loc-guardian:scan` returns a `VERDICT: N over limit, M warnings` line.
+
+**Warnings below the fail threshold do NOT block autopilot.** Only `N > 0` (files over the fail threshold) stops the loop. A warning is a tracking signal, not a gate. **Do not start a LOC-2/LOC-N follow-up refactor unless it has been explicitly selected as the next WI** — chasing the warn zone proactively is out of scope for normal autopilot iterations.
+
+Interpret per category:
 
 ### Hand-written source (`*.ts`, `*.mjs`, `*.js`, `*.tsx`, `*.jsx` outside generated paths)
 

@@ -13,13 +13,13 @@ Claude may take all of the following without asking:
 
 - Discover docs (read ADRs, plans, contracts, dev-memos).
 - Draft plans and PLAN-* / WI-* docs.
-- Review and audit plans (`/review-plan`, codex review skills).
+- Review and audit plans via the cc-suite slash commands `/cc-suite:review-plan`, `/cc-suite:audit`, `/cc-suite:verify`. **These are slash commands, NOT Skills** — never invoke them via `Skill(cc-suite:*)`. See [[cc-suite]] for the full decision matrix on when self-review fallback is acceptable.
 - Fix plan defects identified by review.
 - Revise existing docs, ADRs, dev-memos when scope is doc-only.
 - Create follow-up work items / sub-WIs to keep scope bounded.
 - Implement ONE bounded work item at a time.
 - Write tests; run local test commands listed in `AGENTS.md`.
-- Run `/audit`, `/audit-fix`, `/verify`, `/status`, `/result`, `/continue`.
+- Run cc-suite slash commands: `/cc-suite:audit`, `/cc-suite:audit-fix`, `/cc-suite:verify`, `/cc-suite:status`, `/cc-suite:result`, `/cc-suite:continue`. (See [[cc-suite]].)
 - Fix audit findings (Critical, High, Medium) inside the active WI scope.
 - Verify fixes and re-audit.
 - Create docs-only ADRs and dev-memos.
@@ -50,4 +50,4 @@ When a WI completes verification + audit cleanly and the next WI is unblocked un
 
 **Pre-flight gate** — before continuing into the next WI on a long `/goal` or `/project-autopilot` run, [[loc-guardian]] requires a `/loc-guardian:scan` and a clean verdict for hand-written source/test files. If the scan reports a fail, the loop stops until the violation is split/refactored or the user explicitly authorizes deferral.
 
-Related: [[staging-hygiene]], [[security-boundary]], [[client-local-first]], [[loc-guardian]].
+Related: [[staging-hygiene]], [[security-boundary]], [[client-local-first]], [[loc-guardian]], [[cc-suite]].

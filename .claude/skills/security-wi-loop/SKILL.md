@@ -19,11 +19,12 @@ Workflow for a single bounded security WI. Triggered by [[../../commands/continu
 
 - Draft or read the plan doc (`docs/adr/...md` or `dev-memo/...md`).
 - Plan must state: the gap closed, the invariant added, the prior failure mode, the surface promised to callers (error codes, types, exceptions), and the test list.
-- If absent, **draft** the plan doc and stop for `/review-plan`.
+- If absent, **draft** the plan doc and stop for `/cc-suite:review-plan`.
 
 ### 2. Plan review
 
-- Run `/review-plan` (cc-suite Codex review) on the plan doc.
+- Run **`/cc-suite:review-plan`** (a Claude Code **slash command**, NOT a Skill — never invoke via `Skill(cc-suite:review-plan)`; that returns `Unknown skill`).
+- Security WIs are in the [[../../rules/cc-suite]] high-risk category — self-review fallback is **NOT acceptable**. If Claude cannot invoke the slash command autonomously in the current session, **stop and ask the user** to run it manually and paste back the findings.
 - Apply review fixes. Re-run review until clean.
 - **Branch:** if review demands product-direction changes outside the WI scope, open a sub-WI rather than expanding.
 
@@ -52,13 +53,14 @@ Workflow for a single bounded security WI. Triggered by [[../../commands/continu
 
 ### 6. Audit
 
-- `/audit-fix` on the changed scope.
-- If `/audit-fix` is not authorized for this scope, use `/audit` and fix findings manually inside the WI.
+- `/cc-suite:audit-fix` on the changed scope. (Slash command. See [[../../rules/cc-suite]] — never invoke via the Skill tool.)
+- If `/cc-suite:audit-fix` is not authorized for this scope, use `/cc-suite:audit` and fix findings manually inside the WI.
+- Same rule as §2 applies: security audits are high-risk; if the slash command is not autonomously invokable, stop and ask.
 - Re-run until no Critical/High remain.
 
 ### 7. Verify
 
-- `/verify` against the audit report.
+- `/cc-suite:verify` against the audit report.
 - All findings must show closed status.
 
 ### 8. Sign-off doc

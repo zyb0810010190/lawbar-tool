@@ -42,14 +42,16 @@ Apply the selection algorithm from [[../../commands/continue-project]] step 4. P
 |---|---|
 | Security / SSRF / TLS / DNS / fetcher / auth / sandbox | [[../security-wi-loop/SKILL]] |
 | Client surface / gateway / sync / ADR reconciliation | [[../client-architecture-reconcile/SKILL]] |
-| General bounded code WI | plan → `/review-plan` (when in-scope) → implement → tests → `/audit-fix` → `/verify` → [[../../commands/commit-gate]] |
-| Doc-only ADR / dev-memo | draft → `/review-plan` (optional) → [[../../commands/commit-gate]] |
+| General bounded code WI | plan → `/cc-suite:review-plan` (when in-scope per [[../../rules/cc-suite]]) → implement → tests → `/cc-suite:audit-fix` → `/cc-suite:verify` → [[../../commands/commit-gate]] |
+| Doc-only ADR / dev-memo | draft → `/cc-suite:review-plan` (optional for low-risk per [[../../rules/cc-suite]]; self-review fallback allowed with recording) → [[../../commands/commit-gate]] |
+
+**cc-suite commands are slash commands, NOT Skills.** Never invoke as `Skill(cc-suite:*)` — see [[../../rules/cc-suite]]. For high-risk WIs (persistence, security, cloud/sync, auth, framework choice, irreversible migration), stop and ask the user to run the slash command manually if Claude cannot invoke it autonomously.
 
 ### 5. Verify gate
 
 - Run package tests touched by the WI.
-- Run `/audit-fix` (or `/audit` + manual fix) on the changed scope.
-- Run `/verify`.
+- Run `/cc-suite:audit-fix` (or `/cc-suite:audit` + manual fix) on the changed scope. (Slash command; see [[../../rules/cc-suite]].)
+- Run `/cc-suite:verify`.
 - Audit must show no unresolved Critical/High before commit.
 
 ### 6. Commit
