@@ -59,7 +59,8 @@ Workflow for a single bounded security WI. Triggered by [[../../commands/continu
 - `/cc-suite:audit-fix` on the changed scope. (Slash command. See [[../../rules/cc-suite]] — never invoke via the Skill tool.)
 - If `/cc-suite:audit-fix` is not authorized for this scope, use `/cc-suite:audit` and fix findings manually inside the WI.
 - Same rule as §2 applies: security audits are high-risk; if the slash command is not autonomously invokable, stop and ask.
-- Re-run until no Critical/High remain.
+- Apply [[../../rules/cc-suite]] §"Audit remediation policy": every Critical/High/Medium MUST be FIXED-and-verified or explicitly ESCALATED to the user. **Security WIs are stricter than the default** — Lows that touch the security boundary (SSRF, TLS, DNS, auth, sandbox) MUST be escalated even when the audit accepts deferral; do NOT silently defer security-adjacent Lows. Record every deferral with the five fields (finding ID, severity, reason, target WI/backlog, safe-to-proceed?).
+- Re-run until no Critical/High/Medium remain open and verify returns `ALL CLOSED`.
 
 ### 7. Verify
 

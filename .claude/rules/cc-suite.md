@@ -173,6 +173,48 @@ EVERY automated cc-suite run via Path 1, 2, or 3 MUST record the following — i
 Recording these eleven fields is the contract for "automation that preserves cc-suite memory semantics." Without them, the run is undistinguishable from self-review.
 
 
+## Audit remediation policy
+
+Every `/cc-suite:audit` (or `/cc-suite:audit-fix`) produces a findings list with severities Critical / High / Medium / Low. Findings do NOT close themselves on commit; the WI MUST explicitly resolve each one.
+
+### Resolution rules
+
+1. **Critical / High / Medium findings**: each MUST be either
+   - **FIXED** in the same WI and verified by a subsequent `/cc-suite:verify`, OR
+   - **explicitly escalated to the user as a blocker** (stop and ask). Never silently leave a Critical / High / Medium finding open.
+
+2. **Low findings**: deferral is allowed only when at least one of the following holds —
+   - the finding is **outside the active WI scope** (e.g. a cleanup in an adjacent file the WI does not touch), OR
+   - the finding is **cleanup / refactor-only** (no behavioral correctness, security, or invariant impact), OR
+   - the **audit result itself explicitly accepts deferral** (typical wording: "DEFERRED-PER-WI", "acceptable as-is", "out of scope for this audit").
+
+### Required recording per deferred finding
+
+For every deferred finding (regardless of severity, including Lows), record in the WI's commit message OR the dev-memo plan file:
+
+1. **Finding ID** — the auditor's identifier (e.g. `F4.2`, `Dim 3 #1`).
+2. **Severity** — Critical / High / Medium / Low. (Mediums and above MUST be escalated, not deferred — recording escalation captures the same fields.)
+3. **Reason for deferral** — one sentence citing which clause of §"Resolution rules" item 2 applies (out-of-scope / cleanup-only / explicit-accept) or, for an escalation, why the user should treat it as a blocker.
+4. **Target future WI or backlog label** — the place this WI's resolution moves to. May be a planned phase name (e.g. "A4"), a backlog tag, or "no follow-up planned (cleanup accepted)".
+5. **Safe-to-proceed?** — YES iff deferral does not weaken the current WI's acceptance criteria; NO iff this WI cannot ship until the finding is addressed (in which case it is NOT a deferral — it is an escalation).
+
+When several Lows share the same deferral category, group them under one row with a comma-separated finding-ID list.
+
+### Verify obligations (extends §"Verify must consume explicit audit artifacts")
+
+`/cc-suite:verify` MUST check that:
+
+- All Critical / High / Medium findings flagged in the prior audit are now CLOSED in source.
+- All deferred findings are intentionally deferred per the recorded reasons above — verify the source still matches the deferred state (e.g. a "no fix expected, retained intentionally" item must still be present and unchanged).
+- NO Critical / High / Medium finding remains in an undocumented "open" state.
+
+If verify finds an undocumented open Critical / High / Medium, the WI is NOT ready to commit — escalate immediately. Verify's verdict must be `ALL CLOSED` (or `ALL CLOSED + DEFERRED-PER-WI Lows`) before commit.
+
+### Cross-references
+
+- §"Required recording" — the 11-field invocation log lives there; the remediation log here is per-finding and lives in the same commit message / plan file.
+- `[[../skills/project-autopilot/SKILL]]` and `[[../skills/security-wi-loop/SKILL]]` — both reference this policy in their audit / verify steps.
+
 ## Verify must consume explicit audit artifacts
 
 `/cc-suite:verify` MUST be invoked with the prior audit's report file as an explicit input (e.g. `--audit reports/audit-N.md` or the equivalent prompt-embedded path). The runner / MCP call MUST NOT rely on:

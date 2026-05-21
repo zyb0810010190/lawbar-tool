@@ -53,8 +53,8 @@ Apply the selection algorithm from [[../../commands/continue-project]] step 4. P
 
 - Run package tests touched by the WI.
 - Run `/cc-suite:audit-fix` (or `/cc-suite:audit` + manual fix) on the changed scope. (Slash command; see [[../../rules/cc-suite]].)
-- Run `/cc-suite:verify`.
-- Audit must show no unresolved Critical/High before commit.
+- Resolve audit findings per [[../../rules/cc-suite]] §"Audit remediation policy": every Critical/High/Medium MUST be FIXED-and-verified or explicitly ESCALATED; Lows may be deferred only when out-of-scope / cleanup-only / explicitly accepted. Every deferral records the five fields (finding ID, severity, reason, target WI/backlog, safe-to-proceed?) in the WI's commit message or plan file.
+- Run `/cc-suite:verify` — its verdict MUST be `ALL CLOSED` (or `ALL CLOSED + DEFERRED-PER-WI Lows`) before commit. Undocumented open Critical/High/Medium → escalate, do not commit.
 
 ### 6. Commit
 
