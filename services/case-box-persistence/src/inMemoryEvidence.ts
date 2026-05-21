@@ -380,3 +380,62 @@ export function listEvidenceItems(
     next_cursor,
   };
 }
+
+// ---------------------------------------------------------------------------
+// applyAppendEvidenceItem — A7 LOC discipline
+// ---------------------------------------------------------------------------
+
+import type { CaseBoxMatter as _CBM7Ev } from "case-box-contract";
+
+interface EvidenceRepoView {
+  matters: Map<string, _CBM7Ev>;
+  documents: Map<string, { document: import("case-box-contract").CaseBoxDocument; matter_id: string }>;
+  auditByMatter: Map<string, StoredAuditEvent[]>;
+}
+interface EvidenceCDeps { generateId: () => string; nowIso: () => string; }
+
+export function applyAppendEvidenceItem(
+  state: EvidenceState,
+  repo: EvidenceRepoView,
+  deps: EvidenceCDeps,
+  input: unknown,
+): CaseBoxEvidenceItem {
+  const matterIdFromInput = input !== null && typeof input === "object"
+    ? (input as { matter_id?: unknown }).matter_id
+    : undefined;
+  if (typeof matterIdFromInput === "string" && !repo.matters.has(matterIdFromInput)) {
+    throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterIdFromInput}`);
+  }
+  const prepared = prepareAppendEvidenceItem(state, input, {
+    generateId: deps.generateId,
+    nowIso: deps.nowIso,
+    storedAuditEventsForMatter: () => {
+      if (typeof matterIdFromInput !== "string") return [];
+      return repo.auditByMatter.get(matterIdFromInput) ?? [];
+    },
+    getDocument: (documentId) => {
+      const entry = repo.documents.get(documentId);
+      return entry === undefined ? null : { document: entry.document };
+    },
+  });
+  const matter = repo.matters.get(prepared.matterId);
+  if (matter === undefined) {
+    throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${prepared.matterId}`);
+  }
+  if (matter.tenant_id !== prepared.row.tenant_id) {
+    throw new CaseBoxPersistenceError(
+      "tenant_mismatch",
+      `evidence.tenant_id (${prepared.row.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+    );
+  }
+  const arr = state.evidenceByMatter.get(prepared.matterId) ?? [];
+  arr.push(prepared.row);
+  state.evidenceByMatter.set(prepared.matterId, arr);
+  state.evidenceIds.add(prepared.row.id);
+  state.evidenceIndex.set(prepared.row.id, prepared.matterId);
+  state.evidenceById.set(prepared.row.id, prepared.row);
+  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
+  stored.push(prepared.audit);
+  repo.auditByMatter.set(prepared.matterId, stored);
+  return structuredClone(prepared.row) as CaseBoxEvidenceItem;
+}

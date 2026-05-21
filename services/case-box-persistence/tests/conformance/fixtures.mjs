@@ -89,6 +89,19 @@ export const DEFAULT_DOCKET_ENTRY_ID = "01jcasedockmockid000000001";
 export const DEFAULT_DEADLINE_ID = "01jcasedlinemockid00000001";
 export const DEFAULT_EVIDENCE_ID = "01jcaseevidmockid000000001";
 
+export function makeOcrLinkInput(overrides = {}) {
+  return {
+    document_id: DEFAULT_DOCUMENT_ID,
+    tenant_id: VALID_TENANT_ID,
+    actor_user_id: "local-user",
+    ocr_job_id: "ocr-job-mock-a7-00001",
+    direction: "read-only",
+    status_snapshot: "queued",
+    last_seen_at: "2026-05-22T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
 export function makeEvidenceItemInput(overrides = {}) {
   return {
     id: DEFAULT_EVIDENCE_ID,

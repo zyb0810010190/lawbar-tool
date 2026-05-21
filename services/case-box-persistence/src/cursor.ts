@@ -18,7 +18,8 @@ export type CaseBoxCursorKind =
   | "privilege_markers_by_matter"
   | "facts_by_matter"
   | "docket_entries_by_matter"
-  | "evidence_items_by_matter";
+  | "evidence_items_by_matter"
+  | "ocr_links_by_matter";
 
 export interface CursorPayload {
   v: 1;
@@ -96,7 +97,8 @@ export function decodeCursor(
     p.kind !== "privilege_markers_by_matter" &&
     p.kind !== "facts_by_matter" &&
     p.kind !== "docket_entries_by_matter" &&
-    p.kind !== "evidence_items_by_matter"
+    p.kind !== "evidence_items_by_matter" &&
+    p.kind !== "ocr_links_by_matter"
   ) {
     throw new CaseBoxPersistenceError("invalid_argument", `malformed cursor: invalid kind ${String(p.kind)}`);
   }
@@ -191,6 +193,17 @@ export function decodeCursor(
       throw new CaseBoxPersistenceError(
         "invalid_argument",
         `malformed cursor: evidence_items_by_matter requires last_sort_tuple [created_at:string, id:string]`,
+      );
+    }
+  } else if (p.kind === "ocr_links_by_matter") {
+    if (
+      p.last_sort_tuple.length !== 2 ||
+      typeof p.last_sort_tuple[0] !== "string" ||
+      typeof p.last_sort_tuple[1] !== "string"
+    ) {
+      throw new CaseBoxPersistenceError(
+        "invalid_argument",
+        `malformed cursor: ocr_links_by_matter requires last_sort_tuple [last_seen_at:string, document_id:string]`,
       );
     }
   }

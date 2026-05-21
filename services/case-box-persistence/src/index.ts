@@ -49,4 +49,9 @@ export type {
   GetEvidenceItemQuery,
   ListEvidenceItemsQuery,
   ListEvidenceItemsPage,
+  CaseBoxOcrLink,
+  UpsertOcrLinkResult,
+  GetOcrLinkQuery,
+  ListOcrLinksQuery,
+  ListOcrLinksPage,
 } from "./types.js";

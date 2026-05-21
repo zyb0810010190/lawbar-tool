@@ -419,3 +419,101 @@ export function listPrivilegeMarkers(
     next_cursor,
   };
 }
+
+// ---------------------------------------------------------------------------
+// applyAppendPrivilegeMarker + getPrivilegeStatusHelper — A7 LOC discipline
+// ---------------------------------------------------------------------------
+
+import type { CaseBoxMatter } from "case-box-contract";
+import type {
+  GetPrivilegeStatusQuery,
+} from "./types.js";
+
+interface RepoView {
+  matters: Map<string, CaseBoxMatter>;
+  documents: Map<string, { document: import("case-box-contract").CaseBoxDocument; matter_id: string }>;
+  auditByMatter: Map<string, StoredAuditEvent[]>;
+}
+interface CDeps {
+  generateId: () => string;
+  nowIso: () => string;
+}
+
+export function applyAppendPrivilegeMarker(
+  state: PrivilegeState,
+  repo: RepoView,
+  deps: CDeps,
+  input: unknown,
+): CaseBoxPrivilegeMarker {
+  const matterIdFromInput = input !== null && typeof input === "object"
+    ? (input as { matter_id?: unknown }).matter_id
+    : undefined;
+  if (typeof matterIdFromInput === "string" && !repo.matters.has(matterIdFromInput)) {
+    throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterIdFromInput}`);
+  }
+  const prepared = prepareAppendPrivilegeMarker(state, input, {
+    generateId: deps.generateId,
+    nowIso: deps.nowIso,
+    storedAuditEventsForMatter: () => {
+      if (typeof matterIdFromInput !== "string") return [];
+      return repo.auditByMatter.get(matterIdFromInput) ?? [];
+    },
+    getDocument: (documentId) => {
+      const entry = repo.documents.get(documentId);
+      return entry === undefined ? null : { document: entry.document };
+    },
+  });
+  if (!repo.matters.has(prepared.matterId)) {
+    throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${prepared.matterId}`);
+  }
+  const arr = state.markersByMatter.get(prepared.matterId) ?? [];
+  arr.push(prepared.row);
+  state.markersByMatter.set(prepared.matterId, arr);
+  state.privilegeIds.add(prepared.row.id);
+  state.markerIndex.set(prepared.row.id, prepared.matterId);
+  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
+  stored.push(prepared.audit);
+  repo.auditByMatter.set(prepared.matterId, stored);
+  return structuredClone(prepared.row) as CaseBoxPrivilegeMarker;
+}
+
+export function getPrivilegeStatusHelper(
+  state: PrivilegeState,
+  matters: Map<string, CaseBoxMatter>,
+  documents: RepoView["documents"],
+  query: GetPrivilegeStatusQuery,
+): PrivilegeResolution {
+  const matter = matters.get(query.matter_id);
+  if (matter === undefined) {
+    throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
+  }
+  if (matter.tenant_id !== query.tenant_id) {
+    throw new CaseBoxPersistenceError(
+      "tenant_mismatch",
+      `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+    );
+  }
+  if (query.target_type !== "document") {
+    throw new CaseBoxPersistenceError(
+      "invalid_argument",
+      `getPrivilegeStatus accepts target_type "document" only in A3 (got ${JSON.stringify(query.target_type)})`,
+    );
+  }
+  const docEntry = documents.get(query.target_id);
+  if (docEntry === undefined) {
+    throw new CaseBoxPersistenceError("unknown_document", `unknown document target: ${query.target_id}`);
+  }
+  if (docEntry.document.tenant_id !== query.tenant_id) {
+    throw new CaseBoxPersistenceError(
+      "tenant_mismatch",
+      `document.tenant_id (${docEntry.document.tenant_id}) does not match query.tenant_id (${query.tenant_id})`,
+    );
+  }
+  if (docEntry.document.matter_id !== query.matter_id) {
+    throw new CaseBoxPersistenceError(
+      "matter_id_mismatch",
+      `document.matter_id (${docEntry.document.matter_id}) does not match query.matter_id (${query.matter_id})`,
+    );
+  }
+  return getEffectivePrivilege(state, query.matter_id, query.target_type, query.target_id);
+}

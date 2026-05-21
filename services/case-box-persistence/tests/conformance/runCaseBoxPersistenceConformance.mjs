@@ -22,6 +22,7 @@ import {
   makeFactInput,
   makeIdGenerator,
   makeMatterInput,
+  makeOcrLinkInput,
   makePrivilegeMarkerInput,
 } from "./fixtures.mjs";
 
@@ -2570,6 +2571,182 @@ export function runConformance(label, factory) {
         at: "June 15 2026",
       }),
       "invalid_argument",
+    );
+  });
+
+  // ===========================================================================
+  // Phase A7 — OCR links
+  // ===========================================================================
+
+  test(`${label}: 6.A7.1 upsertOcrLink first snapshot (create)`, async () => {
+    const p = await seedMatterDoc();
+    const r = await p.upsertOcrLink(makeOcrLinkInput());
+    assert.equal(r.created, true);
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.entity_type, "ocr_link");
+    assert.equal(evt.action, "create");
+    assert.equal(evt.before_state_hash, null);
+  });
+
+  test(`${label}: 6.A7.1b upsertOcrLink byte-identical replay is no-op`, async () => {
+    const p = await seedMatterDoc();
+    await p.upsertOcrLink(makeOcrLinkInput());
+    const auditsBefore = (await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID })).rows.length;
+    const r = await p.upsertOcrLink(makeOcrLinkInput());
+    assert.equal(r.created, false);
+    const auditsAfter = (await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID })).rows.length;
+    assert.equal(auditsAfter, auditsBefore);
+  });
+
+  test(`${label}: 6.A7.2 upsertOcrLink second call with changed fields (refresh)`, async () => {
+    const p = await seedMatterDoc();
+    await p.upsertOcrLink(makeOcrLinkInput());
+    const r = await p.upsertOcrLink(makeOcrLinkInput({ status_snapshot: "processing", last_seen_at: "2026-05-22T11:00:00.000Z" }));
+    assert.equal(r.created, false);
+    assert.equal(r.link.status_snapshot, "processing");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.action, "update");
+    assert.notEqual(evt.before_state_hash, null);
+  });
+
+  test(`${label}: 6.A7.3 upsertOcrLink rejects direction !== "read-only"`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.upsertOcrLink(makeOcrLinkInput({ direction: "write" })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A7.4 upsertOcrLink rejects unknown document_id`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.upsertOcrLink(makeOcrLinkInput({ document_id: "01nonexistdocmockid0000007" })),
+      "unknown_document",
+    );
+  });
+
+  test(`${label}: 6.A7.6 upsertOcrLink rejects cross-tenant document_id`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.upsertOcrLink(makeOcrLinkInput({ tenant_id: "other-tenant" })),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A7.7 upsertOcrLink rejects schema-invalid link`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.upsertOcrLink(makeOcrLinkInput({ document_id: "BAD" })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A7.8 upsertOcrLink rejects status_snapshot not in enum`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.upsertOcrLink(makeOcrLinkInput({ status_snapshot: "not_a_status" })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A7.11 getOcrLink returns null when none exists`, async () => {
+    const p = await seedMatterDoc();
+    const r = await p.getOcrLink({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, document_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(r, null);
+  });
+
+  test(`${label}: 6.A7.12 getOcrLink returns the row when scoped correctly`, async () => {
+    const p = await seedMatterDoc();
+    await p.upsertOcrLink(makeOcrLinkInput());
+    const r = await p.getOcrLink({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, document_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(r.document_id, DEFAULT_DOCUMENT_ID);
+  });
+
+  test(`${label}: 6.A7.13 getOcrLink cross-matter scope returns null`, async () => {
+    const p = await seedMatterDoc();
+    await p.upsertOcrLink(makeOcrLinkInput());
+    const otherMatter = "01jothmocrlinkmatter7a13a0";
+    await p.createMatter(makeMatterInput({ id: otherMatter }));
+    const r = await p.getOcrLink({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: otherMatter, document_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(r, null);
+  });
+
+  test(`${label}: 6.A7.14 getOcrLink cross-tenant scope throws`, async () => {
+    const p = await seedMatterDoc();
+    await p.upsertOcrLink(makeOcrLinkInput());
+    const otherTen = "01jothtocrlinkmatter7a14a0";
+    await p.createMatter(makeMatterInput({ id: otherTen, tenant_id: "other-tenant" }));
+    await assertRejectsCode(
+      () => p.getOcrLink({ tenant_id: DEFAULT_TENANT_ID, matter_id: otherTen, document_id: DEFAULT_DOCUMENT_ID }),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A7.15 listOcrLinks orders by last_seen_at DESC + cursor pagination`, async () => {
+    const p = await seedMatterDoc();
+    // Create extra documents to attach links
+    for (let i = 0; i < 3; i++) {
+      const docId = `01jcaseocrlistdoc00000a7${(i + 0x10).toString(16)}`;
+      await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({ id: docId }));
+      await p.upsertOcrLink(makeOcrLinkInput({
+        document_id: docId,
+        last_seen_at: `2026-05-22T1${i}:00:00.000Z`,
+      }));
+    }
+    const page1 = await p.listOcrLinks({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, limit: 2 });
+    assert.equal(page1.rows.length, 2);
+    assert.ok(page1.rows[0].last_seen_at >= page1.rows[1].last_seen_at);
+    const page2 = await p.listOcrLinks({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, limit: 2, cursor: page1.next_cursor });
+    assert.ok(page2.rows.length >= 1);
+  });
+
+  test(`${label}: 6.A7.15b listOcrLinks rejects wrong-kind cursor`, async () => {
+    const p = await seedMatterDoc();
+    await p.upsertOcrLink(makeOcrLinkInput());
+    // Make a cursor for a different kind by listDocuments first.
+    const dpage = await p.listDocuments({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, limit: 1 });
+    if (dpage.next_cursor !== null) {
+      await assertRejectsCode(
+        () => p.listOcrLinks({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, cursor: dpage.next_cursor }),
+        "invalid_argument",
+      );
+    }
+  });
+
+  test(`${label}: 6.A7.16 listOcrLinks filter by status_snapshot`, async () => {
+    const p = await seedMatterDoc();
+    await p.upsertOcrLink(makeOcrLinkInput());
+    const doc2 = "01jcaseocrlistdoc0007a16a0";
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({ id: doc2 }));
+    await p.upsertOcrLink(makeOcrLinkInput({ document_id: doc2, status_snapshot: "succeeded" }));
+    const page = await p.listOcrLinks({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, status_snapshot: "succeeded",
+    });
+    assert.equal(page.rows.length, 1);
+    assert.equal(page.rows[0].status_snapshot, "succeeded");
+  });
+
+  test(`${label}: 6.A7.17 listOcrLinks rejects unknown matter`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.listOcrLinks({ tenant_id: DEFAULT_TENANT_ID, matter_id: "01nonexistmatter00000000xx" }),
+      "unknown_matter",
+    );
+  });
+
+  test(`${label}: 6.A7.18 listOcrLinks rejects tenant mismatch`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.listOcrLinks({ tenant_id: "other-tenant", matter_id: DEFAULT_MATTER_ID }),
+      "tenant_mismatch",
     );
   });
 

@@ -52,6 +52,10 @@ import type {
   ListDocumentsQuery,
   ListEvidenceItemsPage,
   ListEvidenceItemsQuery,
+  ListOcrLinksPage,
+  ListOcrLinksQuery,
+  GetOcrLinkQuery,
+  UpsertOcrLinkResult,
   ListFactsPage,
   ListFactsQuery,
   ListPrivilegeMarkersPage,
@@ -66,35 +70,36 @@ import type {
   CaseBoxDocketEntry,
   CaseBoxEvidenceItem,
   CaseBoxFact,
+  CaseBoxOcrLink,
   CaseBoxPrivilegeMarker,
   PrivilegeResolution,
 } from "case-box-contract";
 import {
-  computeEffectiveLevel,
+  applyAppendClassification,
   createClassificationState,
+  getEffectiveClassificationHelper,
   listClassifications,
-  prepareAppendClassification,
   type ClassificationState,
 } from "./inMemoryClassification.js";
 import {
+  applyAppendPrivilegeMarker,
   createPrivilegeState,
-  getEffectivePrivilege,
+  getPrivilegeStatusHelper,
   listPrivilegeMarkers as listPrivilegeMarkersImpl,
-  prepareAppendPrivilegeMarker,
   prepareTransitionPrivilegeMarker,
   type PrivilegeState,
 } from "./inMemoryPrivilege.js";
 import {
+  applyAppendFact,
   createFactState,
   listFacts as listFactsImpl,
-  prepareAppendFact,
   prepareTransitionFact,
   type FactState,
 } from "./inMemoryFact.js";
 import {
+  applyAppendDocketEntry,
   createDocketState,
   listDocketEntries as listDocketEntriesImpl,
-  prepareAppendDocketEntry,
   prepareConfirmDocketEntry,
   prepareDismissDocketEntry,
   type DocketState,
@@ -118,12 +123,19 @@ import {
   verifyAuditChainForMatterHelper,
 } from "./inMemoryAudit.js";
 import {
+  applyAppendEvidenceItem,
   createEvidenceState,
   listEvidenceItems as listEvidenceItemsImpl,
-  prepareAppendEvidenceItem,
   prepareTransitionEvidenceItem,
   type EvidenceState,
 } from "./inMemoryEvidence.js";
+import {
+  applyUpsertOcrLink,
+  createOcrLinkState,
+  getOcrLinkHelper,
+  listOcrLinks as listOcrLinksImpl,
+  type OcrLinkState,
+} from "./inMemoryOcrLink.js";
 
 interface InternalState {
   readonly matters: Map<string, CaseBoxMatter>;
@@ -143,6 +155,8 @@ interface InternalState {
   readonly deadline: DeadlineState;
   /** Phase A6 — evidence-item storage. */
   readonly evidence: EvidenceState;
+  /** Phase A7 — OCR-link snapshot storage. */
+  readonly ocrLink: OcrLinkState;
 }
 
 const _state = new WeakMap<InMemoryCaseBoxPersistence, InternalState>();
@@ -171,6 +185,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
       docket: createDocketState(),
       deadline: createDeadlineState(),
       evidence: createEvidenceState(),
+      ocrLink: createOcrLinkState(),
     });
   }
 
@@ -299,85 +314,12 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
 
   async appendConfidentialityClassification(input: unknown): Promise<CaseBoxConfidentialityClassification> {
     const state = stateOf(this);
-    const matterIdFromInput = input !== null && typeof input === "object"
-      ? (input as { matter_id?: unknown }).matter_id
-      : undefined;
-    // Pre-validate matter existence BEFORE prepareAppendClassification runs
-    // generators (audit Dim 1 #2). The matter check is cheap and belongs in
-    // the validate-everything-first phase.
-    if (typeof matterIdFromInput === "string" && !state.matters.has(matterIdFromInput)) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterIdFromInput}`);
-    }
-    const prepared = prepareAppendClassification(state.classification, input, {
-      generateId: () => this.#generateId(),
-      nowIso: () => this.#nowIso(),
-      storedAuditEventsForMatter: () => {
-        if (typeof matterIdFromInput !== "string") return [];
-        return state.auditByMatter.get(matterIdFromInput) ?? [];
-      },
-      getDocument: (documentId) => {
-        const entry = state.documents.get(documentId);
-        return entry === undefined ? null : { document: entry.document };
-      },
-    });
-    // Defense-in-depth: re-check matter existence after prepare (the
-    // document target's matter_id should match prepared.matterId, but
-    // explicit guard surfaces typos faster).
-    if (!state.matters.has(prepared.matterId)) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${prepared.matterId}`);
-    }
-
-    // Commit
-    const arr = state.classification.classificationsByMatter.get(prepared.matterId) ?? [];
-    arr.push(prepared.row);
-    state.classification.classificationsByMatter.set(prepared.matterId, arr);
-    state.classification.classificationIds.add(prepared.row.id);
-    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
-    stored.push(prepared.audit);
-    state.auditByMatter.set(prepared.matterId, stored);
-    return structuredClone(prepared.row) as CaseBoxConfidentialityClassification;
+    return applyAppendClassification(state.classification, state, this.#commonAppendDeps(), input);
   }
 
   async getEffectiveClassification(query: GetEffectiveClassificationQuery): Promise<EffectiveClassificationResult> {
     const state = stateOf(this);
-    const matter = state.matters.get(query.matter_id);
-    if (matter === undefined) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
-    }
-    if (matter.tenant_id !== query.tenant_id) {
-      throw new CaseBoxPersistenceError(
-        "tenant_mismatch",
-        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
-      );
-    }
-    if (query.target_type !== "document") {
-      throw new CaseBoxPersistenceError(
-        "invalid_argument",
-        `getEffectiveClassification accepts target_type "document" only in A2 (got ${JSON.stringify(query.target_type)})`,
-      );
-    }
-    const docEntry = state.documents.get(query.target_id);
-    if (docEntry === undefined) {
-      throw new CaseBoxPersistenceError("unknown_document", `unknown document target: ${query.target_id}`);
-    }
-    if (docEntry.document.tenant_id !== query.tenant_id) {
-      throw new CaseBoxPersistenceError(
-        "tenant_mismatch",
-        `document.tenant_id (${docEntry.document.tenant_id}) does not match query.tenant_id (${query.tenant_id})`,
-      );
-    }
-    if (docEntry.document.matter_id !== query.matter_id) {
-      throw new CaseBoxPersistenceError(
-        "matter_id_mismatch",
-        `document.matter_id (${docEntry.document.matter_id}) does not match query.matter_id (${query.matter_id})`,
-      );
-    }
-    return computeEffectiveLevel(
-      state.classification,
-      query.matter_id,
-      query.target_type,
-      query.target_id,
-    );
+    return getEffectiveClassificationHelper(state.classification, state.matters, state.documents, query);
   }
 
   async listConfidentialityClassifications(query: ListConfidentialityClassificationsQuery): Promise<ListConfidentialityClassificationsPage> {
@@ -401,38 +343,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
 
   async appendPrivilegeMarker(input: unknown): Promise<CaseBoxPrivilegeMarker> {
     const state = stateOf(this);
-    const matterIdFromInput = input !== null && typeof input === "object"
-      ? (input as { matter_id?: unknown }).matter_id
-      : undefined;
-    if (typeof matterIdFromInput === "string" && !state.matters.has(matterIdFromInput)) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterIdFromInput}`);
-    }
-    const prepared = prepareAppendPrivilegeMarker(state.privilege, input, {
-      generateId: () => this.#generateId(),
-      nowIso: () => this.#nowIso(),
-      storedAuditEventsForMatter: () => {
-        if (typeof matterIdFromInput !== "string") return [];
-        return state.auditByMatter.get(matterIdFromInput) ?? [];
-      },
-      getDocument: (documentId) => {
-        const entry = state.documents.get(documentId);
-        return entry === undefined ? null : { document: entry.document };
-      },
-    });
-    if (!state.matters.has(prepared.matterId)) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${prepared.matterId}`);
-    }
-
-    // Commit
-    const arr = state.privilege.markersByMatter.get(prepared.matterId) ?? [];
-    arr.push(prepared.row);
-    state.privilege.markersByMatter.set(prepared.matterId, arr);
-    state.privilege.privilegeIds.add(prepared.row.id);
-    state.privilege.markerIndex.set(prepared.row.id, prepared.matterId);
-    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
-    stored.push(prepared.audit);
-    state.auditByMatter.set(prepared.matterId, stored);
-    return structuredClone(prepared.row) as CaseBoxPrivilegeMarker;
+    return applyAppendPrivilegeMarker(state.privilege, state, this.#commonAppendDeps(), input);
   }
 
   async transitionPrivilegeMarker(markerId: string, opts: PrivilegeTransitionOpts): Promise<CaseBoxPrivilegeMarker> {
@@ -455,39 +366,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
 
   async getPrivilegeStatus(query: GetPrivilegeStatusQuery): Promise<PrivilegeResolution> {
     const state = stateOf(this);
-    const matter = state.matters.get(query.matter_id);
-    if (matter === undefined) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
-    }
-    if (matter.tenant_id !== query.tenant_id) {
-      throw new CaseBoxPersistenceError(
-        "tenant_mismatch",
-        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
-      );
-    }
-    if (query.target_type !== "document") {
-      throw new CaseBoxPersistenceError(
-        "invalid_argument",
-        `getPrivilegeStatus accepts target_type "document" only in A3 (got ${JSON.stringify(query.target_type)})`,
-      );
-    }
-    const docEntry = state.documents.get(query.target_id);
-    if (docEntry === undefined) {
-      throw new CaseBoxPersistenceError("unknown_document", `unknown document target: ${query.target_id}`);
-    }
-    if (docEntry.document.tenant_id !== query.tenant_id) {
-      throw new CaseBoxPersistenceError(
-        "tenant_mismatch",
-        `document.tenant_id (${docEntry.document.tenant_id}) does not match query.tenant_id (${query.tenant_id})`,
-      );
-    }
-    if (docEntry.document.matter_id !== query.matter_id) {
-      throw new CaseBoxPersistenceError(
-        "matter_id_mismatch",
-        `document.matter_id (${docEntry.document.matter_id}) does not match query.matter_id (${query.matter_id})`,
-      );
-    }
-    return getEffectivePrivilege(state.privilege, query.matter_id, query.target_type, query.target_id);
+    return getPrivilegeStatusHelper(state.privilege, state.matters, state.documents, query);
   }
 
   async listPrivilegeMarkers(query: ListPrivilegeMarkersQuery): Promise<ListPrivilegeMarkersPage> {
@@ -511,46 +390,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
 
   async appendFact(input: unknown): Promise<CaseBoxFact> {
     const state = stateOf(this);
-    const matterIdFromInput = input !== null && typeof input === "object"
-      ? (input as { matter_id?: unknown }).matter_id
-      : undefined;
-    if (typeof matterIdFromInput === "string" && !state.matters.has(matterIdFromInput)) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterIdFromInput}`);
-    }
-    const prepared = prepareAppendFact(state.fact, input, {
-      generateId: () => this.#generateId(),
-      nowIso: () => this.#nowIso(),
-      storedAuditEventsForMatter: () => {
-        if (typeof matterIdFromInput !== "string") return [];
-        return state.auditByMatter.get(matterIdFromInput) ?? [];
-      },
-      getDocument: (documentId) => {
-        const entry = state.documents.get(documentId);
-        return entry === undefined ? null : { document: entry.document };
-      },
-    });
-    const matter = state.matters.get(prepared.matterId);
-    if (matter === undefined) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${prepared.matterId}`);
-    }
-    if (matter.tenant_id !== prepared.row.tenant_id) {
-      throw new CaseBoxPersistenceError(
-        "tenant_mismatch",
-        `fact.tenant_id (${prepared.row.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
-      );
-    }
-
-    // Commit
-    const arr = state.fact.factsByMatter.get(prepared.matterId) ?? [];
-    arr.push(prepared.row);
-    state.fact.factsByMatter.set(prepared.matterId, arr);
-    state.fact.factIds.add(prepared.row.id);
-    state.fact.factIndex.set(prepared.row.id, prepared.matterId);
-    state.fact.factById.set(prepared.row.id, prepared.row);
-    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
-    stored.push(prepared.audit);
-    state.auditByMatter.set(prepared.matterId, stored);
-    return structuredClone(prepared.row) as CaseBoxFact;
+    return applyAppendFact(state.fact, state, this.#commonAppendDeps(), input);
   }
 
   async transitionFact(factId: string, opts: FactTransitionOpts): Promise<CaseBoxFact> {
@@ -624,45 +464,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
 
   async appendDocketEntry(input: unknown): Promise<CaseBoxDocketEntry> {
     const state = stateOf(this);
-    const matterIdFromInput = input !== null && typeof input === "object"
-      ? (input as { matter_id?: unknown }).matter_id
-      : undefined;
-    if (typeof matterIdFromInput === "string" && !state.matters.has(matterIdFromInput)) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterIdFromInput}`);
-    }
-    const prepared = prepareAppendDocketEntry(state.docket, input, {
-      generateId: () => this.#generateId(),
-      nowIso: () => this.#nowIso(),
-      storedAuditEventsForMatter: () => {
-        if (typeof matterIdFromInput !== "string") return [];
-        return state.auditByMatter.get(matterIdFromInput) ?? [];
-      },
-      getDocument: (documentId) => {
-        const entry = state.documents.get(documentId);
-        return entry === undefined ? null : { document: entry.document };
-      },
-    });
-    const matter = state.matters.get(prepared.matterId);
-    if (matter === undefined) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${prepared.matterId}`);
-    }
-    if (matter.tenant_id !== prepared.row.tenant_id) {
-      throw new CaseBoxPersistenceError(
-        "tenant_mismatch",
-        `entry.tenant_id (${prepared.row.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
-      );
-    }
-    // Commit
-    const arr = state.docket.entriesByMatter.get(prepared.matterId) ?? [];
-    arr.push(prepared.row);
-    state.docket.entriesByMatter.set(prepared.matterId, arr);
-    state.docket.docketIds.add(prepared.row.id);
-    state.docket.docketIndex.set(prepared.row.id, prepared.matterId);
-    state.docket.docketById.set(prepared.row.id, prepared.row);
-    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
-    stored.push(prepared.audit);
-    state.auditByMatter.set(prepared.matterId, stored);
-    return structuredClone(prepared.row) as CaseBoxDocketEntry;
+    return applyAppendDocketEntry(state.docket, state, this.#commonAppendDeps(), input);
   }
 
   async confirmDocketEntry(entryId: string, opts: ConfirmDocketEntryOpts): Promise<ConfirmDocketEntryResult> {
@@ -756,44 +558,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
 
   async appendEvidenceItem(input: unknown): Promise<CaseBoxEvidenceItem> {
     const state = stateOf(this);
-    const matterIdFromInput = input !== null && typeof input === "object"
-      ? (input as { matter_id?: unknown }).matter_id
-      : undefined;
-    if (typeof matterIdFromInput === "string" && !state.matters.has(matterIdFromInput)) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterIdFromInput}`);
-    }
-    const prepared = prepareAppendEvidenceItem(state.evidence, input, {
-      generateId: () => this.#generateId(),
-      nowIso: () => this.#nowIso(),
-      storedAuditEventsForMatter: () => {
-        if (typeof matterIdFromInput !== "string") return [];
-        return state.auditByMatter.get(matterIdFromInput) ?? [];
-      },
-      getDocument: (documentId) => {
-        const entry = state.documents.get(documentId);
-        return entry === undefined ? null : { document: entry.document };
-      },
-    });
-    const matter = state.matters.get(prepared.matterId);
-    if (matter === undefined) {
-      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${prepared.matterId}`);
-    }
-    if (matter.tenant_id !== prepared.row.tenant_id) {
-      throw new CaseBoxPersistenceError(
-        "tenant_mismatch",
-        `evidence.tenant_id (${prepared.row.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
-      );
-    }
-    const arr = state.evidence.evidenceByMatter.get(prepared.matterId) ?? [];
-    arr.push(prepared.row);
-    state.evidence.evidenceByMatter.set(prepared.matterId, arr);
-    state.evidence.evidenceIds.add(prepared.row.id);
-    state.evidence.evidenceIndex.set(prepared.row.id, prepared.matterId);
-    state.evidence.evidenceById.set(prepared.row.id, prepared.row);
-    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
-    stored.push(prepared.audit);
-    state.auditByMatter.set(prepared.matterId, stored);
-    return structuredClone(prepared.row) as CaseBoxEvidenceItem;
+    return applyAppendEvidenceItem(state.evidence, state, this.#commonAppendDeps(), input);
   }
 
   async transitionEvidenceItem(evidenceId: string, opts: EvidenceTransitionOpts): Promise<CaseBoxEvidenceItem> {
@@ -850,6 +615,25 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     });
   }
 
+  // -------------------------------------------------------------------------
+  // Phase A7 — OCR-link delegates
+  // -------------------------------------------------------------------------
+
+  async upsertOcrLink(input: unknown): Promise<UpsertOcrLinkResult> {
+    const state = stateOf(this);
+    return applyUpsertOcrLink(state.ocrLink, state, this.#commonAppendDeps(), input);
+  }
+
+  async getOcrLink(query: GetOcrLinkQuery): Promise<CaseBoxOcrLink | null> {
+    const state = stateOf(this);
+    return getOcrLinkHelper(state.ocrLink, state.matters, state.documents, query);
+  }
+
+  async listOcrLinks(query: ListOcrLinksQuery): Promise<ListOcrLinksPage> {
+    const state = stateOf(this);
+    return listOcrLinksImpl(state.ocrLink, state.matters, query);
+  }
+
   async transitionDeadline(deadlineId: string, opts: DeadlineTransitionOpts): Promise<CaseBoxDeadline> {
     const state = stateOf(this);
     const prepared = prepareTransitionDeadline(state.deadline, deadlineId, opts, {
@@ -870,6 +654,13 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
+
+  #commonAppendDeps(): { generateId: () => string; nowIso: () => string } {
+    return {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+    };
+  }
 
   #nowIso(): string {
     const d = this.#now();

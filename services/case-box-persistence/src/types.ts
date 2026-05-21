@@ -13,6 +13,7 @@ import type {
   CaseBoxEvidenceItem,
   CaseBoxFact,
   CaseBoxMatter,
+  CaseBoxOcrLink,
   CaseBoxPrivilegeMarker,
   ChainVerifyErr,
   ChainVerifyOk,
@@ -30,6 +31,7 @@ export type {
   CaseBoxDocketEntry,
   CaseBoxEvidenceItem,
   CaseBoxFact,
+  CaseBoxOcrLink,
   CaseBoxPrivilegeMarker,
   ConfidentialityChangeReasonCode,
   ConfidentialityLevel,
@@ -147,6 +149,35 @@ export interface CaseBoxPersistence {
   transitionEvidenceItem(evidenceId: string, opts: EvidenceTransitionOpts): Promise<CaseBoxEvidenceItem>;
   getEvidenceItem(query: GetEvidenceItemQuery): Promise<CaseBoxEvidenceItem | null>;
   listEvidenceItems(query: ListEvidenceItemsQuery): Promise<ListEvidenceItemsPage>;
+
+  // OCR links (Phase A7)
+  upsertOcrLink(input: unknown): Promise<UpsertOcrLinkResult>;
+  getOcrLink(query: GetOcrLinkQuery): Promise<CaseBoxOcrLink | null>;
+  listOcrLinks(query: ListOcrLinksQuery): Promise<ListOcrLinksPage>;
+}
+
+export interface UpsertOcrLinkResult {
+  readonly link: CaseBoxOcrLink;
+  readonly created: boolean;
+}
+
+export interface GetOcrLinkQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly document_id: string;
+}
+
+export interface ListOcrLinksQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly status_snapshot?: CaseBoxOcrLink["status_snapshot"];
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export interface ListOcrLinksPage {
+  readonly rows: ReadonlyArray<CaseBoxOcrLink>;
+  readonly next_cursor: string | null;
 }
 
 export interface EvidenceTransitionOpts {

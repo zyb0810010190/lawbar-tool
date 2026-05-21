@@ -39,9 +39,22 @@ import { resolveDocumentTarget } from "./resolveTarget.js";
 // Closure of A3 F2.1 — use public types instead of locally-redeclared
 // ListClassificationsQuery / ListClassificationsPage.
 import type {
+  EffectiveClassificationResult,
+  GetEffectiveClassificationQuery,
   ListConfidentialityClassificationsPage as ListClassificationsPage,
   ListConfidentialityClassificationsQuery as ListClassificationsQuery,
 } from "./types.js";
+import type { CaseBoxDocument, CaseBoxMatter } from "case-box-contract";
+
+export interface RepoViewForAppend {
+  matters: Map<string, CaseBoxMatter>;
+  documents: Map<string, { document: CaseBoxDocument; matter_id: string }>;
+  auditByMatter: Map<string, StoredAuditEvent[]>;
+}
+export interface CommonAppendDeps {
+  generateId: () => string;
+  nowIso: () => string;
+}
 
 /** State slot held by InMemoryCaseBoxPersistence; passed into every helper. */
 export interface ClassificationState {
@@ -353,4 +366,96 @@ export function listClassifications(
     rows: slice.map((r) => structuredClone(r) as CaseBoxConfidentialityClassification),
     next_cursor,
   };
+}
+
+// ---------------------------------------------------------------------------
+// applyAppendClassification — full delegate body extracted from inMemoryRepo
+// for A7 LOC discipline. Behavior matches the previous inline implementation.
+// ---------------------------------------------------------------------------
+
+export function applyAppendClassification(
+  state: ClassificationState,
+  repo: RepoViewForAppend,
+  deps: CommonAppendDeps,
+  input: unknown,
+): CaseBoxConfidentialityClassification {
+  const matterIdFromInput = input !== null && typeof input === "object"
+    ? (input as { matter_id?: unknown }).matter_id
+    : undefined;
+  if (typeof matterIdFromInput === "string" && !repo.matters.has(matterIdFromInput)) {
+    throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterIdFromInput}`);
+  }
+  const prepared = prepareAppendClassification(state, input, {
+    generateId: deps.generateId,
+    nowIso: deps.nowIso,
+    storedAuditEventsForMatter: () => {
+      if (typeof matterIdFromInput !== "string") return [];
+      return repo.auditByMatter.get(matterIdFromInput) ?? [];
+    },
+    getDocument: (documentId) => {
+      const entry = repo.documents.get(documentId);
+      return entry === undefined ? null : { document: entry.document };
+    },
+  });
+  if (!repo.matters.has(prepared.matterId)) {
+    throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${prepared.matterId}`);
+  }
+  const arr = state.classificationsByMatter.get(prepared.matterId) ?? [];
+  arr.push(prepared.row);
+  state.classificationsByMatter.set(prepared.matterId, arr);
+  state.classificationIds.add(prepared.row.id);
+  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
+  stored.push(prepared.audit);
+  repo.auditByMatter.set(prepared.matterId, stored);
+  return structuredClone(prepared.row) as CaseBoxConfidentialityClassification;
+}
+
+// ---------------------------------------------------------------------------
+// getEffectiveClassificationHelper — extracted for A7 LOC discipline.
+// ---------------------------------------------------------------------------
+
+export function getEffectiveClassificationHelper(
+  state: ClassificationState,
+  matters: Map<string, CaseBoxMatter>,
+  documents: Map<string, { document: CaseBoxDocument; matter_id: string }>,
+  query: GetEffectiveClassificationQuery,
+): EffectiveClassificationResult {
+  const matter = matters.get(query.matter_id);
+  if (matter === undefined) {
+    throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
+  }
+  if (matter.tenant_id !== query.tenant_id) {
+    throw new CaseBoxPersistenceError(
+      "tenant_mismatch",
+      `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+    );
+  }
+  if (query.target_type !== "document") {
+    throw new CaseBoxPersistenceError(
+      "invalid_argument",
+      `getEffectiveClassification accepts target_type "document" only in A2 (got ${JSON.stringify(query.target_type)})`,
+    );
+  }
+  const docEntry = documents.get(query.target_id);
+  if (docEntry === undefined) {
+    throw new CaseBoxPersistenceError("unknown_document", `unknown document target: ${query.target_id}`);
+  }
+  if (docEntry.document.tenant_id !== query.tenant_id) {
+    throw new CaseBoxPersistenceError(
+      "tenant_mismatch",
+      `document.tenant_id (${docEntry.document.tenant_id}) does not match query.tenant_id (${query.tenant_id})`,
+    );
+  }
+  if (docEntry.document.matter_id !== query.matter_id) {
+    throw new CaseBoxPersistenceError(
+      "matter_id_mismatch",
+      `document.matter_id (${docEntry.document.matter_id}) does not match query.matter_id (${query.matter_id})`,
+    );
+  }
+  return computeEffectiveLevel(
+    state,
+    query.matter_id,
+    query.target_type,
+    query.target_id,
+  );
 }

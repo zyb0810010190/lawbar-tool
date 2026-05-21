@@ -125,7 +125,7 @@ test("6.2.6 CaseBoxPersistenceError code is one of the documented set", async ()
 // 6.2.7 Prototype allowlist — exactly the 10 documented methods + constructor
 // ---------------------------------------------------------------------------
 
-test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented method allowlist (A1-A6 = 32)", () => {
+test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented method allowlist (A1-A7 = 35)", () => {
   const expected = [
     "appendConfidentialityClassification",
     "appendDocketEntry",
@@ -144,6 +144,7 @@ test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented meth
     "getEvidenceItem",
     "getFact",
     "getMatter",
+    "getOcrLink",
     "getPrivilegeStatus",
     "listAuditEvents",
     "listConfidentialityClassifications",
@@ -151,6 +152,7 @@ test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented meth
     "listDocuments",
     "listEvidenceItems",
     "listFacts",
+    "listOcrLinks",
     "listPrivilegeMarkers",
     "registerDocument",
     "transitionDeadline",
@@ -158,6 +160,7 @@ test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented meth
     "transitionFact",
     "transitionPrivilegeMarker",
     "unarchiveMatter",
+    "upsertOcrLink",
     "verifyAuditChainForMatter",
   ].sort();
   const actual = Object.getOwnPropertyNames(InMemoryCaseBoxPersistence.prototype).sort();
