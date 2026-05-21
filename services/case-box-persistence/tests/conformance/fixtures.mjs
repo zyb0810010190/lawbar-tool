@@ -83,6 +83,36 @@ export function makeDocumentInput(overrides = {}) {
 export const DEFAULT_MATTER_ID = VALID_MATTER_ID;
 export const DEFAULT_TENANT_ID = VALID_TENANT_ID;
 export const DEFAULT_DOCUMENT_ID = "01jcasedocmockid000000001a";
+export const DEFAULT_PRIVILEGE_MARKER_ID = "01jcasepmkmockid0000000001";
+
+export function makePrivilegeMarkerInput(overrides = {}) {
+  return {
+    id: DEFAULT_PRIVILEGE_MARKER_ID,
+    tenant_id: VALID_TENANT_ID,
+    actor_user_id: "local-user",
+    matter_id: VALID_MATTER_ID,
+    target_type: "document",
+    target_id: DEFAULT_DOCUMENT_ID,
+    kind: "attorney_client",
+    status: "proposed",
+    source_type: "lawyer_authored",
+    basis_text: "Attorney-client communication.",
+    extractor_name: null,
+    extractor_version: null,
+    extraction_confidence: null,
+    proposed_at: "2026-05-21T10:00:00.000Z",
+    confirmed_actor_user_id: null,
+    confirmed_at: null,
+    dismissed_actor_user_id: null,
+    dismissed_at: null,
+    dismissal_reason: null,
+    waiver_actor_user_id: null,
+    waived_at: null,
+    waiver_reason: null,
+    created_at: "2026-05-21T10:00:00.000Z",
+    ...overrides,
+  };
+}
 
 export function makeClassificationInput(overrides = {}) {
   return {

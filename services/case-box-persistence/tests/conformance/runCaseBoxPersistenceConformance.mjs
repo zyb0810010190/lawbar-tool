@@ -8,12 +8,14 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_DOCUMENT_ID,
   DEFAULT_MATTER_ID,
+  DEFAULT_PRIVILEGE_MARKER_ID,
   DEFAULT_TENANT_ID,
   makeClassificationInput,
   makeClock,
   makeDocumentInput,
   makeIdGenerator,
   makeMatterInput,
+  makePrivilegeMarkerInput,
 } from "./fixtures.mjs";
 
 /**
@@ -763,6 +765,430 @@ export function runConformance(label, factory) {
         target_id: DEFAULT_DOCUMENT_ID,
       }),
       "invalid_argument",
+    );
+  });
+
+  // ===========================================================================
+  // Phase A3 — privilege markers
+  // ===========================================================================
+
+  test(`${label}: 6.A3.1 appendPrivilegeMarker proposed happy path`, async () => {
+    const p = await seedMatterDoc();
+    const row = await p.appendPrivilegeMarker(makePrivilegeMarkerInput());
+    assert.equal(row.status, "proposed");
+    assert.equal(row.kind, "attorney_client");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.entity_type, "privilege_marker");
+    assert.equal(evt.action, "create");
+    assert.equal(evt.reason, undefined);
+  });
+
+  test(`${label}: 6.A3.2 appendPrivilegeMarker rejects direct status=confirmed`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendPrivilegeMarker(makePrivilegeMarkerInput({
+        status: "confirmed",
+        confirmed_actor_user_id: "local-user",
+        confirmed_at: "2026-05-21T11:00:00.000Z",
+      })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A3.3 appendPrivilegeMarker rejects new status=dismissed`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendPrivilegeMarker(makePrivilegeMarkerInput({ status: "dismissed" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A3.4 appendPrivilegeMarker rejects new status=waived`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendPrivilegeMarker(makePrivilegeMarkerInput({ status: "waived" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A3.5 appendPrivilegeMarker accepts machine-source proposed`, async () => {
+    const p = await seedMatterDoc();
+    const row = await p.appendPrivilegeMarker(makePrivilegeMarkerInput({
+      source_type: "llm_suggested",
+      extractor_name: "claude-test",
+      extractor_version: "1",
+      extraction_confidence: 0.9,
+    }));
+    assert.equal(row.status, "proposed");
+    assert.equal(row.source_type, "llm_suggested");
+  });
+
+  test(`${label}: 6.A3.6 appendPrivilegeMarker rejects non-null dismissal fields on new row`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendPrivilegeMarker(makePrivilegeMarkerInput({
+        dismissed_actor_user_id: "local-user",
+        dismissed_at: "2026-05-21T11:00:00.000Z",
+        dismissal_reason: "ignored",
+      })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A3.7 appendPrivilegeMarker rejects null proposed_at`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendPrivilegeMarker(makePrivilegeMarkerInput({ proposed_at: null })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A3.8 appendPrivilegeMarker rejects target_type="matter"`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendPrivilegeMarker(makePrivilegeMarkerInput({ target_type: "matter" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A3.9 appendPrivilegeMarker rejects target_type="fact"`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendPrivilegeMarker(makePrivilegeMarkerInput({ target_type: "fact" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A3.10 appendPrivilegeMarker rejects unknown document → unknown_document`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendPrivilegeMarker(makePrivilegeMarkerInput({ target_id: "01nonexistdocmockid0000007" })),
+      "unknown_document",
+    );
+  });
+
+  test(`${label}: 6.A3.11 appendPrivilegeMarker rejects tenant mismatch`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendPrivilegeMarker(makePrivilegeMarkerInput({ tenant_id: "other-tenant" })),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A3.12 appendPrivilegeMarker rejects matter_id mismatch`, async () => {
+    const p = await seedMatterDoc();
+    await p.createMatter(makeMatterInput({ id: "01jpriv2ndmatterid000a3a12" }));
+    await assertRejectsCode(
+      () => p.appendPrivilegeMarker(makePrivilegeMarkerInput({ matter_id: "01jpriv2ndmatterid000a3a12" })),
+      "matter_id_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A3.13 appendPrivilegeMarker rejects duplicate id`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput());
+    await assertRejectsCode(
+      () => p.appendPrivilegeMarker(makePrivilegeMarkerInput()),
+      "duplicate_id",
+    );
+  });
+
+  test(`${label}: 6.A3.14 allows two proposed markers same (target, kind)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput());
+    const row2 = await p.appendPrivilegeMarker(makePrivilegeMarkerInput({
+      id: "01jcasepmkmockid0000000002",
+      proposed_at: "2026-05-21T11:00:00.000Z",
+    }));
+    assert.equal(row2.status, "proposed");
+  });
+
+  test(`${label}: 6.A3.A2b transitionPrivilegeMarker rejects unknown markerId`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.transitionPrivilegeMarker("01nonexistmarker000000000z", {
+        to: "confirmed",
+        actor_user_id: "local-user",
+        at: "2026-05-21T11:00:00.000Z",
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A3.15 transitionPrivilegeMarker proposed → confirmed`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput());
+    const row = await p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+      to: "confirmed",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T11:00:00.000Z",
+    });
+    assert.equal(row.status, "confirmed");
+    assert.equal(row.confirmed_actor_user_id, "lawyer-01");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.entity_type, "privilege_marker");
+    assert.equal(evt.action, "update");
+    assert.equal(evt.reason, undefined);
+  });
+
+  test(`${label}: 6.A3.16 transitionPrivilegeMarker rejects duplicate confirmed (target, kind)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput());
+    await p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+      to: "confirmed",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T11:00:00.000Z",
+    });
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput({
+      id: "01jcasepmkmockid0000000002",
+      proposed_at: "2026-05-21T12:00:00.000Z",
+    }));
+    await assertRejectsCode(
+      () => p.transitionPrivilegeMarker("01jcasepmkmockid0000000002", {
+        to: "confirmed",
+        actor_user_id: "lawyer-01",
+        at: "2026-05-21T13:00:00.000Z",
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A3.17 proposed → dismissed requires reason`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput());
+    await assertRejectsCode(
+      () => p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+        to: "dismissed",
+        actor_user_id: "lawyer-01",
+        at: "2026-05-21T11:00:00.000Z",
+      }),
+      "invalid_argument",
+    );
+    const row = await p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+      to: "dismissed",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T11:00:00.000Z",
+      reason: "not_privileged",
+    });
+    assert.equal(row.status, "dismissed");
+    assert.equal(row.dismissal_reason, "not_privileged");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.reason, "not_privileged");
+  });
+
+  test(`${label}: 6.A3.18 confirmed → waived requires reason`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput());
+    await p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+      to: "confirmed",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T11:00:00.000Z",
+    });
+    await assertRejectsCode(
+      () => p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+        to: "waived",
+        actor_user_id: "lawyer-01",
+        at: "2026-05-21T12:00:00.000Z",
+      }),
+      "invalid_argument",
+    );
+    const row = await p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+      to: "waived",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T12:00:00.000Z",
+      reason: "client_disclosure",
+    });
+    assert.equal(row.status, "waived");
+    assert.equal(row.waiver_reason, "client_disclosure");
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const evt = page.rows[page.rows.length - 1];
+    assert.equal(evt.action, "privilege-waive");
+    assert.equal(evt.reason, "client_disclosure");
+  });
+
+  test(`${label}: 6.A3.19 illegal transition (dismissed → confirmed)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput());
+    await p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+      to: "dismissed",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T11:00:00.000Z",
+      reason: "not_privileged",
+    });
+    await assertRejectsCode(
+      () => p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+        to: "confirmed",
+        actor_user_id: "lawyer-01",
+        at: "2026-05-21T12:00:00.000Z",
+      }),
+      "illegal_transition",
+    );
+  });
+
+  test(`${label}: 6.A3.20 post-waiver: new proposed marker for same (target, kind)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput());
+    await p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+      to: "confirmed",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T11:00:00.000Z",
+    });
+    await p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+      to: "waived",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T12:00:00.000Z",
+      reason: "client_disclosure",
+    });
+    const row = await p.appendPrivilegeMarker(makePrivilegeMarkerInput({
+      id: "01jcasepmkmockid0000000003",
+      proposed_at: "2026-05-21T13:00:00.000Z",
+    }));
+    assert.equal(row.status, "proposed");
+  });
+
+  test(`${label}: 6.A3.20b post-waiver TRANSITION: new proposed → confirmed`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput());
+    await p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+      to: "confirmed",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T11:00:00.000Z",
+    });
+    await p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+      to: "waived",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T12:00:00.000Z",
+      reason: "client_disclosure",
+    });
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput({
+      id: "01jcasepmkmockid0000000003",
+      proposed_at: "2026-05-21T13:00:00.000Z",
+    }));
+    const row = await p.transitionPrivilegeMarker("01jcasepmkmockid0000000003", {
+      to: "confirmed",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T14:00:00.000Z",
+    });
+    assert.equal(row.status, "confirmed");
+  });
+
+  test(`${label}: 6.A3.21 timestamp ordering (confirmed_at < proposed_at)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput({ proposed_at: "2026-05-21T15:00:00.000Z" }));
+    await assertRejectsCode(
+      () => p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+        to: "confirmed",
+        actor_user_id: "lawyer-01",
+        at: "2026-05-21T10:00:00.000Z",
+      }),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A3.21b malformed (non-ISO) opts.at rejected → invalid_argument`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput());
+    await assertRejectsCode(
+      () => p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+        to: "confirmed",
+        actor_user_id: "lawyer-01",
+        at: "May 21 2026",
+      }),
+      "invalid_argument",
+    );
+    // Confirm no audit mutation landed (the original marker is still proposed
+    // with no audit events beyond matter+document+propose).
+    const status = await p.getPrivilegeStatus({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      target_type: "document", target_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(status.hasProtectiveAssertion, false);
+  });
+
+  test(`${label}: 6.A3.22 getPrivilegeStatus empty → hasProtectiveAssertion: false`, async () => {
+    const p = await seedMatterDoc();
+    const res = await p.getPrivilegeStatus({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      target_type: "document", target_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(res.hasProtectiveAssertion, false);
+    assert.equal(res.activeConfirmedMarkers.length, 0);
+    assert.equal(res.allTargetMarkers.length, 0);
+  });
+
+  test(`${label}: 6.A3.23 getPrivilegeStatus with confirmed → hasProtectiveAssertion: true`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendPrivilegeMarker(makePrivilegeMarkerInput());
+    await p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+      to: "confirmed",
+      actor_user_id: "lawyer-01",
+      at: "2026-05-21T11:00:00.000Z",
+    });
+    const res = await p.getPrivilegeStatus({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      target_type: "document", target_id: DEFAULT_DOCUMENT_ID,
+    });
+    assert.equal(res.hasProtectiveAssertion, true);
+    assert.equal(res.activeConfirmedMarkers.length, 1);
+  });
+
+  test(`${label}: 6.A3.24 getPrivilegeStatus rejects unknown document`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.getPrivilegeStatus({
+        tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+        target_type: "document", target_id: "01nonexistdocmockid0000007",
+      }),
+      "unknown_document",
+    );
+  });
+
+  test(`${label}: 6.A3.25 listPrivilegeMarkers cursor + kind filter + proposed_at ASC`, async () => {
+    const p = await seedMatterDoc();
+    for (let i = 0; i < 4; i++) {
+      await p.appendPrivilegeMarker(makePrivilegeMarkerInput({
+        id: `01jcasepmkmocklist000000${(i + 0x10).toString(16)}`,
+        proposed_at: `2026-05-21T1${i}:00:00.000Z`,
+      }));
+    }
+    const page1 = await p.listPrivilegeMarkers({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      kind: "attorney_client", limit: 2,
+    });
+    assert.equal(page1.rows.length, 2);
+    assert.equal(typeof page1.next_cursor, "string");
+    const page2 = await p.listPrivilegeMarkers({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+      kind: "attorney_client", limit: 2, cursor: page1.next_cursor,
+    });
+    assert.equal(page2.rows.length, 2);
+    assert.equal(page2.next_cursor, null);
+    // Ordered by proposed_at ASC
+    const all = [...page1.rows, ...page2.rows];
+    for (let i = 1; i < all.length; i++) {
+      assert.ok(all[i - 1].proposed_at <= all[i].proposed_at);
+    }
+  });
+
+  test(`${label}: 6.A3.26 listPrivilegeMarkers target_id without target_type → invalid_argument`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.listPrivilegeMarkers({
+        tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID,
+        target_id: DEFAULT_DOCUMENT_ID,
+      }),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A3.27 listPrivilegeMarkers unknown matter`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.listPrivilegeMarkers({ tenant_id: DEFAULT_TENANT_ID, matter_id: "01nonexistmatter00000000xx" }),
+      "unknown_matter",
     );
   });
 }

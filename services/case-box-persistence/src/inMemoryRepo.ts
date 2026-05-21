@@ -49,16 +49,24 @@ import type {
   CaseBoxPersistence,
   EffectiveClassificationResult,
   GetEffectiveClassificationQuery,
+  GetPrivilegeStatusQuery,
   ListAuditEventsPage,
   ListAuditEventsQuery,
   ListConfidentialityClassificationsPage,
   ListConfidentialityClassificationsQuery,
   ListDocumentsPage,
   ListDocumentsQuery,
+  ListPrivilegeMarkersPage,
+  ListPrivilegeMarkersQuery,
+  PrivilegeTransitionOpts,
   VerifyAuditChainResult,
 } from "./types.js";
 
-import type { CaseBoxConfidentialityClassification } from "case-box-contract";
+import type {
+  CaseBoxConfidentialityClassification,
+  CaseBoxPrivilegeMarker,
+  PrivilegeResolution,
+} from "case-box-contract";
 import {
   computeEffectiveLevel,
   createClassificationState,
@@ -66,6 +74,14 @@ import {
   prepareAppendClassification,
   type ClassificationState,
 } from "./inMemoryClassification.js";
+import {
+  createPrivilegeState,
+  getEffectivePrivilege,
+  listPrivilegeMarkers as listPrivilegeMarkersImpl,
+  prepareAppendPrivilegeMarker,
+  prepareTransitionPrivilegeMarker,
+  type PrivilegeState,
+} from "./inMemoryPrivilege.js";
 
 interface InternalState {
   readonly matters: Map<string, CaseBoxMatter>;
@@ -75,6 +91,8 @@ interface InternalState {
   readonly auditByMatter: Map<string, StoredAuditEvent[]>;
   /** Phase A2 — confidentiality classification storage + duplicate-id index. */
   readonly classification: ClassificationState;
+  /** Phase A3 — privilege-marker storage + duplicate-id index + marker→matter index. */
+  readonly privilege: PrivilegeState;
 }
 
 const _state = new WeakMap<InMemoryCaseBoxPersistence, InternalState>();
@@ -98,6 +116,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
       documents: new Map(),
       auditByMatter: new Map(),
       classification: createClassificationState(),
+      privilege: createPrivilegeState(),
     });
   }
 
@@ -485,6 +504,116 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
       );
     }
     return listClassifications(state.classification, query);
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase A3 — privilege marker delegates
+  // -------------------------------------------------------------------------
+
+  async appendPrivilegeMarker(input: unknown): Promise<CaseBoxPrivilegeMarker> {
+    const state = stateOf(this);
+    const matterIdFromInput = input !== null && typeof input === "object"
+      ? (input as { matter_id?: unknown }).matter_id
+      : undefined;
+    if (typeof matterIdFromInput === "string" && !state.matters.has(matterIdFromInput)) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterIdFromInput}`);
+    }
+    const prepared = prepareAppendPrivilegeMarker(state.privilege, input, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: () => {
+        if (typeof matterIdFromInput !== "string") return [];
+        return state.auditByMatter.get(matterIdFromInput) ?? [];
+      },
+      getDocument: (documentId) => {
+        const entry = state.documents.get(documentId);
+        return entry === undefined ? null : { document: entry.document };
+      },
+    });
+    if (!state.matters.has(prepared.matterId)) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${prepared.matterId}`);
+    }
+
+    // Commit
+    const arr = state.privilege.markersByMatter.get(prepared.matterId) ?? [];
+    arr.push(prepared.row);
+    state.privilege.markersByMatter.set(prepared.matterId, arr);
+    state.privilege.privilegeIds.add(prepared.row.id);
+    state.privilege.markerIndex.set(prepared.row.id, prepared.matterId);
+    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
+    stored.push(prepared.audit);
+    state.auditByMatter.set(prepared.matterId, stored);
+    return structuredClone(prepared.row) as CaseBoxPrivilegeMarker;
+  }
+
+  async transitionPrivilegeMarker(markerId: string, opts: PrivilegeTransitionOpts): Promise<CaseBoxPrivilegeMarker> {
+    const state = stateOf(this);
+    const prepared = prepareTransitionPrivilegeMarker(state.privilege, markerId, opts, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: (matterId) => state.auditByMatter.get(matterId) ?? [],
+    });
+
+    // Commit: replace marker row in-place; append audit event.
+    const arr = state.privilege.markersByMatter.get(prepared.matterId)!;
+    const idx = arr.findIndex((m) => m.id === markerId);
+    arr[idx] = prepared.next;
+    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
+    stored.push(prepared.audit);
+    state.auditByMatter.set(prepared.matterId, stored);
+    return structuredClone(prepared.next) as CaseBoxPrivilegeMarker;
+  }
+
+  async getPrivilegeStatus(query: GetPrivilegeStatusQuery): Promise<PrivilegeResolution> {
+    const state = stateOf(this);
+    const matter = state.matters.get(query.matter_id);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
+    }
+    if (matter.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    if (query.target_type !== "document") {
+      throw new CaseBoxPersistenceError(
+        "invalid_argument",
+        `getPrivilegeStatus accepts target_type "document" only in A3 (got ${JSON.stringify(query.target_type)})`,
+      );
+    }
+    const docEntry = state.documents.get(query.target_id);
+    if (docEntry === undefined) {
+      throw new CaseBoxPersistenceError("unknown_document", `unknown document target: ${query.target_id}`);
+    }
+    if (docEntry.document.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `document.tenant_id (${docEntry.document.tenant_id}) does not match query.tenant_id (${query.tenant_id})`,
+      );
+    }
+    if (docEntry.document.matter_id !== query.matter_id) {
+      throw new CaseBoxPersistenceError(
+        "matter_id_mismatch",
+        `document.matter_id (${docEntry.document.matter_id}) does not match query.matter_id (${query.matter_id})`,
+      );
+    }
+    return getEffectivePrivilege(state.privilege, query.matter_id, query.target_type, query.target_id);
+  }
+
+  async listPrivilegeMarkers(query: ListPrivilegeMarkersQuery): Promise<ListPrivilegeMarkersPage> {
+    const state = stateOf(this);
+    const matter = state.matters.get(query.matter_id);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
+    }
+    if (matter.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    return listPrivilegeMarkersImpl(state.privilege, query);
   }
 
   // -------------------------------------------------------------------------

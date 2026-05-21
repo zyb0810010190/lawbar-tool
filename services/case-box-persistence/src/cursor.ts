@@ -14,7 +14,8 @@ import { CaseBoxPersistenceError } from "./errors.js";
 export type CaseBoxCursorKind =
   | "documents_by_matter"
   | "audit_events_by_matter"
-  | "classifications_by_matter";
+  | "classifications_by_matter"
+  | "privilege_markers_by_matter";
 
 export interface CursorPayload {
   v: 1;
@@ -88,7 +89,8 @@ export function decodeCursor(
   if (
     p.kind !== "documents_by_matter" &&
     p.kind !== "audit_events_by_matter" &&
-    p.kind !== "classifications_by_matter"
+    p.kind !== "classifications_by_matter" &&
+    p.kind !== "privilege_markers_by_matter"
   ) {
     throw new CaseBoxPersistenceError("invalid_argument", `malformed cursor: invalid kind ${String(p.kind)}`);
   }
@@ -139,6 +141,17 @@ export function decodeCursor(
       throw new CaseBoxPersistenceError(
         "invalid_argument",
         `malformed cursor: classifications_by_matter requires last_sort_tuple [set_at:string, id:string]`,
+      );
+    }
+  } else if (p.kind === "privilege_markers_by_matter") {
+    if (
+      p.last_sort_tuple.length !== 2 ||
+      typeof p.last_sort_tuple[0] !== "string" ||
+      typeof p.last_sort_tuple[1] !== "string"
+    ) {
+      throw new CaseBoxPersistenceError(
+        "invalid_argument",
+        `malformed cursor: privilege_markers_by_matter requires last_sort_tuple [proposed_at:string, id:string]`,
       );
     }
   }
