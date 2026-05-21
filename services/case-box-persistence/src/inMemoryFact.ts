@@ -551,3 +551,90 @@ export function applyAppendFact(
   repo.auditByMatter.set(prepared.matterId, stored);
   return structuredClone(prepared.row) as CaseBoxFact;
 }
+
+// ---------------------------------------------------------------------------
+// applyAppendFactOnce — replay-safe variant (Phase A9)
+//
+// Pattern: at-least-once redelivery dedupe via id-keyed canonical-payload
+// equality. Same id + same payload → return stored row, no audit. Same id
+// + different payload → fall through to strict applyAppendFact which throws
+// duplicate_id. New id → strict insert + audit.
+//
+// Precondition: callers MUST stamp the SAME id on each redelivery attempt
+// of the same logical request. Once is NOT semantic dedupe across different
+// ids — it's idempotency for replay of the same request id.
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical, sorted-keys JSON projection of a fact-shaped object. Exported
+ * for future SQLite (Phase B) parity — both impls MUST use this helper to
+ * compute the dedupe-equality key.
+ *
+ * CaseBoxFact has no store-assigned fields, so every caller-supplied schema
+ * field is included. If a future contract revision adds store-assigned
+ * fields (e.g. a persisted_at), they MUST be excluded here.
+ */
+export function factCanonicalProjection(input: unknown): string {
+  return canonicalJsonForFact(input);
+}
+
+// Defensive cycle + depth limits (audit Dim 4 #1 fix). Cyclic or
+// pathologically deep objects throw before canonicalization runs unbounded.
+const FACT_CANONICAL_MAX_DEPTH = 64;
+
+function canonicalJsonForFact(v: unknown, depth = 0, seen: WeakSet<object> = new WeakSet()): string {
+  if (depth > FACT_CANONICAL_MAX_DEPTH) {
+    throw new RangeError("factCanonicalProjection: max depth exceeded");
+  }
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (seen.has(v as object)) {
+    throw new RangeError("factCanonicalProjection: cyclic reference");
+  }
+  seen.add(v as object);
+  if (Array.isArray(v)) {
+    return `[${v.map((x) => canonicalJsonForFact(x, depth + 1, seen)).join(",")}]`;
+  }
+  const obj = v as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJsonForFact(obj[k], depth + 1, seen)}`).join(",")}}`;
+}
+
+export function applyAppendFactOnce(
+  state: FactState,
+  repo: FactRepoView,
+  deps: FactCDeps,
+  input: unknown,
+): CaseBoxFact {
+  // Light pre-parse to find the id without running the full validator.
+  // The fall-through path will validate strictly when there's no replay.
+  if (input !== null && typeof input === "object") {
+    const candidateId = (input as { id?: unknown }).id;
+    if (typeof candidateId === "string" && candidateId.length > 0) {
+      const stored = state.factById.get(candidateId);
+      if (stored !== undefined) {
+        // Tenant defense (audit Dim 5 #1 fix): if the input's tenant_id
+        // differs from the stored row's tenant_id, fall through to the
+        // strict path — never short-circuit into a cross-tenant read.
+        const inputTenant = (input as { tenant_id?: unknown }).tenant_id;
+        if (typeof inputTenant === "string" && inputTenant !== stored.tenant_id) {
+          return applyAppendFact(state, repo, deps, input);
+        }
+        // Cycle / depth guard (audit Dim 4 #1 fix): canonicalization may
+        // throw on hostile payloads; on throw, fall through to strict path
+        // which validates the schema and produces a normal invalid_payload.
+        try {
+          if (factCanonicalProjection(stored) === factCanonicalProjection(input)) {
+            // REPLAY: return stored row verbatim. No audit emission.
+            return structuredClone(stored) as CaseBoxFact;
+          }
+        } catch {
+          return applyAppendFact(state, repo, deps, input);
+        }
+        // Same id, different payload — fall through to strict path which
+        // will throw duplicate_id (A4 semantics). The conflict surface is
+        // shared with the strict path to avoid a new error code.
+      }
+    }
+  }
+  return applyAppendFact(state, repo, deps, input);
+}

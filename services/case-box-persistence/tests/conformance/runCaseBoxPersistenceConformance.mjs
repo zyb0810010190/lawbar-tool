@@ -3146,6 +3146,137 @@ export function runConformance(label, factory) {
     assert.equal(page.rows[0].doc_type, "contract");
   });
 
+  // ===========================================================================
+  // Phase A9 — replay-safe Once variants
+  // ===========================================================================
+
+  test(`${label}: 6.A9.1 appendFactOnce new fact (cold path) emits audit`, async () => {
+    const p = await seedMatterDoc();
+    const headBefore = await p.getAuditChainHead(DEFAULT_MATTER_ID);
+    const row = await p.appendFactOnce(makeFactInput());
+    assert.equal(row.id, DEFAULT_FACT_ID);
+    const headAfter = await p.getAuditChainHead(DEFAULT_MATTER_ID);
+    assert.equal(headAfter.count, headBefore.count + 1);
+  });
+
+  test(`${label}: 6.A9.2 appendFactOnce exact replay returns stored row, no new audit`, async () => {
+    const p = await seedMatterDoc();
+    const first = await p.appendFactOnce(makeFactInput());
+    const headBefore = await p.getAuditChainHead(DEFAULT_MATTER_ID);
+    const second = await p.appendFactOnce(makeFactInput());
+    const headAfter = await p.getAuditChainHead(DEFAULT_MATTER_ID);
+    assert.equal(headAfter.count, headBefore.count);
+    assert.equal(headAfter.headHash, headBefore.headHash);
+    assert.equal(second.id, first.id);
+    assert.equal(second.created_at, first.created_at);
+  });
+
+  test(`${label}: 6.A9.3 appendFactOnce same id, different statement_text → duplicate_id`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFactOnce(makeFactInput());
+    await assertRejectsCode(
+      () => p.appendFactOnce(makeFactInput({ statement_text: "different fact statement entirely" })),
+      "duplicate_id",
+    );
+  });
+
+  test(`${label}: 6.A9.13 appendFactOnce cross-tenant replay short-circuit blocked`, async () => {
+    // Audit Dim 5 #1 defense: a caller forging the exact stored projection
+    // but with a different tenant_id must NOT receive the stored row via
+    // the replay short-circuit. Tenant guard falls through to the strict
+    // path; strict-path duplicate-id check throws BEFORE any payload data
+    // leaves. No row data is exposed in the error.
+    const p = await seedMatterDoc();
+    await p.appendFactOnce(makeFactInput());
+    await assertRejectsCode(
+      () => p.appendFactOnce(makeFactInput({ tenant_id: "other-tenant" })),
+      "duplicate_id",
+    );
+  });
+
+  test(`${label}: 6.A9.4 appendFactOnce returns deep clone`, async () => {
+    const p = await seedMatterDoc();
+    const r = await p.appendFactOnce(makeFactInput());
+    r.statement = "TAMPERED";
+    const replay = await p.appendFactOnce(makeFactInput());
+    assert.notEqual(replay.statement, "TAMPERED");
+  });
+
+  test(`${label}: 6.A9.5 appendFactOnce schema-invalid payload → invalid_payload`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendFactOnce(makeFactInput({ id: "BAD" })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A9.6 appendFactOnce non-candidate status rejected`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendFactOnce(makeFactInput({ status: "accepted" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A9.7 appendFactOnce cross-tenant rejected`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.appendFactOnce(makeFactInput({ tenant_id: "other-tenant" })),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A9.8 appendFactOnce after transition → duplicate_id (projection differs)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFactOnce(makeFactInput());
+    await p.transitionFact(DEFAULT_FACT_ID, { to: "reviewed", reviewer_actor_user_id: "l", at: "2026-05-22T01:00:00.000Z" });
+    // Re-attempt original candidate payload: stored row is now reviewed,
+    // canonical projection differs (status changed + reviewed_at set), so
+    // the conflict path fires.
+    await assertRejectsCode(
+      () => p.appendFactOnce(makeFactInput()),
+      "duplicate_id",
+    );
+  });
+
+  test(`${label}: 6.A9.9 appendFactOnce replay leaves chain head unchanged`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFactOnce(makeFactInput());
+    const h1 = await p.getAuditChainHead(DEFAULT_MATTER_ID);
+    await p.appendFactOnce(makeFactInput());
+    await p.appendFactOnce(makeFactInput());
+    const h2 = await p.getAuditChainHead(DEFAULT_MATTER_ID);
+    assert.equal(h1.count, h2.count);
+    assert.equal(h1.headHash, h2.headHash);
+  });
+
+  test(`${label}: 6.A9.10 appendFactOnce 5x replay → 1 audit row`, async () => {
+    const p = await seedMatterDoc();
+    for (let i = 0; i < 5; i++) await p.appendFactOnce(makeFactInput());
+    const head = await p.getAuditChainHead(DEFAULT_MATTER_ID);
+    // Matter creation + document registration each emit 1 audit; +1 for the
+    // first appendFactOnce. Subsequent 4 are no-ops.
+    assert.equal(head.count, 3);
+  });
+
+  test(`${label}: 6.A9.11 appendFactOnce same id, different created_at → duplicate_id`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFactOnce(makeFactInput());
+    await assertRejectsCode(
+      () => p.appendFactOnce(makeFactInput({ created_at: "2027-01-01T00:00:00.000Z" })),
+      "duplicate_id",
+    );
+  });
+
+  test(`${label}: 6.A9.12 appendFactOnce same id, different actor_user_id → duplicate_id`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFactOnce(makeFactInput());
+    await assertRejectsCode(
+      () => p.appendFactOnce(makeFactInput({ actor_user_id: "different-actor" })),
+      "duplicate_id",
+    );
+  });
+
   test(`${label}: 6.A4.28 getFact unknown returns null + scoped lookup`, async () => {
     const p = await seedMatterDoc();
     // Unknown fact id returns null.

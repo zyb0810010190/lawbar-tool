@@ -102,6 +102,7 @@ import {
 } from "./inMemoryPrivilege.js";
 import {
   applyAppendFact,
+  applyAppendFactOnce,
   createFactState,
   listFacts as listFactsImpl,
   prepareTransitionFact,
@@ -411,6 +412,11 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
   async appendFact(input: unknown): Promise<CaseBoxFact> {
     const state = stateOf(this);
     return applyAppendFact(state.fact, state, this.#commonAppendDeps(), input);
+  }
+
+  async appendFactOnce(input: unknown): Promise<CaseBoxFact> {
+    const state = stateOf(this);
+    return applyAppendFactOnce(state.fact, state, this.#commonAppendDeps(), input);
   }
 
   async transitionFact(factId: string, opts: FactTransitionOpts): Promise<CaseBoxFact> {
