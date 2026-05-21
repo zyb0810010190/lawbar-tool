@@ -79,6 +79,7 @@ Contract package requires Node >=22 because it uses JSON import attributes.
 ### Test commands
 npm --prefix docs/contracts test
 npm --prefix docs/contracts/case-box-contract test
+npm --prefix services/case-box-persistence test
 npm --prefix services/ocr-persistence test
 npm --prefix services/ocr-worker test
 npm --prefix services/ocr-ingestion test
