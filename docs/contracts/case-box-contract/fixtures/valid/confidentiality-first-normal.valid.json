@@ -1,0 +1,13 @@
+{
+  "id": "01jrcasebox0000000000000c1",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "target_type": "document",
+  "target_id": "01jrcasebox0000000000000d1",
+  "level": "normal",
+  "prior_level": null,
+  "change_reason_code": null,
+  "change_reason_text": null,
+  "set_at": "2026-05-20T15:00:00.000Z"
+}

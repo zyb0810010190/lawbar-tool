@@ -24,7 +24,7 @@ export type CaseBoxAuditEvent = {
     | "share"
     | "privilege-waive";
   /**
-   * v1 case-box entity vocabulary. Tightened from free-string to enum in Step 4 (case-box-step-4-audit-log-shape). Future entities require a coordinated schema update + TS CASE_BOX_AUDIT_ENTITY_TYPES update.
+   * v1 case-box entity vocabulary. Tightened from free-string to enum in Step 4. Extended in Step 5 to include confidentiality_classification. Future entities require a coordinated schema update + TS CASE_BOX_AUDIT_ENTITY_TYPES update.
    */
   entity_type:
     | "matter"
@@ -33,7 +33,8 @@ export type CaseBoxAuditEvent = {
     | "evidence_item"
     | "ocr_link"
     | "fact"
-    | "privilege_marker";
+    | "privilege_marker"
+    | "confidentiality_classification";
   entity_id: Ulid;
   /**
    * Null on create; non-null otherwise.

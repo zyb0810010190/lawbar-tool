@@ -55,6 +55,15 @@ const expectedFns = [
   "buildCaseBoxAuditEvent",
   "verifyAuditChain",
   "asAuditEventHash",
+  // Step 5
+  "validateConfidentialityClassification",
+  "isFirstClassification",
+  "isResetToUnclassified",
+  "isDowngrade",
+  "assertValidConfidentialityTransition",
+  "assertValidNewConfidentialityClassification",
+  "effectiveConfidentialityLevel",
+  "assertExternalHandlingAllowed",
 ];
 
 const expectedArrays = [
@@ -78,6 +87,9 @@ const expectedArrays = [
   "ALLOWED_PRIVILEGE_MARKER_EDGES",
   // Step 4
   "CASE_BOX_AUDIT_ENTITY_TYPES",
+  // Step 5
+  "CONFIDENTIALITY_LEVELS",
+  "CONFIDENTIALITY_CHANGE_REASON_CODES",
 ];
 
 const expectedObjects = [
@@ -90,6 +102,8 @@ const expectedObjects = [
   "auditEventSchema",
   "factSchema",
   "privilegeMarkerSchema",
+  "confidentialityClassificationSchema",
+  "LATTICE_ORDINAL",
 ];
 
 const expectedConstants = [
@@ -103,6 +117,8 @@ const expectedErrorCtors = [
   "FactCreationInvariantError",
   "PrivilegeMarkerCreationError",
   "AuditEventReasonRequiredError",
+  "ConfidentialityTransitionError",
+  "ConfidentialityCreationError",
 ];
 
 test("every expected function is exported and callable", () => {
@@ -129,6 +145,8 @@ test("every expected array is exported and non-empty (where applicable)", () => 
   assert.ok(pkg.ALLOWED_FACT_EDGES.length > 0);
   assert.ok(pkg.ALLOWED_PRIVILEGE_MARKER_EDGES.length > 0);
   assert.ok(pkg.CASE_BOX_AUDIT_ENTITY_TYPES.length > 0);
+  assert.ok(pkg.CONFIDENTIALITY_LEVELS.length > 0);
+  assert.ok(pkg.CONFIDENTIALITY_CHANGE_REASON_CODES.length > 0);
 });
 
 test("CASE_BOX_AUDIT_EVENT_KINDS is exported as a non-empty object", () => {
@@ -184,4 +202,14 @@ test("error constructors produce Error instances with named .name", () => {
   assert.ok(e6 instanceof Error);
   assert.equal(e6.name, "AuditEventReasonRequiredError");
   assert.equal(e6.kind, "PRIVILEGE_MARKER_WAIVED");
+
+  const e7 = new pkg.ConfidentialityTransitionError("downgrade needs reason");
+  assert.ok(e7 instanceof Error);
+  assert.equal(e7.name, "ConfidentialityTransitionError");
+  assert.equal(e7.violation, "downgrade needs reason");
+
+  const e8 = new pkg.ConfidentialityCreationError("prior mismatch");
+  assert.ok(e8 instanceof Error);
+  assert.equal(e8.name, "ConfidentialityCreationError");
+  assert.equal(e8.violation, "prior mismatch");
 });

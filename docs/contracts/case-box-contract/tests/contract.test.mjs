@@ -35,6 +35,7 @@ const ocrLinkSchema      = readJson(join(schemasDir, "case-box-ocr-link.schema.j
 const auditEventSchema   = readJson(join(schemasDir, "case-box-audit-event.schema.json"));
 const factSchema         = readJson(join(schemasDir, "case-box-fact.schema.json"));
 const privilegeMarkerSchema = readJson(join(schemasDir, "case-box-privilege-marker.schema.json"));
+const confidentialityClassificationSchema = readJson(join(schemasDir, "case-box-confidentiality-classification.schema.json"));
 
 const validateMatter       = ajv.compile(matterSchema);
 const validateDocument     = ajv.compile(documentSchema);
@@ -45,6 +46,7 @@ const validateOcrLink      = ajv.compile(ocrLinkSchema);
 const validateAuditEvent   = ajv.compile(auditEventSchema);
 const validateFact         = ajv.compile(factSchema);
 const validatePrivilegeMarker = ajv.compile(privilegeMarkerSchema);
+const validateConfidentialityClassification = ajv.compile(confidentialityClassificationSchema);
 
 const errs = (v) => (v.errors || []).map((e) => `${e.instancePath} ${e.message}`).join("; ");
 
@@ -373,4 +375,75 @@ test("invalid: audit-event with bad entity_type is rejected (entity_type enum)",
   assert.equal(validateAuditEvent(fixture), false);
   const offenders = (validateAuditEvent.errors || []).filter((e) => e.instancePath === "/entity_type");
   assert.ok(offenders.length > 0, `expected enum error on /entity_type (got ${errs(validateAuditEvent)})`);
+});
+
+// ---------------------------------------------------------------------------
+// Confidentiality classification fixtures
+// ---------------------------------------------------------------------------
+
+test("valid: confidentiality-first-normal passes", () => {
+  assert.equal(validateConfidentialityClassification(readJson(join(validDir, "confidentiality-first-normal.valid.json"))), true, errs(validateConfidentialityClassification));
+});
+
+test("valid: confidentiality-first-restricted passes", () => {
+  assert.equal(validateConfidentialityClassification(readJson(join(validDir, "confidentiality-first-restricted.valid.json"))), true, errs(validateConfidentialityClassification));
+});
+
+test("valid: confidentiality-upgrade passes", () => {
+  assert.equal(validateConfidentialityClassification(readJson(join(validDir, "confidentiality-upgrade.valid.json"))), true, errs(validateConfidentialityClassification));
+});
+
+test("valid: confidentiality-downgrade-with-reason passes", () => {
+  assert.equal(validateConfidentialityClassification(readJson(join(validDir, "confidentiality-downgrade-with-reason.valid.json"))), true, errs(validateConfidentialityClassification));
+});
+
+test("valid: confidentiality-other-reason passes", () => {
+  assert.equal(validateConfidentialityClassification(readJson(join(validDir, "confidentiality-other-reason.valid.json"))), true, errs(validateConfidentialityClassification));
+});
+
+test("invalid: confidentiality-bad-level is rejected", () => {
+  const fixture = readJson(join(invalidDir, "confidentiality-bad-level.json"));
+  assert.equal(validateConfidentialityClassification(fixture), false);
+  const offenders = (validateConfidentialityClassification.errors || []).filter((e) => e.instancePath === "/level");
+  assert.ok(offenders.length > 0);
+});
+
+test("invalid: confidentiality-bad-target-type is rejected (matter not in v1 enum)", () => {
+  const fixture = readJson(join(invalidDir, "confidentiality-bad-target-type.json"));
+  assert.equal(validateConfidentialityClassification(fixture), false);
+  const offenders = (validateConfidentialityClassification.errors || []).filter((e) => e.instancePath === "/target_type");
+  assert.ok(offenders.length > 0);
+});
+
+test("invalid: confidentiality-bad-reason-code is rejected", () => {
+  const fixture = readJson(join(invalidDir, "confidentiality-bad-reason-code.json"));
+  assert.equal(validateConfidentialityClassification(fixture), false);
+  const offenders = (validateConfidentialityClassification.errors || []).filter((e) => e.instancePath === "/change_reason_code");
+  assert.ok(offenders.length > 0);
+});
+
+test("invalid: confidentiality-other-reason-without-text is rejected (C1)", () => {
+  const fixture = readJson(join(invalidDir, "confidentiality-other-reason-without-text.json"));
+  assert.equal(validateConfidentialityClassification(fixture), false);
+  const offenders = (validateConfidentialityClassification.errors || []).filter((e) =>
+    e.instancePath === "/change_reason_text" ||
+    (e.keyword === "required" && e.params?.missingProperty === "change_reason_text")
+  );
+  assert.ok(offenders.length > 0);
+});
+
+test("invalid: confidentiality-empty-reason-text is rejected (C1 minLength)", () => {
+  const fixture = readJson(join(invalidDir, "confidentiality-empty-reason-text.json"));
+  assert.equal(validateConfidentialityClassification(fixture), false);
+  const offenders = (validateConfidentialityClassification.errors || []).filter((e) => e.instancePath === "/change_reason_text");
+  assert.ok(offenders.length > 0);
+});
+
+test("invalid: confidentiality-missing-set-at is rejected", () => {
+  const fixture = readJson(join(invalidDir, "confidentiality-missing-set-at.json"));
+  assert.equal(validateConfidentialityClassification(fixture), false);
+  const offenders = (validateConfidentialityClassification.errors || []).filter((e) =>
+    e.keyword === "required" && e.params?.missingProperty === "set_at"
+  );
+  assert.ok(offenders.length > 0);
 });

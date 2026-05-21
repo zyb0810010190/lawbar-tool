@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-confidentiality-classification.schema.json",
+  "title": "CaseBoxConfidentialityClassification",
+  "description": "Per-target confidentiality classification. Append-only history; latest row by set_at (id tiebreak) = current effective level. Targets are document or fact ONLY in v1; matter-level confidentiality lives on the Step-1 matter row. See docs/adr/case-box-step-5-confidentiality-classification.md.",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "actor_user_id",
+    "matter_id",
+    "target_type",
+    "target_id",
+    "level",
+    "prior_level",
+    "change_reason_code",
+    "change_reason_text",
+    "set_at"
+  ],
+  "properties": {
+    "id":            { "$ref": "#/$defs/ulid" },
+    "tenant_id":     { "type": "string", "minLength": 1 },
+    "actor_user_id": { "type": "string", "minLength": 1, "description": "Classifying lawyer." },
+    "matter_id":     { "$ref": "#/$defs/ulid" },
+    "target_type": {
+      "enum": ["document", "fact"],
+      "description": "v1 targets. Matter-level classification lives on CaseBoxMatter.confidentiality_class (Step 1), not here."
+    },
+    "target_id": { "$ref": "#/$defs/ulid" },
+    "level": {
+      "enum": ["unclassified", "normal", "confidential", "highly_confidential", "restricted"],
+      "description": "Per-item level. unclassified is the legal default (outside the ordinal lattice; operationally most restrictive)."
+    },
+    "prior_level": {
+      "anyOf": [
+        { "type": "null" },
+        { "enum": ["unclassified", "normal", "confidential", "highly_confidential", "restricted"] }
+      ],
+      "description": "Null only on the first row for this (target_type, target_id). Persistence enforces cross-row consistency."
+    },
+    "change_reason_code": {
+      "anyOf": [
+        { "type": "null" },
+        { "enum": ["discovery_production", "client_authorization", "court_order", "change_in_legal_assessment", "data_minimization", "reset_to_unset", "other"] }
+      ],
+      "description": "Reason taxonomy. Required non-null for downgrades and resets-to-unclassified (enforced by assertValidConfidentialityTransition validator helper, not by schema)."
+    },
+    "change_reason_text": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ],
+      "description": "Free-text reason. Required when change_reason_code === \"other\"."
+    },
+    "set_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if":   { "properties": { "change_reason_code": { "const": "other" } }, "required": ["change_reason_code"] },
+      "then": {
+        "required": ["change_reason_text"],
+        "properties": {
+          "change_reason_text": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$"
+    }
+  }
+}

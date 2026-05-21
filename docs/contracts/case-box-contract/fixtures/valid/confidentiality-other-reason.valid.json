@@ -1,0 +1,13 @@
+{
+  "id": "01jrcasebox0000000000000c5",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "target_type": "fact",
+  "target_id": "01jrcasebox0000000000000f5",
+  "level": "normal",
+  "prior_level": "confidential",
+  "change_reason_code": "other",
+  "change_reason_text": "Lawyer determined privilege analysis no longer applies after second review.",
+  "set_at": "2026-05-20T15:20:00.000Z"
+}

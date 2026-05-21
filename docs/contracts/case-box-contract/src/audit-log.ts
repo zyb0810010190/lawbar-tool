@@ -33,6 +33,7 @@ export const CASE_BOX_AUDIT_ENTITY_TYPES = Object.freeze([
   "ocr_link",
   "fact",
   "privilege_marker",
+  "confidentiality_classification",
 ] as const);
 
 export type CaseBoxAuditEntityType = (typeof CASE_BOX_AUDIT_ENTITY_TYPES)[number];
@@ -104,6 +105,11 @@ export const CASE_BOX_AUDIT_EVENT_KINDS = Object.freeze({
   DOCUMENT_ACCESSED:          { action: "access",          entity_type: "document",         reasonRequired: false },
   DOCUMENT_PRINTED:           { action: "print",           entity_type: "document",         reasonRequired: false },
   DOCUMENT_SHARED:            { action: "share",           entity_type: "document",         reasonRequired: true  },
+  // Confidentiality classification (Step 5) — all append-only inserts → action: "create"
+  CLASSIFICATION_SET:                  { action: "create", entity_type: "confidentiality_classification", reasonRequired: false },
+  CLASSIFICATION_UPGRADED:             { action: "create", entity_type: "confidentiality_classification", reasonRequired: false },
+  CLASSIFICATION_DOWNGRADED:           { action: "create", entity_type: "confidentiality_classification", reasonRequired: true  },
+  CLASSIFICATION_RESET_TO_UNCLASSIFIED: { action: "create", entity_type: "confidentiality_classification", reasonRequired: true  },
 } as const satisfies Record<string, AuditKindMeta>);
 
 export type CaseBoxAuditEventKind = keyof typeof CASE_BOX_AUDIT_EVENT_KINDS;

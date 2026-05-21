@@ -41,6 +41,19 @@ import {
   verifyAuditChain,
   asAuditEventHash,
   AuditEventReasonRequiredError,
+  // Step 5
+  validateConfidentialityClassification,
+  CONFIDENTIALITY_LEVELS,
+  CONFIDENTIALITY_CHANGE_REASON_CODES,
+  isFirstClassification,
+  isResetToUnclassified,
+  isDowngrade,
+  assertValidConfidentialityTransition,
+  assertValidNewConfidentialityClassification,
+  effectiveConfidentialityLevel,
+  assertExternalHandlingAllowed,
+  ConfidentialityTransitionError,
+  ConfidentialityCreationError,
 } from "../dist/index.js";
 import { createHash } from "node:crypto";
 
@@ -828,6 +841,320 @@ test("drift: every CASE_BOX_AUDIT_EVENT_KINDS[k].action is a valid schema action
 test("drift: every CASE_BOX_AUDIT_EVENT_KINDS[k].entity_type is in CASE_BOX_AUDIT_ENTITY_TYPES", () => {
   for (const [k, meta] of Object.entries(CASE_BOX_AUDIT_EVENT_KINDS)) {
     assert.ok(CASE_BOX_AUDIT_ENTITY_TYPES.includes(meta.entity_type), `${k} has unknown entity_type ${meta.entity_type}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Step 5 — Confidentiality classification helpers
+// ---------------------------------------------------------------------------
+
+test("CONFIDENTIALITY_LEVELS contains 5 v1 values", () => {
+  assert.deepEqual([...CONFIDENTIALITY_LEVELS], ["unclassified", "normal", "confidential", "highly_confidential", "restricted"]);
+});
+
+test("CONFIDENTIALITY_CHANGE_REASON_CODES contains 7 v1 values", () => {
+  assert.equal(CONFIDENTIALITY_CHANGE_REASON_CODES.length, 7);
+});
+
+test("validateConfidentialityClassification: happy path returns ok=true", () => {
+  const r = validateConfidentialityClassification(readJson(join(validDir, "confidentiality-first-normal.valid.json")));
+  assert.equal(r.ok, true);
+});
+
+test("validateConfidentialityClassification: error path returns ok=false", () => {
+  const r = validateConfidentialityClassification(readJson(join(invalidDir, "confidentiality-bad-level.json")));
+  assert.equal(r.ok, false);
+});
+
+// --- Transition predicates ---
+
+test("isFirstClassification truth table", () => {
+  assert.equal(isFirstClassification(null, "normal"), true);
+  assert.equal(isFirstClassification(null, "restricted"), true);
+  assert.equal(isFirstClassification("normal", "confidential"), false);
+});
+
+test("isResetToUnclassified truth table", () => {
+  assert.equal(isResetToUnclassified("normal", "unclassified"), true);
+  assert.equal(isResetToUnclassified("restricted", "unclassified"), true);
+  assert.equal(isResetToUnclassified(null, "unclassified"), false);
+  assert.equal(isResetToUnclassified("unclassified", "unclassified"), false);
+  assert.equal(isResetToUnclassified("normal", "confidential"), false);
+});
+
+test("isDowngrade truth table — within lattice", () => {
+  assert.equal(isDowngrade("confidential", "normal"), true);
+  assert.equal(isDowngrade("restricted", "highly_confidential"), true);
+  assert.equal(isDowngrade("highly_confidential", "confidential"), true);
+  assert.equal(isDowngrade("confidential", "highly_confidential"), false); // upgrade
+  assert.equal(isDowngrade("normal", "restricted"), false); // upgrade
+});
+
+test("isDowngrade: unclassified is OUTSIDE the ordinal lattice", () => {
+  assert.equal(isDowngrade(null, "normal"), false);          // first-classification
+  assert.equal(isDowngrade(null, "restricted"), false);      // first-classification
+  assert.equal(isDowngrade("unclassified", "normal"), false); // not a downgrade
+  assert.equal(isDowngrade("normal", "unclassified"), false); // reset (separate concept)
+});
+
+// --- assertValidConfidentialityTransition ---
+
+test("assertValidConfidentialityTransition: upgrades and first-classifications don't require reason", () => {
+  assert.doesNotThrow(() => assertValidConfidentialityTransition(null, "normal", null));
+  assert.doesNotThrow(() => assertValidConfidentialityTransition("normal", "confidential", null));
+  assert.doesNotThrow(() => assertValidConfidentialityTransition("confidential", "restricted", null));
+});
+
+test("assertValidConfidentialityTransition: downgrade without reason throws", () => {
+  assert.throws(() => assertValidConfidentialityTransition("confidential", "normal", null), ConfidentialityTransitionError);
+  assert.throws(() => assertValidConfidentialityTransition("restricted", "normal", null), ConfidentialityTransitionError);
+});
+
+test("assertValidConfidentialityTransition: downgrade with reason passes", () => {
+  assert.doesNotThrow(() => assertValidConfidentialityTransition("confidential", "normal", "client_authorization"));
+});
+
+test("assertValidConfidentialityTransition: reset to unclassified without reason throws", () => {
+  assert.throws(() => assertValidConfidentialityTransition("normal", "unclassified", null), ConfidentialityTransitionError);
+});
+
+test("assertValidConfidentialityTransition: reset to unclassified with reason passes", () => {
+  assert.doesNotThrow(() => assertValidConfidentialityTransition("normal", "unclassified", "reset_to_unset"));
+});
+
+// --- assertValidNewConfidentialityClassification (history-aware) ---
+
+test("assertValidNewConfidentialityClassification: first-row with prior_level=null passes", () => {
+  assert.doesNotThrow(() => assertValidNewConfidentialityClassification(
+    { prior_level: null, level: "normal", change_reason_code: null }, null,
+  ));
+});
+
+test("assertValidNewConfidentialityClassification: first-row with non-null prior_level throws", () => {
+  assert.throws(() => assertValidNewConfidentialityClassification(
+    { prior_level: "normal", level: "confidential", change_reason_code: null }, null,
+  ), ConfidentialityCreationError);
+});
+
+test("assertValidNewConfidentialityClassification: non-first row with mismatched prior_level throws", () => {
+  assert.throws(() => assertValidNewConfidentialityClassification(
+    { prior_level: "confidential", level: "restricted", change_reason_code: null },
+    { level: "normal" },
+  ), ConfidentialityCreationError);
+});
+
+test("assertValidNewConfidentialityClassification: non-first row with matching prior_level passes", () => {
+  assert.doesNotThrow(() => assertValidNewConfidentialityClassification(
+    { prior_level: "normal", level: "confidential", change_reason_code: null },
+    { level: "normal" },
+  ));
+});
+
+test("assertValidNewConfidentialityClassification: downgrade without reason throws (via transition helper)", () => {
+  assert.throws(() => assertValidNewConfidentialityClassification(
+    { prior_level: "confidential", level: "normal", change_reason_code: null },
+    { level: "confidential" },
+  ), ConfidentialityCreationError);
+});
+
+// --- effectiveConfidentialityLevel ---
+
+test("effectiveConfidentialityLevel: empty array returns unclassified (load-bearing default)", () => {
+  assert.equal(effectiveConfidentialityLevel("document", "01jrcasebox0000000000000d1", []), "unclassified");
+});
+
+test("effectiveConfidentialityLevel: single row returns its level", () => {
+  const r = readJson(join(validDir, "confidentiality-first-normal.valid.json"));
+  assert.equal(effectiveConfidentialityLevel(r.target_type, r.target_id, [r]), "normal");
+});
+
+test("effectiveConfidentialityLevel: latest by set_at wins", () => {
+  const a = readJson(join(validDir, "confidentiality-first-normal.valid.json"));
+  const b = { ...a, id: "01jrcasebox0000000000000cX", level: "restricted", prior_level: "normal", set_at: "2026-05-21T00:00:00.000Z" };
+  assert.equal(effectiveConfidentialityLevel(a.target_type, a.target_id, [a, b]), "restricted");
+});
+
+test("effectiveConfidentialityLevel: tie on set_at, id ASC breaks tie (older id wins by being first when sorted)", () => {
+  const a = readJson(join(validDir, "confidentiality-first-normal.valid.json"));
+  // Same set_at, different ids: lower id (lexicographically first) wins per sort rule.
+  const b = { ...a, id: "01jrcasebox0000000000000cX", level: "restricted", prior_level: "normal" };
+  const result = effectiveConfidentialityLevel(a.target_type, a.target_id, [a, b]);
+  // Implementation: set_at DESC, id ASC. Both same set_at; a.id="01jrcasebox0000000000000c1" < b.id="01jrcasebox0000000000000cX"; a wins.
+  assert.equal(result, "normal");
+});
+
+test("effectiveConfidentialityLevel: filters by target_type", () => {
+  const r = readJson(join(validDir, "confidentiality-first-normal.valid.json"));
+  assert.equal(effectiveConfidentialityLevel("fact", r.target_id, [r]), "unclassified");
+});
+
+// ---------------------------------------------------------------------------
+// assertExternalHandlingAllowed — cross-product matrix
+// ---------------------------------------------------------------------------
+
+function buildClassification(target_type, target_id, level) {
+  return {
+    id: "01jrcasebox0000000000000cZ",
+    tenant_id: "tenant-local-v1",
+    actor_user_id: "local-user",
+    matter_id: "01jrcasebox0000000000000m1",
+    target_type,
+    target_id,
+    level,
+    prior_level: null,
+    change_reason_code: null,
+    change_reason_text: null,
+    set_at: "2026-05-20T15:00:00.000Z",
+  };
+}
+
+const NORMAL_MATTER = { confidentiality_class: "normal" };
+const HEIGHTENED_MATTER = { confidentiality_class: "heightened" };
+const SEALED_MATTER = { confidentiality_class: "sealed" };
+const TARGET_ID = "01jrcasebox0000000000000d1";
+
+function callHelper(level, matter, privilegeReviewState, externalAction, optIns) {
+  const classifications = level === "unclassified" ? [] : [buildClassification("document", TARGET_ID, level)];
+  return assertExternalHandlingAllowed({
+    matter,
+    classifications,
+    privilegeReviewState,
+    targetType: "document",
+    targetId: TARGET_ID,
+    externalAction,
+    externalOcrAuthorized: optIns.externalOcrAuthorized ?? false,
+    syncGrantPresent: optIns.syncGrantPresent ?? false,
+    llmExtractionOptIn: optIns.llmExtractionOptIn ?? false,
+  });
+}
+
+test("assertExternalHandlingAllowed: unclassified denies with unclassified_default_denies_external (LOAD-BEARING)", () => {
+  const r = callHelper("unclassified", NORMAL_MATTER, "reviewed_no_privilege_applies", "external_ocr", { externalOcrAuthorized: true });
+  assert.equal(r.allowed, false);
+  assert.ok(r.denialReasons.includes("unclassified_default_denies_external"));
+});
+
+test("assertExternalHandlingAllowed: restricted denies all three actions", () => {
+  for (const action of ["external_ocr", "sync_transmit", "llm_extraction"]) {
+    const r = callHelper("restricted", NORMAL_MATTER, "reviewed_no_privilege_applies", action, { externalOcrAuthorized: true, syncGrantPresent: true, llmExtractionOptIn: true });
+    assert.equal(r.allowed, false, `restricted + ${action} must deny`);
+    assert.ok(r.denialReasons.includes("classification_restricted"));
+  }
+});
+
+test("assertExternalHandlingAllowed: highly_confidential denies all three actions", () => {
+  for (const action of ["external_ocr", "sync_transmit", "llm_extraction"]) {
+    const r = callHelper("highly_confidential", NORMAL_MATTER, "reviewed_no_privilege_applies", action, { externalOcrAuthorized: true, syncGrantPresent: true, llmExtractionOptIn: true });
+    assert.equal(r.allowed, false);
+    assert.ok(r.denialReasons.includes("classification_highly_confidential"));
+  }
+});
+
+test("assertExternalHandlingAllowed: confidential denies all three actions in v1 (hard deny)", () => {
+  for (const action of ["external_ocr", "sync_transmit", "llm_extraction"]) {
+    const r = callHelper("confidential", NORMAL_MATTER, "reviewed_no_privilege_applies", action, { externalOcrAuthorized: true, syncGrantPresent: true, llmExtractionOptIn: true });
+    assert.equal(r.allowed, false);
+    assert.ok(r.denialReasons.includes("classification_confidential_disallows_action"));
+  }
+});
+
+test("assertExternalHandlingAllowed: matter sealed denies regardless of per-item level", () => {
+  const r = callHelper("normal", SEALED_MATTER, "reviewed_no_privilege_applies", "external_ocr", { externalOcrAuthorized: true });
+  assert.equal(r.allowed, false);
+  assert.ok(r.denialReasons.includes("matter_sealed"));
+});
+
+test("assertExternalHandlingAllowed: matter heightened denies regardless of per-item level (v1)", () => {
+  const r = callHelper("normal", HEIGHTENED_MATTER, "reviewed_no_privilege_applies", "external_ocr", { externalOcrAuthorized: true });
+  assert.equal(r.allowed, false);
+  assert.ok(r.denialReasons.includes("matter_heightened"));
+});
+
+test("assertExternalHandlingAllowed: privilege not_reviewed denies even on normal", () => {
+  const r = callHelper("normal", NORMAL_MATTER, "not_reviewed", "external_ocr", { externalOcrAuthorized: true });
+  assert.equal(r.allowed, false);
+  assert.ok(r.denialReasons.includes("privilege_not_reviewed"));
+});
+
+test("assertExternalHandlingAllowed: privileged_protected denies", () => {
+  const r = callHelper("normal", NORMAL_MATTER, "privileged_protected", "external_ocr", { externalOcrAuthorized: true });
+  assert.equal(r.allowed, false);
+  assert.ok(r.denialReasons.includes("privilege_protected"));
+});
+
+test("assertExternalHandlingAllowed: privileged_with_waiver still denies in v1 (reserved future)", () => {
+  const r = callHelper("normal", NORMAL_MATTER, "privileged_with_waiver", "external_ocr", { externalOcrAuthorized: true });
+  assert.equal(r.allowed, false);
+  assert.ok(r.denialReasons.includes("privilege_protected"));
+});
+
+test("assertExternalHandlingAllowed: missing action-specific opt-in denies (external_ocr)", () => {
+  const r = callHelper("normal", NORMAL_MATTER, "reviewed_no_privilege_applies", "external_ocr", { externalOcrAuthorized: false });
+  assert.equal(r.allowed, false);
+  assert.ok(r.denialReasons.includes("missing_action_specific_opt_in"));
+});
+
+test("assertExternalHandlingAllowed: sync_transmit checks syncGrantPresent (not externalOcrAuthorized)", () => {
+  const denied = callHelper("normal", NORMAL_MATTER, "reviewed_no_privilege_applies", "sync_transmit", { externalOcrAuthorized: true, syncGrantPresent: false });
+  assert.equal(denied.allowed, false);
+  assert.ok(denied.denialReasons.includes("missing_action_specific_opt_in"));
+  const allowed = callHelper("normal", NORMAL_MATTER, "reviewed_no_privilege_applies", "sync_transmit", { syncGrantPresent: true });
+  assert.equal(allowed.allowed, true);
+});
+
+test("assertExternalHandlingAllowed: llm_extraction checks llmExtractionOptIn (not externalOcrAuthorized)", () => {
+  const denied = callHelper("normal", NORMAL_MATTER, "reviewed_no_privilege_applies", "llm_extraction", { externalOcrAuthorized: true, llmExtractionOptIn: false });
+  assert.equal(denied.allowed, false);
+  assert.ok(denied.denialReasons.includes("missing_action_specific_opt_in"));
+});
+
+test("assertExternalHandlingAllowed: HAPPY PATH — normal + normal matter + reviewed + opt-in → ALLOWED", () => {
+  const r = callHelper("normal", NORMAL_MATTER, "reviewed_no_privilege_applies", "external_ocr", { externalOcrAuthorized: true });
+  assert.equal(r.allowed, true);
+  assert.equal(r.denialReasons.length, 0);
+});
+
+test("assertExternalHandlingAllowed: bogus action returns external_action_not_recognized (early return; only one denial reason)", () => {
+  const r = assertExternalHandlingAllowed({
+    matter: NORMAL_MATTER,
+    classifications: [buildClassification("document", TARGET_ID, "normal")],
+    privilegeReviewState: "reviewed_no_privilege_applies",
+    targetType: "document",
+    targetId: TARGET_ID,
+    externalAction: "wibble",
+    externalOcrAuthorized: true,
+    syncGrantPresent: true,
+    llmExtractionOptIn: true,
+  });
+  assert.equal(r.allowed, false);
+  assert.equal(r.denialReasons.length, 1);
+  assert.equal(r.denialReasons[0], "external_action_not_recognized");
+});
+
+test("assertExternalHandlingAllowed: worst-case multi-denial accumulates 4 reasons", () => {
+  const r = assertExternalHandlingAllowed({
+    matter: SEALED_MATTER,
+    classifications: [], // unclassified
+    privilegeReviewState: "not_reviewed",
+    targetType: "document",
+    targetId: TARGET_ID,
+    externalAction: "external_ocr",
+    externalOcrAuthorized: false,
+    syncGrantPresent: false,
+    llmExtractionOptIn: false,
+  });
+  assert.equal(r.allowed, false);
+  assert.ok(r.denialReasons.includes("unclassified_default_denies_external"));
+  assert.ok(r.denialReasons.includes("matter_sealed"));
+  assert.ok(r.denialReasons.includes("privilege_not_reviewed"));
+  assert.ok(r.denialReasons.includes("missing_action_specific_opt_in"));
+});
+
+test("HandlingDecision shape has NO disclosure-clearance fields", () => {
+  const r = callHelper("normal", NORMAL_MATTER, "reviewed_no_privilege_applies", "external_ocr", { externalOcrAuthorized: true });
+  const banned = ["safeToProcess", "canTransmit", "approvedForExternal", "isPrivileged", "safeToDisclose"];
+  for (const k of banned) {
+    assert.equal(k in r, false, `HandlingDecision must NOT have field ${k}`);
   }
 });
 

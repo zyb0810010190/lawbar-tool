@@ -1,0 +1,15 @@
+{
+  "_invalid_reason": "Semantic: confidential → normal is a downgrade; change_reason_code must be non-null. Schema-passes; caught by assertValidConfidentialityTransition.",
+  "_target_helper": "assertValidConfidentialityTransition",
+  "id": "01jrcasebox0000000000000cs",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "target_type": "document",
+  "target_id": "01jrcasebox0000000000000d1",
+  "level": "normal",
+  "prior_level": "confidential",
+  "change_reason_code": null,
+  "change_reason_text": null,
+  "set_at": "2026-05-20T15:30:00.000Z"
+}

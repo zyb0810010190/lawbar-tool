@@ -15,6 +15,7 @@ export { validateOcrLink, assertCaseBoxIsSubordinateToOcr } from "./validateOcrL
 export { validateAuditEvent } from "./validateAuditEvent.js";
 export { validateFact } from "./validateFact.js";
 export { validatePrivilegeMarker } from "./validatePrivilegeMarker.js";
+export { validateConfidentialityClassification } from "./validateConfidentialityClassification.js";
 
 // --- State machines + transition helpers ---
 export {
@@ -97,6 +98,30 @@ export {
   type PrivilegeResolution,
 } from "./privilege-invariants.js";
 
+// --- Confidentiality classification (Step 5) ---
+export {
+  CONFIDENTIALITY_LEVELS,
+  LATTICE_ORDINAL,
+  CONFIDENTIALITY_CHANGE_REASON_CODES,
+  isFirstClassification,
+  isResetToUnclassified,
+  isDowngrade,
+  assertValidConfidentialityTransition,
+  assertValidNewConfidentialityClassification,
+  effectiveConfidentialityLevel,
+  assertExternalHandlingAllowed,
+  ConfidentialityTransitionError,
+  ConfidentialityCreationError,
+  type ConfidentialityLevel,
+  type ConfidentialityChangeReasonCode,
+  type ExternalAction,
+  type PrivilegeReviewState,
+  type HandlingDenialReason,
+  type HandlingEvidence,
+  type HandlingDecision,
+  type AssertExternalHandlingInput,
+} from "./confidentiality-invariants.js";
+
 // --- Audit log helpers (Step 4) ---
 export {
   CASE_BOX_AUDIT_ENTITY_TYPES,
@@ -137,6 +162,7 @@ export type { CaseBoxOcrLink } from "./generated/case-box-ocr-link.js";
 export type { CaseBoxAuditEvent } from "./generated/case-box-audit-event.js";
 export type { CaseBoxFact } from "./generated/case-box-fact.js";
 export type { CaseBoxPrivilegeMarker } from "./generated/case-box-privilege-marker.js";
+export type { CaseBoxConfidentialityClassification } from "./generated/case-box-confidentiality-classification.js";
 
 // --- Deep-frozen public schemas ---
 //
@@ -154,6 +180,7 @@ import {
   auditEventSchema as rawAuditEventSchema,
   factSchema as rawFactSchema,
   privilegeMarkerSchema as rawPrivilegeMarkerSchema,
+  confidentialityClassificationSchema as rawConfidentialityClassificationSchema,
 } from "./loadSchemas.js";
 
 function deepFreeze<T>(value: T): T {
@@ -175,3 +202,4 @@ export const ocrLinkSchema = deepFreeze(structuredClone(rawOcrLinkSchema));
 export const auditEventSchema = deepFreeze(structuredClone(rawAuditEventSchema));
 export const factSchema = deepFreeze(structuredClone(rawFactSchema));
 export const privilegeMarkerSchema = deepFreeze(structuredClone(rawPrivilegeMarkerSchema));
+export const confidentialityClassificationSchema = deepFreeze(structuredClone(rawConfidentialityClassificationSchema));
