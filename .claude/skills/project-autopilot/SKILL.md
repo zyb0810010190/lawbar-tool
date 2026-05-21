@@ -45,7 +45,7 @@ Apply the selection algorithm from [[../../commands/continue-project]] step 4. P
 | General bounded code WI | plan → `/cc-suite:review-plan` (when in-scope per [[../../rules/cc-suite]]) → implement → tests → `/cc-suite:audit-fix` → `/cc-suite:verify` → [[../../commands/commit-gate]] |
 | Doc-only ADR / dev-memo | draft → `/cc-suite:review-plan` (optional for low-risk per [[../../rules/cc-suite]]; self-review fallback allowed with recording) → [[../../commands/commit-gate]] |
 
-**cc-suite commands are slash commands, NOT Skills.** Never invoke as `Skill(cc-suite:*)` — see [[../../rules/cc-suite]]. For high-risk WIs (persistence, security, cloud/sync, auth, framework choice, irreversible migration), stop and ask the user to run the slash command manually if Claude cannot invoke it autonomously.
+**cc-suite commands are slash commands OR plugin-runner invocations, NOT Skills.** Never invoke as `Skill(cc-suite:*)` — see [[../../rules/cc-suite]]. Assistant-driven runs use the plugin runner `codex-runner.mjs` (Path 1) by default; direct Codex MCP is the fallback (Path 2); `codex exec` is the last resort (Path 3); if all three fail, stop and ask the user (Path 4). Self-review remains forbidden for high-risk WIs unless the user explicitly authorizes the fallback in the same turn.
 
 ### 5. Verify gate
 

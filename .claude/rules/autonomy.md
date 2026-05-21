@@ -13,7 +13,7 @@ Claude may take all of the following without asking:
 
 - Discover docs (read ADRs, plans, contracts, dev-memos).
 - Draft plans and PLAN-* / WI-* docs.
-- Review and audit plans via the cc-suite slash commands `/cc-suite:review-plan`, `/cc-suite:audit`, `/cc-suite:verify`. **These are slash commands, NOT Skills** — never invoke them via `Skill(cc-suite:*)`. See [[cc-suite]] for the full decision matrix on when self-review fallback is acceptable.
+- Review and audit plans via cc-suite. Assistant-driven automation runs through the **plugin runner `codex-runner.mjs`** (Path 1) by default — equivalent to the user typing `/cc-suite:review-plan` / `/cc-suite:audit` / `/cc-suite:verify`. **These are slash commands or runner invocations, NOT Skills** — never invoke via `Skill(cc-suite:*)`. Direct Codex MCP is the fallback only when the runner is unavailable. See [[cc-suite]] for the path-order decision matrix and the eight required-recording fields per invocation.
 - Fix plan defects identified by review.
 - Revise existing docs, ADRs, dev-memos when scope is doc-only.
 - Create follow-up work items / sub-WIs to keep scope bounded.

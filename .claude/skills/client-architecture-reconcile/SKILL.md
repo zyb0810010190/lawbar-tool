@@ -66,7 +66,7 @@ Otherwise, proceed without asking.
 
 ### 6. Review plan
 
-- `/cc-suite:review-plan` on the reconciliation plan. (Slash command, NOT a Skill — never invoke via `Skill(cc-suite:review-plan)`. See [[../../rules/cc-suite]]. Reconciliation is docs-only and typically low-risk — self-review fallback is allowed per the cc-suite rule §"Low-risk WIs", provided the fallback is recorded.)
+- `/cc-suite:review-plan` on the reconciliation plan via the plugin runner (Path 1) per [[../../rules/cc-suite]]. Never invoke via `Skill(cc-suite:review-plan)`. Reconciliation is docs-only and typically low-risk — self-review fallback is allowed per the cc-suite rule §"Low-risk WIs", provided the fallback is recorded (four fields).
 - Fix review findings.
 
 ### 7. Apply edits

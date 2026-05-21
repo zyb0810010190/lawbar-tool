@@ -23,8 +23,9 @@ Workflow for a single bounded security WI. Triggered by [[../../commands/continu
 
 ### 2. Plan review
 
-- Run **`/cc-suite:review-plan`** (a Claude Code **slash command**, NOT a Skill — never invoke via `Skill(cc-suite:review-plan)`; that returns `Unknown skill`).
-- Security WIs are in the [[../../rules/cc-suite]] high-risk category — self-review fallback is **NOT acceptable**. If Claude cannot invoke the slash command autonomously in the current session, **stop and ask the user** to run it manually and paste back the findings.
+- Run **`/cc-suite:review-plan`** via the cc-suite plugin runner (`codex-runner.mjs`, Path 1) per [[../../rules/cc-suite]]. NEVER invoke via `Skill(cc-suite:review-plan)`. Direct Codex MCP is the fallback only when the runner is unavailable.
+- Security WIs are in the [[../../rules/cc-suite]] high-risk category — self-review fallback is **NOT acceptable**. If all of Paths 1 / 2 / 3 fail, **stop and ask the user** to run it manually and paste back the findings.
+- Every automated invocation MUST record the eight fields listed in [[../../rules/cc-suite]] §"Required recording".
 - Apply review fixes. Re-run review until clean.
 - **Branch:** if review demands product-direction changes outside the WI scope, open a sub-WI rather than expanding.
 
