@@ -14,7 +14,8 @@ export type CaseBoxPersistenceErrorCode =
   | "local_only_external_flag_rejected"
   | "invalid_payload"
   | "invalid_initial_state"
-  | "invalid_argument";
+  | "invalid_argument"
+  | "not_implemented";
 
 export class CaseBoxPersistenceError extends Error {
   readonly code: CaseBoxPersistenceErrorCode;

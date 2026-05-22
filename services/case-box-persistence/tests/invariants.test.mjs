@@ -13,13 +13,18 @@ import {
 // 6.2.1 Package depends on case-box-contract only
 // ---------------------------------------------------------------------------
 
-test("6.2.1 package.json declares case-box-contract only (no better-sqlite3, no ocr-persistence)", () => {
+test("6.2.1 package.json declares only case-box-contract + better-sqlite3 (B1+: better-sqlite3 allowed; ocr-persistence still forbidden)", () => {
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  const deps = Object.keys(pkg.dependencies ?? {});
-  assert.deepEqual(deps, ["case-box-contract"], `unexpected dependencies: ${JSON.stringify(deps)}`);
-  for (const banned of ["better-sqlite3", "@types/better-sqlite3", "ocr-persistence"]) {
-    assert.ok(!(banned in (pkg.dependencies ?? {})));
-    assert.ok(!(banned in (pkg.devDependencies ?? {})));
+  const deps = Object.keys(pkg.dependencies ?? {}).sort();
+  // Phase B1 (commit <pending>) added better-sqlite3 as a runtime dep and
+  // @types/better-sqlite3 as a devDependency. Per the reviewed B1 plan §1.1.
+  assert.deepEqual(deps, ["better-sqlite3", "case-box-contract"], `unexpected dependencies: ${JSON.stringify(deps)}`);
+  const devDeps = pkg.devDependencies ?? {};
+  assert.ok("@types/better-sqlite3" in devDeps, "@types/better-sqlite3 must be a devDependency");
+  // ocr-persistence remains forbidden across all phases.
+  for (const banned of ["ocr-persistence"]) {
+    assert.ok(!(banned in (pkg.dependencies ?? {})), `${banned} must NOT be a dependency`);
+    assert.ok(!(banned in (pkg.devDependencies ?? {})), `${banned} must NOT be a devDependency`);
   }
 });
 
@@ -92,11 +97,12 @@ test("6.2.5 returned document is a deep clone", async () => {
 // 6.2.6 All CaseBoxPersistenceError instances carry a documented code
 // ---------------------------------------------------------------------------
 
-test("6.2.6 CaseBoxPersistenceError code is one of the documented set", async () => {
+test("6.2.6 CaseBoxPersistenceError code is one of the documented set (incl. B1+ not_implemented)", async () => {
   const known = new Set([
     "duplicate_id", "unknown_matter", "unknown_document", "tenant_mismatch",
     "matter_id_mismatch", "illegal_transition", "local_only_external_flag_rejected",
     "invalid_payload", "invalid_initial_state", "invalid_argument",
+    "not_implemented", // B1+ scaffolding code; retired by B11 when full SQLite impl ships.
   ]);
   // Trigger each code at least once and verify the value is recognized.
   const p = new InMemoryCaseBoxPersistence({ now: makeClock("2026-05-20T09:00:00.000Z"), generateId: makeIdGenerator("inv6") });
@@ -119,6 +125,27 @@ test("6.2.6 CaseBoxPersistenceError code is one of the documented set", async ()
     assert.ok(caught instanceof CaseBoxPersistenceError, `expected CaseBoxPersistenceError, got ${caught && caught.constructor.name}`);
     assert.ok(known.has(caught.code), `unknown code ${caught.code}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// 6.2.6b SQLite stub emits not_implemented (per rev-1 reviewer Dim-3 #3:
+// 6.2.6 documents the code; this parallel test proves the SQLite impl
+// actually emits it).
+// ---------------------------------------------------------------------------
+
+test("6.2.6b Sqlite stub methods emit CaseBoxPersistenceError with code='not_implemented'", async () => {
+  const { openSqliteCaseBoxPersistence } = await import("../dist/index.js");
+  const { persistence } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("notimp"),
+  });
+  let caught;
+  try {
+    await persistence.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput());
+  } catch (e) { caught = e; }
+  assert.ok(caught instanceof CaseBoxPersistenceError);
+  assert.equal(caught.code, "not_implemented");
+  assert.match(caught.message, /registerDocument/);
 });
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,18 @@
-// Public surface of case-box-persistence (Phase A1 + A2 + A3).
+// Public surface of case-box-persistence (Phase A1 + A2 + A3 + B1).
 
 export { InMemoryCaseBoxPersistence } from "./inMemoryRepo.js";
 export type { InMemoryCaseBoxPersistenceOptions } from "./inMemoryRepo.js";
+
+export { SqliteCaseBoxPersistence } from "./sqlite/SqliteCaseBoxPersistence.js";
+export type { SqliteCaseBoxPersistenceOptions } from "./sqlite/SqliteCaseBoxPersistence.js";
+export {
+  openSqliteCaseBoxPersistence,
+} from "./sqlite/openSqliteCaseBoxPersistence.js";
+export type {
+  OpenSqliteCaseBoxPersistenceOptions,
+  OpenSqliteCaseBoxPersistenceResult,
+} from "./sqlite/openSqliteCaseBoxPersistence.js";
+export { applySchema, CURRENT_SCHEMA_VERSION } from "./sqlite/schema.js";
 
 export { CaseBoxPersistenceError } from "./errors.js";
 export type { CaseBoxPersistenceErrorCode } from "./errors.js";
