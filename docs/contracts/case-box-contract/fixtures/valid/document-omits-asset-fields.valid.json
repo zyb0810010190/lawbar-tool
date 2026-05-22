@@ -1,0 +1,14 @@
+{
+  "_note": "Proves all three R-6/R-7 Option α fields are optional-omitted. No mime_type, byte_size, or manual_extracted_text.",
+  "id": "01jrcasebox0000000000000dr",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "source": "uploaded",
+  "filename": "misc-note.pdf",
+  "content_hash": "sha256:3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b",
+  "storage_uri": "file:///Users/lawyer/Library/Application Support/lawbar/docs/dr.pdf",
+  "doc_type": "other",
+  "received_at": "2026-05-20T09:00:00.000Z",
+  "status": "registered"
+}

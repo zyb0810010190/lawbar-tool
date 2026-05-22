@@ -706,3 +706,48 @@ test("valid: deadline-evidence-submission passes", () => {
 test("valid: deadline-appeal passes", () => {
   assert.equal(validateDeadline(readJson(join(validDir, "deadline-appeal.valid.json"))), true, errs(validateDeadline));
 });
+
+// ---------------------------------------------------------------------------
+// WI-brief-doc-asset-impl — R-6/R-7 Option α (mime_type + byte_size + manual_extracted_text)
+// See dev-memo/plan-brief-doc-asset-impl.md §2.3, §2.4.
+// ---------------------------------------------------------------------------
+
+test("valid: document-with-mime-and-size passes (mime_type + byte_size)", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-with-mime-and-size.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-with-manual-extracted-text passes (all three asset fields)", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-with-manual-extracted-text.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-omits-asset-fields passes (proves three fields are optional-omitted)", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-omits-asset-fields.valid.json"))), true, errs(validateDocument));
+});
+
+test("invalid: document-negative-byte-size is rejected (minimum: 0)", () => {
+  const fixture = readJson(join(invalidDir, "document-negative-byte-size.json"));
+  assert.equal(validateDocument(fixture), false);
+  const offenders = (validateDocument.errors || []).filter((e) => e.instancePath === "/byte_size");
+  assert.ok(offenders.length > 0, `expected error on /byte_size (got ${errs(validateDocument)})`);
+});
+
+test("invalid: document-byte-size-non-integer is rejected (type: integer)", () => {
+  const fixture = readJson(join(invalidDir, "document-byte-size-non-integer.json"));
+  assert.equal(validateDocument(fixture), false);
+  const offenders = (validateDocument.errors || []).filter((e) => e.instancePath === "/byte_size");
+  assert.ok(offenders.length > 0, `expected error on /byte_size (got ${errs(validateDocument)})`);
+});
+
+test("invalid: document-manual-extracted-text-over-maxlength is rejected (maxLength: 200000)", () => {
+  const fixture = readJson(join(invalidDir, "document-manual-extracted-text-over-maxlength.json"));
+  assert.equal(validateDocument(fixture), false);
+  const offenders = (validateDocument.errors || []).filter((e) => e.instancePath === "/manual_extracted_text");
+  assert.ok(offenders.length > 0, `expected error on /manual_extracted_text (got ${errs(validateDocument)})`);
+});
+
+test("invalid: document-mime-type-over-maxlength is rejected (maxLength: 255)", () => {
+  const fixture = readJson(join(invalidDir, "document-mime-type-over-maxlength.json"));
+  assert.equal(validateDocument(fixture), false);
+  const offenders = (validateDocument.errors || []).filter((e) => e.instancePath === "/mime_type");
+  assert.ok(offenders.length > 0, `expected error on /mime_type (got ${errs(validateDocument)})`);
+});

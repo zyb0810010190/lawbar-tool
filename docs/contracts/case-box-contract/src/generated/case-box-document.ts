@@ -101,6 +101,18 @@ export type CaseBoxDocument = {
    * Free-text marker on the final-revision document for purpose='contract_review_final'. R-5(c).
    */
   final_version_marker?: string;
+  /**
+   * Optional IANA media type of the retained original file (e.g. application/pdf, image/png, text/markdown, application/vnd.openxmlformats-officedocument.wordprocessingml.document). Lawyer-pickable hint; v1 has no automated sniffer. R-7 metadata (WI-brief-doc-asset-impl).
+   */
+  mime_type?: string;
+  /**
+   * Optional file size in bytes of the retained original. Lawyer-supplied or derived at ingestion time. R-7 metadata (WI-brief-doc-asset-impl).
+   */
+  byte_size?: number;
+  /**
+   * Optional lawyer-pasted extracted text for documents not eligible for automated text extraction (PDF text-layer / Word / MD; post-v1). v1 manual-paste fallback per project-requirements-brief §6 + plan-brief-doc-reconcile §3.3. NOT an extractor output.
+   */
+  manual_extracted_text?: string;
   [k: string]: unknown;
 };
 /**

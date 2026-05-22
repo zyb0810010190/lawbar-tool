@@ -1,0 +1,16 @@
+{
+  "_invalid_reason": "byte_size violates type: integer (non-integer number 12.5 rejected).",
+  "_target_schema": "case-box-document",
+  "id": "01jrcasebox0000000000000dv",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "source": "uploaded",
+  "filename": "x.pdf",
+  "content_hash": "sha256:7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b",
+  "storage_uri": "file:///tmp/x.pdf",
+  "doc_type": "other",
+  "received_at": "2026-05-22T09:00:00.000Z",
+  "status": "registered",
+  "byte_size": 12.5
+}

@@ -3698,6 +3698,86 @@ export function runConformance(label, factory) {
     assert.equal(page.rows.length, 1);
     assert.equal(page.rows[0].kind, "payment");
   });
+
+  // ===========================================================================
+  // WI-brief-doc-asset-impl — R-6/R-7 Option α (mime_type + byte_size + manual_extracted_text)
+  // See dev-memo/plan-brief-doc-asset-impl.md §2.5.
+  // ===========================================================================
+
+  test(`${label}: R6.1 registerDocument preserves mime_type + byte_size through getDocument AND listDocuments`, async () => {
+    const { p } = make();
+    await p.createMatter(makeMatterInput());
+    const docId = "01jcasedocmockid000000050a";
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+      id: docId,
+      doc_type: "contract",
+      purpose: "engagement_contract",
+      mime_type: "application/pdf",
+      byte_size: 102400,
+    }));
+    const stored = await p.getDocument(docId);
+    assert.equal(stored.mime_type, "application/pdf");
+    assert.equal(stored.byte_size, 102400);
+    const listed = await p.listDocuments({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const row = listed.rows.find((d) => d.id === docId);
+    assert.equal(row.mime_type, "application/pdf");
+    assert.equal(row.byte_size, 102400);
+  });
+
+  test(`${label}: R6.2 registerDocument preserves manual_extracted_text through getDocument AND listDocuments`, async () => {
+    const { p } = make();
+    await p.createMatter(makeMatterInput());
+    const docId = "01jcasedocmockid000000051a";
+    const pastedText = "Paragraph 1: §4 imposes 30-day payment terms.\n\nParagraph 2: §9.2 force majeure carve-out.";
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+      id: docId,
+      doc_type: "other",
+      purpose: "contract_review_input",
+      mime_type: "text/markdown",
+      byte_size: 4096,
+      manual_extracted_text: pastedText,
+    }));
+    const stored = await p.getDocument(docId);
+    assert.equal(stored.manual_extracted_text, pastedText);
+    const listed = await p.listDocuments({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const row = listed.rows.find((d) => d.id === docId);
+    assert.equal(row.manual_extracted_text, pastedText);
+  });
+
+  test(`${label}: R6.3 registerDocument with NONE of the three asset fields stores them as undefined (optional-omitted survives round-trip)`, async () => {
+    const { p } = make();
+    await p.createMatter(makeMatterInput());
+    const docId = "01jcasedocmockid000000052a";
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({ id: docId }));
+    const stored = await p.getDocument(docId);
+    assert.equal(stored.mime_type, undefined);
+    assert.equal(stored.byte_size, undefined);
+    assert.equal(stored.manual_extracted_text, undefined);
+    // Verify own-property absence (structuredClone preserves omitted vs present-undefined distinction).
+    assert.equal(Object.hasOwn(stored, "mime_type"), false);
+    assert.equal(Object.hasOwn(stored, "byte_size"), false);
+    assert.equal(Object.hasOwn(stored, "manual_extracted_text"), false);
+  });
+
+  test(`${label}: R6.4 getDocumentDetail preserves all three asset fields (aggregation read-path)`, async () => {
+    const { p } = make();
+    await p.createMatter(makeMatterInput());
+    const docId = "01jcasedocmockid000000053a";
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+      id: docId,
+      mime_type: "application/pdf",
+      byte_size: 8192,
+      manual_extracted_text: "short text",
+    }));
+    const detail = await p.getDocumentDetail({
+      tenant_id: DEFAULT_TENANT_ID,
+      matter_id: DEFAULT_MATTER_ID,
+      document_id: docId,
+    });
+    assert.equal(detail.document.mime_type, "application/pdf");
+    assert.equal(detail.document.byte_size, 8192);
+    assert.equal(detail.document.manual_extracted_text, "short text");
+  });
 }
 
 async function assertRejectsCode(fn, expectedCode) {
