@@ -25,14 +25,16 @@
 //
 // 5. B1 ships v1: matter + audit_event + audit_chain_heads tables.
 //    B2 ships v2: case_box_documents table + 2 mixed-order indices.
-//    Future sub-WIs (B3..B11) add DDL_STATEMENTS_V{N} arrays + map
-//    entries; existing DDL is NEVER modified once shipped.
+//    B4 ships v3: case_box_confidentiality_classifications + 3 indices.
+//    (B3 audit observability ships read APIs without new schema.)
+//    Future sub-WIs add DDL_STATEMENTS_V{N} arrays + map entries;
+//    existing DDL is NEVER modified once shipped.
 
 import type { Database } from "better-sqlite3";
 
 import { CaseBoxPersistenceError } from "../errors.js";
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -143,9 +145,65 @@ const DDL_STATEMENTS_V2: ReadonlyArray<string> = [
      ON case_box_documents (tenant_id, matter_id, status, doc_type, received_at DESC, id ASC);`,
 ];
 
+// ---------------------------------------------------------------------------
+// Version 3 (Phase B4): confidentiality classification persistence.
+//
+// Adds case_box_confidentiality_classifications table + 3 indices per
+// B4 plan §1.1:
+//   - per-target latest-lookup (DESC matching the centralized
+//     set_at DESC, id ASC comparator).
+//   - per-matter chronological list seek (unfiltered).
+//   - filtered-target list seek (with target_type + target_id keys
+//     before sort tail).
+//
+// Step-5 fields (level / prior_level / target_type / target_id /
+// set_at / change_reason_code / actor_user_id) lifted to columns for
+// index efficiency; payload_json carries canonical source. NO FK to
+// case_box_matters or case_box_documents (application-layer
+// enforcement via resolveDocumentTarget inside the transaction).
+// ---------------------------------------------------------------------------
+
+const DDL_STATEMENTS_V3: ReadonlyArray<string> = [
+  `CREATE TABLE IF NOT EXISTS case_box_confidentiality_classifications (
+     id                       TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     target_type              TEXT    NOT NULL CHECK (target_type IN ('document','fact')),
+     target_id                TEXT    NOT NULL,
+     level                    TEXT    NOT NULL,
+     prior_level              TEXT,
+     set_at                   TEXT    NOT NULL COLLATE BINARY,
+     actor_user_id            TEXT    NOT NULL,
+     change_reason_code       TEXT,
+     payload_json             TEXT    NOT NULL
+   );`,
+
+  // Per-target latest-lookup. Mixed-order DESC/ASC matches the
+  // centralized comparator (set_at DESC, id ASC tiebreak). Walked by
+  // findLatestForTarget on every append (prior-row resolution) AND by
+  // getEffectiveClassification.
+  `CREATE INDEX IF NOT EXISTS idx_case_box_classifications_by_target
+     ON case_box_confidentiality_classifications
+       (matter_id, target_type, target_id, set_at DESC, id ASC);`,
+
+  // Per-matter chronological list seek (unfiltered matter-wide).
+  // listConfidentialityClassifications without target_type/target_id
+  // filters walks this index. ORDER BY set_at ASC, id ASC.
+  `CREATE INDEX IF NOT EXISTS idx_case_box_classifications_by_matter_seek
+     ON case_box_confidentiality_classifications
+       (matter_id, set_at ASC, id ASC);`,
+
+  // Filtered-target list seek. listConfidentialityClassifications WITH
+  // target_type (+optional target_id) walks this index.
+  `CREATE INDEX IF NOT EXISTS idx_case_box_classifications_by_matter_target_seek
+     ON case_box_confidentiality_classifications
+       (matter_id, target_type, target_id, set_at ASC, id ASC);`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
   [2, DDL_STATEMENTS_V2],
+  [3, DDL_STATEMENTS_V3],
 ]);
 
 /**

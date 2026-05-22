@@ -104,7 +104,7 @@ test("Sqlite-B2: applySchema refuses a future-version DB before any mutation", (
   db.close();
 });
 
-test("Sqlite-B2: applySchema upgrades a v1 DB to v2 additively", () => {
+test("Sqlite-B2+: applySchema upgrades a v1 DB additively to current version", () => {
   const db = new Database(":memory:");
   // Plant a v1-only DB by hand (schema_version + matter + audit + chain head
   // tables, plus version row 1).
@@ -115,14 +115,16 @@ test("Sqlite-B2: applySchema upgrades a v1 DB to v2 additively", () => {
            CREATE TABLE case_box_audit_chain_heads (matter_id TEXT PRIMARY KEY);`);
   const v = applySchema(db);
   assert.equal(v, CURRENT_SCHEMA_VERSION);
-  // Verify case_box_documents now exists (added by v2 only).
+  // Verify case_box_documents now exists (added by v2).
   const docsTable = db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='case_box_documents'")
     .get();
   assert.ok(docsTable, "case_box_documents must exist after upgrade");
-  // schema_version rows: both 1 and 2 (1 pre-existing; 2 added).
+  // schema_version rows: 1 pre-existing + each version up to current.
   const rows = db.prepare("SELECT version FROM schema_version ORDER BY version").all();
-  assert.deepEqual(rows.map((r) => r.version), [1, 2]);
+  const expected = [];
+  for (let i = 1; i <= CURRENT_SCHEMA_VERSION; i++) expected.push(i);
+  assert.deepEqual(rows.map((r) => r.version), expected);
   db.close();
 });
 
@@ -312,4 +314,127 @@ test("Sqlite-B3: event_count invariant after createMatter + registerDocument + a
   assert.equal(count.c, 4);
   assert.equal(maxSeq.m, 4);
   db.close();
+});
+
+// ---------------------------------------------------------------------------
+// B4 confidentiality classification invariants (per B4 plan §1.8)
+// ---------------------------------------------------------------------------
+
+test("Sqlite-B4: appendConfidentialityClassification rejects cross-tenant target", async () => {
+  const { makeDocumentInput, makeClassificationInput } = await import("./conformance/fixtures.mjs");
+  const { persistence } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("conf1"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  await persistence.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput());
+  let err;
+  try {
+    await persistence.appendConfidentialityClassification(makeClassificationInput({ tenant_id: "tenant-evil" }));
+  } catch (e) { err = e; }
+  assert.ok(err instanceof CaseBoxPersistenceError);
+  assert.equal(err.code, "tenant_mismatch");
+});
+
+test("Sqlite-B4: append-only history preserved across 5 sequential classifications", async () => {
+  const { makeDocumentInput, makeClassificationInput, DEFAULT_DOCUMENT_ID } = await import("./conformance/fixtures.mjs");
+  const { persistence, db } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("conf2"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  await persistence.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput());
+  // SET → UPGRADED → DOWNGRADED → RESET → SET again, 5 rows total.
+  const seq = [
+    { id: "01jcaseclassmockid00000a01", level: "normal", prior_level: null, change_reason_code: null, change_reason_text: null, set_at: "2026-05-21T09:00:00.000Z" },
+    { id: "01jcaseclassmockid00000a02", level: "confidential", prior_level: "normal", change_reason_code: null, change_reason_text: null, set_at: "2026-05-21T10:00:00.000Z" },
+    { id: "01jcaseclassmockid00000a03", level: "normal", prior_level: "confidential", change_reason_code: "change_in_legal_assessment", change_reason_text: "review complete", set_at: "2026-05-21T11:00:00.000Z" },
+    { id: "01jcaseclassmockid00000a04", level: "unclassified", prior_level: "normal", change_reason_code: "reset_to_unset", change_reason_text: "matter closed phase", set_at: "2026-05-21T12:00:00.000Z" },
+    { id: "01jcaseclassmockid00000a05", level: "normal", prior_level: "unclassified", change_reason_code: null, change_reason_text: null, set_at: "2026-05-21T13:00:00.000Z" },
+  ];
+  for (const overrides of seq) {
+    await persistence.appendConfidentialityClassification(makeClassificationInput(overrides));
+  }
+  // All 5 rows present.
+  const count = db
+    .prepare("SELECT COUNT(*) AS c FROM case_box_confidentiality_classifications WHERE matter_id = ?")
+    .get(DEFAULT_MATTER_ID);
+  assert.equal(count.c, 5);
+  // getEffectiveClassification.history has all 5.
+  const eff = await persistence.getEffectiveClassification({
+    tenant_id: "tenant-local-v1",
+    matter_id: DEFAULT_MATTER_ID,
+    target_type: "document",
+    target_id: DEFAULT_DOCUMENT_ID,
+  });
+  assert.equal(eff.history.length, 5);
+});
+
+test("Sqlite-B4: appendConfidentialityClassification downgrade without reason → invalid_payload", async () => {
+  const { makeDocumentInput, makeClassificationInput } = await import("./conformance/fixtures.mjs");
+  const { persistence } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("conf3"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  await persistence.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput());
+  // SET to confidential, then downgrade WITHOUT change_reason_code.
+  await persistence.appendConfidentialityClassification(makeClassificationInput({
+    id: "01jcaseclassmockid00000d01",
+    level: "confidential",
+    prior_level: null,
+  }));
+  let err;
+  try {
+    await persistence.appendConfidentialityClassification(makeClassificationInput({
+      id: "01jcaseclassmockid00000d02",
+      level: "normal",
+      prior_level: "confidential",
+      change_reason_code: null,
+      set_at: "2026-05-21T10:00:00.000Z",
+    }));
+  } catch (e) { err = e; }
+  assert.ok(err instanceof CaseBoxPersistenceError);
+  assert.equal(err.code, "invalid_payload");
+});
+
+test("Sqlite-B4: getEffectiveClassification deny-by-default for target with no history", async () => {
+  const { makeDocumentInput, DEFAULT_DOCUMENT_ID } = await import("./conformance/fixtures.mjs");
+  const { persistence } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("conf4"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  await persistence.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput());
+  const eff = await persistence.getEffectiveClassification({
+    tenant_id: "tenant-local-v1",
+    matter_id: DEFAULT_MATTER_ID,
+    target_type: "document",
+    target_id: DEFAULT_DOCUMENT_ID,
+  });
+  assert.equal(eff.effectiveLevel, "unclassified");
+  assert.deepEqual(eff.history, []);
+});
+
+test("Sqlite-B4: audit-chain atomic update after appendConfidentialityClassification (event_count == COUNT == MAX(seq) == 3)", async () => {
+  const { makeDocumentInput, makeClassificationInput } = await import("./conformance/fixtures.mjs");
+  const { persistence, db } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("conf5"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  await persistence.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput());
+  await persistence.appendConfidentialityClassification(makeClassificationInput());
+  const head = db
+    .prepare("SELECT event_count FROM case_box_audit_chain_heads WHERE matter_id = ?")
+    .get(DEFAULT_MATTER_ID);
+  const count = db
+    .prepare("SELECT COUNT(*) AS c FROM case_box_audit_events WHERE matter_id = ?")
+    .get(DEFAULT_MATTER_ID);
+  const maxSeq = db
+    .prepare("SELECT MAX(sequence) AS m FROM case_box_audit_events WHERE matter_id = ?")
+    .get(DEFAULT_MATTER_ID);
+  assert.equal(head.event_count, 3);
+  assert.equal(count.c, 3);
+  assert.equal(maxSeq.m, 3);
 });

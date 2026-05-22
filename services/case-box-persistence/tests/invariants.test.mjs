@@ -139,19 +139,17 @@ test("6.2.6b Sqlite stub methods emit CaseBoxPersistenceError with code='not_imp
     now: makeClock("2026-05-22T09:00:00.000Z"),
     generateId: makeIdGenerator("notimp"),
   });
-  // Tracks the current stub frontier. B1 implemented matter methods;
-  // B2 implemented document methods; B3 implemented audit-read methods
-  // (listAuditEvents, verifyAuditChainForMatter). The next still-stubbed
-  // method is `appendConfidentialityClassification` (B4). When a future
-  // B-phase implements it, update this test to the next still-stubbed
-  // method.
+  // Tracks the current stub frontier. B1 matter; B2 document; B3
+  // audit-read; B4 confidentiality classification. The next still-
+  // stubbed method is `appendPrivilegeMarker` (B5). Update when a
+  // future B-phase implements it.
   let caught;
   try {
-    await persistence.appendConfidentialityClassification({});
+    await persistence.appendPrivilegeMarker({});
   } catch (e) { caught = e; }
   assert.ok(caught instanceof CaseBoxPersistenceError);
   assert.equal(caught.code, "not_implemented");
-  assert.match(caught.message, /appendConfidentialityClassification/);
+  assert.match(caught.message, /appendPrivilegeMarker/);
 });
 
 // ---------------------------------------------------------------------------

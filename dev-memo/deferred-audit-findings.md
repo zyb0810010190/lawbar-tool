@@ -26,6 +26,19 @@
 
 ---
 
+## Phase B4 — SQLite confidentiality classification (commit `<pending B4 impl commit hash>`)
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mpgyzp9t-iftt4p` | not invoked (no C/H/M to verify; 0 C/H/M, 4 Lows; 2 Lows fixed in-WI, 2 Lows deferred) |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| D4#1 | Low | Cleanup-only — `services/case-box-persistence/src/sqlite/SqliteCaseBoxPersistence.ts` at 524 LOC over the 500-LOC LOC-01 extraction trigger (under 800 fail). The B4 addition (transaction wrapper for `appendConfidentialityClassification` + `writeAuditEventAndUpdateHead` callback) is a narrow ~30 LOC delta; not structurally bad. Extract before B5 adds further public methods. | WI-B5-impl OR a dedicated extraction WI before B5 | YES | open | Reviewer suggested extracting the classification transaction wrapper or a shared audit-write callback. Not a B4 blocker. |
+| D2#1 | Low | Duplication risk — `getEffectiveClassificationSqlite` re-implements the in-memory `getEffectiveClassificationHelper` validation (matter / tenant / target_type / document resolution). Rev-1 validation-order drift was caught by the audit (D1#1) and fixed in-WI; the structural duplication itself remains. | WI-B5-impl OR a future docs-only extraction WI introducing a shared validate-effective-target helper | YES | open | Pin parity with edge-case impl-parity tests for now; consider extracting a small shared helper that accepts DB/document resolvers when B5 lands. |
+
+---
+
 ## Phase A6 — evidence items (commit `<pending A6 commit hash>`)
 
 | Audit job | Verify job |

@@ -39,6 +39,11 @@ import {
   listAuditEventsSqlite,
   verifyAuditChainForMatterSqlite,
 } from "./auditRepoQueries.js";
+import {
+  applyAppendClassificationSqlite,
+  getEffectiveClassificationSqlite,
+  listConfidentialityClassificationsSqlite,
+} from "./classificationRepoQueries.js";
 import { prepareCreateMatter, prepareMatterTransition } from "../inMemoryMatter.js";
 import { generateUlid } from "../ulid.js";
 import {
@@ -351,14 +356,39 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   async verifyAuditChainForMatter(matterId: string): Promise<VerifyAuditChainResult> {
     return verifyAuditChainForMatterSqlite(this.#db, matterId);
   }
-  async appendConfidentialityClassification(_input: unknown): Promise<CaseBoxConfidentialityClassification> {
-    notImplemented("appendConfidentialityClassification");
+  async appendConfidentialityClassification(input: unknown): Promise<CaseBoxConfidentialityClassification> {
+    const db = this.#db;
+    const now = this.#now;
+    const generateId = this.#generateId;
+    let resultRow: CaseBoxConfidentialityClassification | null = null;
+
+    const run = db.transaction(() => {
+      resultRow = applyAppendClassificationSqlite(db, input, {
+        generateId,
+        nowIso: () => now().toISOString(),
+        storedAuditEventsForMatter: (matterId) => loadSyntheticStoredEvents(db, matterId),
+        writeAuditEventAndUpdateHead: (audit, eventHash) => {
+          insertAuditEvent(db, audit, eventHash);
+          upsertAuditChainHead(
+            db,
+            audit.event.matter_id,
+            audit.event.id,
+            audit.sequence,
+            audit.event.timestamp,
+            eventHash,
+          );
+        },
+      });
+    });
+    run.immediate();
+
+    return structuredClone(resultRow!) as CaseBoxConfidentialityClassification;
   }
-  async getEffectiveClassification(_query: GetEffectiveClassificationQuery): Promise<EffectiveClassificationResult> {
-    notImplemented("getEffectiveClassification");
+  async getEffectiveClassification(query: GetEffectiveClassificationQuery): Promise<EffectiveClassificationResult> {
+    return getEffectiveClassificationSqlite(this.#db, query);
   }
-  async listConfidentialityClassifications(_query: ListConfidentialityClassificationsQuery): Promise<ListConfidentialityClassificationsPage> {
-    notImplemented("listConfidentialityClassifications");
+  async listConfidentialityClassifications(query: ListConfidentialityClassificationsQuery): Promise<ListConfidentialityClassificationsPage> {
+    return listConfidentialityClassificationsSqlite(this.#db, query);
   }
   async appendPrivilegeMarker(_input: unknown): Promise<CaseBoxPrivilegeMarker> {
     notImplemented("appendPrivilegeMarker");
