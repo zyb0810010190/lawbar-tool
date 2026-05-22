@@ -84,6 +84,7 @@ Stop immediately when any of the following hold:
 - **`BRIEF-CONFLICT`** — Next WI conflicts with `docs/product/project-requirements-brief.md` (READY status), OR the brief is missing/`DRAFT-PENDING-REVIEW`/`AMENDMENT-PENDING-REVIEW` and the WI requires it, OR an unresolved `RECONCILIATION-NEEDED` entry blocks the WI's target source. See [[../../rules/project-brief]] §"Downstream consumption rules". Autopilot MUST NOT run `/project-brief` itself.
 - Audit yields Critical/High that cannot be closed inside the current WI scope.
 - A product-direction question arises not answered by [[../../rules/client-local-first]], `plan-client-00.md`, or the brief.
+- **`STOP-FOR-ROLLBACK`** — A previously-committed WI (this autopilot session OR earlier) is found to be wrong in a way fix-forward cannot repair (wrong product direction / weakened security boundary / mixed scopes / brief-or-ADR violation / broad unsafe behavior per `dev-memo/rollback-00.md` §5). Autopilot MUST NOT auto-revert during overnight mode; it stops and emits the 7-field rollback report (see §"Stop output" below). See `dev-memo/rollback-00.md` §4 + [[../../rules/cc-suite]] §"Rollback recording" + [[../../rules/autonomy]] §"Committed rollback restrictions".
 - All planned WIs in `go-live-plan.md` are `done` — go-live readiness gate is itself a hard-stop and requires explicit user approval.
 - The user interrupts.
 
@@ -97,13 +98,36 @@ When stopping, produce a short report:
 - Outstanding audit findings, if any.
 - Recommended next user action.
 
+### STOP-FOR-ROLLBACK report (7 fields)
+
+When the stop reason is `STOP-FOR-ROLLBACK`, the report extends the above with the seven-field block from `dev-memo/rollback-00.md` §4:
+
+1. **Bad commit hash** — the commit Claude believes should be reverted.
+2. **Reason** — one-paragraph description of why the commit is wrong (wrong product direction / weakened security boundary / mixed scopes / brief-or-ADR violation / broad unsafe behavior).
+3. **Affected files** — `git show --name-only <hash>`-style list.
+4. **cc-suite job IDs** — every `review-plan` / `audit` / `verify` / `audit-fix` jobId recorded for the bad commit (from its commit message's recording block).
+5. **Recommended revert command** — the literal `git revert <hash>` line the user can copy-paste.
+6. **Tests needed after revert** — exact `npm --prefix <pkg> test` invocations the user should run after the revert lands.
+7. **Downstream-dependency note** — if any commit AFTER the bad commit modifies the same files, name it explicitly so the user can decide whether to revert downstream too.
+
+Autopilot does NOT run `git revert` itself in overnight mode. The user reviews the report and, if they authorize the revert, runs it themselves OR grants Claude per-invocation authorization to do so in interactive mode. The revert commit message then carries the 7-field rollback recording per [[../../rules/cc-suite]] §"Rollback recording".
+
 ## Forbidden inside the loop
 
-- `git push`.
-- Branch deletion.
+PLUS every hard-stop entry in [[../../rules/autonomy]] §"Hard-stop list" (the canonical source). Specifically including, for clarity:
+
+- `git push` (also `--force` / `--force-with-lease`).
+- Branch deletion (local OR remote).
+- `git reset --hard` on ANY ref.
+- **Auto-revert of committed work** (`git revert <hash>`, `git reset --hard`, or any equivalent). Autopilot stops with `STOP-FOR-ROLLBACK` instead. See `dev-memo/rollback-00.md` §4 + [[../../rules/cc-suite]] §"Rollback recording" + [[../../rules/autonomy]] §"Committed rollback restrictions".
+- **Broad working-tree restore** (`git restore .`, `git checkout -- .`, `git clean -fd`). Uncommitted rollback uses targeted single-path `git restore <path>` only — see [[../../rules/staging-hygiene]] §"Uncommitted rollback (active-WI scope only)".
+- **Deleting untracked files inside the working tree** that may be user drafts.
+- **Deleting `~/.claude/plugins/**`** plugin state (cc-suite, codex, etc.).
+- **Deleting cc-suite artifacts** under `${CLAUDE_PLUGIN_DATA}/state/`.
+- **Wiping audit artifacts** (job logs, `dev-memo/deferred-audit-findings.md` entries).
 - Editing `~/.claude` or any path outside the repo.
 - Touching `.env` / secrets / credentials.
 - Picking auth providers or cloud vendors.
 - Claiming go-live readiness.
 
-Related: [[../security-wi-loop/SKILL]], [[../client-architecture-reconcile/SKILL]], [[../../rules/autonomy]], [[../../rules/staging-hygiene]].
+Related: [[../security-wi-loop/SKILL]], [[../client-architecture-reconcile/SKILL]], [[../../rules/autonomy]], [[../../rules/staging-hygiene]], [[../../rules/cc-suite]], `dev-memo/rollback-00.md`.

@@ -222,6 +222,22 @@ Closing an entry (when a later WI fixes it) MUST update the row's `status` field
 - `dev-memo/deferred-audit-findings.md` — project-wide backlog of deferred findings, grouped by WI.
 - `[[../skills/project-autopilot/SKILL]]` and `[[../skills/security-wi-loop/SKILL]]` — both reference this policy in their audit / verify steps.
 
+## Rollback recording (when reverting a cc-suite-recorded high-risk WI)
+
+`dev-memo/rollback-00.md` is the authoritative rollback policy. When a previously-committed HIGH-RISK WI (one whose commit message carries the §"Required recording" 11-field block) is rolled back via `git revert <hash>`, the revert commit message MUST carry a 7-field rollback recording, parallel to the 11-field invocation log:
+
+1. **Original commit hash** — the commit being reverted.
+2. **Revert commit hash** — the commit that lands the `git revert` (set after commit; the message author leaves a placeholder and amends in the same commit if needed, OR the placeholder cites the not-yet-known hash).
+3. **Original cc-suite job IDs** — every `review-plan` / `audit` / `verify` / `audit-fix` jobId from the original commit's recording block.
+4. **Reason** — one-paragraph description of why the commit is being reverted (wrong product direction / weakened security boundary / mixed scopes / etc.). See `dev-memo/rollback-00.md` §5 for the canonical rollback trigger list.
+5. **Tests run after revert** — the test commands and their pass/fail outcomes (per-package `npm test`).
+6. **Whether the revert itself was audited** — typically NO for revert-only commits; YES if the revert touches multiple unrelated files and the user explicitly requests a sanity audit.
+7. **Deferred-audit backlog changes** — if the original commit had rows in `dev-memo/deferred-audit-findings.md`, those rows MUST be updated to `status: reverted` referencing the revert commit hash.
+
+Without this recording, a `git log` reader cannot tell whether the rollback was deliberate, was reviewed, or affected the audit trail. The 7-field block lives in the revert commit's message body, in the same position the 11-field invocation log would occupy on a forward-commit.
+
+**Overnight restriction**: during autopilot / `/loop` / overnight `/goal` runs, Claude MUST NOT auto-revert. Per `dev-memo/rollback-00.md` §4 + [[../skills/project-autopilot/SKILL]] §"Stop conditions", autopilot stops with `STOP-FOR-ROLLBACK` and emits a 7-field stop-and-report. The user authorizes (or declines) the revert; if authorized, the revert lands in interactive mode with the 7-field rollback recording above.
+
 ## Verify must consume explicit audit artifacts
 
 `/cc-suite:verify` MUST be invoked with the prior audit's report file as an explicit input (e.g. `--audit reports/audit-N.md` or the equivalent prompt-embedded path). The runner / MCP call MUST NOT rely on:
@@ -324,3 +340,4 @@ The §"Required recording" field set is extended with the class. See §"Required
 - `dev-memo/cc-suite-automation-investigation.md` — the investigation that produced the Path 1/2/3/4 ordering; documents the three invocation paths and the underlying Codex MCP tool name.
 - `dev-memo/cc-suite-runner-tracking-investigation.md` (CCSUITE-01) — confirms Path 1 broker tracking works at `${CLAUDE_PLUGIN_DATA}/state/lawbar-tool-<hash>/`.
 - `dev-memo/cc-suite-reliability-log.md` (CCSUITE-02) — append-only log of every Path 1/2/3 invocation failure and its retry outcome. New entries land here whenever the retry policy fires.
+- `dev-memo/rollback-00.md` (ROLLBACK-00) — authoritative rollback policy; §"Rollback recording" above mirrors §6 of this memo and §"Forbidden operations" of the memo mirrors [[autonomy]]'s hard-stop list extensions.
