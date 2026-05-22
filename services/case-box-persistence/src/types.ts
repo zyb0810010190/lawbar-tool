@@ -248,7 +248,16 @@ export interface ListDeadlinesQuery {
   readonly tenant_id: string;
   readonly matter_id: string;
   readonly status?: "pending" | "met" | "missed" | "withdrawn";
-  readonly kind?: "statute_of_limitations" | "court_order" | "discovery" | "filing" | "hearing" | "internal";
+  readonly kind?:
+    | "statute_of_limitations"
+    | "court_order"
+    | "discovery"
+    | "filing"
+    | "hearing"
+    | "internal"
+    | "payment"
+    | "evidence_submission"
+    | "appeal";
   readonly cursor?: string;
   readonly limit?: number;
 }

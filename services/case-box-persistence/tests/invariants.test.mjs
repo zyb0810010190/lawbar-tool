@@ -174,3 +174,182 @@ test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented meth
   const actual = Object.getOwnPropertyNames(InMemoryCaseBoxPersistence.prototype).sort();
   assert.deepEqual(actual, expected, `prototype names mismatch: actual=${JSON.stringify(actual)}; expected=${JSON.stringify(expected)}`);
 });
+
+// ---------------------------------------------------------------------------
+// WI-brief-matter-type-persistence — boundary-level invariant tests
+// for INV-4 (document supersession) + INV-5 (matter successor).
+// Exercises the PUBLIC createMatter / registerDocument paths.
+// ---------------------------------------------------------------------------
+
+test("R5 INV-5: createMatter rejects successor_matter_id pointing to non-existent matter", async () => {
+  const p = new InMemoryCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("r5inv5a"),
+  });
+  let caught;
+  try {
+    await p.createMatter(makeMatterInput({
+      successor_matter_id: "01jdoesnotexist000000000zz",
+    }));
+  } catch (e) { caught = e; }
+  assert.ok(caught instanceof CaseBoxPersistenceError);
+  assert.equal(caught.code, "invalid_payload");
+});
+
+test("R5 INV-5: createMatter rejects successor_matter_id in different tenant", async () => {
+  const p = new InMemoryCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("r5inv5b"),
+  });
+  const successorId = "01jcasemattermockid0000099";
+  await p.createMatter(makeMatterInput({
+    id: successorId,
+    tenant_id: "other-tenant",
+    matter_type: "litigation",
+  }));
+  let caught;
+  try {
+    await p.createMatter(makeMatterInput({
+      successor_matter_id: successorId,
+    }));
+  } catch (e) { caught = e; }
+  assert.ok(caught instanceof CaseBoxPersistenceError);
+  assert.equal(caught.code, "invalid_payload");
+});
+
+test("R5 INV-5: createMatter rejects successor_matter_id with matter_type equal to original", async () => {
+  const p = new InMemoryCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("r5inv5c"),
+  });
+  const successorId = "01jcasemattermockid0000098";
+  await p.createMatter(makeMatterInput({
+    id: successorId,
+    matter_type: "litigation",
+  }));
+  let caught;
+  try {
+    await p.createMatter(makeMatterInput({
+      matter_type: "litigation",
+      successor_matter_id: successorId,
+    }));
+  } catch (e) { caught = e; }
+  assert.ok(caught instanceof CaseBoxPersistenceError);
+  assert.equal(caught.code, "invalid_payload");
+});
+
+test("R5 INV-5: createMatter rejects self-cycle successor_matter_id", async () => {
+  const p = new InMemoryCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("r5inv5d"),
+  });
+  let caught;
+  try {
+    await p.createMatter(makeMatterInput({
+      successor_matter_id: DEFAULT_MATTER_ID,
+    }));
+  } catch (e) { caught = e; }
+  assert.ok(caught instanceof CaseBoxPersistenceError);
+  assert.equal(caught.code, "invalid_payload");
+});
+
+test("R5 INV-4: registerDocument rejects supersedes_document_id pointing to non-existent doc", async () => {
+  const p = new InMemoryCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("r5inv4a"),
+  });
+  await p.createMatter(makeMatterInput());
+  let caught;
+  try {
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+      id: "01jcasedocmockid000000002a",
+      supersedes_document_id: "01jdoesnotexist000000000zz",
+    }));
+  } catch (e) { caught = e; }
+  assert.ok(caught instanceof CaseBoxPersistenceError);
+  assert.equal(caught.code, "invalid_payload");
+});
+
+test("R5 INV-4: registerDocument rejects supersedes_document_id pointing to doc in different matter", async () => {
+  const p = new InMemoryCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("r5inv4b"),
+  });
+  await p.createMatter(makeMatterInput());
+  await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput());
+  const otherMatterId = "01jcasemattermockid0000097";
+  const otherDocId = "01jcasedocmockid000000097a";
+  await p.createMatter(makeMatterInput({ id: otherMatterId }));
+  await p.registerDocument(otherMatterId, makeDocumentInput({
+    id: otherDocId,
+    matter_id: otherMatterId,
+  }));
+  let caught;
+  try {
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+      id: "01jcasedocmockid000000002a",
+      supersedes_document_id: otherDocId,
+    }));
+  } catch (e) { caught = e; }
+  assert.ok(caught instanceof CaseBoxPersistenceError);
+  assert.equal(caught.code, "invalid_payload");
+});
+
+test("R5 INV-4: registerDocument rejects self-cycle supersedes_document_id", async () => {
+  const p = new InMemoryCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("r5inv4c"),
+  });
+  await p.createMatter(makeMatterInput());
+  const docId = "01jcasedocmockid000000002a";
+  let caught;
+  try {
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+      id: docId,
+      supersedes_document_id: docId,
+    }));
+  } catch (e) { caught = e; }
+  assert.ok(caught instanceof CaseBoxPersistenceError);
+  assert.equal(caught.code, "invalid_payload");
+});
+
+test("R5: createMatter + registerDocument happy path with all R-5 fields populated", async () => {
+  const p = new InMemoryCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("r5happy"),
+  });
+  // Create successor matter first (litigation).
+  const successorId = "01jcasemattermockid0000096";
+  await p.createMatter(makeMatterInput({
+    id: successorId,
+    matter_type: "litigation",
+  }));
+  // Create counsel matter pointing to litigation successor + R-5(j) fields.
+  await p.createMatter(makeMatterInput({
+    matter_type: "advisory",
+    successor_matter_id: successorId,
+    case_type_text: "ignored for counsel matters but accepted by schema",
+    case_progress_text: "ongoing engagement",
+    court_contact_text: "n/a for counsel matters",
+    contention_summary_text: "n/a for counsel matters",
+  }));
+  const m = await p.getMatter(DEFAULT_MATTER_ID);
+  assert.equal(m.successor_matter_id, successorId);
+  assert.equal(m.case_progress_text, "ongoing engagement");
+  // Register two documents — second supersedes first.
+  await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+    purpose: "contract_review_input",
+    review_date: "2026-04-22",
+  }));
+  const finalDocId = "01jcasedocmockid000000003a";
+  await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+    id: finalDocId,
+    purpose: "contract_review_final",
+    supersedes_document_id: "01jcasedocmockid000000001a",
+    review_date: "2026-04-26",
+    final_version_marker: "final v3",
+  }));
+  const d = await p.getDocument(finalDocId);
+  assert.equal(d.purpose, "contract_review_final");
+  assert.equal(d.supersedes_document_id, "01jcasedocmockid000000001a");
+});

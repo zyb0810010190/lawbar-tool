@@ -3,13 +3,17 @@
 // Moves the body of inMemoryRepo's #transitionMatter (matter
 // archive/unarchive lifecycle) to a module-level prepare-helper so the
 // repo class stays under the 800 pure-LOC fail threshold after A5's
-// additions. Behavior is unchanged — A1's matter conformance cases
-// still pass with zero changes.
+// additions. WI-brief-matter-type-persistence (2026-05-22) additionally
+// wires `assertValidMatterSuccessor` into `prepareCreateMatter` to
+// enforce R-5(h) cross-row constraints (same-tenant, matter_type
+// differs, no self-cycle) at the persistence boundary.
 
 import {
+  assertValidMatterSuccessor,
   assertValidMatterTransition,
   buildCaseBoxAuditEvent,
   IllegalTransitionError,
+  MatterSuccessorInvariantError,
   validateMatter,
   type CaseBoxAuditEventKind,
   type CaseBoxMatter,
@@ -35,6 +39,8 @@ interface PrepareCreateMatterResult {
 interface CreateMatterDeps {
   generateId: () => string;
   nowIso: () => string;
+  /** Resolve a matter row by id for R-5(h) successor invariant. Returns null when unknown. */
+  getMatterById?: (id: string) => CaseBoxMatter | null;
 }
 
 /**
@@ -70,6 +76,27 @@ export function prepareCreateMatter(
       "local_only_external_flag_rejected",
       `matter cannot be created with any of external_ocr_authorized, sync_grant_present, llm_extraction_opt_in set true; opt-in must happen via a future audited write API`,
     );
+  }
+  if (matter.successor_matter_id !== undefined && matter.successor_matter_id !== null) {
+    const successor = deps.getMatterById ? deps.getMatterById(matter.successor_matter_id) : null;
+    try {
+      assertValidMatterSuccessor({
+        original: {
+          id: matter.id,
+          tenant_id: matter.tenant_id,
+          matter_type: matter.matter_type,
+          successor_matter_id: matter.successor_matter_id,
+        },
+        successor: successor === null
+          ? null
+          : { id: successor.id, tenant_id: successor.tenant_id, matter_type: successor.matter_type },
+      });
+    } catch (e) {
+      if (e instanceof MatterSuccessorInvariantError) {
+        throw new CaseBoxPersistenceError("invalid_payload", e.message);
+      }
+      throw e;
+    }
   }
   if (hasExistingId(matter.id)) {
     throw new CaseBoxPersistenceError("duplicate_id", `matter already exists: ${matter.id}`);

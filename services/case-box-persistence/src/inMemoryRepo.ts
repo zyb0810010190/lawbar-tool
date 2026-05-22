@@ -219,7 +219,11 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     const prepared = prepareCreateMatter(
       input,
       (id) => state.matters.has(id),
-      { generateId: () => this.#generateId(), nowIso: () => this.#nowIso() },
+      {
+        generateId: () => this.#generateId(),
+        nowIso: () => this.#nowIso(),
+        getMatterById: (id) => state.matters.get(id) ?? null,
+      },
     );
     state.matters.set(prepared.matter.id, prepared.matter);
     state.auditByMatter.set(prepared.matter.id, [prepared.audit]);
@@ -286,6 +290,12 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
         generateId: () => this.#generateId(),
         nowIso: () => this.#nowIso(),
         storedAuditEventsForMatter: () => state.auditByMatter.get(matterId) ?? [],
+        getDocumentById: (id) => {
+          const entry = state.documents.get(id);
+          return entry === undefined
+            ? null
+            : { id: entry.document.id, tenant_id: entry.document.tenant_id, matter_id: entry.matter_id };
+        },
       },
     );
     state.documents.set(prepared.document.id, { document: prepared.document, matter_id: matterId });

@@ -3307,6 +3307,397 @@ export function runConformance(label, factory) {
       "tenant_mismatch",
     );
   });
+
+  // ===========================================================================
+  // WI-brief-matter-type-persistence — R-5 absorption
+  // See dev-memo/plan-brief-matter-type-persistence.md §5.1.
+  // ===========================================================================
+
+  const R5_SECOND_MATTER_ID = "01jcasemattermockid0000002";
+  const R5_SECOND_DOC_ID = "01jcasedocmockid000000002a";
+
+  test(`${label}: R5.1 createMatter preserves all four R-5(j) free-text fields`, async () => {
+    const { p } = make();
+    const input = makeMatterInput({
+      case_type_text: "合同纠纷 (contract dispute)",
+      case_progress_text: "Complaint filed 2026-05-10; first hearing 2026-07-15.",
+      court_contact_text: "Shanghai No.1 Intermediate Court — clerk Liu",
+      contention_summary_text: "Plaintiff alleges breach; defendant claims force majeure.",
+    });
+    await p.createMatter(input);
+    const stored = await p.getMatter(DEFAULT_MATTER_ID);
+    assert.equal(stored.case_type_text, input.case_type_text);
+    assert.equal(stored.case_progress_text, input.case_progress_text);
+    assert.equal(stored.court_contact_text, input.court_contact_text);
+    assert.equal(stored.contention_summary_text, input.contention_summary_text);
+  });
+
+  test(`${label}: R5.2 createMatter accepts successor_matter_id pointing to a valid prior matter (different matter_type)`, async () => {
+    const { p } = make();
+    // Prior matter is a counsel (advisory) matter.
+    await p.createMatter(makeMatterInput({
+      id: DEFAULT_MATTER_ID,
+      matter_type: "advisory",
+    }));
+    // Successor matter is a litigation matter; the prior (advisory) is what
+    // points to it via successor_matter_id, so we update by re-creating?
+    // No — successor_matter_id lives on the ORIGINAL; the original must be
+    // created with the successor's id already known. The clean test is:
+    // create the SUCCESSOR matter first (litigation), then create a NEW
+    // ORIGINAL matter (advisory) with successor_matter_id pointing to it.
+    const successorId = R5_SECOND_MATTER_ID;
+    await p.createMatter(makeMatterInput({
+      id: successorId,
+      matter_type: "litigation",
+      // need a fresh name to differ from DEFAULT
+      name: "Successor litigation matter",
+    }));
+    const originalId = "01jcasemattermockid0000003";
+    await p.createMatter(makeMatterInput({
+      id: originalId,
+      matter_type: "advisory",
+      name: "Original counsel matter",
+      successor_matter_id: successorId,
+    }));
+    const stored = await p.getMatter(originalId);
+    assert.equal(stored.successor_matter_id, successorId);
+  });
+
+  test(`${label}: R5.3 createMatter with successor_matter_id pointing to non-existent matter → invalid_payload`, async () => {
+    const { p } = make();
+    await assertRejectsCode(
+      () => p.createMatter(makeMatterInput({
+        successor_matter_id: "01jdoesnotexist000000000zz",
+      })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: R5.4 createMatter with successor_matter_id in different tenant → invalid_payload`, async () => {
+    const { p } = make();
+    const otherTenantSuccessor = R5_SECOND_MATTER_ID;
+    await p.createMatter(makeMatterInput({
+      id: otherTenantSuccessor,
+      tenant_id: "other-tenant",
+      matter_type: "litigation",
+    }));
+    await assertRejectsCode(
+      () => p.createMatter(makeMatterInput({
+        successor_matter_id: otherTenantSuccessor,
+      })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: R5.5 createMatter with successor_matter_id pointing to same matter_type → invalid_payload`, async () => {
+    const { p } = make();
+    // Both matters are "litigation" — type-equal — INV-5 rejects.
+    await p.createMatter(makeMatterInput({
+      id: R5_SECOND_MATTER_ID,
+      matter_type: "litigation",
+    }));
+    await assertRejectsCode(
+      () => p.createMatter(makeMatterInput({
+        matter_type: "litigation",
+        successor_matter_id: R5_SECOND_MATTER_ID,
+      })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: R5.6 createMatter with successor_matter_id === id (self-cycle) → invalid_payload`, async () => {
+    const { p } = make();
+    await assertRejectsCode(
+      () => p.createMatter(makeMatterInput({
+        successor_matter_id: DEFAULT_MATTER_ID,
+      })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: R5.7 registerDocument preserves purpose = "engagement_contract"`, async () => {
+    const p = await seedMatterDoc();
+    const id = R5_SECOND_DOC_ID;
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+      id,
+      doc_type: "contract",
+      purpose: "engagement_contract",
+    }));
+    const stored = await p.getDocument(id);
+    assert.equal(stored.purpose, "engagement_contract");
+    const listed = await p.listDocuments({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const row = listed.rows.find((d) => d.id === id);
+    assert.equal(row.purpose, "engagement_contract");
+  });
+
+  test(`${label}: R5.8 registerDocument preserves work_order purpose + work_order_status`, async () => {
+    const p = await seedMatterDoc();
+    const id = R5_SECOND_DOC_ID;
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+      id,
+      doc_type: "other",
+      purpose: "work_order",
+      work_order_status: "open",
+    }));
+    const stored = await p.getDocument(id);
+    assert.equal(stored.purpose, "work_order");
+    assert.equal(stored.work_order_status, "open");
+  });
+
+  test(`${label}: R5.9 registerDocument preserves lawyer-letter lifecycle free-text fields`, async () => {
+    const p = await seedMatterDoc();
+    const id = R5_SECOND_DOC_ID;
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+      id,
+      doc_type: "correspondence",
+      purpose: "lawyer_letter",
+      letter_date: "2026年5月1日",
+      service_status: "delivered by registered mail",
+      client_authorization_summary: "CEO authorized in writing 2026-04-28",
+      preliminary_evidence_summary: "Contract §4 and invoice #2026-INV-021",
+    }));
+    const stored = await p.getDocument(id);
+    assert.equal(stored.letter_date, "2026年5月1日");
+    assert.equal(stored.service_status, "delivered by registered mail");
+    assert.equal(stored.client_authorization_summary, "CEO authorized in writing 2026-04-28");
+    assert.equal(stored.preliminary_evidence_summary, "Contract §4 and invoice #2026-INV-021");
+    const listed = await p.listDocuments({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const row = listed.rows.find((d) => d.id === id);
+    assert.equal(row.letter_date, "2026年5月1日");
+  });
+
+  test(`${label}: R5.9b registerDocument preserves contract-review lifecycle fields (review_date + final_version_marker)`, async () => {
+    const p = await seedMatterDoc();
+    const inputId = R5_SECOND_DOC_ID;
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+      id: inputId,
+      doc_type: "contract",
+      purpose: "contract_review_input",
+      review_date: "2026-04-22",
+    }));
+    const finalId = "01jcasedocmockid000000003a";
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+      id: finalId,
+      doc_type: "contract",
+      purpose: "contract_review_final",
+      supersedes_document_id: inputId,
+      review_date: "2026-04-26",
+      final_version_marker: "v3 final — lawyer-redlined; client-approved",
+    }));
+    const stored = await p.getDocument(finalId);
+    assert.equal(stored.review_date, "2026-04-26");
+    assert.equal(stored.final_version_marker, "v3 final — lawyer-redlined; client-approved");
+    assert.equal(stored.supersedes_document_id, inputId);
+  });
+
+  test(`${label}: R5.10 registerDocument with supersedes_document_id pointing to valid prior succeeds`, async () => {
+    const p = await seedMatterDoc();
+    // DEFAULT_DOCUMENT_ID is already registered in seedMatterDoc.
+    const newId = R5_SECOND_DOC_ID;
+    await p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+      id: newId,
+      supersedes_document_id: DEFAULT_DOCUMENT_ID,
+    }));
+    const stored = await p.getDocument(newId);
+    assert.equal(stored.supersedes_document_id, DEFAULT_DOCUMENT_ID);
+  });
+
+  test(`${label}: R5.11 registerDocument with supersedes_document_id pointing to non-existent doc → invalid_payload`, async () => {
+    const p = await seedMatterDoc();
+    await assertRejectsCode(
+      () => p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+        id: R5_SECOND_DOC_ID,
+        supersedes_document_id: "01jdoesnotexist000000000zz",
+      })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: R5.12 registerDocument with supersedes_document_id to doc in different matter → invalid_payload`, async () => {
+    const p = await seedMatterDoc();
+    // Create a second matter + document in it.
+    const otherMatterId = R5_SECOND_MATTER_ID;
+    const otherDocId = "01jcasedocmockid000000099a";
+    await p.createMatter(makeMatterInput({ id: otherMatterId }));
+    await p.registerDocument(otherMatterId, makeDocumentInput({
+      id: otherDocId,
+      matter_id: otherMatterId,
+    }));
+    // Now try to register a NEW doc in DEFAULT matter that supersedes a doc
+    // in the OTHER matter.
+    await assertRejectsCode(
+      () => p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+        id: R5_SECOND_DOC_ID,
+        supersedes_document_id: otherDocId,
+      })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: R5.13 registerDocument with supersedes_document_id to doc in different tenant → invalid_payload`, async () => {
+    const p = await seedMatterDoc();
+    const otherTenantMatterId = R5_SECOND_MATTER_ID;
+    const otherTenantDocId = "01jcasedocmockid000000088a";
+    await p.createMatter(makeMatterInput({ id: otherTenantMatterId, tenant_id: "other-tenant" }));
+    await p.registerDocument(otherTenantMatterId, makeDocumentInput({
+      id: otherTenantDocId,
+      matter_id: otherTenantMatterId,
+      tenant_id: "other-tenant",
+    }));
+    await assertRejectsCode(
+      () => p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+        id: R5_SECOND_DOC_ID,
+        supersedes_document_id: otherTenantDocId,
+      })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: R5.14 registerDocument with supersedes_document_id === id (self-cycle) → invalid_payload`, async () => {
+    const p = await seedMatterDoc();
+    const id = R5_SECOND_DOC_ID;
+    await assertRejectsCode(
+      () => p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({
+        id,
+        supersedes_document_id: id,
+      })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: R5.15 appendFact / getFact / listFacts preserve purpose + as_of_date`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFact(makeFactInput({
+      purpose: "timeline_event",
+      as_of_date: "2026-01-15",
+    }));
+    const got = await p.getFact({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, fact_id: DEFAULT_FACT_ID,
+    });
+    assert.equal(got.purpose, "timeline_event");
+    assert.equal(got.as_of_date, "2026-01-15");
+    const listed = await p.listFacts({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const row = listed.rows.find((f) => f.id === DEFAULT_FACT_ID);
+    assert.equal(row.purpose, "timeline_event");
+    assert.equal(row.as_of_date, "2026-01-15");
+  });
+
+  test(`${label}: R5.16 appendFactOnce replay with identical purpose + as_of_date is idempotent (no new audit)`, async () => {
+    const p = await seedMatterDoc();
+    const input = makeFactInput({ purpose: "claim", as_of_date: "2024-01-15" });
+    await p.appendFactOnce(input);
+    const h1 = await p.getAuditChainHead(DEFAULT_MATTER_ID);
+    // Replay identical payload.
+    await p.appendFactOnce(input);
+    const h2 = await p.getAuditChainHead(DEFAULT_MATTER_ID);
+    assert.equal(h1.count, h2.count, "replay must not emit a new audit event");
+    assert.equal(h1.headHash, h2.headHash);
+  });
+
+  test(`${label}: R5.17 appendFactOnce with same id but differing purpose → duplicate_id (canonical projection differs)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFactOnce(makeFactInput({ purpose: "claim" }));
+    await assertRejectsCode(
+      () => p.appendFactOnce(makeFactInput({ purpose: "defense" })),
+      "duplicate_id",
+    );
+  });
+
+  test(`${label}: R5.18 appendFactOnce with same id but differing as_of_date → duplicate_id (canonical projection differs)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendFactOnce(makeFactInput({
+      purpose: "timeline_event",
+      as_of_date: "2026-01-15",
+    }));
+    await assertRejectsCode(
+      () => p.appendFactOnce(makeFactInput({
+        purpose: "timeline_event",
+        as_of_date: "2026-01-16",
+      })),
+      "duplicate_id",
+    );
+  });
+
+  test(`${label}: R5.19 appendEvidenceItem preserves party_side = "our"`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendEvidenceItem(makeEvidenceItemInput({ party_side: "our" }));
+    const got = await p.getEvidenceItem({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, evidence_id: DEFAULT_EVIDENCE_ID,
+    });
+    assert.equal(got.party_side, "our");
+    const listed = await p.listEvidenceItems({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const row = listed.rows.find((e) => e.id === DEFAULT_EVIDENCE_ID);
+    assert.equal(row.party_side, "our");
+  });
+
+  test(`${label}: R5.20 appendEvidenceItem preserves party_side = "opposing"`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendEvidenceItem(makeEvidenceItemInput({ party_side: "opposing" }));
+    const got = await p.getEvidenceItem({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, evidence_id: DEFAULT_EVIDENCE_ID,
+    });
+    assert.equal(got.party_side, "opposing");
+  });
+
+  test(`${label}: R5.21 docket-entry + confirm materializes deadline with kind = "payment"`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput({
+      proposed_kind: "payment",
+    }));
+    const deadlineId = "01jcasedlinemockid00002001";
+    const result = await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "local-user",
+      confirmed_at: "2026-05-22T20:00:00.000Z",
+      deadline_id: deadlineId,
+    });
+    assert.equal(result.deadline.kind, "payment");
+  });
+
+  test(`${label}: R5.22 docket-entry + confirm materializes deadline with kind = "evidence_submission"`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput({
+      proposed_kind: "evidence_submission",
+    }));
+    const deadlineId = "01jcasedlinemockid00002002";
+    const result = await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "local-user",
+      confirmed_at: "2026-05-22T20:00:00.000Z",
+      deadline_id: deadlineId,
+    });
+    assert.equal(result.deadline.kind, "evidence_submission");
+  });
+
+  test(`${label}: R5.23 docket-entry + confirm materializes deadline with kind = "appeal"`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput({
+      proposed_kind: "appeal",
+    }));
+    const deadlineId = "01jcasedlinemockid00002003";
+    const result = await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "local-user",
+      confirmed_at: "2026-05-22T20:00:00.000Z",
+      deadline_id: deadlineId,
+    });
+    assert.equal(result.deadline.kind, "appeal");
+  });
+
+  test(`${label}: R5.24 listDeadlines accepts new kind filter values (type-union extension smoke test)`, async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput({ proposed_kind: "payment" }));
+    const deadlineId = "01jcasedlinemockid00002004";
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "local-user",
+      confirmed_at: "2026-05-22T20:00:00.000Z",
+      deadline_id: deadlineId,
+    });
+    const page = await p.listDeadlines({
+      tenant_id: DEFAULT_TENANT_ID,
+      matter_id: DEFAULT_MATTER_ID,
+      kind: "payment",
+    });
+    assert.equal(page.rows.length, 1);
+    assert.equal(page.rows[0].kind, "payment");
+  });
 }
 
 async function assertRejectsCode(fn, expectedCode) {

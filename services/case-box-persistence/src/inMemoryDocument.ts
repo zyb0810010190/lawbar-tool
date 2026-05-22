@@ -1,11 +1,16 @@
 // Document-registration + list extraction for Phase A5/A6 LOC discipline.
 //
-// Mechanical move of registerDocument's body from inMemoryRepo so the
-// repo class stays under the 800 pure-LOC fail threshold. Behavior is
-// unchanged.
+// Originally a mechanical move of registerDocument's body from
+// inMemoryRepo to keep the repo class under the 800 pure-LOC fail
+// threshold. WI-brief-matter-type-persistence (2026-05-22) wires
+// `assertValidDocumentSupersession` into `prepareRegisterDocument` to
+// enforce R-5(d) cross-row constraints (same-matter, same-tenant, no
+// self-cycle) at the persistence boundary.
 
 import {
+  assertValidDocumentSupersession,
   buildCaseBoxAuditEvent,
+  DocumentSupersessionInvariantError,
   validateDocument,
   type CaseBoxAuditEventKind,
   type CaseBoxDocument,
@@ -38,6 +43,8 @@ interface RegisterDocumentDeps {
   generateId: () => string;
   nowIso: () => string;
   storedAuditEventsForMatter: () => StoredAuditEvent[];
+  /** Resolve a document row by id for R-5(d) supersession invariant. Returns null when unknown. */
+  getDocumentById?: (id: string) => { id: string; tenant_id: string; matter_id: string } | null;
 }
 
 export function prepareRegisterDocument(
@@ -69,6 +76,25 @@ export function prepareRegisterDocument(
       "invalid_initial_state",
       `document must be created with status="registered" (got ${JSON.stringify(document.status)})`,
     );
+  }
+  if (document.supersedes_document_id !== undefined && document.supersedes_document_id !== null) {
+    const prior = deps.getDocumentById ? deps.getDocumentById(document.supersedes_document_id) : null;
+    try {
+      assertValidDocumentSupersession({
+        doc: {
+          id: document.id,
+          tenant_id: document.tenant_id,
+          matter_id: document.matter_id,
+          supersedes_document_id: document.supersedes_document_id,
+        },
+        prior,
+      });
+    } catch (e) {
+      if (e instanceof DocumentSupersessionInvariantError) {
+        throw new CaseBoxPersistenceError("invalid_payload", e.message);
+      }
+      throw e;
+    }
   }
   if (hasExistingDocumentId(document.id)) {
     throw new CaseBoxPersistenceError("duplicate_id", `document already exists: ${document.id}`);

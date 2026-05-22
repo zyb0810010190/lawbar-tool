@@ -130,12 +130,16 @@
   "allOf": [
     {
       "if": {
-        "required": ["purpose"],
-        "properties": { "purpose": { "const": "work_order" } }
+        "properties": {
+          "work_order_status": { "enum": ["open", "in_progress", "answered", "closed"] }
+        },
+        "required": ["work_order_status"]
       },
-      "then": true,
-      "else": {
-        "not": { "required": ["work_order_status"] }
+      "then": {
+        "properties": {
+          "purpose": { "const": "work_order" }
+        },
+        "required": ["purpose"]
       }
     }
   ],
