@@ -34,8 +34,17 @@ import type {
 
 import { eventHashFn, type StoredAuditEvent } from "../auditChain.js";
 import { CaseBoxPersistenceError } from "../errors.js";
+import { prepareRegisterDocument } from "../inMemoryDocument.js";
 import { prepareCreateMatter, prepareMatterTransition } from "../inMemoryMatter.js";
 import { generateUlid } from "../ulid.js";
+import {
+  hasDocumentId,
+  insertDocumentRow,
+  listDocumentsSqlite,
+  selectDocumentById,
+  selectDocumentRefById,
+  selectMatterForDocument,
+} from "./documentRepoQueries.js";
 import {
   insertAuditEvent,
   insertMatterRow,
@@ -202,44 +211,6 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
       }
       const matter = JSON.parse(row.payload_json) as CaseBoxMatter;
 
-      // Load prior stored events for this matter so the shared transition
-      // helper can compute priorHeadOf(stored). The helper does not need
-      // the full event payload — only the LAST stored event to derive the
-      // prev_event_hash. Reading the head row (cheap) is sufficient because
-      // priorHeadOf only inspects the last entry; we synthesize a minimal
-      // StoredAuditEvent[] from case_box_audit_chain_heads for that purpose.
-      const headRow = db
-        .prepare("SELECT last_event_id, event_count FROM case_box_audit_chain_heads WHERE matter_id = ?")
-        .get(matterId) as { last_event_id: string | null; event_count: number } | undefined;
-      let storedAuditEvents: StoredAuditEvent[] = [];
-      if (headRow !== undefined && headRow.last_event_id !== null) {
-        const lastEventRow = db
-          .prepare("SELECT event_json, sequence FROM case_box_audit_events WHERE event_id = ?")
-          .get(headRow.last_event_id) as { event_json: string; sequence: number } | undefined;
-        if (lastEventRow !== undefined) {
-          storedAuditEvents = [
-            { sequence: lastEventRow.sequence, event: JSON.parse(lastEventRow.event_json) as CaseBoxAuditEvent },
-          ];
-          // Pad with sequence placeholders so storedAuditEvents.length matches the
-          // committed event_count — prepareMatterTransition computes the next
-          // sequence as `stored.length + 1`, which must equal headRow.event_count + 1.
-          // priorHeadOf only inspects the last element, so the placeholders never
-          // get hashed; we just need correct LENGTH.
-          if (storedAuditEvents.length < headRow.event_count) {
-            const pads = headRow.event_count - storedAuditEvents.length;
-            // Move the real last element to the end after padding so priorHeadOf
-            // still picks it up. Pads carry a stand-in event with the same
-            // canonical-hash bytes is unnecessary because they are not hashed.
-            const last = storedAuditEvents[0]!;
-            storedAuditEvents = new Array(pads).fill(null).map((_, i) => ({
-              sequence: i + 1,
-              event: last.event, // placeholder; priorHeadOf only uses last
-            }));
-            storedAuditEvents.push(last);
-          }
-        }
-      }
-
       const prepared = prepareMatterTransition(
         matter,
         opts,
@@ -248,7 +219,7 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
         {
           generateId,
           nowIso: () => now().toISOString(),
-          storedAuditEventsForMatter: () => storedAuditEvents,
+          storedAuditEventsForMatter: () => loadSyntheticStoredEvents(db, matterId),
         },
       );
 
@@ -286,14 +257,58 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   // Non-B1 methods — explicit not_implemented stubs.
   // -------------------------------------------------------------------------
 
-  async registerDocument(_matterId: string, _document: unknown): Promise<CaseBoxDocument> {
-    notImplemented("registerDocument");
+  async registerDocument(matterId: string, input: unknown): Promise<CaseBoxDocument> {
+    const db = this.#db;
+    const now = this.#now;
+    const generateId = this.#generateId;
+    let resultDocument: CaseBoxDocument | null = null;
+
+    const run = db.transaction(() => {
+      // Matter-existence + full payload in ONE SELECT (per B2 audit
+      // Low D5#1; previously two round trips).
+      const matterRow = selectMatterForDocument(db, matterId);
+      if (matterRow === null) {
+        throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
+      }
+      const matter = JSON.parse(matterRow.payload_json) as CaseBoxMatter;
+
+      const prepared = prepareRegisterDocument(
+        matterId,
+        matter,
+        input,
+        (id) => hasDocumentId(db, id),
+        {
+          generateId,
+          nowIso: () => now().toISOString(),
+          storedAuditEventsForMatter: () => loadSyntheticStoredEvents(db, matterId),
+          getDocumentById: (id) => selectDocumentRefById(db, id),
+        },
+      );
+
+      const eventHash = eventHashFn(prepared.audit.event);
+      insertDocumentRow(db, prepared.document);
+      insertAuditEvent(db, prepared.audit, eventHash);
+      upsertAuditChainHead(
+        db,
+        matterId,
+        prepared.audit.event.id,
+        prepared.audit.sequence,
+        prepared.audit.event.timestamp,
+        eventHash,
+      );
+      resultDocument = prepared.document;
+    });
+    run.immediate();
+
+    return structuredClone(resultDocument!) as CaseBoxDocument;
   }
-  async getDocument(_documentId: string): Promise<CaseBoxDocument | null> {
-    notImplemented("getDocument");
+
+  async getDocument(documentId: string): Promise<CaseBoxDocument | null> {
+    return selectDocumentById(this.#db, documentId);
   }
-  async listDocuments(_query: ListDocumentsQuery): Promise<ListDocumentsPage> {
-    notImplemented("listDocuments");
+
+  async listDocuments(query: ListDocumentsQuery): Promise<ListDocumentsPage> {
+    return listDocumentsSqlite(this.#db, query);
   }
   async listAuditEvents(_query: ListAuditEventsQuery): Promise<ListAuditEventsPage> {
     notImplemented("listAuditEvents");
@@ -435,5 +450,41 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
 // 500 pure LOC per B1 plan §5).
 // ---------------------------------------------------------------------------
 
-// SQL helpers live in `./matterRepoQueries.ts` (extracted per B1 plan §5
-// LOC trigger / rev-1 audit Dim-4 #1).
+// SQL helpers live in `./matterRepoQueries.ts` + `./documentRepoQueries.ts`
+// (extracted per B1 plan §5 / B2 plan §6 LOC trigger).
+
+// ---------------------------------------------------------------------------
+// loadSyntheticStoredEvents — shared between prepareMatterTransition
+// (B1) and prepareRegisterDocument (B2). Both helpers consume a
+// StoredAuditEvent[] from which they read ONLY (a) the LAST element's
+// event (for priorHeadOf → prev_event_hash) and (b) the array LENGTH
+// (for `stored.length + 1` → next sequence). We synthesize that array
+// from `case_box_audit_chain_heads` + the latest event row, padding
+// the array with placeholders so its LENGTH matches event_count.
+// Placeholders are never hashed.
+// ---------------------------------------------------------------------------
+
+function loadSyntheticStoredEvents(db: Database, matterId: string): StoredAuditEvent[] {
+  const headRow = db
+    .prepare("SELECT last_event_id, event_count FROM case_box_audit_chain_heads WHERE matter_id = ?")
+    .get(matterId) as { last_event_id: string | null; event_count: number } | undefined;
+  if (headRow === undefined || headRow.last_event_id === null) return [];
+  const lastEventRow = db
+    .prepare("SELECT event_json, sequence FROM case_box_audit_events WHERE event_id = ?")
+    .get(headRow.last_event_id) as { event_json: string; sequence: number } | undefined;
+  if (lastEventRow === undefined) return [];
+  const last: StoredAuditEvent = {
+    sequence: lastEventRow.sequence,
+    event: JSON.parse(lastEventRow.event_json) as CaseBoxAuditEvent,
+  };
+  if (headRow.event_count <= 1) return [last];
+  // Pad with placeholders (event repeated; priorHeadOf only inspects
+  // the last element so placeholder contents never matter).
+  const pads = headRow.event_count - 1;
+  const result: StoredAuditEvent[] = new Array(pads).fill(null).map((_, i) => ({
+    sequence: i + 1,
+    event: last.event,
+  }));
+  result.push(last);
+  return result;
+}

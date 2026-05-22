@@ -139,13 +139,18 @@ test("6.2.6b Sqlite stub methods emit CaseBoxPersistenceError with code='not_imp
     now: makeClock("2026-05-22T09:00:00.000Z"),
     generateId: makeIdGenerator("notimp"),
   });
+  // Tracks the current stub frontier. B1 implemented matter methods;
+  // B2 implemented document methods (registerDocument / getDocument /
+  // listDocuments). The next still-stubbed method is `appendFact` (B6).
+  // When a future B-phase implements appendFact, update this test to
+  // pick the next still-stubbed method.
   let caught;
   try {
-    await persistence.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput());
+    await persistence.appendFact({ id: "01jcasefactmockid0000000001" });
   } catch (e) { caught = e; }
   assert.ok(caught instanceof CaseBoxPersistenceError);
   assert.equal(caught.code, "not_implemented");
-  assert.match(caught.message, /registerDocument/);
+  assert.match(caught.message, /appendFact/);
 });
 
 // ---------------------------------------------------------------------------

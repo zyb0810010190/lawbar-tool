@@ -23,15 +23,16 @@
 //    missing migration in a single BEGIN/COMMIT and records the version
 //    via a prepared INSERT.
 //
-// 5. B1 ships v1 only: matter + audit_event + audit_chain_heads tables.
-//    Future sub-WIs (B2..B11) add DDL_STATEMENTS_V{N} arrays + map
-//    entries; the existing v1 DDL is NEVER modified once shipped.
+// 5. B1 ships v1: matter + audit_event + audit_chain_heads tables.
+//    B2 ships v2: case_box_documents table + 2 mixed-order indices.
+//    Future sub-WIs (B3..B11) add DDL_STATEMENTS_V{N} arrays + map
+//    entries; existing DDL is NEVER modified once shipped.
 
 import type { Database } from "better-sqlite3";
 
 import { CaseBoxPersistenceError } from "../errors.js";
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -100,8 +101,51 @@ const DDL_STATEMENTS_V1: ReadonlyArray<string> = [
    );`,
 ];
 
+// ---------------------------------------------------------------------------
+// Version 2 (Phase B2): document entity persistence.
+//
+// Adds case_box_documents table + 2 indices supporting listDocuments
+// seek-pagination (ORDER BY received_at DESC, id ASC) AND optional
+// status + doc_type filter narrowing. Mixed-order indices match the
+// query's ORDER BY exactly so SQLite can walk the index without an
+// extra sort step (per B2 plan §1.1 rev-1 reviewer Dim-3 #1).
+//
+// R-5 (purpose / work_order_status / lifecycle free-text) and R-6
+// (mime_type / byte_size / manual_extracted_text) fields stay in
+// payload_json (canonical-source rule); only supersedes_document_id
+// is lifted to a column for the R-5(d) supersession-invariant lookup.
+//
+// NO FOREIGN KEY across the case-box internal tables — SQLite ALTER
+// flexibility + application-layer invariants enforce correctness.
+// ---------------------------------------------------------------------------
+
+const DDL_STATEMENTS_V2: ReadonlyArray<string> = [
+  `CREATE TABLE IF NOT EXISTS case_box_documents (
+     id                       TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     actor_user_id            TEXT    NOT NULL,
+     status                   TEXT    NOT NULL,
+     received_at              TEXT    NOT NULL COLLATE BINARY,
+     doc_type                 TEXT    NOT NULL,
+     supersedes_document_id   TEXT,
+     payload_json             TEXT    NOT NULL
+   );`,
+
+  // Seek pagination index: matches ORDER BY received_at DESC, id ASC
+  // exactly (mixed-order; received_at descending, id ascending).
+  `CREATE INDEX IF NOT EXISTS idx_case_box_documents_by_matter
+     ON case_box_documents (tenant_id, matter_id, received_at DESC, id ASC);`,
+
+  // Filter-narrowing index: same mixed-order tail; covers
+  // (tenant, matter, status, doc_type) filter combinations.
+  `CREATE INDEX IF NOT EXISTS idx_case_box_documents_by_matter_filter
+     ON case_box_documents (tenant_id, matter_id, status, doc_type, received_at DESC, id ASC);`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
+  [2, DDL_STATEMENTS_V2],
 ]);
 
 /**
