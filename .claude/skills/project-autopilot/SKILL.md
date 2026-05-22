@@ -13,9 +13,24 @@ End-to-end driver. Pulls together [[../../commands/branch-clean]], [[../../comma
 - WORKSPACE-00 finished and the next WI under `docs/release/go-live-plan.md` is unblocked.
 - A previous autopilot run paused at a hard-stop and the user has now resolved the stop condition.
 
+**Overnight mode requires a lane authorization.** Per [[../../rules/autonomy]] §"Overnight lane policy" + `dev-memo/night-run-00.md` §1, any overnight `/loop`, `/project-autopilot`, or long `/goal` run is lane-scoped. The user's instruction that starts the run MUST include a lane authorization block (template at `dev-memo/night-run-00.md` §1) naming the lane, allowed WIs / phases, allowed and forbidden files, hard stops, commit policy, test matrix, cc-suite requirements, loc-guardian requirements, stop / report conditions. If the authorization is missing or ambiguous, autopilot stops at Step 0 (below) and asks. "Keep going" without a lane authorization is NOT sufficient for overnight scope.
+
+Interactive (non-overnight) invocations do NOT require a lane authorization block; the existing pre-authorized actions in [[../../rules/autonomy]] §"Pre-authorized actions" apply directly.
+
 ## Loop body
 
 Repeat until a stop condition fires.
+
+### 0. Lane-authorization check (overnight mode only)
+
+If this run is overnight (`/loop`, `/project-autopilot`, or a long `/goal` session):
+
+- Look for a lane authorization block in the user's invocation message OR a referenced memo (e.g. `dev-memo/night-run-<lane>.md`).
+- Validate the block against the `dev-memo/night-run-00.md` §1 template: every REQUIRED field must be present and unambiguous.
+- If the block is missing or any required field is omitted / ambiguous: STOP with `LANE-AUTHORIZATION-MISSING` and ask the user to fill the template before starting the run.
+- If the block is complete: pin ALL required lane fields (allowed WIs / phases, allowed and forbidden file paths, lane-specific hard stops, commit policy — plan + impl + rollback grants, test matrix, cc-suite requirements, loc-guardian requirements, stop / report conditions, operational settings — branch + push policy + plugin-state + artifacts). Every subsequent step in this loop checks against the pinned lane fields; nothing infers from chat context.
+
+For interactive (non-overnight) runs, skip Step 0 entirely and start at Step 1.
 
 ### 1. branch-clean
 
@@ -69,6 +84,7 @@ A `READY` brief whose answers are silent on the candidate WI's scope is not a co
 
 - Run [[../../commands/commit-gate]] with explicit staging.
 - Never push.
+- **Overnight mode**: emit a per-phase report block immediately after commit per `dev-memo/night-run-00.md` §6 (commit hash + files changed + tests + loc-guardian verdict + cc-suite job IDs + fallback usage + deferred backlog changes + next phase selected). The report lives in the autopilot output AND duplicates the same fields into the commit message body, matching the existing R-5 / R-6 / ROLLBACK-00 commit-message style.
 
 ### 7. Continue or stop
 
@@ -81,12 +97,17 @@ Stop immediately when any of the following hold:
 
 - `branch-clean` returns `DIRTY-BLOCKING`.
 - Next WI matches a hard-stop in [[../../rules/autonomy]] (push, deploy, go-live, secrets, auth-provider choice, cloud-vendor choice, irreversible migration, production data, broad destructive delete, global config edit, exposing legal docs externally).
+- **`LANE-AUTHORIZATION-MISSING`** (overnight mode only) — The user's invocation did not include a complete lane authorization block per `dev-memo/night-run-00.md` §1, OR the block is ambiguous on a required field. Per [[../../rules/autonomy]] §"Overnight lane policy", autopilot does NOT infer the lane scope from chat context.
 - **`BRIEF-CONFLICT`** — Next WI conflicts with `docs/product/project-requirements-brief.md` (READY status), OR the brief is missing/`DRAFT-PENDING-REVIEW`/`AMENDMENT-PENDING-REVIEW` and the WI requires it, OR an unresolved `RECONCILIATION-NEEDED` entry blocks the WI's target source. See [[../../rules/project-brief]] §"Downstream consumption rules". Autopilot MUST NOT run `/project-brief` itself.
+- **`LANE-EXIT`** (overnight mode only) — The next reasonable WI is OUTSIDE the pinned lane's "Allowed WIs / phases" or "Allowed files / packages". Autopilot does NOT widen the lane unilaterally; the user must either grant a new lane authorization or close the run.
+- **`LANE-LOCAL-STOP`** (overnight mode only) — A lane-specific stop condition fires (any entry in the lane authorization's "Stop if" field).
 - Audit yields Critical/High that cannot be closed inside the current WI scope.
 - A product-direction question arises not answered by [[../../rules/client-local-first]], `plan-client-00.md`, or the brief.
 - **`STOP-FOR-ROLLBACK`** — A previously-committed WI (this autopilot session OR earlier) is found to be wrong in a way fix-forward cannot repair (wrong product direction / weakened security boundary / mixed scopes / brief-or-ADR violation / broad unsafe behavior per `dev-memo/rollback-00.md` §5). Autopilot MUST NOT auto-revert during overnight mode; it stops and emits the 7-field rollback report (see §"Stop output" below). See `dev-memo/rollback-00.md` §4 + [[../../rules/cc-suite]] §"Rollback recording" + [[../../rules/autonomy]] §"Committed rollback restrictions".
 - All planned WIs in `go-live-plan.md` are `done` — go-live readiness gate is itself a hard-stop and requires explicit user approval.
 - The user interrupts.
+
+Overnight-mode lane-aware stop conditions are documented in full at `dev-memo/night-run-00.md` §7. The list above pins the most common stop reasons; `night-run-00.md` is the authoritative reference.
 
 ## Stop output
 
@@ -97,6 +118,8 @@ When stopping, produce a short report:
 - Files changed in this autopilot session, grouped by commit.
 - Outstanding audit findings, if any.
 - Recommended next user action.
+
+**Overnight mode**: the per-phase report (per `dev-memo/night-run-00.md` §6) has already been emitted after every commit during the run. The stop-output above is the FINAL summary; it cross-references the per-phase reports but does NOT duplicate them. If the stop reason is `LANE-AUTHORIZATION-MISSING` or `LANE-EXIT` or `LANE-LOCAL-STOP`, name the offending lane field in the report.
 
 ### STOP-FOR-ROLLBACK report (7 fields)
 
@@ -130,4 +153,4 @@ PLUS every hard-stop entry in [[../../rules/autonomy]] §"Hard-stop list" (the c
 - Picking auth providers or cloud vendors.
 - Claiming go-live readiness.
 
-Related: [[../security-wi-loop/SKILL]], [[../client-architecture-reconcile/SKILL]], [[../../rules/autonomy]], [[../../rules/staging-hygiene]], [[../../rules/cc-suite]], `dev-memo/rollback-00.md`.
+Related: [[../security-wi-loop/SKILL]], [[../client-architecture-reconcile/SKILL]], [[../../rules/autonomy]], [[../../rules/staging-hygiene]], [[../../rules/cc-suite]], `dev-memo/rollback-00.md`, `dev-memo/night-run-00.md`.

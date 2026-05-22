@@ -74,4 +74,19 @@ When a WI completes verification + audit cleanly and the next WI is unblocked un
 - Reverting a high-risk WI (cc-suite-recorded) MUST itself produce a 7-field rollback recording in the revert commit message (per `dev-memo/rollback-00.md` §6 and [[cc-suite]] §"Rollback recording").
 - Overnight / `/loop` / `/project-autopilot` modes do NOT auto-revert. Autopilot stops with `STOP-FOR-ROLLBACK` (per [[../skills/project-autopilot/SKILL]] §"Stop conditions") and emits the 7-field stop-and-report.
 
-Related: [[staging-hygiene]], [[security-boundary]], [[client-local-first]], [[loc-guardian]], [[cc-suite]], `dev-memo/rollback-00.md`.
+## Overnight lane policy
+
+`dev-memo/night-run-00.md` is the authoritative overnight-lane policy. Every overnight `/loop`, `/project-autopilot`, or long `/goal` run is **lane-scoped**, never project-wide.
+
+Core invariants:
+
+- An overnight run requires an **explicit lane authorization** (the user's instruction that started the run). The authorization block names the lane, allowed WIs / phases, allowed and forbidden files / packages, lane-specific hard stops, commit policy, test matrix, cc-suite requirements, loc-guardian requirements, stop / report conditions, and operational settings (branch, push, plugin state, artifacts). The reusable template lives at `dev-memo/night-run-00.md` §1.
+- No user instruction like "keep going" or "make progress" grants project-wide authorization. If the lane authorization omits a required field or is ambiguous, autopilot stops at the first decision point and asks the user.
+- Default-allowed and default-forbidden action sets are listed in `dev-memo/night-run-00.md` §2 and §3.
+- **Auto-revert of committed work is FORBIDDEN by default** during overnight mode (per `dev-memo/rollback-00.md` §4). The lane authorization MAY explicitly grant "yes-named-class-only" auto-revert via its "Rollback of committed work allowed?" field; without that grant, autopilot stops with `STOP-FOR-ROLLBACK`.
+- Per-phase reporting follows `dev-memo/night-run-00.md` §6 (commit hash + files + tests + loc-guardian + cc-suite jobIds + fallback usage + deferred backlog + next phase).
+- Lane-aware stop conditions are listed in `dev-memo/night-run-00.md` §7 (lane complete; next phase exits lane; global hard-stop; test/cc-suite/loc-guardian fix-forward exhausted; STOP-FOR-ROLLBACK; lane-specific stop; user interrupts).
+
+The lane authorization is a contract between user and Claude. Nothing in the lane authorization can override the global hard-stop list above; the lane scope is always a SUBSET of what is globally permitted.
+
+Related: [[staging-hygiene]], [[security-boundary]], [[client-local-first]], [[loc-guardian]], [[cc-suite]], `dev-memo/rollback-00.md`, `dev-memo/night-run-00.md`.
