@@ -89,4 +89,4 @@ Core invariants:
 
 The lane authorization is a contract between user and Claude. Nothing in the lane authorization can override the global hard-stop list above; the lane scope is always a SUBSET of what is globally permitted.
 
-Related: [[staging-hygiene]], [[security-boundary]], [[client-local-first]], [[loc-guardian]], [[cc-suite]], `dev-memo/rollback-00.md`, `dev-memo/night-run-00.md`.
+Related: [[staging-hygiene]], [[security-boundary]], [[client-local-first]], [[loc-guardian]], [[cc-suite]], [[execution-discipline]], `dev-memo/rollback-00.md`, `dev-memo/night-run-00.md`.

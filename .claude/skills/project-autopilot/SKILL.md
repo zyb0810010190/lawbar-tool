@@ -153,4 +153,4 @@ PLUS every hard-stop entry in [[../../rules/autonomy]] §"Hard-stop list" (the c
 - Picking auth providers or cloud vendors.
 - Claiming go-live readiness.
 
-Related: [[../security-wi-loop/SKILL]], [[../client-architecture-reconcile/SKILL]], [[../../rules/autonomy]], [[../../rules/staging-hygiene]], [[../../rules/cc-suite]], `dev-memo/rollback-00.md`, `dev-memo/night-run-00.md`.
+Related: [[../security-wi-loop/SKILL]], [[../client-architecture-reconcile/SKILL]], [[../../rules/autonomy]], [[../../rules/staging-hygiene]], [[../../rules/cc-suite]], [[../../rules/execution-discipline]], `dev-memo/rollback-00.md`, `dev-memo/night-run-00.md`.

@@ -70,4 +70,4 @@ When a commit needs to be rolled back, the only legal mechanism is `git revert <
 
 During overnight / `/loop` / `/project-autopilot` runs, Claude MUST NOT auto-revert committed work. The autopilot loop stops with `STOP-FOR-ROLLBACK` and emits the report block per [[../skills/project-autopilot/SKILL]] §"Stop output". See `dev-memo/rollback-00.md` §4 for the 7-field stop-and-report.
 
-Related: [[autonomy]], [[security-boundary]], [[cc-suite]], `dev-memo/rollback-00.md`, `dev-memo/night-run-00.md`.
+Related: [[autonomy]], [[security-boundary]], [[cc-suite]], [[execution-discipline]], `dev-memo/rollback-00.md`, `dev-memo/night-run-00.md`.
