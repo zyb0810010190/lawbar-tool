@@ -18,7 +18,22 @@ spark MUST NOT:
 - Invoke cc-suite commands (review-plan / audit / verify / audit-fix) on its own output. The user, or a follow-up turn, runs cc-suite AFTER promoting the spark spec.
 - Run inside `/loop`, `/project-autopilot`, autonomous overnight runs, or any unattended loop unless the user explicitly selected `/spark` as the current step.
 - Bypass [[loc-guardian]] or any hard-stop in [[autonomy]].
-- Replace the existing project-autopilot, cc-suite, security-wi-loop, or client-architecture-reconcile skills.
+- Replace the existing project-autopilot, cc-suite, security-wi-loop, client-architecture-reconcile, or project-brief skills.
+- Ask whole-project requirements questions. spark is for ONE feature / ONE idea. Whole-product intake is `/project-brief`'s scope — see [[project-brief]]. If a spark turn finds itself drafting whole-product direction, it MUST stop and recommend `/project-brief`.
+
+## project-brief consultation
+
+When `docs/product/project-requirements-brief.md` exists:
+
+- spark's Step 1 grounding MUST read it.
+- spark's §2 "Existing context used" MUST cite the brief AND its current `status:` (`DRAFT-PENDING-REVIEW` / `AMENDMENT-PENDING-REVIEW` / `READY`).
+- spark MUST NOT ask any question the brief already answers. The brief's answer becomes the pre-filled default; spark records it in §3 "Assumptions" as "derived from `docs/product/project-requirements-brief.md` §N".
+- A `DRAFT-PENDING-REVIEW` or `AMENDMENT-PENDING-REVIEW` brief is consulted but its answers are flagged "non-authoritative; subject to cc-suite review".
+- A `READY` brief's answers are authoritative product direction (see [[project-brief]] §"Authority hierarchy"). spark ideas that contradict a `READY` brief land in §8 "Hard stops" of the spark spec, and §10 prepends the HARD STOP block.
+
+When the brief does NOT exist:
+
+- spark proceeds as before, but if the user's idea reads like whole-project direction (vision / target users / primary platform / business model / etc.), spark stops and recommends running `/project-brief` first.
 
 ## Spark spec template (every section required)
 

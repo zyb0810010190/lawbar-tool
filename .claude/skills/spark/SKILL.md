@@ -60,12 +60,17 @@ If the request is "review X plan" or "audit Y code", route to cc-suite directly.
 Before asking any question, read:
 
 - `AGENTS.md` and any `CLAUDE.md` / `GEMINI.md` referenced from it.
+- **`docs/product/project-requirements-brief.md` if it exists** — the authoritative whole-product intake (see [[../../rules/project-brief]]). Cite it in §2 of the spark spec with its current `status:`.
 - The current plan corpus: `dev-memo/plan-*.md`, `dev-memo/spark/*.md`, `dev-memo/deferred-audit-findings.md`.
 - `docs/adr/` index — the ADRs relevant to the topic.
 - Recent commits via `git log --oneline -30`.
 - Any cited file paths in the user's prompt.
 
 If the answer is already in the repo, USE it. Do not re-ask.
+
+If the user's request is whole-project direction (vision / target users / primary platform / business model / hard-stop policy / etc.) rather than a single feature, **stop** and recommend `/project-brief` instead. spark is for per-feature brainstorming; whole-project intake is `/project-brief`'s scope.
+
+If `docs/product/project-requirements-brief.md` exists and the spark idea contradicts a `READY` brief, surface the conflict in §8 "Hard stops" of the spec and prepend the HARD STOP block in §10.
 
 ### 2. Decide if the topic triggers a hard-stop
 

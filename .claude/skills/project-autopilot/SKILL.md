@@ -30,11 +30,20 @@ Repeat until a stop condition fires.
 - `docs/release/go-live-readiness-report.md` — current readiness state.
 - `docs/release/wi-03-security-signoff.md` — security closure status.
 - `dev-memo/plan-client-00.md` — client surface reconciliation status.
+- `docs/product/project-requirements-brief.md` — whole-project requirements intake, when present (see [[../../rules/project-brief]]).
 - Newest `dev-memo/*-plan.md` / `*-brainstorm.md` matching the next likely WI.
 
 ### 3. Select next WI
 
 Apply the selection algorithm from [[../../commands/continue-project]] step 4. Prefer the smallest bounded WI that unblocks the most downstream work.
+
+**Brief consultation gate.** Before locking the candidate WI, check `docs/product/project-requirements-brief.md` if it exists. Stop the loop with reason `BRIEF-CONFLICT` and surface to the user if:
+
+- The candidate WI's scope contradicts a `READY` brief (e.g. WI assumes browser-first while the brief locks Mac-first; WI introduces a hard-stop item without explicit user authorization).
+- The candidate WI requires the brief and the brief is missing or still `DRAFT-PENDING-REVIEW` / `AMENDMENT-PENDING-REVIEW`. Autopilot MUST NOT run `/project-brief` itself — ask the user to run it manually.
+- The brief's `Reconciliation log` flags the WI's target source as `RECONCILIATION-NEEDED` and the reconciliation WI has not yet landed.
+
+A `READY` brief whose answers are silent on the candidate WI's scope is not a conflict — proceed normally.
 
 ### 4. Route by WI shape
 
@@ -72,8 +81,9 @@ Stop immediately when any of the following hold:
 
 - `branch-clean` returns `DIRTY-BLOCKING`.
 - Next WI matches a hard-stop in [[../../rules/autonomy]] (push, deploy, go-live, secrets, auth-provider choice, cloud-vendor choice, irreversible migration, production data, broad destructive delete, global config edit, exposing legal docs externally).
+- **`BRIEF-CONFLICT`** — Next WI conflicts with `docs/product/project-requirements-brief.md` (READY status), OR the brief is missing/`DRAFT-PENDING-REVIEW`/`AMENDMENT-PENDING-REVIEW` and the WI requires it, OR an unresolved `RECONCILIATION-NEEDED` entry blocks the WI's target source. See [[../../rules/project-brief]] §"Downstream consumption rules". Autopilot MUST NOT run `/project-brief` itself.
 - Audit yields Critical/High that cannot be closed inside the current WI scope.
-- A product-direction question arises not answered by [[../../rules/client-local-first]] or `plan-client-00.md`.
+- A product-direction question arises not answered by [[../../rules/client-local-first]], `plan-client-00.md`, or the brief.
 - All planned WIs in `go-live-plan.md` are `done` — go-live readiness gate is itself a hard-stop and requires explicit user approval.
 - The user interrupts.
 
