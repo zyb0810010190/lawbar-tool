@@ -35,6 +35,10 @@ import type {
 import { eventHashFn, type StoredAuditEvent } from "../auditChain.js";
 import { CaseBoxPersistenceError } from "../errors.js";
 import { prepareRegisterDocument } from "../inMemoryDocument.js";
+import {
+  listAuditEventsSqlite,
+  verifyAuditChainForMatterSqlite,
+} from "./auditRepoQueries.js";
 import { prepareCreateMatter, prepareMatterTransition } from "../inMemoryMatter.js";
 import { generateUlid } from "../ulid.js";
 import {
@@ -310,8 +314,8 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   async listDocuments(query: ListDocumentsQuery): Promise<ListDocumentsPage> {
     return listDocumentsSqlite(this.#db, query);
   }
-  async listAuditEvents(_query: ListAuditEventsQuery): Promise<ListAuditEventsPage> {
-    notImplemented("listAuditEvents");
+  async listAuditEvents(query: ListAuditEventsQuery): Promise<ListAuditEventsPage> {
+    return listAuditEventsSqlite(this.#db, query);
   }
   // Implemented in B1 (not stubbed) because the case_box_audit_chain_heads
   // table is introduced by B1's DDL (matter writes update it from day one);
@@ -344,8 +348,8 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
       count: row.event_count,
     };
   }
-  async verifyAuditChainForMatter(_matterId: string): Promise<VerifyAuditChainResult> {
-    notImplemented("verifyAuditChainForMatter");
+  async verifyAuditChainForMatter(matterId: string): Promise<VerifyAuditChainResult> {
+    return verifyAuditChainForMatterSqlite(this.#db, matterId);
   }
   async appendConfidentialityClassification(_input: unknown): Promise<CaseBoxConfidentialityClassification> {
     notImplemented("appendConfidentialityClassification");
