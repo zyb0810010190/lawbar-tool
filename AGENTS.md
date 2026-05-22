@@ -56,6 +56,8 @@
 
 Contract package requires Node >=22 because it uses JSON import attributes.
 
+`services/ocr-persistence` is pinned to **Node 22.x or 24.x** (LTS line; 23.x / 25.x permitted by the engines semver range but not exercised in the repo). Upper bound `<26.0.0` is enforced via `package.json` `engines` until this repo chooses to support Node 26 (a separate ~5-LOC bump WI after verifying `better-sqlite3` prebuilds for Node 26 ABI). An ABI smoke check (`services/ocr-persistence/scripts/abi-smoke.mjs`) runs as `pretest` in `services/ocr-persistence` and fast-fails on any stale `better-sqlite3` native binding so the failure surfaces as a clear `[abi-smoke] FAIL` line, not as opaque `ERR_DLOPEN_FAILED` inside one of dozens of SQLite test files. See `dev-memo/plan-abi-00-better-sqlite3.md`.
+
 ### Core architecture
 - Contract hub: docs/contracts/
 - Worker: services/ocr-worker/
