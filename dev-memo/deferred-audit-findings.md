@@ -26,16 +26,31 @@
 
 ---
 
-## Phase B4 — SQLite confidentiality classification (commit `<pending B4 impl commit hash>`)
+## Phase B5 — SQLite privilege markers (commit `<pending B5 impl commit hash>`)
 
 | Audit job | Verify job |
 |---|---|
-| `audit-mpgyzp9t-iftt4p` | not invoked (no C/H/M to verify; 0 C/H/M, 4 Lows; 2 Lows fixed in-WI, 2 Lows deferred) |
+| `audit-mpgzx0ka-r4jne5` | not invoked (no C/H/M to verify; 0 C/H/M, 5 Lows; 1 Low fixed in-WI, 4 Lows deferred) |
 
 | Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
 |---|---|---|---|---|---|---|
-| D4#1 | Low | Cleanup-only — `services/case-box-persistence/src/sqlite/SqliteCaseBoxPersistence.ts` at 524 LOC over the 500-LOC LOC-01 extraction trigger (under 800 fail). The B4 addition (transaction wrapper for `appendConfidentialityClassification` + `writeAuditEventAndUpdateHead` callback) is a narrow ~30 LOC delta; not structurally bad. Extract before B5 adds further public methods. | WI-B5-impl OR a dedicated extraction WI before B5 | YES | open | Reviewer suggested extracting the classification transaction wrapper or a shared audit-write callback. Not a B4 blocker. |
-| D2#1 | Low | Duplication risk — `getEffectiveClassificationSqlite` re-implements the in-memory `getEffectiveClassificationHelper` validation (matter / tenant / target_type / document resolution). Rev-1 validation-order drift was caught by the audit (D1#1) and fixed in-WI; the structural duplication itself remains. | WI-B5-impl OR a future docs-only extraction WI introducing a shared validate-effective-target helper | YES | open | Pin parity with edge-case impl-parity tests for now; consider extracting a small shared helper that accepts DB/document resolvers when B5 lands. |
+| D1#2 | Low | Cleanup-only — `getPrivilegeStatusSqlite` loads ALL matter markers then lets `effectivePrivilegeStatus` filter; could narrow at SQL level via `WHERE matter_id, target_type, target_id`. Acceptable at v1 lawyer-scale. | Future perf WI when marker volume grows | YES | open | Reviewer accepted as Phase-B debt. |
+| D2#1 | Low | Cleanup-only — `buildShadowAppendState` and `buildShadowTransitionState` in `privilegeRepoQueries.ts` duplicate the global id+markerIndex SELECT loop. Two callers today; extract if a third privilege helper appears. | Future privilege-side extraction OR B-future-WI | YES | open | Reviewer accepted: "extract `loadPrivilegeIdIndex(db, state)` if a third privilege helper appears." |
+| D4#1 | Low | Cleanup-only — `SqliteCaseBoxPersistence.ts` at 563 LOC over the 500-LOC LOC-01 extraction trigger (under 800 fail). B4 D4#1 was naturally fixed structurally via `#runImmediateWrite` + `#writeAudit` + `validateDocumentTarget` extractions; residual LOC is mostly imports + 33 `not_implemented` stubs. Reviewer: "Do not introduce a stub mixin yet; it would add indirection without reducing real complexity." | Re-evaluate at B6/B7 if growth continues | YES | open | Treated as accepted-as-known-divergence under 800 fail floor. |
+| D4#2 | Low | Cleanup-only — global privilege id scans (and the analogous global classification id scans from B4) will not scale as a long-term pattern. v1 acceptable. | Future targeted-existence-lookup WI once multiple SQLite entity helpers repeat this pattern | YES | open | Reviewer: "Backlog a targeted existence/indexed lookup refactor once multiple SQLite entity helpers repeat this pattern." |
+
+---
+
+## Phase B4 — SQLite confidentiality classification (commit `bb285ca`)
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mpgyzp9t-iftt4p` | not invoked (no C/H/M to verify; 0 C/H/M, 4 Lows; 2 Lows fixed in-WI, 2 Lows deferred at the time; both now CLOSED by B5) |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| D4#1 | Low | LOC trigger 524 > 500 in SqliteCaseBoxPersistence.ts; transaction-wrapper extraction. | WI-B5-impl OR dedicated extraction WI before B5 | YES | closed | Resolved in B5 (commit `<pending B5 impl commit hash>`) — extracted `#runImmediateWrite` + `#writeAudit` private helpers per NIGHT-RUN-SQLITE-B5-IMPL lane "fix cleanly when naturally touched" instruction. Class still 563 LOC (mostly stubs + imports); structural duplication eliminated. |
+| D2#1 | Low | `getEffectiveClassificationSqlite` re-implements in-memory `getEffectiveClassificationHelper` validation (matter / tenant / target_type / document resolution). | WI-B5-impl OR future docs-only extraction WI | YES | closed | Resolved in B5 (commit `<pending B5 impl commit hash>`) — extracted shared `validateDocumentTarget(db, query)` helper in `documentRepoQueries.ts`; both B4 `getEffectiveClassificationSqlite` and B5 `getPrivilegeStatusSqlite` now call it. |
 
 ---
 

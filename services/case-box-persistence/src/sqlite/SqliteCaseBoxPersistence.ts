@@ -44,6 +44,12 @@ import {
   getEffectiveClassificationSqlite,
   listConfidentialityClassificationsSqlite,
 } from "./classificationRepoQueries.js";
+import {
+  applyAppendPrivilegeMarkerSqlite,
+  applyTransitionPrivilegeMarkerSqlite,
+  getPrivilegeStatusSqlite,
+  listPrivilegeMarkersSqlite,
+} from "./privilegeRepoQueries.js";
 import { prepareCreateMatter, prepareMatterTransition } from "../inMemoryMatter.js";
 import { generateUlid } from "../ulid.js";
 import {
@@ -115,6 +121,13 @@ export interface SqliteCaseBoxPersistenceOptions {
   readonly generateId?: () => string;
 }
 
+interface SqliteWriteDeps {
+  readonly generateId: () => string;
+  readonly nowIso: () => string;
+  readonly storedAuditEventsForMatter: (matterId: string) => StoredAuditEvent[];
+  readonly writeAuditEventAndUpdateHead: (audit: StoredAuditEvent, eventHash: string) => void;
+}
+
 function notImplemented(method: string): never {
   throw new CaseBoxPersistenceError(
     "not_implemented",
@@ -147,6 +160,54 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
     this.#db = options.db;
     this.#now = options.now ?? (() => new Date());
     this.#generateId = options.generateId ?? generateUlid;
+  }
+
+  // -------------------------------------------------------------------------
+  // Private shared helpers (extraction per B4 deferred Low D4#1 + B5
+  // natural-touch under NIGHT-RUN-SQLITE-B5-IMPL lane instruction).
+  // -------------------------------------------------------------------------
+
+  /** Write a prepared audit event + update its chain head. Atomic per
+   *  enclosing transaction. Shared by B4 classification append and B5
+   *  privilege append+transition write paths.
+   */
+  #writeAudit(audit: StoredAuditEvent, eventHash: string): void {
+    insertAuditEvent(this.#db, audit, eventHash);
+    upsertAuditChainHead(
+      this.#db,
+      audit.event.matter_id,
+      audit.event.id,
+      audit.sequence,
+      audit.event.timestamp,
+      eventHash,
+    );
+  }
+
+  /** Standard write-transaction deps passed to repo-queries helpers. */
+  #writeDeps(): SqliteWriteDeps {
+    const db = this.#db;
+    const now = this.#now;
+    return {
+      generateId: this.#generateId,
+      nowIso: () => now().toISOString(),
+      storedAuditEventsForMatter: (matterId: string) => loadSyntheticStoredEvents(db, matterId),
+      writeAuditEventAndUpdateHead: (audit, eventHash) => this.#writeAudit(audit, eventHash),
+    };
+  }
+
+  /** Wrap a synchronous SQLite write in `BEGIN IMMEDIATE`, returning the
+   *  helper's row result. The write function receives the DB + the
+   *  standard write-transaction deps so the body stays small.
+   */
+  #runImmediateWrite<T>(work: (db: Database, deps: SqliteWriteDeps) => T): T {
+    const db = this.#db;
+    const deps = this.#writeDeps();
+    let result: T | null = null;
+    const run = db.transaction(() => {
+      result = work(db, deps);
+    });
+    run.immediate();
+    return result as T;
   }
 
   // -------------------------------------------------------------------------
@@ -357,32 +418,8 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
     return verifyAuditChainForMatterSqlite(this.#db, matterId);
   }
   async appendConfidentialityClassification(input: unknown): Promise<CaseBoxConfidentialityClassification> {
-    const db = this.#db;
-    const now = this.#now;
-    const generateId = this.#generateId;
-    let resultRow: CaseBoxConfidentialityClassification | null = null;
-
-    const run = db.transaction(() => {
-      resultRow = applyAppendClassificationSqlite(db, input, {
-        generateId,
-        nowIso: () => now().toISOString(),
-        storedAuditEventsForMatter: (matterId) => loadSyntheticStoredEvents(db, matterId),
-        writeAuditEventAndUpdateHead: (audit, eventHash) => {
-          insertAuditEvent(db, audit, eventHash);
-          upsertAuditChainHead(
-            db,
-            audit.event.matter_id,
-            audit.event.id,
-            audit.sequence,
-            audit.event.timestamp,
-            eventHash,
-          );
-        },
-      });
-    });
-    run.immediate();
-
-    return structuredClone(resultRow!) as CaseBoxConfidentialityClassification;
+    const row = this.#runImmediateWrite((db, deps) => applyAppendClassificationSqlite(db, input, deps));
+    return structuredClone(row) as CaseBoxConfidentialityClassification;
   }
   async getEffectiveClassification(query: GetEffectiveClassificationQuery): Promise<EffectiveClassificationResult> {
     return getEffectiveClassificationSqlite(this.#db, query);
@@ -390,17 +427,19 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   async listConfidentialityClassifications(query: ListConfidentialityClassificationsQuery): Promise<ListConfidentialityClassificationsPage> {
     return listConfidentialityClassificationsSqlite(this.#db, query);
   }
-  async appendPrivilegeMarker(_input: unknown): Promise<CaseBoxPrivilegeMarker> {
-    notImplemented("appendPrivilegeMarker");
+  async appendPrivilegeMarker(input: unknown): Promise<CaseBoxPrivilegeMarker> {
+    const row = this.#runImmediateWrite((db, deps) => applyAppendPrivilegeMarkerSqlite(db, input, deps));
+    return structuredClone(row) as CaseBoxPrivilegeMarker;
   }
-  async transitionPrivilegeMarker(_markerId: string, _opts: PrivilegeTransitionOpts): Promise<CaseBoxPrivilegeMarker> {
-    notImplemented("transitionPrivilegeMarker");
+  async transitionPrivilegeMarker(markerId: string, opts: PrivilegeTransitionOpts): Promise<CaseBoxPrivilegeMarker> {
+    const row = this.#runImmediateWrite((db, deps) => applyTransitionPrivilegeMarkerSqlite(db, markerId, opts, deps));
+    return structuredClone(row) as CaseBoxPrivilegeMarker;
   }
-  async getPrivilegeStatus(_query: GetPrivilegeStatusQuery): Promise<PrivilegeResolution> {
-    notImplemented("getPrivilegeStatus");
+  async getPrivilegeStatus(query: GetPrivilegeStatusQuery): Promise<PrivilegeResolution> {
+    return getPrivilegeStatusSqlite(this.#db, query);
   }
-  async listPrivilegeMarkers(_query: ListPrivilegeMarkersQuery): Promise<ListPrivilegeMarkersPage> {
-    notImplemented("listPrivilegeMarkers");
+  async listPrivilegeMarkers(query: ListPrivilegeMarkersQuery): Promise<ListPrivilegeMarkersPage> {
+    return listPrivilegeMarkersSqlite(this.#db, query);
   }
   async appendFact(_input: unknown): Promise<CaseBoxFact> {
     notImplemented("appendFact");

@@ -168,3 +168,38 @@ export function selectMatterForDocument(
     .get(matterId) as { payload_json: string } | undefined;
   return row ?? null;
 }
+
+/** Shared validator for document-target queries (Phase B4 getEffective
+ * + Phase B5 getPrivilegeStatus). Resolves the document via
+ * `case_box_documents`, verifies tenant + matter consistency, throws
+ * the same error codes as the in-memory helpers' inline validation.
+ * Per B4 deferred Low D2#1 + B5 natural-touch under NIGHT-RUN-SQLITE-B5-IMPL.
+ *
+ * Caller is expected to have already validated matter+tenant (this
+ * helper does NOT re-check matter existence — it only checks the
+ * document target).
+ */
+export function validateDocumentTarget(
+  db: Database,
+  query: { tenant_id: string; matter_id: string; target_id: string },
+): void {
+  const docEntry = selectDocumentRefById(db, query.target_id);
+  if (docEntry === null) {
+    throw new CaseBoxPersistenceError(
+      "unknown_document",
+      `unknown document target: ${query.target_id}`,
+    );
+  }
+  if (docEntry.tenant_id !== query.tenant_id) {
+    throw new CaseBoxPersistenceError(
+      "tenant_mismatch",
+      `document.tenant_id (${docEntry.tenant_id}) does not match query.tenant_id (${query.tenant_id})`,
+    );
+  }
+  if (docEntry.matter_id !== query.matter_id) {
+    throw new CaseBoxPersistenceError(
+      "matter_id_mismatch",
+      `document.matter_id (${docEntry.matter_id}) does not match query.matter_id (${query.matter_id})`,
+    );
+  }
+}

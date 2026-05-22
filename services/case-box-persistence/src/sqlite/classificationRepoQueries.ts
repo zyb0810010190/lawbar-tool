@@ -30,6 +30,7 @@ import {
   resolveLimit,
 } from "../cursor.js";
 import { CaseBoxPersistenceError } from "../errors.js";
+import { validateDocumentTarget } from "./documentRepoQueries.js";
 import {
   computeEffectiveLevel,
   createClassificationState,
@@ -243,26 +244,13 @@ export function getEffectiveClassificationSqlite(
     );
   }
 
-  // 3. Document target resolution (tenant + matter consistency).
-  const docEntry = loadDocumentForResolve(db, query.target_id);
-  if (docEntry === null) {
-    throw new CaseBoxPersistenceError(
-      "unknown_document",
-      `unknown document target: ${query.target_id}`,
-    );
-  }
-  if (docEntry.document.tenant_id !== query.tenant_id) {
-    throw new CaseBoxPersistenceError(
-      "tenant_mismatch",
-      `document.tenant_id (${docEntry.document.tenant_id}) does not match query.tenant_id (${query.tenant_id})`,
-    );
-  }
-  if (docEntry.document.matter_id !== query.matter_id) {
-    throw new CaseBoxPersistenceError(
-      "matter_id_mismatch",
-      `document.matter_id (${docEntry.document.matter_id}) does not match query.matter_id (${query.matter_id})`,
-    );
-  }
+  // 3. Document target resolution via shared helper (per B4 deferred
+  //    Low D2#1 fix; shared with B5 getPrivilegeStatusSqlite).
+  validateDocumentTarget(db, {
+    tenant_id: query.tenant_id,
+    matter_id: query.matter_id,
+    target_id: query.target_id,
+  });
 
   // 4. Walk the target index for the history. Reuse computeEffectiveLevel
   // from the in-memory helper for the sort + level selection — single

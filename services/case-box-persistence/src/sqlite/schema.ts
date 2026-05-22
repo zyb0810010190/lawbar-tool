@@ -26,6 +26,8 @@
 // 5. B1 ships v1: matter + audit_event + audit_chain_heads tables.
 //    B2 ships v2: case_box_documents table + 2 mixed-order indices.
 //    B4 ships v3: case_box_confidentiality_classifications + 3 indices.
+//    B5 ships v4: case_box_privilege_markers + 3 indices (mutable rows;
+//    UPDATE on transition, not append-only).
 //    (B3 audit observability ships read APIs without new schema.)
 //    Future sub-WIs add DDL_STATEMENTS_V{N} arrays + map entries;
 //    existing DDL is NEVER modified once shipped.
@@ -34,7 +36,7 @@ import type { Database } from "better-sqlite3";
 
 import { CaseBoxPersistenceError } from "../errors.js";
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -200,10 +202,62 @@ const DDL_STATEMENTS_V3: ReadonlyArray<string> = [
        (matter_id, target_type, target_id, set_at ASC, id ASC);`,
 ];
 
+// ---------------------------------------------------------------------------
+// Version 4 (Phase B5): privilege marker persistence.
+//
+// Privilege markers are MUTABLE rows (status: proposed → confirmed →
+// waived OR proposed → dismissed). Unlike confidentiality (append-only),
+// privilege transitions UPDATE the row in place + emit a separate audit
+// event for each transition. payload_json carries the canonical row;
+// columns lifted: status / kind / target_type / target_id / proposed_at
+// for index + filter efficiency.
+//
+// 3 indices:
+//   - by_target (matter_id, target_type, target_id, kind, status, id) —
+//     scans for confirmed-uniqueness check inside transition + per-
+//     target lookups in getPrivilegeStatus.
+//   - by_matter_seek (matter_id, proposed_at ASC, id ASC) — unfiltered
+//     chronological list.
+//   - by_matter_filter_seek (matter_id, target_type, target_id, status,
+//     kind, proposed_at ASC, id ASC) — filtered list seek.
+//
+// No FK constraints (consistent posture from B1/B2/B3/B4).
+// ---------------------------------------------------------------------------
+
+const DDL_STATEMENTS_V4: ReadonlyArray<string> = [
+  `CREATE TABLE IF NOT EXISTS case_box_privilege_markers (
+     id                       TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     target_type              TEXT    NOT NULL CHECK (target_type IN ('document','fact')),
+     target_id                TEXT    NOT NULL,
+     kind                     TEXT    NOT NULL,
+     status                   TEXT    NOT NULL CHECK (status IN ('proposed','confirmed','dismissed','waived')),
+     proposed_at              TEXT    NOT NULL COLLATE BINARY,
+     payload_json             TEXT    NOT NULL
+   );`,
+
+  // Per-target confirmed-uniqueness check + per-target lookup.
+  `CREATE INDEX IF NOT EXISTS idx_case_box_privilege_markers_by_target
+     ON case_box_privilege_markers
+       (matter_id, target_type, target_id, kind, status, id);`,
+
+  // Per-matter chronological list seek (unfiltered).
+  `CREATE INDEX IF NOT EXISTS idx_case_box_privilege_markers_by_matter_seek
+     ON case_box_privilege_markers
+       (matter_id, proposed_at ASC, id ASC);`,
+
+  // Filtered list seek.
+  `CREATE INDEX IF NOT EXISTS idx_case_box_privilege_markers_by_matter_filter_seek
+     ON case_box_privilege_markers
+       (matter_id, target_type, target_id, status, kind, proposed_at ASC, id ASC);`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
   [2, DDL_STATEMENTS_V2],
   [3, DDL_STATEMENTS_V3],
+  [4, DDL_STATEMENTS_V4],
 ]);
 
 /**
