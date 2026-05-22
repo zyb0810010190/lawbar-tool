@@ -1,0 +1,12 @@
+{
+  "id": "01jrcasebox0000000000000l3",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "kind": "evidence_submission",
+  "source_rule_citation": "Court order — evidence submission window",
+  "due_at": "2026-07-10T17:00:00.000Z",
+  "owner_user_id": "local-user",
+  "status": "pending",
+  "met_at": null
+}

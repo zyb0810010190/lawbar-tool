@@ -137,6 +137,26 @@
     "created_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "purpose": {
+      "enum": [
+        "claim",
+        "defense",
+        "counterclaim",
+        "timeline_event",
+        "work_order_result",
+        "consultation_q",
+        "consultation_a",
+        "other"
+      ],
+      "description": "Workflow-role classification. Absent = 'other' by convention. R-5(e)."
+    },
+    "as_of_date": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date" }
+      ],
+      "description": "Optional date-only as-of marker. Required (non-null) when purpose = 'timeline_event'. Date-only (no time component). R-5(f)."
     }
   },
   "allOf": [
@@ -231,6 +251,15 @@
           "source_ocr_job_id":   { "type": "string", "minLength": 1 },
           "source_page_number":  { "type": "integer", "minimum": 1 },
           "source_excerpt":      { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "if":   { "properties": { "purpose": { "const": "timeline_event" } }, "required": ["purpose"] },
+      "then": {
+        "required": ["as_of_date"],
+        "properties": {
+          "as_of_date": { "type": "string", "format": "date" }
         }
       }
     }

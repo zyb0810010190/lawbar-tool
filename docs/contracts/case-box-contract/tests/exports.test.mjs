@@ -76,6 +76,9 @@ const expectedFns = [
   "isDocketEntryProposalOnly",
   "docketEntryWasMachineExtracted",
   "requiresHumanConfirmation",
+  // WI-brief-matter-type (R-5)
+  "assertValidDocumentSupersession",
+  "assertValidMatterSuccessor",
 ];
 
 const expectedArrays = [
@@ -139,6 +142,9 @@ const expectedErrorCtors = [
   "DocketEntryCreationError",
   "DocketEntryConfirmationError",
   "InvalidIanaTimezoneError",
+  // WI-brief-matter-type (R-5)
+  "DocumentSupersessionInvariantError",
+  "MatterSuccessorInvariantError",
 ];
 
 test("every expected function is exported and callable", () => {

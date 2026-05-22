@@ -14,7 +14,16 @@ export type CaseBoxDeadline = {
   tenant_id: string;
   actor_user_id: string;
   matter_id: Ulid;
-  kind: "statute_of_limitations" | "court_order" | "discovery" | "filing" | "hearing" | "internal";
+  kind:
+    | "statute_of_limitations"
+    | "court_order"
+    | "discovery"
+    | "filing"
+    | "hearing"
+    | "internal"
+    | "payment"
+    | "evidence_submission"
+    | "appeal";
   source_rule_citation?: string;
   due_at: string;
   owner_user_id: string;

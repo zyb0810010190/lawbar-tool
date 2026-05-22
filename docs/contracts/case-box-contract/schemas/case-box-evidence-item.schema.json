@@ -44,7 +44,14 @@
       "description": "Required when status is \"superseded\"."
     },
     "notes":      { "type": "string" },
-    "created_at": { "type": "string", "format": "date-time" }
+    "created_at": { "type": "string", "format": "date-time" },
+    "party_side": {
+      "anyOf": [
+        { "type": "null" },
+        { "enum": ["our", "opposing"] }
+      ],
+      "description": "Optional marker for which party introduced the evidence. v1 supports §7.A 'evidence list for both parties'. R-5(g)."
+    }
   },
   "allOf": [
     {

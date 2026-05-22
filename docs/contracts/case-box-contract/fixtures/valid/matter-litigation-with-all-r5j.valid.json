@@ -1,0 +1,23 @@
+{
+  "id": "01jrcasebox0000000000000m2",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "name": "ACME v. Counterparty — civil dispute",
+  "jurisdiction": { "value": "cn-sh", "locked": false },
+  "matter_type": "litigation",
+  "parties": [
+    { "role": "client",   "display_name": "ACME Corp",       "party_kind": "organization", "notes": "primary contact: Wang at +86-xxx" },
+    { "role": "opposing", "display_name": "Counterparty Ltd", "party_kind": "organization" }
+  ],
+  "retainer_scope": "Full representation in the Shanghai No.1 Intermediate Court proceeding.",
+  "confidentiality_class": "normal",
+  "status": "active",
+  "external_ocr_authorized": false,
+  "sync_grant_present": false,
+  "llm_extraction_opt_in": false,
+  "created_at": "2026-05-22T09:00:00.000Z",
+  "case_type_text": "合同纠纷 (contract dispute)",
+  "case_progress_text": "Complaint filed 2026-05-10; first hearing scheduled 2026-07-15.",
+  "court_contact_text": "Shanghai No.1 Intermediate People's Court — Hall 3 — clerk Liu +86-21-xxxxxxxx",
+  "contention_summary_text": "Plaintiff alleges breach; defendant claims force majeure release."
+}

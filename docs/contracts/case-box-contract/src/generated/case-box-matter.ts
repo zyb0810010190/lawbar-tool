@@ -68,6 +68,26 @@ export interface CaseBoxMatter {
    * Set when status transitions to archived. Reversible per case-box-step-0.
    */
   archived_at?: string;
+  /**
+   * Optional reference to a successor matter (R-5(h)). Used for counsel→litigation evolution per the matter-type-immutability rule. Persistence enforces same-tenant and successor's matter_type differs from original.
+   */
+  successor_matter_id?: null | Ulid;
+  /**
+   * Free-text case-type descriptor. Lawyer-facing only when matter_type = 'litigation'. POST-V1: controlled vocabulary. R-5(j).
+   */
+  case_type_text?: string;
+  /**
+   * Free-text current-progress descriptor. Lawyer-facing only when matter_type = 'litigation'. POST-V1: lifecycle state machine. R-5(j).
+   */
+  case_progress_text?: string;
+  /**
+   * Free-text court contact info. Lawyer-facing only when matter_type = 'litigation'. POST-V1: structured contact entity. R-5(j).
+   */
+  court_contact_text?: string;
+  /**
+   * Free-text summary of parties' main points of contention. Lawyer-facing only when matter_type = 'litigation'. POST-V1: structured sub-entity. R-5(j).
+   */
+  contention_summary_text?: string;
   [k: string]: unknown;
 }
 /**

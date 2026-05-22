@@ -22,6 +22,10 @@ import {
   isFactCandidateOnly,
   factWasMachineExtracted,
   isMachineExtractedCandidate,
+  assertValidDocumentSupersession,
+  assertValidMatterSuccessor,
+  DocumentSupersessionInvariantError,
+  MatterSuccessorInvariantError,
 } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -194,4 +198,123 @@ test("party fixture (embedded shape) does NOT require tenant/actor (lives inside
   const data = readJson(join(validDir, "party.valid.json"));
   assert.equal("tenant_id" in data, false);
   assert.equal("actor_user_id" in data, false);
+});
+
+// ---------------------------------------------------------------------------
+// WI-brief-matter-type — INV-4 / INV-5 cross-row invariants (R-5).
+// ---------------------------------------------------------------------------
+
+test("assertValidDocumentSupersession: no-op when supersedes_document_id is null", () => {
+  assert.doesNotThrow(() => assertValidDocumentSupersession({
+    doc: { id: "01jrcasebox0000000000000dk", tenant_id: "t1", matter_id: "m1", supersedes_document_id: null },
+    prior: null,
+  }));
+});
+
+test("assertValidDocumentSupersession: no-op when supersedes_document_id is undefined", () => {
+  assert.doesNotThrow(() => assertValidDocumentSupersession({
+    doc: { id: "01jrcasebox0000000000000dk", tenant_id: "t1", matter_id: "m1" },
+    prior: null,
+  }));
+});
+
+test("assertValidDocumentSupersession: throws on self-cycle", () => {
+  assert.throws(
+    () => assertValidDocumentSupersession({
+      doc: { id: "01jrcasebox0000000000000dk", tenant_id: "t1", matter_id: "m1", supersedes_document_id: "01jrcasebox0000000000000dk" },
+      prior: null,
+    }),
+    DocumentSupersessionInvariantError,
+  );
+});
+
+test("assertValidDocumentSupersession: throws when prior is missing", () => {
+  assert.throws(
+    () => assertValidDocumentSupersession({
+      doc: { id: "01jrcasebox0000000000000dk", tenant_id: "t1", matter_id: "m1", supersedes_document_id: "01jrcasebox0000000000000dj" },
+      prior: null,
+    }),
+    DocumentSupersessionInvariantError,
+  );
+});
+
+test("assertValidDocumentSupersession: throws when prior tenant mismatches", () => {
+  assert.throws(
+    () => assertValidDocumentSupersession({
+      doc: { id: "01jrcasebox0000000000000dk", tenant_id: "t1", matter_id: "m1", supersedes_document_id: "01jrcasebox0000000000000dj" },
+      prior: { id: "01jrcasebox0000000000000dj", tenant_id: "t2", matter_id: "m1" },
+    }),
+    DocumentSupersessionInvariantError,
+  );
+});
+
+test("assertValidDocumentSupersession: throws when prior matter mismatches", () => {
+  assert.throws(
+    () => assertValidDocumentSupersession({
+      doc: { id: "01jrcasebox0000000000000dk", tenant_id: "t1", matter_id: "m1", supersedes_document_id: "01jrcasebox0000000000000dj" },
+      prior: { id: "01jrcasebox0000000000000dj", tenant_id: "t1", matter_id: "m2" },
+    }),
+    DocumentSupersessionInvariantError,
+  );
+});
+
+test("assertValidDocumentSupersession: passes on matching tenant + matter", () => {
+  assert.doesNotThrow(() => assertValidDocumentSupersession({
+    doc: { id: "01jrcasebox0000000000000dk", tenant_id: "t1", matter_id: "m1", supersedes_document_id: "01jrcasebox0000000000000dj" },
+    prior: { id: "01jrcasebox0000000000000dj", tenant_id: "t1", matter_id: "m1" },
+  }));
+});
+
+test("assertValidMatterSuccessor: no-op when successor_matter_id is null", () => {
+  assert.doesNotThrow(() => assertValidMatterSuccessor({
+    original: { id: "01jrcasebox0000000000000m4", tenant_id: "t1", matter_type: "advisory", successor_matter_id: null },
+    successor: null,
+  }));
+});
+
+test("assertValidMatterSuccessor: throws on self-cycle", () => {
+  assert.throws(
+    () => assertValidMatterSuccessor({
+      original: { id: "01jrcasebox0000000000000m4", tenant_id: "t1", matter_type: "advisory", successor_matter_id: "01jrcasebox0000000000000m4" },
+      successor: null,
+    }),
+    MatterSuccessorInvariantError,
+  );
+});
+
+test("assertValidMatterSuccessor: throws when successor is missing", () => {
+  assert.throws(
+    () => assertValidMatterSuccessor({
+      original: { id: "01jrcasebox0000000000000m4", tenant_id: "t1", matter_type: "advisory", successor_matter_id: "01jrcasebox0000000000000m5" },
+      successor: null,
+    }),
+    MatterSuccessorInvariantError,
+  );
+});
+
+test("assertValidMatterSuccessor: throws when successor tenant mismatches", () => {
+  assert.throws(
+    () => assertValidMatterSuccessor({
+      original: { id: "01jrcasebox0000000000000m4", tenant_id: "t1", matter_type: "advisory", successor_matter_id: "01jrcasebox0000000000000m5" },
+      successor: { id: "01jrcasebox0000000000000m5", tenant_id: "t2", matter_type: "litigation" },
+    }),
+    MatterSuccessorInvariantError,
+  );
+});
+
+test("assertValidMatterSuccessor: throws when successor matter_type matches original (must differ)", () => {
+  assert.throws(
+    () => assertValidMatterSuccessor({
+      original: { id: "01jrcasebox0000000000000m4", tenant_id: "t1", matter_type: "advisory", successor_matter_id: "01jrcasebox0000000000000m5" },
+      successor: { id: "01jrcasebox0000000000000m5", tenant_id: "t1", matter_type: "advisory" },
+    }),
+    MatterSuccessorInvariantError,
+  );
+});
+
+test("assertValidMatterSuccessor: passes when successor tenant matches and matter_type differs", () => {
+  assert.doesNotThrow(() => assertValidMatterSuccessor({
+    original: { id: "01jrcasebox0000000000000m4", tenant_id: "t1", matter_type: "advisory", successor_matter_id: "01jrcasebox0000000000000m5" },
+    successor: { id: "01jrcasebox0000000000000m5", tenant_id: "t1", matter_type: "litigation" },
+  }));
 });

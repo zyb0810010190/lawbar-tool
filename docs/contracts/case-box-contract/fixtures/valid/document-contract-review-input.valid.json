@@ -1,0 +1,15 @@
+{
+  "id": "01jrcasebox0000000000000dj",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m3",
+  "source": "uploaded",
+  "filename": "supplier-agreement-draft-v1.docx",
+  "content_hash": "sha256:9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d9d",
+  "storage_uri": "file:///Users/lawyer/Library/Application Support/lawbar/docs/dj.docx",
+  "doc_type": "contract",
+  "received_at": "2026-04-20T13:00:00.000Z",
+  "status": "registered",
+  "purpose": "contract_review_input",
+  "review_date": "2026-04-22"
+}

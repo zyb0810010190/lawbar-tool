@@ -1,0 +1,17 @@
+{
+  "_note": "v1 deliberately does NOT enforce schema-level linkage between document lifecycle free-text fields (letter_date, service_status, etc.) and purpose. Lifecycle fields on a non-matching purpose are accepted as informational. Strict linkage is R-9 post-v1.",
+  "id": "01jrcasebox0000000000000dm",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "source": "uploaded",
+  "filename": "miscellaneous-note.pdf",
+  "content_hash": "sha256:c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0",
+  "storage_uri": "file:///Users/lawyer/Library/Application Support/lawbar/docs/dm.pdf",
+  "doc_type": "other",
+  "received_at": "2026-05-15T09:00:00.000Z",
+  "status": "registered",
+  "purpose": "other",
+  "letter_date": "2026-05-14",
+  "service_status": "not applicable — captured for informational record only"
+}

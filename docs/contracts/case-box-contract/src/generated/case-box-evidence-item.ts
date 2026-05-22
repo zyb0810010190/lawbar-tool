@@ -24,6 +24,10 @@ export type CaseBoxEvidenceItem = {
   supersedes_evidence_id?: null | Ulid;
   notes?: string;
   created_at: string;
+  /**
+   * Optional marker for which party introduced the evidence. v1 supports §7.A 'evidence list for both parties'. R-5(g).
+   */
+  party_side?: null | ("our" | "opposing");
   [k: string]: unknown;
 };
 /**

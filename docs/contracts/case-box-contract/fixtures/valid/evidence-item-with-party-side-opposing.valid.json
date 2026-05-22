@@ -1,0 +1,14 @@
+{
+  "id": "01jrcasebox0000000000000e3",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "source_document_id": null,
+  "exhibit_page_range": null,
+  "lawyer_weight": "moderate",
+  "status": "proposed",
+  "supersedes_evidence_id": null,
+  "notes": "Opposing counsel's exhibit list filed 2026-05-18; we have not yet received the underlying documents.",
+  "created_at": "2026-05-22T10:20:00.000Z",
+  "party_side": "opposing"
+}

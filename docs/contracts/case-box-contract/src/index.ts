@@ -145,6 +145,14 @@ export {
   type DocketEntryDueAtInterpretation,
 } from "./docket-invariants.js";
 
+// --- Matter-type reconciliation invariants (WI-brief-matter-type, R-5) ---
+export {
+  assertValidDocumentSupersession,
+  assertValidMatterSuccessor,
+  DocumentSupersessionInvariantError,
+  MatterSuccessorInvariantError,
+} from "./matter-type-invariants.js";
+
 // --- Audit log helpers (Step 4) ---
 export {
   CASE_BOX_AUDIT_ENTITY_TYPES,

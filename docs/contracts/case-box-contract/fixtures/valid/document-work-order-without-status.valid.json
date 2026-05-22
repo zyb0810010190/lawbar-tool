@@ -1,0 +1,14 @@
+{
+  "id": "01jrcasebox0000000000000dh",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m3",
+  "source": "uploaded",
+  "filename": "work-order-2026-04-15.pdf",
+  "content_hash": "sha256:7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b",
+  "storage_uri": "file:///Users/lawyer/Library/Application Support/lawbar/docs/dh.pdf",
+  "doc_type": "other",
+  "received_at": "2026-04-15T09:00:00.000Z",
+  "status": "registered",
+  "purpose": "work_order"
+}

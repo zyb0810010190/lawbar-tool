@@ -20,7 +20,7 @@
     "actor_user_id": { "type": "string", "minLength": 1 },
     "matter_id":     { "$ref": "#/$defs/ulid" },
     "kind": {
-      "enum": ["statute_of_limitations", "court_order", "discovery", "filing", "hearing", "internal"]
+      "enum": ["statute_of_limitations", "court_order", "discovery", "filing", "hearing", "internal", "payment", "evidence_submission", "appeal"]
     },
     "source_rule_citation": { "type": "string" },
     "due_at": {

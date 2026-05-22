@@ -24,7 +24,10 @@ export type CaseBoxDocketEntry = {
     | "discovery"
     | "filing"
     | "hearing"
-    | "internal";
+    | "internal"
+    | "payment"
+    | "evidence_submission"
+    | "appeal";
   proposed_due_at: string;
   proposed_due_at_kind: "datetime" | "date_only";
   /**

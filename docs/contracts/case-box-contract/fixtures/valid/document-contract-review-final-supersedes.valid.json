@@ -1,0 +1,17 @@
+{
+  "id": "01jrcasebox0000000000000dk",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m3",
+  "source": "produced",
+  "filename": "supplier-agreement-final-v3.docx",
+  "content_hash": "sha256:aeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeae",
+  "storage_uri": "file:///Users/lawyer/Library/Application Support/lawbar/docs/dk.docx",
+  "doc_type": "contract",
+  "received_at": "2026-04-26T18:00:00.000Z",
+  "status": "registered",
+  "purpose": "contract_review_final",
+  "supersedes_document_id": "01jrcasebox0000000000000dj",
+  "review_date": "2026-04-26",
+  "final_version_marker": "v3 final — lawyer-redlined; client-approved 2026-04-26 14:00"
+}

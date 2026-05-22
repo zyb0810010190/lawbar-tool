@@ -1,0 +1,12 @@
+{
+  "id": "01jrcasebox0000000000000l2",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "kind": "payment",
+  "source_rule_citation": "Engagement contract §3 — installment due",
+  "due_at": "2026-06-30T16:00:00.000Z",
+  "owner_user_id": "local-user",
+  "status": "pending",
+  "met_at": null
+}

@@ -68,8 +68,77 @@
     },
     "status": {
       "enum": ["registered", "ocr_pending", "ocr_complete", "ocr_failed", "triaged", "tagged", "reviewed"]
+    },
+    "purpose": {
+      "enum": [
+        "engagement_contract",
+        "payment_record",
+        "decision_record",
+        "court_procedural",
+        "counsel_contract",
+        "work_order",
+        "lawyer_letter",
+        "contract_review_input",
+        "contract_review_final",
+        "screenshot",
+        "other"
+      ],
+      "description": "Workflow-role classification. Orthogonal to doc_type. Absent = 'other' by convention. R-5(a)."
+    },
+    "work_order_status": {
+      "enum": ["open", "in_progress", "answered", "closed"],
+      "description": "Lifecycle of a work-order document. One-way invariant: if present, purpose MUST be 'work_order'. NOT required when purpose='work_order'. R-5(b)."
+    },
+    "supersedes_document_id": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/ulid" }
+      ],
+      "description": "Optional reference to a prior document this one supersedes (e.g. contract_review_final supersedes contract_review_input). Persistence enforces same-matter same-tenant. R-5(d)."
+    },
+    "letter_date": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Free-text date descriptor for purpose='lawyer_letter'. Deliberately NOT a typed date — captures whatever the lawyer wrote on the letter. POST-V1: structured date once lifecycle state machine ships. R-5(c)."
+    },
+    "service_status": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Free-text service / delivery status for purpose='lawyer_letter'. R-5(c)."
+    },
+    "client_authorization_summary": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "Free-text client authorization summary for purpose='lawyer_letter'. R-5(c)."
+    },
+    "preliminary_evidence_summary": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "Free-text preliminary evidence summary for purpose='lawyer_letter'. R-5(c)."
+    },
+    "review_date": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Free-text review date descriptor for purpose='contract_review_*'. Deliberately NOT a typed date. POST-V1: structured date. R-5(c)."
+    },
+    "final_version_marker": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Free-text marker on the final-revision document for purpose='contract_review_final'. R-5(c)."
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "required": ["purpose"],
+        "properties": { "purpose": { "const": "work_order" } }
+      },
+      "then": true,
+      "else": {
+        "not": { "required": ["work_order_status"] }
+      }
+    }
+  ],
   "$defs": {
     "ulid": {
       "type": "string",

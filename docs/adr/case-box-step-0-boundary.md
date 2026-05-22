@@ -235,9 +235,27 @@ Inherited from `case-box-plan.md` "Open decisions" §pre-Phase-0 and recorded he
 5. **LLM extractor default.** Default proposal: feature-flagged off; opt-in per case; deterministic stub is the MVP default extractor. Confirm.
 6. **Auth deferral for MVP-1.** Default proposal: ship MVP-1 with `actor_user_id = "local-user"` so long as no sync bridge / LLM remote call / multi-user phase is enabled. Confirm.
 
+## Addendum (WI-brief-matter-type, 2026-05-22) — R-5 additive contract surface
+
+The project-requirements-brief (`docs/product/project-requirements-brief.md`, status `READY`, commit `fe09ea4`) reconciles two lawyer-facing workflow categories (litigation, counsel) against the existing `matter_type` enum and adds optional fields across matter / document / fact / evidence / docket-entry / deadline schemas. The detailed additions are in `dev-memo/plan-brief-matter-type.md` §3 and §4, cc-suite-reviewed at jobIds `review-plan-mpgi330d-48grud` and `review-plan-mpgiamit-mgk1j7`.
+
+Summary of additions (all optional fields or additive enum values; no existing fixture invalidated):
+
+- **Matter** — `successor_matter_id` (R-5(h)); `case_type_text`, `case_progress_text`, `court_contact_text`, `contention_summary_text` (R-5(j), litigation-facing free text).
+- **Document** — `purpose` enum (R-5(a)); `work_order_status` enum with one-way invariant "if present, purpose='work_order'" (R-5(b)); `supersedes_document_id` ULID (R-5(d)); six free-text lifecycle fields (R-5(c)).
+- **Fact** — `purpose` enum (R-5(e)); `as_of_date` date-only with conditional "non-null when purpose='timeline_event'" (R-5(f)).
+- **Evidence-item** — `party_side` enum (R-5(g)).
+- **Docket-entry + Deadline** — `kind` vocabulary extended with `payment`, `evidence_submission`, `appeal` (R-5(i); `hearing` was already present).
+
+Cross-row invariants (INV-4, INV-5) are validator-layer helpers in `src/matter-type-invariants.ts` (`assertValidDocumentSupersession`, `assertValidMatterSuccessor`); persistence-layer enforcement is deferred to a follow-up WI per the brief's §10.1 hard release-gate.
+
+The v1 entity list above is extended only by the optional-field additions; no new top-level entity is introduced by this WI.
+
 ## References
 
 - `dev-memo/superseded/case-box-plan.md` — historical source (archived from `dev-memo/case-box-plan.md` in the same commit as this ADR).
+- `dev-memo/plan-brief-matter-type.md` — WI-brief-matter-type plan (READY).
+- `docs/product/project-requirements-brief.md` — project-level intake; R-5 is the source of this addendum.
 - `dev-memo/plan-client-00.md` — client surface reconciliation; CLIENT-00b authorization.
 - `docs/adr/client-application-surface.md` — v1 primary client = Mac desktop.
 - `docs/adr/sync-bridge-architecture.md` — opt-in companion HTTP bridge.

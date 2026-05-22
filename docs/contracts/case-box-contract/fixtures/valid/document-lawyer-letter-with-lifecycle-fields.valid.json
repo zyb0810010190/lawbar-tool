@@ -1,0 +1,18 @@
+{
+  "id": "01jrcasebox0000000000000di",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m3",
+  "source": "produced",
+  "filename": "lawyer-letter-acme-2026-05-01.pdf",
+  "content_hash": "sha256:8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c",
+  "storage_uri": "file:///Users/lawyer/Library/Application Support/lawbar/docs/di.pdf",
+  "doc_type": "correspondence",
+  "received_at": "2026-05-01T10:00:00.000Z",
+  "status": "registered",
+  "purpose": "lawyer_letter",
+  "letter_date": "2026年5月1日",
+  "service_status": "delivered by registered mail; receipt signed 2026-05-03 by counterparty's HR director",
+  "client_authorization_summary": "ACME CEO authorized in writing 2026-04-28 (email forwarded to file).",
+  "preliminary_evidence_summary": "Engagement contract §4 and disputed payment receipt #2026-INV-021."
+}

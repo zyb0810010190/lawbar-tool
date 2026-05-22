@@ -158,3 +158,14 @@ Type: `type CaseBoxFact` from `src/generated/case-box-fact.ts`.
 2. **`imported` source-type richness**: if a future case-management-system-import WI needs external-system row ids, that's an additive field.
 3. **Soft-undo of acceptance**: not in v1. A future requirement would add a new state and modify the state machine.
 4. **Evidence-item field-direction rename**: deferred to a doc-tidy WI; out of Step-2 scope.
+
+## Addendum (WI-brief-matter-type, 2026-05-22) — `purpose` and `as_of_date` additions
+
+`CaseBoxFact` gains two optional fields per R-5 of the project-requirements-brief (commit `fe09ea4`):
+
+- **`purpose`** (R-5(e)) — enum `{claim, defense, counterclaim, timeline_event, work_order_result, consultation_q, consultation_a, other}`. Optional-omitted; absent means "other" by convention. Lawyer-facing workflow tag; does NOT interact with the no-auto-accept invariant, the source-type rules, or the supersession chain.
+- **`as_of_date`** (R-5(f)) — date-only ISO string (`YYYY-MM-DD`) or null; optional everywhere EXCEPT when `purpose === "timeline_event"`, in which case the schema requires it non-null. Encoded as an `allOf` if/then in `case-box-fact.schema.json`.
+
+Both fields are additive. No existing fixture is invalidated. No state-machine edge changes. `assertValidNewFact` and the no-auto-accept invariant are unchanged.
+
+See `dev-memo/plan-brief-matter-type.md` §4.3 for the schema diff and §5 for the invariant table.

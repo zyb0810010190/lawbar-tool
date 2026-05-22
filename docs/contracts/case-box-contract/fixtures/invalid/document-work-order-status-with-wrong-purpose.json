@@ -1,0 +1,17 @@
+{
+  "_invalid_reason": "INV-1: work_order_status present but purpose is engagement_contract, not work_order.",
+  "_target_schema": "case-box-document",
+  "id": "01jrcasebox0000000000000do",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m3",
+  "source": "uploaded",
+  "filename": "x.pdf",
+  "content_hash": "sha256:efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+  "storage_uri": "file:///tmp/x.pdf",
+  "doc_type": "contract",
+  "received_at": "2026-05-22T09:00:00.000Z",
+  "status": "registered",
+  "purpose": "engagement_contract",
+  "work_order_status": "open"
+}

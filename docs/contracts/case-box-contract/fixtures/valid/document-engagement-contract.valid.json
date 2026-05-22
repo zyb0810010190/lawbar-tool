@@ -1,0 +1,14 @@
+{
+  "id": "01jrcasebox0000000000000db",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "source": "uploaded",
+  "filename": "engagement-letter-2026-01-15.pdf",
+  "content_hash": "sha256:1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b",
+  "storage_uri": "file:///Users/lawyer/Library/Application Support/lawbar/docs/db.pdf",
+  "doc_type": "contract",
+  "received_at": "2026-01-15T10:00:00.000Z",
+  "status": "registered",
+  "purpose": "engagement_contract"
+}

@@ -70,6 +70,33 @@
       "type": "string",
       "format": "date-time",
       "description": "Set when status transitions to archived. Reversible per case-box-step-0."
+    },
+    "successor_matter_id": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/ulid" }
+      ],
+      "description": "Optional reference to a successor matter (R-5(h)). Used for counsel→litigation evolution per the matter-type-immutability rule. Persistence enforces same-tenant and successor's matter_type differs from original."
+    },
+    "case_type_text": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "Free-text case-type descriptor. Lawyer-facing only when matter_type = 'litigation'. POST-V1: controlled vocabulary. R-5(j)."
+    },
+    "case_progress_text": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "Free-text current-progress descriptor. Lawyer-facing only when matter_type = 'litigation'. POST-V1: lifecycle state machine. R-5(j)."
+    },
+    "court_contact_text": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "Free-text court contact info. Lawyer-facing only when matter_type = 'litigation'. POST-V1: structured contact entity. R-5(j)."
+    },
+    "contention_summary_text": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "Free-text summary of parties' main points of contention. Lawyer-facing only when matter_type = 'litigation'. POST-V1: structured sub-entity. R-5(j)."
     }
   },
   "$defs": {

@@ -1,0 +1,14 @@
+{
+  "id": "01jrcasebox0000000000000dd",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "source": "uploaded",
+  "filename": "client-decision-memo-2026-03.docx",
+  "content_hash": "sha256:3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d",
+  "storage_uri": "file:///Users/lawyer/Library/Application Support/lawbar/docs/dd.docx",
+  "doc_type": "correspondence",
+  "received_at": "2026-03-10T14:30:00.000Z",
+  "status": "registered",
+  "purpose": "decision_record"
+}

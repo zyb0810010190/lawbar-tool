@@ -1,0 +1,14 @@
+{
+  "id": "01jrcasebox0000000000000de",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "source": "court_filing",
+  "filename": "case-acceptance-notice.pdf",
+  "content_hash": "sha256:4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e",
+  "storage_uri": "file:///Users/lawyer/Library/Application Support/lawbar/docs/de.pdf",
+  "doc_type": "pleading",
+  "received_at": "2026-05-12T09:00:00.000Z",
+  "status": "registered",
+  "purpose": "court_procedural"
+}

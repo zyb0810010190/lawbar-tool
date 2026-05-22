@@ -231,3 +231,19 @@ ADR/release summaries MUST say "Step 6 ships contract-only; runtime deadline saf
 4. Outbox protocol concrete semantics — if persistence chooses outbox over single-transaction.
 5. Replacement / supersession of confirmed deadlines — currently only via WITHDRAWN + new docket entry.
 6. Source-vocabulary doc-tidy across Steps 2/3/6.
+
+## Addendum (WI-brief-matter-type, 2026-05-22) — `kind` vocabulary extension
+
+Per R-5(i) of the project-requirements-brief (commit `fe09ea4`), the deadline `kind` vocabulary is extended with three values to cover litigation-specific surfaces from brief §7.A:
+
+- `payment` — installment / billing deadline.
+- `evidence_submission` — court-ordered evidence-submission window.
+- `appeal` — appeal-period deadline.
+
+`hearing` was already in the enum and is unchanged.
+
+The same three values are added to both `CaseBoxDocketEntry.proposed_kind` and `CaseBoxDeadline.kind` so the docket-entry → deadline materialization pipeline preserves the vocabulary symmetrically. New fixtures cover each value (`docket-entry-proposed-{payment,evidence_submission,appeal}.valid.json`, `deadline-{payment,evidence_submission,appeal}.valid.json`).
+
+No invariants change. The existing date_only ban, confirmation lifecycle, and reminder shape rules apply uniformly across all `kind` values, new and old.
+
+See `dev-memo/plan-brief-matter-type.md` §4.5 and §4.6 for the schema diff.

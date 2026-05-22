@@ -42,7 +42,7 @@
       "enum": ["manual", "court_order_excerpt", "llm_extraction", "imported"]
     },
     "proposed_kind": {
-      "enum": ["statute_of_limitations", "court_order", "discovery", "filing", "hearing", "internal"]
+      "enum": ["statute_of_limitations", "court_order", "discovery", "filing", "hearing", "internal", "payment", "evidence_submission", "appeal"]
     },
     "proposed_due_at": { "type": "string", "format": "date-time" },
     "proposed_due_at_kind": { "enum": ["datetime", "date_only"] },

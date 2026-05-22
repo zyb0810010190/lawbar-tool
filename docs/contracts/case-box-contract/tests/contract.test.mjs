@@ -529,3 +529,180 @@ test("invalid: docket-entry-reminder-bad-kind is rejected", () => {
 test("invalid: docket-entry-reminder-extra-property is rejected (additionalProperties: false)", () => {
   assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-reminder-extra-property.json"))), false);
 });
+
+// ---------------------------------------------------------------------------
+// WI-brief-matter-type — R-5 (a)..(j) additive contract surface
+// See dev-memo/plan-brief-matter-type.md.
+// ---------------------------------------------------------------------------
+
+// --- Matter R-5(h), (j) ---
+
+test("valid: matter-litigation-with-all-r5j passes (R-5(j) four free-text fields)", () => {
+  assert.equal(validateMatter(readJson(join(validDir, "matter-litigation-with-all-r5j.valid.json"))), true, errs(validateMatter));
+});
+
+test("valid: matter-advisory-minimal passes (counsel matter, R-5(j) fields absent)", () => {
+  assert.equal(validateMatter(readJson(join(validDir, "matter-advisory-minimal.valid.json"))), true, errs(validateMatter));
+});
+
+test("valid: matter-counsel-with-litigation-successor passes (R-5(h) successor_matter_id)", () => {
+  assert.equal(validateMatter(readJson(join(validDir, "matter-counsel-with-litigation-successor.valid.json"))), true, errs(validateMatter));
+});
+
+// --- Document R-5(a), (b), (c), (d) ---
+
+test("valid: document-engagement-contract passes (R-5(a) purpose enum)", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-engagement-contract.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-payment-record passes", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-payment-record.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-decision-record passes", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-decision-record.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-court-procedural passes", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-court-procedural.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-counsel-contract passes", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-counsel-contract.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-work-order-open passes (R-5(b) work_order_status with matching purpose)", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-work-order-open.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-work-order-without-status passes (work_order purpose; status optional)", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-work-order-without-status.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-lawyer-letter-with-lifecycle-fields passes (R-5(c) free-text fields)", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-lawyer-letter-with-lifecycle-fields.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-contract-review-input passes", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-contract-review-input.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-contract-review-final-supersedes passes (R-5(d) supersedes_document_id)", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-contract-review-final-supersedes.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-screenshot passes", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-screenshot.valid.json"))), true, errs(validateDocument));
+});
+
+test("valid: document-lifecycle-fields-on-non-matching-purpose passes (v1 loose linkage)", () => {
+  assert.equal(validateDocument(readJson(join(validDir, "document-lifecycle-fields-on-non-matching-purpose.valid.json"))), true, errs(validateDocument));
+});
+
+test("invalid: document-work-order-status-without-purpose is rejected (INV-1)", () => {
+  const fixture = readJson(join(invalidDir, "document-work-order-status-without-purpose.json"));
+  assert.equal(validateDocument(fixture), false);
+});
+
+test("invalid: document-work-order-status-with-wrong-purpose is rejected (INV-1)", () => {
+  const fixture = readJson(join(invalidDir, "document-work-order-status-with-wrong-purpose.json"));
+  assert.equal(validateDocument(fixture), false);
+});
+
+// --- Fact R-5(e), (f) ---
+
+test("valid: fact-claim passes (R-5(e) purpose enum)", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-claim.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-defense passes", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-defense.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-counterclaim passes", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-counterclaim.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-timeline-event-with-date passes (R-5(f) as_of_date)", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-timeline-event-with-date.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-non-timeline-with-date passes (as_of_date allowed for any purpose)", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-non-timeline-with-date.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-non-timeline-with-null-date passes (explicit null allowed for non-timeline)", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-non-timeline-with-null-date.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-work-order-result passes", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-work-order-result.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-consultation-q passes", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-consultation-q.valid.json"))), true, errs(validateFact));
+});
+
+test("valid: fact-consultation-a passes", () => {
+  assert.equal(validateFact(readJson(join(validDir, "fact-consultation-a.valid.json"))), true, errs(validateFact));
+});
+
+test("invalid: fact-timeline-event-without-as-of-date is rejected (INV-2)", () => {
+  const fixture = readJson(join(invalidDir, "fact-timeline-event-without-as-of-date.json"));
+  assert.equal(validateFact(fixture), false);
+  const offenders = (validateFact.errors || []).filter((e) =>
+    (e.keyword === "required" && e.params?.missingProperty === "as_of_date") ||
+    e.instancePath === "/as_of_date"
+  );
+  assert.ok(offenders.length > 0, `expected error citing as_of_date (got ${errs(validateFact)})`);
+});
+
+test("invalid: fact-timeline-event-with-null-as-of-date is rejected (INV-2; null not allowed for timeline_event)", () => {
+  const fixture = readJson(join(invalidDir, "fact-timeline-event-with-null-as-of-date.json"));
+  assert.equal(validateFact(fixture), false);
+});
+
+test("invalid: fact-as-of-date-with-time-component is rejected (INV-3 format=date)", () => {
+  const fixture = readJson(join(invalidDir, "fact-as-of-date-with-time-component.json"));
+  assert.equal(validateFact(fixture), false);
+  const offenders = (validateFact.errors || []).filter((e) => e.instancePath === "/as_of_date");
+  assert.ok(offenders.length > 0, `expected format error on /as_of_date (got ${errs(validateFact)})`);
+});
+
+// --- Evidence R-5(g) ---
+
+test("valid: evidence-item-with-party-side-our passes", () => {
+  assert.equal(validateEvidenceItem(readJson(join(validDir, "evidence-item-with-party-side-our.valid.json"))), true, errs(validateEvidenceItem));
+});
+
+test("valid: evidence-item-with-party-side-opposing passes", () => {
+  assert.equal(validateEvidenceItem(readJson(join(validDir, "evidence-item-with-party-side-opposing.valid.json"))), true, errs(validateEvidenceItem));
+});
+
+// --- Docket-entry R-5(i) — new kind values ---
+
+test("valid: docket-entry-proposed-payment passes (R-5(i) kind=payment)", () => {
+  assert.equal(validateDocketEntry(readJson(join(validDir, "docket-entry-proposed-payment.valid.json"))), true, errs(validateDocketEntry));
+});
+
+test("valid: docket-entry-proposed-evidence-submission passes (R-5(i) kind=evidence_submission)", () => {
+  assert.equal(validateDocketEntry(readJson(join(validDir, "docket-entry-proposed-evidence-submission.valid.json"))), true, errs(validateDocketEntry));
+});
+
+test("valid: docket-entry-proposed-appeal passes (R-5(i) kind=appeal)", () => {
+  assert.equal(validateDocketEntry(readJson(join(validDir, "docket-entry-proposed-appeal.valid.json"))), true, errs(validateDocketEntry));
+});
+
+// --- Deadline R-5(i) — new kind values ---
+
+test("valid: deadline-payment passes", () => {
+  assert.equal(validateDeadline(readJson(join(validDir, "deadline-payment.valid.json"))), true, errs(validateDeadline));
+});
+
+test("valid: deadline-evidence-submission passes", () => {
+  assert.equal(validateDeadline(readJson(join(validDir, "deadline-evidence-submission.valid.json"))), true, errs(validateDeadline));
+});
+
+test("valid: deadline-appeal passes", () => {
+  assert.equal(validateDeadline(readJson(join(validDir, "deadline-appeal.valid.json"))), true, errs(validateDeadline));
+});

@@ -1,0 +1,14 @@
+{
+  "id": "01jrcasebox0000000000000dc",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "source": "uploaded",
+  "filename": "invoice-2026-02.pdf",
+  "content_hash": "sha256:2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+  "storage_uri": "file:///Users/lawyer/Library/Application Support/lawbar/docs/dc.pdf",
+  "doc_type": "other",
+  "received_at": "2026-02-05T11:00:00.000Z",
+  "status": "registered",
+  "purpose": "payment_record"
+}

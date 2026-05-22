@@ -76,6 +76,22 @@ export type CaseBoxFact = {
    */
   supersedes_fact_id: null | Ulid;
   created_at: string;
+  /**
+   * Workflow-role classification. Absent = 'other' by convention. R-5(e).
+   */
+  purpose?:
+    | "claim"
+    | "defense"
+    | "counterclaim"
+    | "timeline_event"
+    | "work_order_result"
+    | "consultation_q"
+    | "consultation_a"
+    | "other";
+  /**
+   * Optional date-only as-of marker. Required (non-null) when purpose = 'timeline_event'. Date-only (no time component). R-5(f).
+   */
+  as_of_date?: null | string;
   [k: string]: unknown;
 };
 /**
