@@ -140,15 +140,15 @@ test("6.2.6b Sqlite stub methods emit CaseBoxPersistenceError with code='not_imp
     generateId: makeIdGenerator("notimp"),
   });
   // Tracks the current stub frontier. B1 matter; B2 document; B3
-  // audit-read; B4 confidentiality; B5 privilege markers. Next
-  // still-stubbed: `appendFact` (B6).
+  // audit-read; B4 confidentiality; B5 privilege; B6 facts. Next
+  // still-stubbed: `appendDocketEntry` (B7).
   let caught;
   try {
-    await persistence.appendFact({ id: "01jcasefactmockid0000000001" });
+    await persistence.appendDocketEntry({});
   } catch (e) { caught = e; }
   assert.ok(caught instanceof CaseBoxPersistenceError);
   assert.equal(caught.code, "not_implemented");
-  assert.match(caught.message, /appendFact/);
+  assert.match(caught.message, /appendDocketEntry/);
 });
 
 // ---------------------------------------------------------------------------

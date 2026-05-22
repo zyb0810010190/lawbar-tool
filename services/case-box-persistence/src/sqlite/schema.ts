@@ -28,6 +28,9 @@
 //    B4 ships v3: case_box_confidentiality_classifications + 3 indices.
 //    B5 ships v4: case_box_privilege_markers + 3 indices (mutable rows;
 //    UPDATE on transition, not append-only).
+//    B6 ships v5: case_box_facts + 3 indices (mutable rows; transition
+//    UPDATEs in place; supersession-chain walks via supersedes_fact_id
+//    index).
 //    (B3 audit observability ships read APIs without new schema.)
 //    Future sub-WIs add DDL_STATEMENTS_V{N} arrays + map entries;
 //    existing DDL is NEVER modified once shipped.
@@ -36,7 +39,7 @@ import type { Database } from "better-sqlite3";
 
 import { CaseBoxPersistenceError } from "../errors.js";
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -253,11 +256,62 @@ const DDL_STATEMENTS_V4: ReadonlyArray<string> = [
        (matter_id, target_type, target_id, status, kind, proposed_at ASC, id ASC);`,
 ];
 
+// ---------------------------------------------------------------------------
+// Version 5 (Phase B6): facts persistence.
+//
+// Facts are MUTABLE rows (status: candidate → reviewed → accepted /
+// rejected; accepted-fact supersession is a new-row relationship per
+// Step 2 ADR §3). Transition UPDATEs the row in place + emits an audit
+// event (FACT_REVIEWED / FACT_ACCEPTED / FACT_REJECTED /
+// FACT_REPLACEMENT_ACCEPTED per the contract).
+//
+// Step-2 + R-5 fields lifted as columns:
+//   status / source_type — list filter keys per ListFactsQuery.
+//   source_document_id — list filter + reverse-lookup.
+//   supersedes_fact_id — supersession-chain walks.
+//   purpose / as_of_date — R-5 fact fields (lifted for future filter;
+//     v1 list API does not filter by purpose).
+//   created_at — list ORDER BY.
+// payload_json is the canonical source on read.
+//
+// NO FK constraints (consistent with B1-B5).
+// ---------------------------------------------------------------------------
+
+const DDL_STATEMENTS_V5: ReadonlyArray<string> = [
+  `CREATE TABLE IF NOT EXISTS case_box_facts (
+     id                       TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     source_document_id       TEXT,
+     source_type              TEXT    NOT NULL,
+     status                   TEXT    NOT NULL,
+     purpose                  TEXT,
+     as_of_date               TEXT,
+     supersedes_fact_id       TEXT,
+     created_at               TEXT    NOT NULL COLLATE BINARY,
+     payload_json             TEXT    NOT NULL
+   );`,
+
+  // Per-matter chronological list seek (ORDER BY created_at ASC, id ASC).
+  `CREATE INDEX IF NOT EXISTS idx_case_box_facts_by_matter_seek
+     ON case_box_facts (matter_id, created_at ASC, id ASC);`,
+
+  // Filtered list seek per ListFactsQuery (status / source_type /
+  // source_document_id). Matches the filter-seek pattern from B2/B4/B5.
+  `CREATE INDEX IF NOT EXISTS idx_case_box_facts_by_matter_filter_seek
+     ON case_box_facts (matter_id, status, source_type, source_document_id, created_at ASC, id ASC);`,
+
+  // Supersession-chain walk + reverse lookup on supersedes_fact_id.
+  `CREATE INDEX IF NOT EXISTS idx_case_box_facts_by_supersedes
+     ON case_box_facts (matter_id, supersedes_fact_id, id);`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
   [2, DDL_STATEMENTS_V2],
   [3, DDL_STATEMENTS_V3],
   [4, DDL_STATEMENTS_V4],
+  [5, DDL_STATEMENTS_V5],
 ]);
 
 /**

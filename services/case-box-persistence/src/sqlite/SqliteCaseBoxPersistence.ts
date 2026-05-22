@@ -50,6 +50,12 @@ import {
   getPrivilegeStatusSqlite,
   listPrivilegeMarkersSqlite,
 } from "./privilegeRepoQueries.js";
+import {
+  applyAppendFactSqlite,
+  applyTransitionFactSqlite,
+  getFactSqlite,
+  listFactsSqlite,
+} from "./factsRepoQueries.js";
 import { prepareCreateMatter, prepareMatterTransition } from "../inMemoryMatter.js";
 import { generateUlid } from "../ulid.js";
 import {
@@ -441,20 +447,23 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   async listPrivilegeMarkers(query: ListPrivilegeMarkersQuery): Promise<ListPrivilegeMarkersPage> {
     return listPrivilegeMarkersSqlite(this.#db, query);
   }
-  async appendFact(_input: unknown): Promise<CaseBoxFact> {
-    notImplemented("appendFact");
+  async appendFact(input: unknown): Promise<CaseBoxFact> {
+    const row = this.#runImmediateWrite((db, deps) => applyAppendFactSqlite(db, input, deps));
+    return structuredClone(row) as CaseBoxFact;
   }
   async appendFactOnce(_input: unknown): Promise<CaseBoxFact> {
+    // B11 scope (replay-safe Once variants). Stays not_implemented.
     notImplemented("appendFactOnce");
   }
-  async transitionFact(_factId: string, _opts: FactTransitionOpts): Promise<CaseBoxFact> {
-    notImplemented("transitionFact");
+  async transitionFact(factId: string, opts: FactTransitionOpts): Promise<CaseBoxFact> {
+    const row = this.#runImmediateWrite((db, deps) => applyTransitionFactSqlite(db, factId, opts, deps));
+    return structuredClone(row) as CaseBoxFact;
   }
-  async getFact(_query: GetFactQuery): Promise<CaseBoxFact | null> {
-    notImplemented("getFact");
+  async getFact(query: GetFactQuery): Promise<CaseBoxFact | null> {
+    return getFactSqlite(this.#db, query);
   }
-  async listFacts(_query: ListFactsQuery): Promise<ListFactsPage> {
-    notImplemented("listFacts");
+  async listFacts(query: ListFactsQuery): Promise<ListFactsPage> {
+    return listFactsSqlite(this.#db, query);
   }
   async appendDocketEntry(_input: unknown): Promise<CaseBoxDocketEntry> {
     notImplemented("appendDocketEntry");

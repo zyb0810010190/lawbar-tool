@@ -1537,8 +1537,11 @@ export function runConformance(label, factory) {
       supersedes_fact_id: factA,
     });
     // Inject corruption: make A point back to B (impossible via API).
-    const { _tamperFactSupersedesForTest, _internalFactStateForTest } = await import("../internals.mjs");
-    _tamperFactSupersedesForTest(_internalFactStateForTest(p), factA, factB);
+    // Polymorphic seam — InMemory uses the in-memory state mutator;
+    // SQLite test wrapper exposes `_db` and updates row + payload_json
+    // via SQL (per B6 plan §1.4 + §1.6).
+    const { _tamperFactSupersedesAny } = await import("../internals.mjs");
+    _tamperFactSupersedesAny(p, factA, factB);
     // Now create C and try to transition it to accepted with supersedes=A.
     // The walk from A → B → A would loop; persistence must detect.
     const factC = "01jcasefactcyclc000a4022cz";

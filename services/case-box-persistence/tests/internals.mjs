@@ -16,3 +16,29 @@ export { _tamperFactSupersedesForTest } from "../dist/inMemoryFact.js";
 // the cycle-walk test inject pre-corrupt state. Not re-exported from
 // src/index.ts — invisible to package consumers.
 export { _internalFactStateForTest } from "../dist/inMemoryRepo.js";
+
+import { _tamperFactSupersedesForTest as _tamperInMem } from "../dist/inMemoryFact.js";
+import { _internalFactStateForTest as _internalState } from "../dist/inMemoryRepo.js";
+
+// Polymorphic tamper helper for the supersession-cycle conformance
+// test (6.A4.22). InMemory persistence uses the in-memory state seam;
+// SQLite persistence (test wrapper exposes `_db`) updates the row +
+// payload_json directly via SQL. Per B6 plan §1.4 + §1.6: SQLite
+// tamper is the row-mutation analog of B3's payload-tamper hardening.
+export function _tamperFactSupersedesAny(persistence, factId, newSupersedes) {
+  if (persistence && persistence._db) {
+    const row = persistence._db
+      .prepare("SELECT payload_json FROM case_box_facts WHERE id = ?")
+      .get(factId);
+    if (row === undefined) {
+      throw new Error(`tamper(sqlite): unknown factId ${factId}`);
+    }
+    const parsed = JSON.parse(row.payload_json);
+    parsed.supersedes_fact_id = newSupersedes;
+    persistence._db
+      .prepare("UPDATE case_box_facts SET supersedes_fact_id = ?, payload_json = ? WHERE id = ?")
+      .run(newSupersedes, JSON.stringify(parsed), factId);
+    return;
+  }
+  _tamperInMem(_internalState(persistence), factId, newSupersedes);
+}
