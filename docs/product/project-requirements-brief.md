@@ -1,5 +1,5 @@
 ---
-status: DRAFT-PENDING-REVIEW
+status: READY
 date: 2026-05-22
 author: project-brief skill (run by Claude Code on user direction)
 authoritative_after: /cc-suite:review-plan returns READY (or only Low-risk clarifications remain)
