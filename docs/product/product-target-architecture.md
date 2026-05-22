@@ -21,7 +21,7 @@ What does NOT ship in v1 day-one:
 - WeChat mini-program client.
 - Browser / web UI.
 - Cloud sync.
-- LLM candidate-fact extraction (feature-flagged off; deterministic stub is the v1 extractor).
+- LLM candidate-fact extraction — **indefinitely postponed** per `docs/product/project-requirements-brief.md` R-8. The deterministic stub is the v1 extractor; the Step-8 LLM-extractor-policy ADR remains as future policy only.
 - Deadline computation engine (data model present; engine is post-MVP).
 - Multi-user auth.
 
@@ -46,7 +46,7 @@ Browser users, multi-firm SaaS operators, and mobile-first paralegals are **not*
 |---|---|---|
 | Mac desktop app | **v1 primary** | In-process embedding of `ocr-*` and `case-box-*` libraries. No network on default path. Per `docs/adr/client-application-surface.md`. |
 | WeChat mini-program | **Deferred companion** | Post-v1 only. Reaches the case box via the sync bridge (per `docs/adr/sync-bridge-architecture.md`). Read-mostly + minimal write. Sees only what the lawyer explicitly opts in to expose. |
-| Browser / web UI | **Deferred** | Not v1 primary. A future standalone browser SPA may be added on top of the sync bridge; not a v1 goal. |
+| Browser / web UI | **Indefinitely postponed** | Not v1 primary; no v1 or post-v1 architectural budget per `docs/product/project-requirements-brief.md` §3. The Electron renderer (per CLIENT-01) is Mac-app-local, not a published web app. A standalone browser SPA is not planned. |
 | Windows / Linux desktop | Deferred | Mac-only v1. |
 | iPad / native mobile | Deferred | |
 | Multi-firm SaaS | **Not v1** | `tenant_id` retained in data shape for forward compatibility; no multi-firm v1. |
@@ -57,11 +57,12 @@ Browser users, multi-firm SaaS operators, and mobile-first paralegals are **not*
 
 | Aspect | v1 default | Opt-in path |
 |---|---|---|
-| Documents | Local filesystem under user-controlled path (default `~/Library/Application Support/lawbar/`); identified by `content_hash`; SQLite stores metadata only | None v1; future per-document sync grant via sync bridge |
+| Documents | Local filesystem under user-controlled path (default `~/Library/Application Support/lawbar/`); identified by `content_hash`; SQLite stores metadata only. **Originals retained verbatim** — see Cross-cutting Invariants. | None v1; future per-document sync grant via sync bridge |
 | Case-box SoT (cases, documents, facts, issues, claims, elements, evidence, deadlines, privilege, risks, actions) | Local SQLite under user-controlled path | None v1; future per-matter sync grant via sync bridge |
 | Audit log | Separate local SQLite file with hash chain, also under user-controlled path | None v1 — audit log stays local |
-| OCR engine | Local `paddleocr-onnx` | Future external OCR worker, opt-in per document, restricted to `confidentiality_class = normal` |
-| LLM candidate-fact extraction | Disabled (feature flag off); deterministic stub is the v1 extractor | Future LLM extractor, feature-flagged, opt-in per case, candidate-only output |
+| OCR engine | Local `paddleocr-onnx` — applies to **scanned/image PDFs and image files / screenshots only** per `docs/product/project-requirements-brief.md` §8 + `dev-memo/plan-brief-doc-reconcile.md` §3.2 | Future external OCR worker, opt-in per document, restricted to `confidentiality_class = normal` |
+| Document text extraction (non-OCR) | **None v1.** PDF text-layer / Word / MD / other office formats are retained verbatim; lawyer recourse for searchable text is manual paste (per brief §6 manual-paste fallback) | Post-v1 STOP-AND-ASK ADR (`WI-brief-doc-text-extract-policy`) decides engine + dispatch policy + text-layer detection + multi-artifact-per-document model |
+| LLM candidate-fact extraction | **Indefinitely postponed** (per brief R-8); the deterministic stub remains the v1 extractor. The Step-8 LLM-extractor-policy ADR remains future policy only. | None planned. Re-opens only if the user explicitly authorizes a future LLM enablement WI. |
 | Encryption at rest | macOS FileVault (system-level) | Per-document encryption deferred to post-MVP ADR |
 
 **Default = no cloud, no network egress, no LLM remote call.** Sync is a deliberate user-driven act on a per-document or per-matter basis. The lawyer's normal workflow produces zero outbound network traffic apart from outbound OCR-source fetches when the lawyer explicitly submits a URL-sourced document for OCR (this path retains WI-03's DNS-pinning / SSRF posture unchanged).
@@ -98,9 +99,9 @@ WeChat mini-program publication requires a registered Chinese business entity an
 
 ## Browser / Web UI
 
-**Deferred.** Not v1 primary.
+**Indefinitely postponed.** Not v1 primary; no v1 or post-v1 architectural budget per `docs/product/project-requirements-brief.md` §3.
 
-The Electron renderer (when Electron is chosen as the desktop shell per CLIENT-01) IS a Chromium browser, but it is Mac-app-local, not a published web app. A standalone browser SPA can be added later atop the same sync bridge; not a v1 goal. The GW-00 ADR's original framing of a public-internet API + browser SPA is explicitly rejected for v1.
+The Electron renderer (when Electron is chosen as the desktop shell per CLIENT-01) IS a Chromium browser, but it is Mac-app-local, not a published web app. A standalone browser SPA is NOT planned (neither v1 nor post-v1). The GW-00 ADR's original framing of a public-internet API + browser SPA is explicitly rejected. If a future brief amendment re-authorizes a browser SPA, it would open as a new reconciliation WI; until then this surface remains intentionally absent from the roadmap.
 
 ---
 
@@ -122,7 +123,7 @@ These WIs are recorded in priority order. **None are authorized by this document
 | **CLIENT-04+** | Per-screen implementation in UI-00's recommended order (S2 list → S3 detail → S4 read → S1 submission → S6 cancel → S5 manual-review), then case-box screens | regular implementation WIs |
 | **CLIENT-05** | Coordinator-mediated cancel function in `services/ocr-worker` (the contract names `web_app` as the cancel actor; no function exists today) | Stop-and-Ask: contract / lifecycle change |
 | **AUTH (deferred)** | Auth provider selection. Re-opens when sync bridge ships, single-firm-multi-user phase begins, WeChat mini-program ships, or LLM remote extractor is enabled | Stop-and-Ask: auth/authorization |
-| **TENANT (deferred)** | Single-firm-multi-user phase (multiple users in one tenant) | Stop-and-Ask after AUTH |
+| **TENANT (indefinitely deferred)** | Single-firm-multi-user phase (multiple users in one tenant) — demoted from "near-future" to "indefinitely deferred" per `docs/product/project-requirements-brief.md` R-4 | Stop-and-Ask after AUTH; only re-opens on explicit user authorization |
 | **SYNC-01** | Sync-bridge scaffold per `docs/adr/sync-bridge-architecture.md` (package, auth seam interface, sync-grants persistence) | Stop-and-Ask: inbound network surface + framework dependency |
 | **SYNC-02** | Sync-bridge read endpoints (job list, lifecycle, summary, page, manual-review worklist) | regular implementation WI after SYNC-01 |
 | **SYNC-03** | Sync-bridge write endpoints (cancel, accept/reject candidate fact, quick-note); first bridge security sign-off | Stop-and-Ask: inbound write surface + security sign-off |
@@ -130,7 +131,7 @@ These WIs are recorded in priority order. **None are authorized by this document
 | **SYNC-05+** | Cloud-sync target adapters | Stop-and-Ask: external account / cloud vendor |
 | **SYNC-06+** | WeChat mini-program client | Stop-and-Ask: external account, third-party SDK, registered Chinese business entity |
 | **CASE-BOX Step 7** | Deadline declarative-rules engine (post-MVP) | regular implementation WI |
-| **CASE-BOX Step 8** | LLM extractor (feature-flagged, opt-in per case) | Stop-and-Ask: external account / cloud vendor / new runtime dep |
+| **CASE-BOX Step 8** | LLM extractor — **indefinitely deferred (future policy only)** per `docs/product/project-requirements-brief.md` R-8. The Step-8 LLM-extractor-policy ADR (`docs/adr/case-box-step-8-llm-extractor-policy.md`) remains as policy that would apply IF LLM enablement were ever re-authorized; v1 ships with the deterministic stub. | Stop-and-Ask: external account / cloud vendor / new runtime dep; only re-opens on explicit user authorization |
 | **CASE-BOX Step 9** | Multi-user auth boundary (depends on AUTH gate) | Stop-and-Ask after AUTH |
 | **DEPLOYMENT** | macOS code-signing + notarization; distribution channel choice | Stop-and-Ask: operational |
 | **GO-LIVE** | Final go-live readiness sign-off | hard-stop per `AGENTS.md` |
@@ -162,6 +163,7 @@ All deployment choices remain Stop-and-Ask per `AGENTS.md`. None is resolved by 
 8. **`actor_user_id = "local-user"` is the v1 default** but only valid while local-only / no sync bridge / no LLM remote / no multi-user.
 9. **No FK from case-box to OCR.** Cross-boundary references by value (`ocr_job_id`) only.
 10. **No widening of public error surface.** Internal `HttpsTransportError` discriminators (WI-03b/c) never leak through IPC, bridge, or any client-facing surface.
+11. **Original-file retention.** Every ingested file (Mac picker / URL / future WeChat upload / future scanner) is preserved verbatim, content-hash-addressed at a known `storage_uri`, and openable from the Mac desktop process. No extraction step (OCR, text-extraction, redaction, etc.) destroys or replaces the original. Extraction artifacts (OCR text, parsed Word, Markdown structure) are stored alongside, never in place of, the original. (Per `docs/product/project-requirements-brief.md` R-7 + `dev-memo/plan-brief-doc-reconcile.md` §4.3.)
 
 ---
 

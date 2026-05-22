@@ -251,11 +251,38 @@ Cross-row invariants (INV-4, INV-5) are validator-layer helpers in `src/matter-t
 
 The v1 entity list above is extended only by the optional-field additions; no new top-level entity is introduced by this WI.
 
+## Addendum (WI-brief-doc-reconcile, 2026-05-22) — Original-file retention + OCR/text-extraction split + LLM indefinite postponement
+
+The project-requirements-brief (`docs/product/project-requirements-brief.md`, status `READY`, commit `fe09ea4`) and the reviewed plan at `dev-memo/plan-brief-doc-reconcile.md` (READY at jobId `review-plan-mpgknx49-ywpiv4`) tighten three Step-0 commitments:
+
+### Original-file retention (R-7) — promoted to load-bearing v1 cross-cutting invariant
+
+Add to the §"Cross-cutting Invariants" effective for v1 (recorded inline here because Step-0 has no separate Cross-cutting Invariants section heading — the closest analogue is §"Confidentiality posture summary" + §"Multi-user readiness summary" + the §"Decision" body itself; the invariant is stated here as a Step-0 addendum and mirrored in `docs/product/product-target-architecture.md` §"Cross-cutting Invariants (always-true, v1)" item 11):
+
+> **Original-file retention.** Every ingested file (Mac picker / URL / future WeChat upload / future scanner) is preserved verbatim, content-hash-addressed at a known `storage_uri`, and openable from the Mac desktop process. No extraction step (OCR, text-extraction, redaction, etc.) destroys or replaces the original. Extraction artifacts (OCR text, parsed Word, Markdown structure) are stored alongside, never in place of, the original.
+
+This is a clarification of Step-0 §4 ("Document storage as files on local disk, identified by `content_hash`"); no new state machine, actor model, or enforcement layer is introduced. If a future architectural change makes original-file retention enforceable (write-once filesystem layer, hash-chain over file modifications, per-asset encryption), THAT change deserves its own ADR.
+
+### OCR vs text-extraction split (R-6)
+
+Step-0 §5 referenced "external OCR worker" + "LLM extraction" as opt-in surfaces. Add a third surface clarification:
+
+- **OCR (v1 day-one)**: `paddleocr-onnx` local engine applies to **scanned/image PDFs and image files / screenshots only**.
+- **Document text extraction (post-v1, non-OCR)**: PDF text-layer / Word / MD / other office formats are accepted for retention only. Lawyer recourse for searchable text in v1 is the manual-paste fallback (lawyer types/pastes text into `CaseBoxDocument.manual_extracted_text` once that field lands via WI-brief-doc-asset-impl). The engine + dispatch policy (including text-layer detection in PDFs + multi-artifact-per-document model) is the post-v1 STOP-AND-ASK ADR `case-box-text-extraction-policy.md` (WI-brief-doc-text-extract-policy).
+- Both pipelines are subordinate data feeds per §3; case-box never FKs into either.
+
+### LLM extraction (R-8) — indefinitely postponed
+
+Step-0 §5 ("LLM candidate-fact extraction. Feature-flagged off by default. Per-case opt-in.") is tightened: LLM extraction is **indefinitely postponed** under the current brief. The Step-8 LLM-extractor-policy ADR (`docs/adr/case-box-step-8-llm-extractor-policy.md`) remains as **future policy only** — it would apply IF LLM enablement were ever explicitly re-authorized. v1 ships with the deterministic stub extractor; no LLM remote-call seam is wired. Step-7 multi-user-readiness preconditions (no LLM remote enabled) therefore hold trivially under v1.
+
+This addendum does NOT modify the Step-8 ADR body (which is already correctly framed as policy-only). It records the demotion at the Step-0 framing level so future implementers do not interpret §5 as "LLM is a near-future opt-in".
+
 ## References
 
 - `dev-memo/superseded/case-box-plan.md` — historical source (archived from `dev-memo/case-box-plan.md` in the same commit as this ADR).
 - `dev-memo/plan-brief-matter-type.md` — WI-brief-matter-type plan (READY).
-- `docs/product/project-requirements-brief.md` — project-level intake; R-5 is the source of this addendum.
+- `docs/product/project-requirements-brief.md` — project-level intake; R-5 is the source of the matter-type addendum; R-6/R-7/R-8 are the source of the doc-reconcile addendum.
+- `dev-memo/plan-brief-doc-reconcile.md` — WI-brief-doc-reconcile plan (READY).
 - `dev-memo/plan-client-00.md` — client surface reconciliation; CLIENT-00b authorization.
 - `docs/adr/client-application-surface.md` — v1 primary client = Mac desktop.
 - `docs/adr/sync-bridge-architecture.md` — opt-in companion HTTP bridge.
