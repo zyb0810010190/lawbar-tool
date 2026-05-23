@@ -26,7 +26,21 @@
 
 ---
 
-## Phase B9 — SQLite OCR links (read-only mirror by value) (commit `<pending B9 impl commit hash>`)
+## Phase B10 — SQLite read-side aggregations (commit `<pending B10 impl commit hash>`)
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mphygc7h-vsklaa` (mini; Path 1 native --background) | not invoked (0 C/H/M; 4 Lows — 1 fixed in-WI, 3 deferred) |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| D2#1 (B10) | Low | Cleanup-only — local `loadMatterChecked` helper continues the matter+tenant duplication pattern across sibling RepoQueries files (B7 L D2#1 / B9 D2#1 progression). | Future shared SQLite matter-guard extraction WI | YES | open | Reviewer accepted: "do not refactor this lane to reduce duplication". |
+| D2#2 (B10) | Low | Cleanup-only — `getMatterSummarySqlite` uses 8 inline bucket queries; repetitive but clear. UNION ALL deferred until profiling shows latency impact. | Future perf WI if measured | YES | open | v1 lawyer-scale acceptable. |
+| D4#1 (B10) | Low | Cleanup-only — `SqliteCaseBoxPersistence.ts` at 609 LOC (was 602 post-B9; +7 LOC for 5 thin call-throughs). Same posture as B7-B9 deferred Lows. | Re-evaluate at B11 if class grows materially | YES | open | `#runImmediateWrite` extraction pattern not applicable here (B10 is read-only). |
+
+---
+
+## Phase B9 — SQLite OCR links (read-only mirror by value) (commit `6289d89`)
 
 | Audit job | Verify job |
 |---|---|

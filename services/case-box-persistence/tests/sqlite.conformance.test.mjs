@@ -1,20 +1,21 @@
 // Wire the shared conformance harness against the SQLite implementation,
-// scoped to B7's filter pattern per the reviewed B7 plan §1.6.
+// scoped to B10's filter pattern per the reviewed B10 plan §1.4.
 //
 // The harness's make() constructs `new Persistence({ now, generateId })`,
 // but `SqliteCaseBoxPersistence` requires a Database. We wrap with a
 // per-instance `:memory:` DB created in the constructor.
 //
-// Filter mechanism (CANONICAL per umbrella §2 + B1..B7 plans §1): the
+// Filter mechanism (CANONICAL per umbrella §2 + B1..B10 plans §1): the
 // shared harness labels every test as `${label}: 6.1.N <description>`
-// (or `${label}: R5.N` / `${label}: R6.N`). We pass label "Sqlite-B9";
+// (or `${label}: R5.N` / `${label}: R6.N`). We pass label "Sqlite-B10";
 // node:test's `--test-name-pattern` (run via the npm test command)
-// filters the run to B7's scope. The B7 conformance pattern is the
-// constant `B9_PATTERN` below; B7 is a SUPERSET of B1..B6 (matter +
+// filters the run to B10's scope. The B10 conformance pattern is the
+// constant `B10_PATTERN` below; B10 is a SUPERSET of B1..B9 (matter +
 // document + audit observability + confidentiality + privilege +
-// facts + docket-entries + deadlines + R5.* + R6.1..R6.3).
+// facts + docket-entries + deadlines + evidence + OCR links +
+// read-side aggregations + R5.* + R6.1..R6.4).
 //
-// Preflight assertion (per B1..B7 plans §1.3-§1.6):
+// Preflight assertion (per B1..B10 plans §1.3-§1.6):
 // the runner hand-enumerates the expected case ids and asserts they match
 // against a list of cases the harness will register (built by reading
 // the harness file with the regex). If the count drifts (e.g., harness
@@ -30,18 +31,18 @@ import { dirname, join } from "node:path";
 import { openSqliteCaseBoxPersistence } from "../dist/index.js";
 import { runConformance } from "./conformance/runCaseBoxPersistenceConformance.mjs";
 
-// The B7 filter pattern (superset of B1..B6 + docket-entries + deadlines
+// The B10 filter pattern (superset of B1..B9 + read-side aggregations
 // cases 6.A2.1..6.A2.24 including 9a, 9b variants).
 //
 // Inner `26-27` alternative is placed BEFORE numeric ranges so the
 // regex engine sees the literal combined-case label before trying
 // `2[0-8]` (which would consume `26` and then fail the trailing
 // `(?:\s|$)` lookahead on the `-`).
-const B9_PATTERN = /^Sqlite-B9: (?:6\.1\.(?:13a|26-27|[1-9]|1[0-5]|1[6-9]|2[0-8]|29|30|31|3[2-8])|6\.A2\.(?:9a|9b|[1-9]|1[0-9]|2[0-4])|6\.A3\.(?:A2b|20b|21b|[1-9]|1[0-9]|2[0-7])|6\.A4\.(?:10b|10c|27b|27c|[1-9]|1[0-9]|2[0-8])|6\.A5\.(?:4b|18a|18b|19b|19c|[1-9]|1[0-9]|2[0-9]|3[0-2])|6\.A6\.(?:5b|18b|21b|[1-9]|1[0-9]|2[0-2])|6\.A7\.(?:1b|15b|1|2|3|4|6|7|8|11|12|13|14|15|16|17|18)|R5\.(?:[1-9]|9b|1[0-5]|19|20|2[1-4])|R6\.[1-3])(?:\s|$)/;
+const B10_PATTERN = /^Sqlite-B10: (?:6\.1\.(?:13a|26-27|[1-9]|1[0-5]|1[6-9]|2[0-8]|29|30|31|3[2-8])|6\.A2\.(?:9a|9b|[1-9]|1[0-9]|2[0-4])|6\.A3\.(?:A2b|20b|21b|[1-9]|1[0-9]|2[0-7])|6\.A4\.(?:10b|10c|27b|27c|[1-9]|1[0-9]|2[0-8])|6\.A5\.(?:4b|18a|18b|19b|19c|[1-9]|1[0-9]|2[0-9]|3[0-2])|6\.A6\.(?:5b|18b|21b|[1-9]|1[0-9]|2[0-2])|6\.A7\.(?:1b|15b|1|2|3|4|6|7|8|11|12|13|14|15|16|17|18)|6\.A8\.(?:11b|12b|12c|19b|19c|24b|[1-9]|1[0-9]|2[0-4])|R5\.(?:[1-9]|9b|1[0-5]|19|20|2[1-4])|R6\.[1-4])(?:\s|$)/;
 
-// Hand-enumerated list of B7 case ids per the reviewed B7 plan §1.6.
+// Hand-enumerated list of B10 case ids per the reviewed B10 plan §1.4.
 // Format matches the harness's `${label}: N <description>` shape.
-const B9_EXPECTED_CASE_IDS = [
+const B10_EXPECTED_CASE_IDS = [
   // B1-carried (matter lifecycle 6.1.1..6.1.15 + matter R5)
   "6.1.1", "6.1.2", "6.1.3", "6.1.4", "6.1.5",
   "6.1.6", "6.1.7", "6.1.8", "6.1.9", "6.1.10",
@@ -55,7 +56,7 @@ const B9_EXPECTED_CASE_IDS = [
   "6.1.26-27", "6.1.28",
   "R5.7", "R5.8", "R5.9", "R5.9b", "R5.10", "R5.11", "R5.12", "R5.13", "R5.14",
   "R6.1", "R6.2", "R6.3",
-  // R6.4 uses getDocumentDetail (B10 read-aggregation) — out of B2/B3 scope.
+  // R6.4 uses getDocumentDetail (B10 read-aggregation) — now in scope.
   // B1 getAuditChainHead cases CARRIED FORWARD per B3 plan rev-1 Dim-1 #1
   // (previously omitted from B2 regex).
   "6.1.29", "6.1.30", "6.1.31",
@@ -105,34 +106,44 @@ const B9_EXPECTED_CASE_IDS = [
   "6.A7.6", "6.A7.7", "6.A7.8",
   "6.A7.11", "6.A7.12", "6.A7.13", "6.A7.14",
   "6.A7.15", "6.A7.15b", "6.A7.16", "6.A7.17", "6.A7.18",
+  // B10 read-side aggregations (6.A8.* incl. variants 11b, 12b, 12c,
+  // 19b, 19c, 24b) + R6.4 (getDocumentDetail asset-field preservation).
+  "6.A8.1", "6.A8.2", "6.A8.3", "6.A8.4", "6.A8.5",
+  "6.A8.6", "6.A8.7", "6.A8.8", "6.A8.9", "6.A8.10",
+  "6.A8.11", "6.A8.11b", "6.A8.12", "6.A8.12b", "6.A8.12c",
+  "6.A8.13", "6.A8.14", "6.A8.15", "6.A8.16",
+  "6.A8.19", "6.A8.19b", "6.A8.19c",
+  "6.A8.20", "6.A8.21", "6.A8.22", "6.A8.23",
+  "6.A8.24", "6.A8.24b",
+  "R6.4",
 ];
 
 // Preflight: parse the harness source for the literal label + case-id
 // strings (templated as `${label}: <case-id> ...`) and verify the
-// regex matches exactly the expected B3 set.
+// regex matches exactly the expected B10 set.
 // Preflight: verify the regex matches exactly the expected B3 case set,
 // and does NOT match cases outside B6's scope. We do NOT scan the
 // harness source for literal IDs because some cases (e.g., 6.1.6/7/8)
 // are generated by a runtime loop, so a literal grep would miss them.
 // The harness's own conformance run is the authoritative end-to-end
 // check — preflight just guards the regex shape against drift.
-test("Sqlite-B9 conformance preflight: regex matches exactly the B6 case set", () => {
+test("Sqlite-B10 conformance preflight: regex matches exactly the B6 case set", () => {
   // Confirm the harness file is reachable (preflight does not parse it).
   const here = dirname(fileURLToPath(import.meta.url));
   void readFileSync(join(here, "conformance", "runCaseBoxPersistenceConformance.mjs"), "utf8");
 
   const matched = [];
-  for (const id of B9_EXPECTED_CASE_IDS) {
-    const synthetic = `Sqlite-B9: ${id} placeholder description`;
-    if (B9_PATTERN.test(synthetic)) matched.push(id);
+  for (const id of B10_EXPECTED_CASE_IDS) {
+    const synthetic = `Sqlite-B10: ${id} placeholder description`;
+    if (B10_PATTERN.test(synthetic)) matched.push(id);
   }
-  assert.deepEqual(matched, B9_EXPECTED_CASE_IDS, "B9 regex must match every expected case id");
+  assert.deepEqual(matched, B10_EXPECTED_CASE_IDS, "B10 regex must match every expected case id");
 
   // Verify the regex does NOT match cases outside B6's scope (smoke).
   // 6.A3.* is now in B5 scope; B5 stops there. 6.A4+ is B6+.
-  for (const outside of ["6.A7.5", "6.A7.9", "6.A7.10", "6.A7.19", "6.A8.1", "6.A9.1", "R6.4", "R5.16", "R5.17", "R5.18"]) {
-    const synthetic = `Sqlite-B9: ${outside} placeholder description`;
-    assert.equal(B9_PATTERN.test(synthetic), false, `${outside} must NOT match B9 pattern`);
+  for (const outside of ["6.A7.5", "6.A7.9", "6.A7.10", "6.A7.19", "6.A8.25", "6.A9.1", "R6.5", "R5.16", "R5.17", "R5.18"]) {
+    const synthetic = `Sqlite-B10: ${outside} placeholder description`;
+    assert.equal(B10_PATTERN.test(synthetic), false, `${outside} must NOT match B10 pattern`);
   }
 });
 
@@ -157,4 +168,4 @@ class SqliteCaseBoxPersistenceTestWrapper {
   }
 }
 
-runConformance("Sqlite-B9", () => ({ Persistence: SqliteCaseBoxPersistenceTestWrapper }));
+runConformance("Sqlite-B10", () => ({ Persistence: SqliteCaseBoxPersistenceTestWrapper }));

@@ -79,6 +79,13 @@ import {
   getOcrLinkSqlite,
   listOcrLinksSqlite,
 } from "./ocrLinkRepoQueries.js";
+import {
+  getDeadlineCalendarSqlite,
+  getDocumentDetailSqlite,
+  getFactSupersessionChainSqlite,
+  getMatterSummarySqlite,
+  listMattersSqlite,
+} from "./aggregationsRepoQueries.js";
 import { prepareCreateMatter, prepareMatterTransition } from "../inMemoryMatter.js";
 import { generateUlid } from "../ulid.js";
 import {
@@ -534,14 +541,14 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   async listOcrLinks(query: ListOcrLinksQuery): Promise<ListOcrLinksPage> {
     return listOcrLinksSqlite(this.#db, query);
   }
-  async listMatters(_query: ListMattersQuery): Promise<ListMattersPage> {
-    notImplemented("listMatters");
+  async listMatters(query: ListMattersQuery): Promise<ListMattersPage> {
+    return listMattersSqlite(this.#db, query);
   }
-  async getMatterSummary(_query: GetMatterSummaryQuery): Promise<MatterSummary | null> {
-    notImplemented("getMatterSummary");
+  async getMatterSummary(query: GetMatterSummaryQuery): Promise<MatterSummary | null> {
+    return getMatterSummarySqlite(this.#db, query);
   }
-  async getDocumentDetail(_query: GetDocumentDetailQuery): Promise<DocumentDetail | null> {
-    notImplemented("getDocumentDetail");
+  async getDocumentDetail(query: GetDocumentDetailQuery): Promise<DocumentDetail | null> {
+    return getDocumentDetailSqlite(this.#db, query);
   }
   async getDeadline(query: GetDeadlineQuery): Promise<CaseBoxDeadline | null> {
     return getDeadlineSqlite(this.#db, query);
@@ -549,11 +556,11 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   async listDeadlines(query: ListDeadlinesQuery): Promise<ListDeadlinesPage> {
     return listDeadlinesSqlite(this.#db, query);
   }
-  async getDeadlineCalendar(_query: DeadlineCalendarQuery): Promise<ReadonlyArray<CaseBoxDeadline>> {
-    notImplemented("getDeadlineCalendar");
+  async getDeadlineCalendar(query: DeadlineCalendarQuery): Promise<ReadonlyArray<CaseBoxDeadline>> {
+    return getDeadlineCalendarSqlite(this.#db, query);
   }
-  async getFactSupersessionChain(_query: GetFactSupersessionChainQuery): Promise<ReadonlyArray<CaseBoxFact>> {
-    notImplemented("getFactSupersessionChain");
+  async getFactSupersessionChain(query: GetFactSupersessionChainQuery): Promise<ReadonlyArray<CaseBoxFact>> {
+    return getFactSupersessionChainSqlite(this.#db, query);
   }
 }
 
