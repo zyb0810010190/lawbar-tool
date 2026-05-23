@@ -1935,6 +1935,21 @@ v1 bucket: v1-blocking
 
 > *Status (amendment WI #4 per reconcile §1.2): **SUPERSEDED-BY-BLUEPRINT**. The canonical successor is `dev-memo/plan-go-live-readiness-00.md` gate #21 / WI #15 (blueprint at commit `1b92c58` on `origin/main`). The legacy WI-13 acceptance criteria below remain as CONTENT GUIDANCE for the final readiness report; the GATING framework lives in the blueprint.*
 
+#### Supersession (amendment WI #8 per reconcile §4 row 8)
+
+**The WI-13 concept — "final go-live readiness report as a single bounded WI under WI-00..WI-13" — is RETIRED.** WI-13 no longer authorizes execution by itself. The work it represents has been re-organized into the **go-live readiness blueprint** at `dev-memo/plan-go-live-readiness-00.md` (status READY revision 4 at commit `1b92c58` on `origin/main`):
+
+- **Blueprint gate #21** — "Final go-live readiness report" — is the gate that closes the readiness process.
+- **Blueprint WI #15** (the LAST entry in the blueprint's §5 suggested WI list) — "Plan: final readiness report content (`docs/release/go-live-readiness-report.md`)" — is the bounded plan-only WI the user authorizes to fill the report. It runs only AFTER **all other 20 blueprint gates clear** (per blueprint §5 ordering + rev-3 reviewer H D1#1 — the FINAL audit WI #14 is itself a predecessor to WI #15).
+
+**Reading WI-13 below**: the "Required readiness report sections, in order" list (11 sections) and the "Acceptance criteria" block remain useful as **content guidance** when the final readiness report is eventually authored. They are NOT the gating framework. They are NOT an authorization. Treat them as a checklist of *what the report should contain*, not as a checklist of *what triggers go-live*.
+
+**What the blueprint adds that WI-13 alone does not cover** (per reconcile §3 roll-up — rev-2 reviewer L D5#1 fix to disambiguate the count): the **13 pure GAP gates** (no legacy coverage at all) — gate #3 Mac-client surface, #4 distribution + signing + manual download, #7 robustness policy, #8 deferred-Low triage, #10 case-box security boundary, #11 律师法 compliance, #12 audit-chain integrity, #14 backup + recovery, #15 rollback drill, #16 brief READY + reconciliation log, #17 LICENSE + privacy notice, #18 data-export certification, #20 telemetry / crash-reporting. Plus **1 cleared-without-legacy-coverage** gate (#1 case-box persistence — shipped outside the legacy plan's scope at `98446aa`). The legacy WI-13 acceptance criteria below cover SOME of the remaining 7 blueprint gates (test matrix, audit findings, dependency status, preflight, rollback status, residual risks, operational checklist) but NOT the post-pivot v1 surface gates.
+
+**Hard-stop posture preserved**: the blueprint's §4 lists 23 STOP-AND-ASK items inherited by reference. Go-live readiness for v1 still requires the user's explicit decision on each. Phase B SQLite implementation completion (`98446aa` on `origin/main`) is NOT go-live readiness.
+
+The legacy acceptance criteria below are **preserved verbatim**; this supersession block does not edit them.
+
 Goal: Produce the final go-live readiness report required by AGENTS.md.
 
 Predecessor: WI-12
