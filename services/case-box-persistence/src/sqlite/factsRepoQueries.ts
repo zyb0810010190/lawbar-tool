@@ -34,6 +34,7 @@ import {
 } from "../cursor.js";
 import { CaseBoxPersistenceError } from "../errors.js";
 import { validateDocumentTarget } from "./documentRepoQueries.js";
+import { SqliteBackedIdSet } from "./sqliteBackedIdSet.js";
 import {
   createFactState,
   prepareAppendFact,
@@ -70,47 +71,9 @@ function requireMatterTenant(
   }
 }
 
-/**
- * SQLite-backed Set wrapper that only supports `.has()` + `.add()`.
- * Per B6 plan §1.2 + audit rev-2 D3#1: `prepareAppendFact` reads only
- * `.has(id)`. If it ever calls `.size` / iterators / etc., this class
- * throws — caller falls back to a real matter-scoped Set.
- *
- * `.has()` performs an indexed PK existence check (no global table
- * scan). `.add()` tracks in-transaction adds in a local Set so subsequent
- * `.has()` for the same id within the same call returns true.
- */
-/**
- * Note: declared as a standalone class (NOT `implements Set<string>`)
- * because TS Set<T> in the active target requires several ES2025
- * methods (union/intersection/etc) that we deliberately do not
- * support. We cast at the assignment site to inject this into the
- * shadow FactState's `factIds` slot. Per B6 audit acceptance:
- * `prepareAppendFact` reads only `.has(id)` + `.add(id)` (verified
- * inMemoryFact.ts line 118 + 546); other Set methods are unreachable
- * for the append path.
- */
-class SqliteBackedIdSet {
-  readonly #db: Database;
-  readonly #local: Set<string> = new Set();
-
-  constructor(db: Database) {
-    this.#db = db;
-  }
-
-  has(id: string): boolean {
-    if (this.#local.has(id)) return true;
-    const row = this.#db
-      .prepare("SELECT 1 FROM case_box_facts WHERE id = ?")
-      .get(id);
-    return row !== undefined;
-  }
-
-  add(id: string): this {
-    this.#local.add(id);
-    return this;
-  }
-}
+// SqliteBackedIdSet — targeted PK existence check for append-path
+// duplicate-id guards. Shared with B7 docket + deadline shims. See
+// `./sqliteBackedIdSet.ts`.
 
 /**
  * Build a shadow `FactState` for `prepareAppendFact`. Uses
@@ -126,7 +89,7 @@ function buildShadowAppendState(db: Database): FactState {
   // `unknown` because SqliteBackedIdSet supports only `.has` + `.add`
   // (TS Set<T> requires more methods we deliberately don't implement).
   (state as { factIds: Set<string> }).factIds =
-    new SqliteBackedIdSet(db) as unknown as Set<string>;
+    new SqliteBackedIdSet(db, "case_box_facts") as unknown as Set<string>;
   return state;
 }
 

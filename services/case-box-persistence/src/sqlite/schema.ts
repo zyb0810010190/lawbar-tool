@@ -31,6 +31,9 @@
 //    B6 ships v5: case_box_facts + 3 indices (mutable rows; transition
 //    UPDATEs in place; supersession-chain walks via supersedes_fact_id
 //    index).
+//    B7 ships v6: case_box_docket_entries + case_box_deadlines + 6 indices.
+//    Mode B confirmDocketEntry: atomic docket UPDATE + deadline INSERT
+//    + 2 audit events + chain-head update, all inside one BEGIN IMMEDIATE.
 //    (B3 audit observability ships read APIs without new schema.)
 //    Future sub-WIs add DDL_STATEMENTS_V{N} arrays + map entries;
 //    existing DDL is NEVER modified once shipped.
@@ -39,7 +42,7 @@ import type { Database } from "better-sqlite3";
 
 import { CaseBoxPersistenceError } from "../errors.js";
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -306,12 +309,73 @@ const DDL_STATEMENTS_V5: ReadonlyArray<string> = [
      ON case_box_facts (matter_id, supersedes_fact_id, id);`,
 ];
 
+// ---------------------------------------------------------------------------
+// Version 6 (Phase B7): docket entries + deadline materialization.
+//
+// Mode B confirmDocketEntry atomically: UPDATE docket entry + INSERT
+// deadline + INSERT 2 audit events (DOCKET_ENTRY_CONFIRMED + DEADLINE_REGISTERED)
+// + UPDATE audit chain head. All inside one BEGIN IMMEDIATE.
+//
+// Column-name alignment with the contract schema (per B7 plan rev-1
+// reviewer M D1#3): public ListDocketEntriesQuery filters are
+// `confirmation_state` + `source_type`. Lifted columns mirror those
+// names exactly so the filter index matches the runtime filter keys.
+//
+// `case_box_deadlines.source_docket_entry_id` is derived from the
+// originating docket entry's id during the Mode B INSERT (NOT from
+// payload_json); the lifted column exists purely to index the reverse-
+// lookup "which deadline materialized from this docket entry?".
+//
+// NO FK constraints (consistent with B1-B6).
+// ---------------------------------------------------------------------------
+
+const DDL_STATEMENTS_V6: ReadonlyArray<string> = [
+  `CREATE TABLE IF NOT EXISTS case_box_docket_entries (
+     id                       TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     source_document_id       TEXT,
+     source_type              TEXT    NOT NULL,
+     proposed_kind            TEXT    NOT NULL,
+     confirmation_state       TEXT    NOT NULL,
+     proposed_at              TEXT    NOT NULL COLLATE BINARY,
+     confirmed_deadline_id    TEXT,
+     payload_json             TEXT    NOT NULL
+   );`,
+
+  `CREATE TABLE IF NOT EXISTS case_box_deadlines (
+     id                       TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     source_docket_entry_id   TEXT    NOT NULL,
+     kind                     TEXT    NOT NULL,
+     status                   TEXT    NOT NULL,
+     due_at                   TEXT    NOT NULL COLLATE BINARY,
+     payload_json             TEXT    NOT NULL
+   );`,
+
+  `CREATE INDEX IF NOT EXISTS idx_case_box_docket_entries_by_matter_seek
+     ON case_box_docket_entries (matter_id, proposed_at ASC, id ASC);`,
+  `CREATE INDEX IF NOT EXISTS idx_case_box_docket_entries_by_matter_filter_seek
+     ON case_box_docket_entries (matter_id, confirmation_state, source_type, proposed_at ASC, id ASC);`,
+  `CREATE INDEX IF NOT EXISTS idx_case_box_docket_entries_by_confirmed_deadline
+     ON case_box_docket_entries (matter_id, confirmed_deadline_id);`,
+
+  `CREATE INDEX IF NOT EXISTS idx_case_box_deadlines_by_matter_seek
+     ON case_box_deadlines (matter_id, due_at ASC, id ASC);`,
+  `CREATE INDEX IF NOT EXISTS idx_case_box_deadlines_by_matter_filter_seek
+     ON case_box_deadlines (matter_id, status, kind, due_at ASC, id ASC);`,
+  `CREATE INDEX IF NOT EXISTS idx_case_box_deadlines_by_source_docket
+     ON case_box_deadlines (matter_id, source_docket_entry_id, id);`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
   [2, DDL_STATEMENTS_V2],
   [3, DDL_STATEMENTS_V3],
   [4, DDL_STATEMENTS_V4],
   [5, DDL_STATEMENTS_V5],
+  [6, DDL_STATEMENTS_V6],
 ]);
 
 /**

@@ -26,16 +26,29 @@
 
 ---
 
-## Phase B6 — SQLite facts (commit `<pending B6 impl commit hash>`)
+## Phase B7 — SQLite docket entries + deadline materialization (commit `<pending B7 impl commit hash>`)
 
 | Audit job | Verify job |
 |---|---|
-| `audit-mph4cun6-aav6q2` (mini; Path 1 native --background) | not invoked (no C/H/M to verify; 0 C/H/M, 4 Lows; 2 Lows fixed in-WI, 2 Lows deferred) |
+| `audit-mphm1ece-aki58h` (mini; Path 1 native --background) | not invoked (0 C/H, 1 M + 4 L; M + 3 Lows fixed in-WI, 1 Low deferred) |
 
 | Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
 |---|---|---|---|---|---|---|
-| D4#1 (B6) | Low | Cleanup-only — `impl-parity.test.mjs` at 773 LOC over 700 warn. Per B6 plan §"Review packet" Q7 + Risk #6: B7 MANDATORY split when crossed. | WI-B7-pre-impl split into `impl-parity-facts.test.mjs` etc. | YES | open | B7 must split before adding more parity cases. |
-| D4#2 (B6) | Low | Cleanup-only — `SqliteCaseBoxPersistence.ts` still over warn (572 LOC; B6 added +9 LOC for 4 thin call-throughs). Same posture as B5 D4#1; reviewer accepted under 800 fail. | Re-evaluate at B7/B8 if class grows materially | YES | open | Accepted-as-known-divergence; #runImmediateWrite pattern keeps growth flat per added method. |
+| D4#1 (B7) | Low | Cleanup-only — `sqlite.hardening.test.mjs` at 882 LOC over 700 warn. Per B7 plan §6 risk #6: B8 split if crossed. | WI-B8-pre-impl split into per-entity hardening test files | YES | open | Hardening tests grew +183 LOC for the 8 B7 tests (incl. mandatory crash-injection). Split must happen before B8 adds more hardening. |
+| D4#2 (B7) | Low | Cleanup-only — `SqliteCaseBoxPersistence.ts` at 588 LOC (was 572 post-B6; +16 LOC for 8 thin call-throughs). Same posture as B5/B6 D4#1; reviewer accepted under 800 fail. | Re-evaluate at B8/B9 if class grows materially | YES | open | `#runImmediateWrite` pattern keeps growth flat per added method. |
+
+---
+
+## Phase B6 — SQLite facts (commit `667bb9c`)
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mph4cun6-aav6q2` (mini; Path 1 native --background) | not invoked (no C/H/M to verify; 0 C/H/M, 4 Lows; 2 Lows fixed in-WI, 2 Lows deferred at the time; D4#1 now CLOSED by B7) |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| D4#1 (B6) | Low | `impl-parity.test.mjs` at 773 LOC over 700 warn. Per B6 plan §"Review packet" Q7 + Risk #6: B7 MANDATORY split when crossed. | WI-B7-pre-impl split into `impl-parity-{matter,document,audit,classification,privilege,facts,docket,stub-frontier}.test.mjs` | YES | closed | Resolved in B7 (commit `<pending B7 impl commit hash>`): 773-LOC monolith split into 7 per-entity test files + 1 shared common module; each well under warn threshold. |
+| D4#2 (B6) | Low | `SqliteCaseBoxPersistence.ts` over warn (572 LOC; B6 added +9 LOC for 4 thin call-throughs). Same posture as B5 D4#1. | Re-evaluate at B7/B8 if class grows materially | YES | open | B7 adds +16 LOC (588 LOC); see B7 D4#2 entry above. Same band. |
 
 ---
 

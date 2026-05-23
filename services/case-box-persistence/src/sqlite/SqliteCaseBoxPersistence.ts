@@ -56,6 +56,18 @@ import {
   getFactSqlite,
   listFactsSqlite,
 } from "./factsRepoQueries.js";
+import {
+  applyAppendDocketEntrySqlite,
+  applyConfirmDocketEntrySqlite,
+  applyDismissDocketEntrySqlite,
+  getDocketEntrySqlite,
+  listDocketEntriesSqlite,
+} from "./docketRepoQueries.js";
+import {
+  applyTransitionDeadlineSqlite,
+  getDeadlineSqlite,
+  listDeadlinesSqlite,
+} from "./deadlineRepoQueries.js";
 import { prepareCreateMatter, prepareMatterTransition } from "../inMemoryMatter.js";
 import { generateUlid } from "../ulid.js";
 import {
@@ -465,23 +477,27 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   async listFacts(query: ListFactsQuery): Promise<ListFactsPage> {
     return listFactsSqlite(this.#db, query);
   }
-  async appendDocketEntry(_input: unknown): Promise<CaseBoxDocketEntry> {
-    notImplemented("appendDocketEntry");
+  async appendDocketEntry(input: unknown): Promise<CaseBoxDocketEntry> {
+    const row = this.#runImmediateWrite((db, deps) => applyAppendDocketEntrySqlite(db, input, deps));
+    return structuredClone(row) as CaseBoxDocketEntry;
   }
-  async confirmDocketEntry(_entryId: string, _opts: ConfirmDocketEntryOpts): Promise<ConfirmDocketEntryResult> {
-    notImplemented("confirmDocketEntry");
+  async confirmDocketEntry(entryId: string, opts: ConfirmDocketEntryOpts): Promise<ConfirmDocketEntryResult> {
+    const result = this.#runImmediateWrite((db, deps) => applyConfirmDocketEntrySqlite(db, entryId, opts, deps));
+    return structuredClone(result) as ConfirmDocketEntryResult;
   }
-  async dismissDocketEntry(_entryId: string, _opts: DismissDocketEntryOpts): Promise<CaseBoxDocketEntry> {
-    notImplemented("dismissDocketEntry");
+  async dismissDocketEntry(entryId: string, opts: DismissDocketEntryOpts): Promise<CaseBoxDocketEntry> {
+    const row = this.#runImmediateWrite((db, deps) => applyDismissDocketEntrySqlite(db, entryId, opts, deps));
+    return structuredClone(row) as CaseBoxDocketEntry;
   }
-  async getDocketEntry(_query: GetDocketEntryQuery): Promise<CaseBoxDocketEntry | null> {
-    notImplemented("getDocketEntry");
+  async getDocketEntry(query: GetDocketEntryQuery): Promise<CaseBoxDocketEntry | null> {
+    return getDocketEntrySqlite(this.#db, query);
   }
-  async listDocketEntries(_query: ListDocketEntriesQuery): Promise<ListDocketEntriesPage> {
-    notImplemented("listDocketEntries");
+  async listDocketEntries(query: ListDocketEntriesQuery): Promise<ListDocketEntriesPage> {
+    return listDocketEntriesSqlite(this.#db, query);
   }
-  async transitionDeadline(_deadlineId: string, _opts: DeadlineTransitionOpts): Promise<CaseBoxDeadline> {
-    notImplemented("transitionDeadline");
+  async transitionDeadline(deadlineId: string, opts: DeadlineTransitionOpts): Promise<CaseBoxDeadline> {
+    const row = this.#runImmediateWrite((db, deps) => applyTransitionDeadlineSqlite(db, deadlineId, opts, deps));
+    return structuredClone(row) as CaseBoxDeadline;
   }
   async appendEvidenceItem(_input: unknown): Promise<CaseBoxEvidenceItem> {
     notImplemented("appendEvidenceItem");
@@ -513,11 +529,11 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   async getDocumentDetail(_query: GetDocumentDetailQuery): Promise<DocumentDetail | null> {
     notImplemented("getDocumentDetail");
   }
-  async getDeadline(_query: GetDeadlineQuery): Promise<CaseBoxDeadline | null> {
-    notImplemented("getDeadline");
+  async getDeadline(query: GetDeadlineQuery): Promise<CaseBoxDeadline | null> {
+    return getDeadlineSqlite(this.#db, query);
   }
-  async listDeadlines(_query: ListDeadlinesQuery): Promise<ListDeadlinesPage> {
-    notImplemented("listDeadlines");
+  async listDeadlines(query: ListDeadlinesQuery): Promise<ListDeadlinesPage> {
+    return listDeadlinesSqlite(this.#db, query);
   }
   async getDeadlineCalendar(_query: DeadlineCalendarQuery): Promise<ReadonlyArray<CaseBoxDeadline>> {
     notImplemented("getDeadlineCalendar");
