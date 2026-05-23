@@ -23,6 +23,79 @@
 >
 > **Hard-stop posture**: go-live readiness still requires explicit user authorization for every item in `.claude/rules/autonomy.md` §"Hard-stop list" and brief §20. Phase B SQLite implementation completion does NOT imply go-live readiness.
 
+## v1 Architecture (Post-Pivot)
+
+Authored as amendment WI #2 per `dev-memo/plan-go-live-plan-reconcile-00.md` §4 (commit `546fb09` on `origin/main`). Content sourced from `docs/product/project-requirements-brief.md` (status READY revision 5) §3-§7. Cite the brief for any conflict; this section is a derived summary.
+
+### Product framing
+
+v1 is a **Mac desktop application** for a **single lawyer**, fully **local-first**, operating on a **case-box layer** that organizes the lawyer's matters, documents, deadlines, facts, evidence, classifications, privilege markers, docket entries, and audit chain. The OCR pipeline is one **supporting ingestion path** into the case-box layer, not the product itself. (This inverts the framing assumed by the WI-00..WI-13 list below, which treated the OCR pipeline as the v1 product with case-box "deferred post-v1".)
+
+### Platform ranking (brief §3)
+
+1. **Mac desktop** — v1 primary; in-process embedding.
+2. **WeChat mini-program** — POST-v1 companion, login-gated. NO v1 day-one code.
+3. **Browser SPA** — indefinitely postponed.
+4-7. **Windows / Linux desktop / iPad / native mobile** — indefinitely postponed.
+
+### Mac app posture (brief §4)
+
+- Single `.app` bundle, default install to `/Applications`.
+- Data path: `~/Library/Application Support/lawbar/` (user-relocatable).
+- **Fully offline default.** No telemetry. No auto-update v1 (manual download).
+- **Code-sign + notarize required** before non-dev distribution — STOP-AND-ASK (Apple Developer ID, notarization profile, signing identity).
+- Crash reporting OFF default; opt-in if added.
+- Desktop framework decision (Electron / Tauri / native) remains STOP-AND-ASK per `dev-memo/plan-client-00.md` §6.
+
+### Local-first posture (brief §6)
+
+- **Default**: local-only on the lawyer's Mac. Zero cloud, zero sync, zero network egress on the default workflow.
+- **Exceptions** (each STOP-AND-ASK gated):
+  - WI-03-hardened outbound HTTPS for URL-sourced OCR fetch.
+  - Future per-document / per-matter sync grant to a sync bridge — POST-v1.
+- Sync and cloud behavior is **opt-in per document or per matter**; never per-account global; never auto-on; never overrides confidentiality/privilege rules.
+- **Originals are retained verbatim** after any extraction (OCR now, document text-extraction POST-v1). The product never replaces an original.
+
+### Case-box layer status
+
+The case-box layer that this product depends on is **implementation-complete on `origin/main`**:
+
+- Phase A in-memory: shipped.
+- Phase B SQLite: shipped (B1-B11) at commit `98446aa`. Sqlite-Final no-filter conformance sweep: 276/0. Deterministic test total across packages: 1692/0. Zero Critical/High/Medium audit findings.
+- Contract: `docs/contracts/case-box-contract` (separate package).
+- Persistence: `services/case-box-persistence` (separate package).
+
+**Implementation completeness is NOT readiness.** Go-live readiness requires every gate in `dev-memo/plan-go-live-readiness-00.md` §1 to clear, including gates that have NO coverage in this legacy plan (Mac-client surface, distribution + signing, 律师法 compliance, supply-chain posture, telemetry verification, backup + recovery, LICENSE + privacy notice, data-export certification, etc.).
+
+### Day-one v1 vertical slice (brief §7)
+
+v1 day-one persistence covers TWO matter categories:
+
+- **Litigation matter** (`matter_type = "litigation"`) — court of jurisdiction, parties, deadlines via docket entries, court procedural documents, engagement contract, payment records, claims/defenses/counterclaims as facts, evidence with `party_side` (our/opposing), WeChat screenshots as documents, decision-record documents, timeline events as facts with `as_of_date`. (See brief §7.A for full enumeration.)
+- **Counsel matter** (`matter_type = "advisory"` in schema; "counsel" in UI) — counsel contracts, work orders with status, work-order results as facts, lawyer letters, contract reviews, general consultations as facts. (See brief §7.B for full enumeration.)
+
+**Cross-category invariants** (brief §7 closing paragraph):
+- Every entity inherits `tenant_id`, `actor_user_id`, audit-event provenance, privilege/confidentiality posture, and soft-delete rules.
+- **LLM-driven candidate extraction is disabled v1 and indefinitely postponed** (brief §12). Manual entry is the v1 path.
+- **Matter-type immutability**: once `matter_type` is set, it is immutable; counsel-to-litigation conversion is a new matter with `successor_matter_id` link.
+
+### OCR vs document text extraction (brief §8)
+
+- **OCR (v1 day-one)**: scanned / image PDF, PNG, JPG, screenshots. Engine: `paddleocr-onnx` local.
+- **Document text extraction (POST-v1)**: PDF text-layer, `.docx`, `.md`. Engine TBD via STOP-AND-ASK. v1 day-one DOES NOT include automated text extraction for these formats; lawyer may paste extracted text manually.
+
+This separates the legacy WI-11a..d paddleocr bakeoff (OCR engine quality) from the post-v1 "document text-extraction engine choice" hard-stop in brief §20. The two are NOT the same gate; see the legacy reconciliation report §1.2 row WI-11 for the user-decision required.
+
+### Reading order for this file
+
+Given the post-pivot framing, readers should:
+
+1. Read the **banner at the top** of this file.
+2. Read THIS section (v1 Architecture (Post-Pivot)).
+3. Consult `dev-memo/plan-go-live-readiness-00.md` (blueprint) for the 21-gate readiness matrix.
+4. Consult `dev-memo/plan-go-live-plan-reconcile-00.md` (reconciliation report) for per-WI mapping of the WI-00..WI-13 list below against the current state.
+5. THEN read the WI-00..WI-13 sections below with the post-pivot framing in mind (per-WI status annotations land in amendment WI #4, separately authorized).
+
 ## Autonomous Choice Policy
 
 For routine execution choices, cc-suite must not ask the user to pick among options. It must choose the safest optimal path and continue.
