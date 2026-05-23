@@ -34,6 +34,9 @@
 //    B7 ships v6: case_box_docket_entries + case_box_deadlines + 6 indices.
 //    Mode B confirmDocketEntry: atomic docket UPDATE + deadline INSERT
 //    + 2 audit events + chain-head update, all inside one BEGIN IMMEDIATE.
+//    B8 ships v7: case_box_evidence_items + 3 indices. Single-table
+//    persistence; transitions are single-row UPDATE + 1 audit event
+//    (no Mode B atomicity).
 //    (B3 audit observability ships read APIs without new schema.)
 //    Future sub-WIs add DDL_STATEMENTS_V{N} arrays + map entries;
 //    existing DDL is NEVER modified once shipped.
@@ -42,7 +45,7 @@ import type { Database } from "better-sqlite3";
 
 import { CaseBoxPersistenceError } from "../errors.js";
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -369,6 +372,44 @@ const DDL_STATEMENTS_V6: ReadonlyArray<string> = [
      ON case_box_deadlines (matter_id, source_docket_entry_id, id);`,
 ];
 
+// ---------------------------------------------------------------------------
+// Version 7 (Phase B8): evidence items.
+//
+// Single-table mirror of Phase A6. Lifted columns match the filter
+// shape of `ListEvidenceItemsQuery` (status + source_document_id) plus
+// the R-5 `party_side` round-trip column. `supersedes_evidence_id`
+// lifted for reverse-lookup indexing during the accepted→superseded
+// transition.
+//
+// Per B8 plan rev-1 reviewer M D1#1: `EvidenceTransitionOpts.replacement_evidence_id`
+// is the option key; this DDL's `supersedes_evidence_id` column is the
+// LIFTED ROW COLUMN that the helper populates from that option value.
+//
+// NO FK constraints (consistent with B1-B7).
+// ---------------------------------------------------------------------------
+
+const DDL_STATEMENTS_V7: ReadonlyArray<string> = [
+  `CREATE TABLE IF NOT EXISTS case_box_evidence_items (
+     id                       TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     source_document_id       TEXT,
+     status                   TEXT    NOT NULL,
+     party_side               TEXT,
+     supersedes_evidence_id   TEXT,
+     lawyer_weight            TEXT,
+     created_at               TEXT    NOT NULL COLLATE BINARY,
+     payload_json             TEXT    NOT NULL
+   );`,
+
+  `CREATE INDEX IF NOT EXISTS idx_case_box_evidence_items_by_matter_seek
+     ON case_box_evidence_items (matter_id, created_at ASC, id ASC);`,
+  `CREATE INDEX IF NOT EXISTS idx_case_box_evidence_items_by_matter_filter_seek
+     ON case_box_evidence_items (matter_id, status, source_document_id, created_at ASC, id ASC);`,
+  `CREATE INDEX IF NOT EXISTS idx_case_box_evidence_items_by_supersedes
+     ON case_box_evidence_items (matter_id, supersedes_evidence_id, id);`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
   [2, DDL_STATEMENTS_V2],
@@ -376,6 +417,7 @@ const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [4, DDL_STATEMENTS_V4],
   [5, DDL_STATEMENTS_V5],
   [6, DDL_STATEMENTS_V6],
+  [7, DDL_STATEMENTS_V7],
 ]);
 
 /**

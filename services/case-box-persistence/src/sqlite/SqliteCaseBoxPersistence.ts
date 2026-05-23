@@ -68,6 +68,12 @@ import {
   getDeadlineSqlite,
   listDeadlinesSqlite,
 } from "./deadlineRepoQueries.js";
+import {
+  applyAppendEvidenceItemSqlite,
+  applyTransitionEvidenceItemSqlite,
+  getEvidenceItemSqlite,
+  listEvidenceItemsSqlite,
+} from "./evidenceRepoQueries.js";
 import { prepareCreateMatter, prepareMatterTransition } from "../inMemoryMatter.js";
 import { generateUlid } from "../ulid.js";
 import {
@@ -499,17 +505,19 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
     const row = this.#runImmediateWrite((db, deps) => applyTransitionDeadlineSqlite(db, deadlineId, opts, deps));
     return structuredClone(row) as CaseBoxDeadline;
   }
-  async appendEvidenceItem(_input: unknown): Promise<CaseBoxEvidenceItem> {
-    notImplemented("appendEvidenceItem");
+  async appendEvidenceItem(input: unknown): Promise<CaseBoxEvidenceItem> {
+    const row = this.#runImmediateWrite((db, deps) => applyAppendEvidenceItemSqlite(db, input, deps));
+    return structuredClone(row) as CaseBoxEvidenceItem;
   }
-  async transitionEvidenceItem(_evidenceId: string, _opts: EvidenceTransitionOpts): Promise<CaseBoxEvidenceItem> {
-    notImplemented("transitionEvidenceItem");
+  async transitionEvidenceItem(evidenceId: string, opts: EvidenceTransitionOpts): Promise<CaseBoxEvidenceItem> {
+    const row = this.#runImmediateWrite((db, deps) => applyTransitionEvidenceItemSqlite(db, evidenceId, opts, deps));
+    return structuredClone(row) as CaseBoxEvidenceItem;
   }
-  async getEvidenceItem(_query: GetEvidenceItemQuery): Promise<CaseBoxEvidenceItem | null> {
-    notImplemented("getEvidenceItem");
+  async getEvidenceItem(query: GetEvidenceItemQuery): Promise<CaseBoxEvidenceItem | null> {
+    return getEvidenceItemSqlite(this.#db, query);
   }
-  async listEvidenceItems(_query: ListEvidenceItemsQuery): Promise<ListEvidenceItemsPage> {
-    notImplemented("listEvidenceItems");
+  async listEvidenceItems(query: ListEvidenceItemsQuery): Promise<ListEvidenceItemsPage> {
+    return listEvidenceItemsSqlite(this.#db, query);
   }
   async upsertOcrLink(_input: unknown): Promise<UpsertOcrLinkResult> {
     notImplemented("upsertOcrLink");

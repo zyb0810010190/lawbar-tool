@@ -26,16 +26,30 @@
 
 ---
 
-## Phase B7 — SQLite docket entries + deadline materialization (commit `<pending B7 impl commit hash>`)
+## Phase B8 — SQLite evidence items (commit `<pending B8 impl commit hash>`)
 
 | Audit job | Verify job |
 |---|---|
-| `audit-mphm1ece-aki58h` (mini; Path 1 native --background) | not invoked (0 C/H, 1 M + 4 L; M + 3 Lows fixed in-WI, 1 Low deferred) |
+| `audit-mphtd7pt-ajcyux` (mini; Path 1 native --background) | not invoked (0 C/H, 1 M + 1 L; M fixed in-WI, 1 L deferred) |
 
 | Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
 |---|---|---|---|---|---|---|
-| D4#1 (B7) | Low | Cleanup-only — `sqlite.hardening.test.mjs` at 882 LOC over 700 warn. Per B7 plan §6 risk #6: B8 split if crossed. | WI-B8-pre-impl split into per-entity hardening test files | YES | open | Hardening tests grew +183 LOC for the 8 B7 tests (incl. mandatory crash-injection). Split must happen before B8 adds more hardening. |
-| D4#2 (B7) | Low | Cleanup-only — `SqliteCaseBoxPersistence.ts` at 588 LOC (was 572 post-B6; +16 LOC for 8 thin call-throughs). Same posture as B5/B6 D4#1; reviewer accepted under 800 fail. | Re-evaluate at B8/B9 if class grows materially | YES | open | `#runImmediateWrite` pattern keeps growth flat per added method. |
+| D4#1 (B8) | Low | Cleanup-only — `SqliteCaseBoxPersistence.ts` at 596 LOC (was 588 post-B7; +8 LOC for 4 thin call-throughs). Same posture as B7 D4#2. | Re-evaluate at B9/B10 if class grows materially | YES | open | `#runImmediateWrite` pattern keeps growth flat per added method. |
+| D4#2 (B8) | Low | Cleanup-only — `schema.ts` at 500 LOC (exactly at warn boundary; +42 from B7 v7 DDL). Future B9-B11 schema additions will push it over. | Re-evaluate at next schema-bearing WI (B9 or B11) | YES | open | Acceptable at boundary; flag for next schema-bearing WI to consider DDL split (e.g., one constant per phase). |
+| D2#1 (B8) | Low | Cleanup-only — `package.json` `--test-name-pattern` regex duplicates `sqlite.conformance.test.mjs` B8_PATTERN. Drifted before during B6→B7 renaming. | Future shared-pattern-source refactor (B11 cleanup or dedicated WI) | YES | open | Preflight inventory enforcement reduces but does not eliminate the drift risk. |
+
+---
+
+## Phase B7 — SQLite docket entries + deadline materialization (commit `69db974`)
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mphm1ece-aki58h` (mini; Path 1 native --background) | not invoked (0 C/H, 1 M + 4 L; M + 3 Lows fixed in-WI, 1 Low deferred at the time; D4#1 now CLOSED by B8) |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| D4#1 (B7) | Low | `sqlite.hardening.test.mjs` at 882 LOC over 700 warn. Per B7 plan §6 risk #6: B8 split if crossed. | WI-B8-pre-impl split into per-entity hardening test files | YES | closed | Resolved in B8 (commit `<pending B8 impl commit hash>`): 882-LOC monolith split into 1 shared module + 8 per-phase files (hardening-{pragma, schema, audit, classification, privilege, facts, docket, evidence}.test.mjs). 40 pre-split test names preserved verbatim post-split (verified via grep inventory diff). |
+| D4#2 (B7) | Low | `SqliteCaseBoxPersistence.ts` at 588 LOC over warn (was 572 post-B6). Same posture as B5/B6 D4#1; reviewer accepted under 800 fail. | Re-evaluate at B8/B9 if class grows materially | YES | open | B8 adds +8 LOC (596 LOC); see B8 D4#1 entry above. Same band. |
 
 ---
 
