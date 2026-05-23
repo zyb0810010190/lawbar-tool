@@ -1984,14 +1984,21 @@ Mapping to AGENTS.md go-live rule:
 
 ## Deferred To Post-v1
 
+> **Post-pivot status note (added by amendment WI #3 per reconcile §4 row 3).** The bullets below retain their original framing pending separately-authorized future amendment WIs. **One bullet has been corrected**: the "Case-box layer" entry has moved out of this section — see "Status changes" immediately below. Other bullets may carry obsolete framing that will be revisited as their owning WIs are reframed; treat them as historical until that happens.
+
+**Status changes (amendment WI #3 only):**
+
+- **Case-box layer — STATUS CHANGED**: NO LONGER POST-v1. The case-box layer (confidentiality, privilege, audit, deadline, evidence, OCR-link mirror, read-side aggregations, replay-safe Once variants) is the **v1 core product** per `docs/product/project-requirements-brief.md` §7. **Phase B SQLite implementation is COMPLETE at commit `98446aa`** on `origin/main` (B1-B11 shipped; Sqlite-Final no-filter sweep 276/0; deterministic test total across packages 1692/0; zero Critical/High/Medium audit findings). Go-live readiness for the case-box-shaped v1 product remains separately gated per `dev-memo/plan-go-live-readiness-00.md` (blueprint at `1b92c58`) and per `.claude/rules/autonomy.md` §"Hard-stop list".
+
+**Retained post-v1 items (original framing preserved; future amendment WIs may revisit):**
+
 - WI-08 coordinator refactor: pure refactor and not release-critical.
 - ADR-11F Q1 true delayed-delivery backoff: requires delayed-delivery queue semantics and likely queue API changes; v1 ships observability and conservative retry guidance instead.
 - ADR-11F Q2 per-page retry: multi-page retry needs the N>1 lift and a separate policy for mixed page outcomes.
 - True `kind: "s3"` admission: ADR-11D.3 intentionally keeps S3 rejected; v1 uses pre-signed HTTPS URLs to avoid AWS SDK/credential surface in the worker.
 - PDF rasterization: ADR-11A.0 rejects PDF MIME in v1; upstream rasterization is required until a dedicated rasterizer ADR covers parser sandboxing and page mapping.
-- Case-box layer: defer to its own ADR series because confidentiality, privilege, audit, deadline, and multi-user data shape are larger than OCR go-live hardening.
 - Cloud OCR backend and cloud authorization schema: local OCR remains default; cloud opt-in per document is post-v1.
 - Connection pooling or HTTP/HTTPS proxy support for HTTPS fetcher: both interact with DNS pinning and require a new security proof.
-- Multi-host / network-FS / multi-tenant deployment hardening: v1 assumes local SQLite and a single-tenant worker host posture.
-- Compliance-grade persisted audit table: v1 uses structured stderr/operator collection; persisted legal audit needs its own schema.
+- Multi-host / network-FS / multi-tenant deployment hardening: v1 assumes local SQLite and a single-tenant worker host posture. **NOTE (amendment WI #3)**: the "single-tenant worker host" phrasing reflects the legacy OCR-worker framing; the current v1 product is a single-lawyer Mac desktop client (brief §3-§4). A future WI may reframe this bullet to match.
+- Compliance-grade persisted audit table: v1 uses structured stderr/operator collection; persisted legal audit needs its own schema. **NOTE (amendment WI #3)**: case-box audit chain (Step-4 ADR) is shipped and provides hash-chained per-matter audit events with replay tamper detection; this bullet's "persisted legal audit" intent may overlap with the existing case-box audit chain — a future WI may reconcile this.
 - Model-set override via env: requires allowlist and digest design; current runtime uses the locked default engine/model set.
