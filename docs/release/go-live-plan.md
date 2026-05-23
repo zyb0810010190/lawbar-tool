@@ -1,5 +1,28 @@
 # Go-Live Plan
 
+> **⚠ RECONCILIATION REQUIRED — this plan is NOT the current go-live readiness source of truth.**
+>
+> This plan was authored when the project's v1 framing was OCR-pipeline-as-product with case-box layer DEFERRED. The product direction has since pivoted: the case-box layer is now the v1 core product (Phase B SQLite implementation complete at `98446aa`), and the OCR pipeline is one supporting input. The v1 client is a Mac desktop application for a single lawyer, local-first, per `docs/product/project-requirements-brief.md` (status READY revision 5).
+>
+> As a result, this file's WI list (WI-00..WI-13) is partially obsolete and partially in-scope:
+>
+> - **8 WIs are SHIPPED** (WI-01..WI-03d via `docs/release/wi-03-security-signoff.md` commit chain `f96be47..ce3f287`; WI-09a scaffolds present).
+> - **2 WIs are still in-scope unchanged** (WI-00 preflight, WI-00b preflight evidence).
+> - **3 WIs need reframing for the Mac-client product** (WI-09b operator runbook, WI-10 fail-closed probe, WI-12 test matrix).
+> - **4 WIs are status-unverified against current code** (WI-04, WI-05, WI-06, WI-07).
+> - **4 WIs conflict with brief §20** (WI-11a..d — "Document text-extraction engine choice" is post-v1 STOP-AND-ASK per brief).
+> - **1 WI is deferred** (WI-08, unchanged).
+> - **1 WI is superseded** (WI-13 → go-live readiness blueprint gate #21 / WI #15 is the canonical successor).
+>
+> Most of the **21 readiness gates** required for v1 are NOT covered by this file at all (Mac-client surface, distribution + signing, 律师法 compliance, supply-chain posture, telemetry policy, backup + recovery, LICENSE + privacy notice, data-export certification, etc.).
+>
+> Until this banner is removed by a subsequent amendment WI, treat the documents below as the canonical go-live readiness sources:
+>
+> 1. **Go-Live Readiness Blueprint** — `dev-memo/plan-go-live-readiness-00.md` (status READY at commit `1b92c58` on `origin/main`). Enumerates the **21 readiness gates** + the **23 STOP-AND-ASK items** that gate v1.
+> 2. **Legacy Reconciliation Report** — `dev-memo/plan-go-live-plan-reconcile-00.md` (status READY at commit `546fb09` on `origin/main`). Per-WI mapping of THIS file against the current state; proposes 8 amendment WIs (this banner is amendment WI #1).
+>
+> **Hard-stop posture**: go-live readiness still requires explicit user authorization for every item in `.claude/rules/autonomy.md` §"Hard-stop list" and brief §20. Phase B SQLite implementation completion does NOT imply go-live readiness.
+
 ## Autonomous Choice Policy
 
 For routine execution choices, cc-suite must not ask the user to pick among options. It must choose the safest optimal path and continue.
