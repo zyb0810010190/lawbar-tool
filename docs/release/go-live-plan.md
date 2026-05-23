@@ -336,6 +336,8 @@ WI-09b fills operator docs after recovery and observability choices are known; i
 
 ### WI-00 - Autonomous Execution Preflight Check
 
+> *Status (amendment WI #4 per reconcile §1.2): **IN-SCOPE-UNCHANGED**. Still v1-blocking; re-run against current HEAD before go-live.*
+
 Goal: Prove the execution loop is trustworthy before release work begins. This WI performs checks only and writes no files.
 
 Predecessor: none
@@ -391,6 +393,8 @@ v1 bucket: v1-blocking
 
 ### WI-09a - Release Documentation Scaffold
 
+> *Status (amendment WI #4 per reconcile §1.2): **DONE — artifact-verified**. Scaffolds exist: `docs/release/go-live-plan.md`, `go-live-readiness-report.md`, `operator-checklist.md`, `ocr-worker-runbook.md`, `wi-03-security-signoff.md`, `test-and-audit-report.md`. (No specific commit hash cited; flagged "artifact-verified" per reconcile rev-1 reviewer M D1#1.)*
+
 Goal: Create release documentation stubs before implementation WIs reference or fill release docs.
 
 Predecessor: WI-00
@@ -425,6 +429,8 @@ Autonomy: Autonomous OK
 v1 bucket: v1-blocking
 
 ### WI-00b - Preflight Evidence Record
+
+> *Status (amendment WI #4 per reconcile §1.2): **IN-SCOPE-UNCHANGED**. Still v1-blocking; re-run against current HEAD before go-live.*
 
 Goal: Record WI-00 preflight evidence into the release-doc scaffolds after WI-09a creates them.
 
@@ -461,6 +467,8 @@ Autonomy: Autonomous OK
 v1 bucket: v1-blocking
 
 ### WI-01 - HTTPS DNS-Pinning TLS Prototype Gate
+
+> *Status (amendment WI #4 per reconcile §1.2): **DONE at `f96be47`** per `docs/release/wi-03-security-signoff.md` §1.*
 
 Goal: Prove `https.request` can connect to a vetted IP while preserving original Host, SNI, and hostname certificate verification.
 
@@ -501,6 +509,8 @@ Autonomy: Autonomous OK
 v1 bucket: v1-blocking
 
 ### WI-02t - HTTPS DNS-Pinning Regression Test Spec
+
+> *Status (amendment WI #4 per reconcile §1.2): **DONE at `4dfc612`** per `docs/release/wi-03-security-signoff.md` §1.*
 
 Goal: Write the regression test suite spec before implementation so WI-02 and WI-03 are constrained by reviewed security-boundary tests.
 
@@ -543,6 +553,8 @@ Autonomy: Stop and ask first
 v1 bucket: v1-blocking
 
 ### WI-02 - Pass Vetted DNS Addresses Through The Fetcher Seam
+
+> *Status (amendment WI #4 per reconcile §1.2): **DONE at `df81b43`** per `docs/release/wi-03-security-signoff.md` §1.*
 
 Goal: Tighten the HTTPS transport interface so `fetchFromHttps` passes the fully vetted DNS answer set into transport. **Seam-only change**: production transport behavior (global `fetch` → `node:https.request`) is deferred to WI-03; SSRF closure is not complete at WI-02.
 
@@ -593,6 +605,8 @@ v1 bucket: v1-blocking
 
 ### WI-03 split (overview)
 
+> *Status (amendment WI #4 per reconcile §1.2): **OVERVIEW HEADER** — not a separate WI. The four child WIs (WI-03a/b/c/d) are each individually **DONE** per `docs/release/wi-03-security-signoff.md` §1 commit chain `0c8211f..ce3f287`.*
+
 The original monolithic WI-03 ("Replace Global Fetch With Pinned `node:https.request` Transport") has been split into four bounded, gated sub-WIs to reduce blast radius of a Critical-risk security rewrite. Each sub-WI is independently Stop-and-ask, runs its own audit-fix + verify loop, and produces a discrete commit with a discrete rollback boundary.
 
 Locked decisions that apply to every sub-WI:
@@ -617,6 +631,8 @@ Residual risk and sign-off:
 ---
 
 ### WI-03a - Production HTTPS Transport Core
+
+> *Status (amendment WI #4 per reconcile §1.2): **DONE at `0c8211f`** per `docs/release/wi-03-security-signoff.md` §1.*
 
 Goal: Ship a new pinned `node:https.request`-based transport factory `makeNodeHttpsRequestTransport` that pins the socket to `allowedAddresses[0]` via a custom `lookup`, preserves the original URL hostname for Host/SNI/cert verification, accepts per-request `ca` injection, and is reachable via the locked factory export. The existing `makeNodeFetchHttpsTransport` is retained as a thin compatibility wrapper delegating to the new factory, so the existing `fetchPageBytes.ts:41` import and `:550` default callsite continue to compile and run without WI-03a touching `fetchPageBytes.ts`. **No runtime validation, no response-adapter strictness, no test un-skips, no hard removal of the legacy factory — those are in subsequent sub-WIs.**
 
@@ -675,6 +691,8 @@ v1 bucket: v1-blocking
 ---
 
 ### WI-03b - Runtime Address Validation + Internal Error Discriminators
+
+> *Status (amendment WI #4 per reconcile §1.2): **DONE at `1a9f55c`** per `docs/release/wi-03-security-signoff.md` §1.*
 
 Goal: At transport entry, validate `init.allowedAddresses` against the full ADR §5 surface and reject malformed values with stable internal transport error discriminators that the fetcher maps to the existing public `https_network_error` code, preserving the internal error as `cause`.
 
@@ -928,6 +946,8 @@ v1 bucket: v1-blocking
 
 ### WI-03c - Response Adapter (Content-Length, Uint8Array, Abort, 3xx)
 
+> *Status (amendment WI #4 per reconcile §1.2): **DONE at `74ac1db`** per `docs/release/wi-03-security-signoff.md` §1.*
+
 Goal: Implement the transport-owned response adapter per ADR §6 — strict single-valued Content-Length parsing (in the transport, before yielding a successful `HttpsTransportResponse`), Buffer-to-Uint8Array strict adaptation on body chunks, abort propagation through every testable phase, and the 3xx return-shape contract.
 
 Predecessor: WI-03b (commit `1a9f55c`). WI-03c extends the same transport and reuses the WI-03b internal `HttpsTransportError` module + request-factory seam.
@@ -1137,6 +1157,8 @@ v1 bucket: v1-blocking
 ---
 
 ### WI-03d - TLS Test Harness + Un-skip All Transport Tests
+
+> *Status (amendment WI #4 per reconcile §1.2): **DONE at `ce3f287`** per `docs/release/wi-03-security-signoff.md` §1. **SSRF/TLS security clearance signed off** in that document.*
 
 Goal: Promote a TLS test harness (cert helper + local HTTPS server lifecycle, static TEST-ONLY PEM fixtures) under `services/ocr-worker/tests/`, un-skip exactly the 8 remaining `"Unlocked by WI-03d"` cases in `fetcher.https.transport.test.mjs` (TLS scenarios ×3, no-reorder, phase-2 abort, e2e mappings ×3), and produce the post-WI-03 readiness summary. WI-03d does NOT remove any public exports.
 
@@ -1397,6 +1419,8 @@ v1 bucket: v1-blocking
 
 ### WI-04 - DNS-Pinning Regression And Operator Documentation
 
+> *Status (amendment WI #4 per reconcile §1.2): **STATUS-UNVERIFIED** against current HEAD `0cbd340`. Operator-doc portion may overlap blueprint gate #13 (Mac-client operator section). Verification deferred to a separately-authorized research WI (reconcile §4 row 5).*
+
 Goal: Pin the DNS-rebinding fix with end-to-end regression coverage and operator-facing documentation.
 
 Predecessor: WI-03d, WI-09a
@@ -1432,6 +1456,8 @@ Autonomy: Autonomous OK
 v1 bucket: v1-blocking
 
 ### WI-05 - Monotonic Pending-Retry Writes
+
+> *Status (amendment WI #4 per reconcile §1.2): **STATUS-UNVERIFIED** against current HEAD `0cbd340`. Verification deferred to a separately-authorized research WI (reconcile §4 row 5).*
 
 Goal: Close ADR-11G Q2 by preventing stale or concurrent pending-retry overwrites from moving `retry.attempt` backward or double-bumping silently.
 
@@ -1484,6 +1510,8 @@ v1 bucket: v1-required-but-deferrable
 
 ### WI-06 - Orphaned Pending-Retry Reconciler
 
+> *Status (amendment WI #4 per reconcile §1.2): **STATUS-UNVERIFIED** against current HEAD `0cbd340`. Verification deferred to a separately-authorized research WI (reconcile §4 row 5).*
+
 Goal: Close ADR-11G Q1 with an operator-safe reconciler for pending retry submissions that have no active queue row.
 
 Predecessor: WI-05, unless WI-05 is explicitly deferred with risk acceptance; if WI-05 is deferred, WI-06 is blocked until the user either re-enables WI-05 or explicitly accepts a manual recovery posture for WI-06.
@@ -1529,6 +1557,8 @@ v1 bucket: v1-required-but-deferrable
 
 ### WI-07 - Retry-Storm Observability Guard
 
+> *Status (amendment WI #4 per reconcile §1.2): **STATUS-UNVERIFIED** against current HEAD `0cbd340`. Verification deferred to a separately-authorized research WI (reconcile §4 row 5).*
+
 Goal: Make ADR-11F Q3 operable in v1 without adding delayed-delivery queue semantics.
 
 Predecessor: WI-04
@@ -1569,6 +1599,8 @@ v1 bucket: v1-blocking
 
 ### WI-08 - Coordinator L2/L3 Refactor
 
+> *Status (amendment WI #4 per reconcile §1.2): **DEFERRED-CONFIRMED**. Pure refactor; not release-critical. Status unchanged from original v1-deferred bucket.*
+
 Goal: Reduce `coordinator.ts` function length and duplicate `completeClaim` error mapping without changing behavior.
 
 Predecessor: WI-07
@@ -1606,6 +1638,8 @@ Autonomy: Autonomous OK
 v1 bucket: v1-deferred
 
 ### WI-09b - Operator Runbook And Deployment Documentation
+
+> *Status (amendment WI #4 per reconcile §1.2): **IN-SCOPE-REFRAMED**. Legacy scope is OCR-worker production runbook; current product also needs a Mac-client operator section (blueprint gate #13). Both audiences served by a future amendment WI (reconcile §4 row 10).*
 
 Goal: Fill the minimum operator documentation needed to run and recover v1 safely.
 
@@ -1648,6 +1682,8 @@ v1 bucket: v1-blocking
 
 ### WI-10 - Production Fail-Closed Release Probe
 
+> *Status (amendment WI #4 per reconcile §1.2): **IN-SCOPE-REFRAMED**. Legacy scope is OCR-worker exit-2 behavior; the current Mac-client equivalent is app-launch fail-closed (no fake worker; valid config). Different artifact shape; same intent.*
+
 Goal: Verify production startup cannot accidentally run the fake worker.
 
 Predecessor: WI-09b
@@ -1689,6 +1725,8 @@ v1 bucket: v1-blocking
 
 ### WI-11a - Fixture Acquisition Gate
 
+> *Status (amendment WI #4 per reconcile §1.2): **REFRAME-OR-DEFER** — brief §20 STOP-AND-ASK conflict. Legacy v1-blocking; brief lists "Document text-extraction engine choice" as post-v1 STOP-AND-ASK. User decision required (reconcile §4 row 6); WI #4 does NOT make that decision.*
+
 Goal: Resolve whether v1 ships with real redacted Chinese-pleading fixture evidence or an explicit synthetic-only waiver.
 
 Predecessor: WI-09a
@@ -1725,6 +1763,8 @@ Autonomy: Stop and ask first; Pause-pending-user-input
 v1 bucket: v1-blocking
 
 ### WI-11b - Bakeoff Harness And Report Schema
+
+> *Status (amendment WI #4 per reconcile §1.2): **REFRAME-OR-DEFER** — brief §20 STOP-AND-ASK conflict. Same as WI-11a.*
 
 Goal: Fix bakeoff measurement validity issues before the full v1.0 measurement run, or record deferral if WI-11a selected the synthetic-only waiver branch.
 
@@ -1772,6 +1812,8 @@ v1 bucket: v1-blocking-conditional
 
 ### WI-11c - Full Measurement Run
 
+> *Status (amendment WI #4 per reconcile §1.2): **REFRAME-OR-DEFER** — brief §20 STOP-AND-ASK conflict. Same as WI-11a.*
+
 Goal: Run the bakeoff harness against the v1 corpus and produce release evidence, or record synthetic-only-waiver measurement evidence.
 
 Predecessor: WI-11b
@@ -1808,6 +1850,8 @@ v1 bucket: v1-blocking-conditional
 
 ### WI-11d - ADR-11A.1 v1.0 Verdict Amendment
 
+> *Status (amendment WI #4 per reconcile §1.2): **REFRAME-OR-DEFER** — brief §20 STOP-AND-ASK conflict. Same as WI-11a.*
+
 Goal: Lock the default OCR engine for v1 or mark go-live blocked.
 
 Predecessor: branch-conditional plus WI-10. On the real-fixture branch where WI-11a chose Option A, predecessor is WI-11c and WI-10. On the synthetic-only-waiver branch where WI-11a chose Option B, predecessor is WI-11a and WI-10; WI-11b/WI-11c may be deferred by waiver and do not block WI-11d.
@@ -1842,6 +1886,8 @@ Autonomy: Stop and ask first
 v1 bucket: v1-blocking
 
 ### WI-12 - Full Test Matrix And Full Audit Sweep
+
+> *Status (amendment WI #4 per reconcile §1.2): **IN-SCOPE-REFRAMED**. Legacy "five core packages" must now enumerate: case-box-persistence, case-box-contract, ocr-worker-contract (docs/contracts), ocr-persistence, ocr-worker — and must include the Sqlite-Final no-filter conformance sweep at `services/case-box-persistence/tests/sqlite-final.conformance.test.mjs`. Widening deferred to a separately-authorized amendment WI (reconcile §4 row 7).*
 
 Goal: Prove all packages still pass and no Critical/High audit findings remain before readiness reporting.
 
@@ -1886,6 +1932,8 @@ Autonomy: Autonomous OK after predecessors complete
 v1 bucket: v1-blocking
 
 ### WI-13 - Final Go-Live Readiness Report
+
+> *Status (amendment WI #4 per reconcile §1.2): **SUPERSEDED-BY-BLUEPRINT**. The canonical successor is `dev-memo/plan-go-live-readiness-00.md` gate #21 / WI #15 (blueprint at commit `1b92c58` on `origin/main`). The legacy WI-13 acceptance criteria below remain as CONTENT GUIDANCE for the final readiness report; the GATING framework lives in the blueprint.*
 
 Goal: Produce the final go-live readiness report required by AGENTS.md.
 
