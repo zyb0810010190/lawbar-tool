@@ -90,28 +90,45 @@ function canonicalJson(v: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(",")}}`;
 }
 
-export function applyUpsertOcrLink(
+/**
+ * Pure prepare step for upsertOcrLink. Performs all validation +
+ * document/matter resolution + idempotency preflight + audit-event
+ * construction, but does NOT mutate `state` or `repo`. Returns the
+ * built audit event (or `undefined` for idempotent replay).
+ *
+ * Per B9 plan §1.2 / §1.4 (Option A — single canonical refactor):
+ * SQLite callers use this prepare-only function so they can short-
+ * circuit on `audit === undefined` BEFORE issuing any INSERT / UPDATE
+ * / audit-event write. The thin wrapper `applyUpsertOcrLink` below
+ * adds the in-memory state mutations + audit push and is the only
+ * caller from the in-memory `InMemoryCaseBoxPersistence`.
+ */
+export interface PrepareUpsertOcrLinkResult {
+  readonly link: CaseBoxOcrLink;
+  /** Idempotent replay (no-op): undefined. Create or refresh: defined. */
+  readonly audit?: StoredAuditEvent;
+  readonly created: boolean;
+  readonly matterId: string;
+}
+
+export function prepareUpsertOcrLink(
   state: OcrLinkState,
   repo: RepoView,
   deps: CDeps,
   input: unknown,
-): UpsertOcrLinkResult {
+): PrepareUpsertOcrLinkResult {
   const v = validateOcrLink(input);
   if (!v.ok) {
     throw new CaseBoxPersistenceError("invalid_payload", `invalid OCR link: ${v.summary}`);
   }
   const link = structuredClone(v.value) as CaseBoxOcrLink;
 
-  // Subordination defensive check (schema's const should have caught any
-  // non-"read-only" direction; helper re-asserts at this boundary).
   try {
     assertCaseBoxIsSubordinateToOcr(link);
   } catch (e) {
     throw new CaseBoxPersistenceError("invalid_payload", (e as Error).message);
   }
 
-  // Tenant consistency via document target. The link doesn't carry matter_id;
-  // we use the document's matter_id as the binding for the audit event.
   const docEntry = repo.documents.get(link.document_id);
   if (docEntry === undefined) {
     throw new CaseBoxPersistenceError("unknown_document", `unknown document: ${link.document_id}`);
@@ -123,18 +140,13 @@ export function applyUpsertOcrLink(
     );
   }
   const matterId = docEntry.matter_id;
-  // Defensive: matter existence check after document resolution
-  // (audit Dim 1 #2 fix). Document rows should not outlive their matter,
-  // but explicit guard prevents orphan audit/link state if a future delete
-  // API allows that drift.
   if (!repo.matters.has(matterId)) {
     throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
   }
 
-  // Idempotency preflight: byte-identical replay is a no-op.
   const prior = state.linksByDocumentId.get(link.document_id);
   if (prior !== undefined && deepEqualLink(prior, link)) {
-    return { link: structuredClone(prior) as CaseBoxOcrLink, created: false };
+    return { link: structuredClone(prior) as CaseBoxOcrLink, created: false, matterId };
   }
 
   const isCreate = prior === undefined;
@@ -158,18 +170,36 @@ export function applyUpsertOcrLink(
     throw new CaseBoxPersistenceError("invalid_payload", `audit-event builder rejected: ${built.summary}`);
   }
 
-  // Atomic commit.
-  state.linksByDocumentId.set(link.document_id, link);
-  let matterSet = state.linksByMatter.get(matterId);
+  return {
+    link,
+    audit: { sequence: stored.length + 1, event: built.value },
+    created: isCreate,
+    matterId,
+  };
+}
+
+export function applyUpsertOcrLink(
+  state: OcrLinkState,
+  repo: RepoView,
+  deps: CDeps,
+  input: unknown,
+): UpsertOcrLinkResult {
+  const prepared = prepareUpsertOcrLink(state, repo, deps, input);
+  if (prepared.audit === undefined) {
+    return { link: prepared.link, created: false };
+  }
+  // Atomic commit: state mutations + audit push.
+  state.linksByDocumentId.set(prepared.link.document_id, prepared.link);
+  let matterSet = state.linksByMatter.get(prepared.matterId);
   if (matterSet === undefined) {
     matterSet = new Set<string>();
-    state.linksByMatter.set(matterId, matterSet);
+    state.linksByMatter.set(prepared.matterId, matterSet);
   }
-  matterSet.add(link.document_id);
-  stored.push({ sequence: stored.length + 1, event: built.value });
-  repo.auditByMatter.set(matterId, stored);
-
-  return { link: structuredClone(link) as CaseBoxOcrLink, created: isCreate };
+  matterSet.add(prepared.link.document_id);
+  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
+  stored.push(prepared.audit);
+  repo.auditByMatter.set(prepared.matterId, stored);
+  return { link: structuredClone(prepared.link) as CaseBoxOcrLink, created: prepared.created };
 }
 
 // ---------------------------------------------------------------------------

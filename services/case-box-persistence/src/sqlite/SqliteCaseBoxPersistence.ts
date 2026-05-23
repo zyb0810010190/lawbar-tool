@@ -74,6 +74,11 @@ import {
   getEvidenceItemSqlite,
   listEvidenceItemsSqlite,
 } from "./evidenceRepoQueries.js";
+import {
+  applyUpsertOcrLinkSqlite,
+  getOcrLinkSqlite,
+  listOcrLinksSqlite,
+} from "./ocrLinkRepoQueries.js";
 import { prepareCreateMatter, prepareMatterTransition } from "../inMemoryMatter.js";
 import { generateUlid } from "../ulid.js";
 import {
@@ -519,14 +524,15 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   async listEvidenceItems(query: ListEvidenceItemsQuery): Promise<ListEvidenceItemsPage> {
     return listEvidenceItemsSqlite(this.#db, query);
   }
-  async upsertOcrLink(_input: unknown): Promise<UpsertOcrLinkResult> {
-    notImplemented("upsertOcrLink");
+  async upsertOcrLink(input: unknown): Promise<UpsertOcrLinkResult> {
+    const result = this.#runImmediateWrite((db, deps) => applyUpsertOcrLinkSqlite(db, input, deps));
+    return structuredClone(result) as UpsertOcrLinkResult;
   }
-  async getOcrLink(_query: GetOcrLinkQuery): Promise<CaseBoxOcrLink | null> {
-    notImplemented("getOcrLink");
+  async getOcrLink(query: GetOcrLinkQuery): Promise<CaseBoxOcrLink | null> {
+    return getOcrLinkSqlite(this.#db, query);
   }
-  async listOcrLinks(_query: ListOcrLinksQuery): Promise<ListOcrLinksPage> {
-    notImplemented("listOcrLinks");
+  async listOcrLinks(query: ListOcrLinksQuery): Promise<ListOcrLinksPage> {
+    return listOcrLinksSqlite(this.#db, query);
   }
   async listMatters(_query: ListMattersQuery): Promise<ListMattersPage> {
     notImplemented("listMatters");

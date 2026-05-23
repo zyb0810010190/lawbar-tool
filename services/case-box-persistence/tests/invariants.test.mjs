@@ -141,15 +141,15 @@ test("6.2.6b Sqlite stub methods emit CaseBoxPersistenceError with code='not_imp
   });
   // Tracks the current stub frontier. B1 matter; B2 document; B3
   // audit-read; B4 confidentiality; B5 privilege; B6 facts; B7 docket
-  // + deadlines; B8 evidence items. Next still-stubbed: `upsertOcrLink`
-  // (B9).
+  // + deadlines; B8 evidence items; B9 OCR links. Next still-stubbed:
+  // `getDeadlineCalendar` (B10).
   let caught;
   try {
-    await persistence.upsertOcrLink({});
+    await persistence.getDeadlineCalendar({});
   } catch (e) { caught = e; }
   assert.ok(caught instanceof CaseBoxPersistenceError);
   assert.equal(caught.code, "not_implemented");
-  assert.match(caught.message, /upsertOcrLink/);
+  assert.match(caught.message, /getDeadlineCalendar/);
 });
 
 // ---------------------------------------------------------------------------

@@ -37,6 +37,9 @@
 //    B8 ships v7: case_box_evidence_items + 3 indices. Single-table
 //    persistence; transitions are single-row UPDATE + 1 audit event
 //    (no Mode B atomicity).
+//    B9 ships v8: case_box_ocr_links + 2 indices. PK is document_id
+//    (NOT id); upsert is 3-way (create/refresh/idempotent-replay);
+//    by-value mirror of OCR state — no cross-package dependency.
 //    (B3 audit observability ships read APIs without new schema.)
 //    Future sub-WIs add DDL_STATEMENTS_V{N} arrays + map entries;
 //    existing DDL is NEVER modified once shipped.
@@ -45,7 +48,7 @@ import type { Database } from "better-sqlite3";
 
 import { CaseBoxPersistenceError } from "../errors.js";
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -410,6 +413,49 @@ const DDL_STATEMENTS_V7: ReadonlyArray<string> = [
      ON case_box_evidence_items (matter_id, supersedes_evidence_id, id);`,
 ];
 
+// ---------------------------------------------------------------------------
+// Version 8 (Phase B9): OCR links — read-only mirror by value.
+//
+// PRIMARY KEY is `document_id` (NOT `id`). The contract's
+// `CaseBoxOcrLink` schema has no `id` field — uniqueness is per
+// document. Upsert mutates the single row in place.
+//
+// `matter_id` is LIFTED as a column even though the contract schema
+// does not include it: the helper derives matter_id from the linked
+// document at upsert time, and matter-scoped list queries require
+// the lifted column to avoid joining against case_box_documents.
+//
+// `actor_user_id` stays in payload_json only — it records who
+// recorded the snapshot, not a query key.
+//
+// B9 stores OCR state BY VALUE; this table does NOT reference or
+// query services/ocr-persistence or services/ocr-worker (cross-
+// package boundary per B9 plan §3 + lane authorization).
+//
+// NO FK constraints (consistent with B1-B8).
+// ---------------------------------------------------------------------------
+
+const DDL_STATEMENTS_V8: ReadonlyArray<string> = [
+  `CREATE TABLE IF NOT EXISTS case_box_ocr_links (
+     document_id              TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     ocr_job_id               TEXT    NOT NULL,
+     direction                TEXT    NOT NULL,
+     status_snapshot          TEXT    NOT NULL,
+     last_seen_at             TEXT    NOT NULL COLLATE BINARY,
+     payload_json             TEXT    NOT NULL
+   );`,
+
+  // Per-matter list seek. Order: last_seen_at DESC, document_id ASC
+  // (matches inMemoryOcrLink.ts listOcrLinks at line 286 — per B9 plan
+  // rev-1 reviewer M D1#2).
+  `CREATE INDEX IF NOT EXISTS idx_case_box_ocr_links_by_matter_seek
+     ON case_box_ocr_links (matter_id, last_seen_at DESC, document_id ASC);`,
+  `CREATE INDEX IF NOT EXISTS idx_case_box_ocr_links_by_matter_filter_seek
+     ON case_box_ocr_links (matter_id, status_snapshot, last_seen_at DESC, document_id ASC);`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
   [2, DDL_STATEMENTS_V2],
@@ -418,6 +464,7 @@ const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [5, DDL_STATEMENTS_V5],
   [6, DDL_STATEMENTS_V6],
   [7, DDL_STATEMENTS_V7],
+  [8, DDL_STATEMENTS_V8],
 ]);
 
 /**

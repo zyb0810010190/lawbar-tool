@@ -26,7 +26,21 @@
 
 ---
 
-## Phase B8 — SQLite evidence items (commit `<pending B8 impl commit hash>`)
+## Phase B9 — SQLite OCR links (read-only mirror by value) (commit `<pending B9 impl commit hash>`)
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mphx2ods-qf6qsv` (mini; Path 1 native --background) | not invoked (0 C/H/M; 5 Lows — 2 fixed in-WI, 3 deferred) |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| D2#1 (B9) | Low | Cleanup-only — `loadMatter` / `loadDocumentEntry` helpers duplicate per-file patterns across `ocrLinkRepoQueries.ts` + sibling RepoQueries files. Reviewer accepted: "consistent with sibling pattern; defer until naturally touched". | Future shared SQLite read-helper extraction WI | YES | open | Reviewer recommendation: do not block B9. |
+| D4#1 (B9) | Low | Cleanup-only — `SqliteCaseBoxPersistence.ts` at 602 LOC (was 596 post-B8; +6 LOC for 3 thin call-throughs). Same posture as B7 D4#2 / B8 D4#1. | Re-evaluate at B10/B11 if class grows materially | YES | open | `#runImmediateWrite` pattern keeps growth flat per added method. |
+| D4#2 (B9) | Low | Cleanup-only — `schema.ts` at 547 LOC (was 500 post-B8; over warn by ~47 LOC after DDL_V8). | Next schema-bearing WI (B10/B11) should extract DDL by version. | YES | open | Reviewer recommendation: defer DDL extraction; not B9 blocker. |
+
+---
+
+## Phase B8 — SQLite evidence items (commit `bfda127`)
 
 | Audit job | Verify job |
 |---|---|
