@@ -317,12 +317,97 @@ Every recorded cc-suite invocation MUST classify its outcome into one of these c
 | **MODEL_API_ERROR** | Codex MCP returns 5xx / auth / quota / model-not-available | Surface to user; do NOT retry blindly. |
 | **RUNNER_ERROR** | codex-runner.mjs itself exits non-zero with its OWN error (not Codex's) | Surface to user; check runner version; Path 2 fallback acceptable for the WI but the runner needs separate repair. |
 | **PROMPT_CONTEXT_ERROR** | Runner returns success but Codex's `rawOutput` refuses the task / cannot read files / returns obvious off-target answer | Fix the prompt; re-attempt Path 1. NOT a Path 1 failure. |
+| **HARNESS_REAP** | Job registered with `status: "running"`; no `.json` result file; runner PID dead; no terminal-state log entry. Caller wrapped the runner in Claude Code Bash-tool `run_in_background: true` and the harness reaped the orchestrating shell before the runner reached its success/failure branch. | NOT a cc-suite/codex bug. Re-run using runner foreground OR native `--background` per §"Background-invocation discipline" below. Reap any orphaned `running` job per §"HARNESS_REAP recovery". |
 
 The §"Required recording" field set is extended with the class. See §"Required recording" updates below.
+
+## Background-invocation discipline (post CCSUITE-PATH1-RCA-01)
+
+Documented in `dev-memo/ccsuite-path1-rca-01.md` (commit `d3e1cbc`). Hard rules for every cc-suite/Codex invocation:
+
+### Anti-pattern (FORBIDDEN)
+
+- **NEVER** wrap `node $RUNNER ...`, `codex exec ...`, `mcp__codex-cli__codex`, or any cc-suite slash command inside a Claude Code Bash-tool call with `run_in_background: true`.
+- **NEVER** chain runner output through `| tee`, `| less`, or any pipe that introduces a second long-lived process the harness might reap independently from the runner.
+
+The Claude Code Bash-tool's `run_in_background` reaper may terminate the orchestrating shell before the runner finishes — typically after ~10-20 minutes of TaskOutput polling. The runner's own `spawnSync` 30-min timeout is irrelevant because the reaper kills the wrapper, not the spawn. The runner exits SIGKILL'd before it can write the success/failure JSON envelope or update cc-suite state from `running` to a terminal status. Result: orphan `running` state-store entry; 0-byte stdout sink; no jobId visible to subsequent `/cc-suite:status`.
+
+### Allowed (REQUIRED FOR LONG-RUNNING CALLS)
+
+- **Runner foreground** — `node $RUNNER ...` without `--background`. The Bash call blocks until the runner returns its JSON envelope. Suitable for typical review-plan / audit / verify prompts (~23-90s end-to-end).
+- **Runner native `--background`** — `node $RUNNER ... --background ...`. Returns instantly with a `{jobId, status:"queued", ...}` envelope. The worker is spawned `detached: true, stdio: "ignore"` and survives any harness reaper. State writes land at `${CLAUDE_PLUGIN_DATA}/state/<slug>-<hash>/jobs/<jobId>.{json,log}`. Use this for any call that may exceed ~5 minutes or whose lifecycle should outlive the orchestrating session.
+- **User-typed slash command** — `/cc-suite:review-plan <scope>` typed by the user in the session. Always safe; no assistant wrapper involved.
+
+### Native `--background` validity check
+
+A native `--background` invocation is **valid only if it returns a jobId promptly** (typically <1s).
+
+- If the runner returns a jobId in the first line of stdout → proceed; poll `${CLAUDE_PLUGIN_DATA}/state/<slug>-<hash>/jobs/<jobId>.json` until it appears, OR use `/cc-suite:status <jobId>` + `/cc-suite:result <jobId>`.
+- If no jobId appears promptly → **STOP and diagnose**. Do NOT blindly poll Claude Code's `TaskOutput` on the wrapping Bash call (that is the failure mode this section forbids). Inspect the runner's stderr; verify the resolved runner path; verify the cc-suite plugin is healthy.
+
+### HARNESS_REAP recovery
+
+Symptom set:
+- A previous cc-suite invocation appears to have hung indefinitely or was "killed" by the harness.
+- `/cc-suite:status --all` shows a job stuck in `status: "running"` whose `pid` is no longer in `ps`.
+- The job's state directory has a `.log` file but no `.json` result file.
+- Any `tee`'d output sink is 0 bytes or truncated mid-stream.
+
+Cause: the orchestrating Bash shell wrapping the runner was reaped before the runner's terminal-state write (see §Anti-pattern).
+
+Recovery procedure:
+
+1. **Inspect job state** — `python3 -c "import json; d=json.load(open('${CLAUDE_PLUGIN_DATA}/state/<slug>-<hash>/state.json')); print(...)"`. Confirm the job is `running` with a dead PID.
+2. **Confirm runner not alive** — `ps -p <pid>` returns empty. `pgrep -lf codex-runner` finds nothing matching the job.
+3. **Reap the orphan** — edit the entry in `state.json` to flip `status: "running"` → `status: "failed"`, set `completedAt`, and `errorMessage` pointing at this section + the RCA dev-memo. Do NOT delete the entry; the audit-trail row must remain.
+4. **Re-run using native `--background`** — per §"Allowed" above. Do NOT retry with Bash `run_in_background: true`; the failure mode will recur.
+5. **Record the failure class** — in the eventual recording block, classify the original attempt as `HARNESS_REAP` per §"Timeout / failure classification".
+
+### Known-good Path 1 pattern
+
+For any assistant-driven cc-suite invocation:
+
+```bash
+# 1. Save the prompt to a normal file FIRST. Never inline a long prompt
+#    via $(cat <<EOF ...) inside a backgrounded Bash call.
+cat > /tmp/<wi>-prompt.txt <<'PROMPT_EOF'
+<full prompt>
+PROMPT_EOF
+
+# 2. Verify the file is complete + non-empty.
+wc -c /tmp/<wi>-prompt.txt
+
+# 3. Invoke via runner foreground OR native --background.
+RUNNER=$(ls -1 ~/.claude/plugins/cache/xiaolai/cc-suite/*/scripts/codex-runner.mjs | sort -V | tail -n 1)
+
+# 3a. Foreground (synchronous; ~25-90s):
+node "$RUNNER" --kind review-plan --model gpt-5.5 --effort high \
+  --sandbox read-only --summary "<wi> review-plan" \
+  -- "$(cat /tmp/<wi>-prompt.txt)"
+
+# 3b. Native --background (returns jobId in <1s):
+OUT=$(node "$RUNNER" --kind review-plan --model gpt-5.5 --effort high \
+  --sandbox read-only --background --summary "<wi> review-plan" \
+  -- "$(cat /tmp/<wi>-prompt.txt)" 2>&1)
+JOBID=$(echo "$OUT" | python3 -c "import json,sys; print(json.loads(sys.stdin.read().splitlines()[-1])['jobId'])")
+# 4. Poll the state file (NOT Claude Code TaskOutput on a wrapped shell).
+CCS=${CLAUDE_PLUGIN_DATA}/state/<slug>-<hash>/jobs
+until [ -f "$CCS/$JOBID.json" ]; do sleep 15; done
+python3 -c "import json; print(json.load(open('$CCS/$JOBID.json'))['rawOutput'])"
+
+# 5. Use /cc-suite:status <jobId> and /cc-suite:result <jobId> for
+#    interactive inspection or to resume after a session compaction.
+```
+
+Why this pattern is durable:
+- The prompt lives on disk, so a session restart / context compaction can still recover the input.
+- Runner-native `--background` produces a jobId before the orchestrating Bash call exits, so the lane authorization record carries a verifiable trace even if the rest of the call is reaped.
+- State writes use the same `resolveStateDir(cwd)` helper as `/cc-suite:status` + `/cc-suite:result`, so the inspection commands and the runner share one source of truth.
 
 ## Failure handling
 
 - Path 1 emits `{ status: "failed", error: <msg> }` — classify per §"Timeout / failure classification"; for `review-plan` TIMEOUT, follow §"Retry policy"; otherwise surface to user and attempt Path 2.
+- Path 1 invocation reaped before writing terminal state (no JSON envelope, orphan `running` job) — classify as **HARNESS_REAP** per §"Background-invocation discipline"; reap the orphan, re-run using runner foreground OR native `--background`. Do NOT fall back to Path 2 for this class — Path 2 will not help; the root cause is the wrapper, not Codex/runner.
 - Path 2 returns `[Tool result missing due to internal error]` or empty — do NOT retry; attempt Path 3.
 - Path 3 nonzero exit — stop and ask the user (Path 4).
 - `/cc-suite:status` returning an unhealthy / un-authenticated bridge state — surface to user; do NOT proceed.
@@ -340,6 +425,8 @@ The §"Required recording" field set is extended with the class. See §"Required
 - `dev-memo/cc-suite-automation-investigation.md` — the investigation that produced the Path 1/2/3/4 ordering; documents the three invocation paths and the underlying Codex MCP tool name.
 - `dev-memo/cc-suite-runner-tracking-investigation.md` (CCSUITE-01) — confirms Path 1 broker tracking works at `${CLAUDE_PLUGIN_DATA}/state/lawbar-tool-<hash>/`.
 - `dev-memo/cc-suite-reliability-log.md` (CCSUITE-02) — append-only log of every Path 1/2/3 invocation failure and its retry outcome. New entries land here whenever the retry policy fires.
+- `dev-memo/ccsuite-path1-rca-01.md` (CCSUITE-PATH1-RCA-01; commit `d3e1cbc`) — root-cause analysis of the HARNESS_REAP failure class; produced the §"Background-invocation discipline" rules above. The rule file is the durable codification; the dev-memo is the evidence + smoke-test transcript.
+- [[echo-sleuth]] — continuity workflow; before/after lanes + RCAs use echo-sleuth recap / extract / lessons to preserve decisions across sessions.
 - `dev-memo/rollback-00.md` (ROLLBACK-00) — authoritative rollback policy; §"Rollback recording" above mirrors §6 of this memo and §"Forbidden operations" of the memo mirrors [[autonomy]]'s hard-stop list extensions.
 - `dev-memo/night-run-00.md` (NIGHT-RUN-00) — authoritative overnight-lane policy. Every overnight `/loop` / `/project-autopilot` / long `/goal` run is lane-scoped; the lane authorization specifies which cc-suite review/audit/verify steps are required for the lane's WIs. The 11-field cc-suite recording structure (above) is inherited by every commit in the lane.
 - [[execution-discipline]] — behavioral floor for implementation WIs (think-before-coding / simplicity / surgical changes / goal-driven execution). cc-suite audit prompts MAY check the diff against this rule's §3 (surgical changes) when scoring drive-by-refactor risk; cc-suite remains the independent quality gate.

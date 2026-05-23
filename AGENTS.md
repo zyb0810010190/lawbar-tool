@@ -111,6 +111,34 @@ If cc-suite, Codex, Claude bridge, MCP registration, authentication, or model av
 - Do not treat a failed review as success.
 - Use `/cc-suite:status` before assuming the bridge is healthy.
 
+### Background-invocation discipline (HARNESS_REAP)
+
+Per `.claude/rules/cc-suite.md` §"Background-invocation discipline" (codified from `dev-memo/ccsuite-path1-rca-01.md` at commit `d3e1cbc`):
+
+- **NEVER** wrap cc-suite, Codex, or `codex-runner.mjs` inside a Claude Code Bash-tool call with `run_in_background: true`. The harness reaper may terminate the orchestrating shell before the runner writes terminal state, producing an orphaned `running` job (HARNESS_REAP failure class).
+- **Allowed**: runner foreground (synchronous; blocks on JSON envelope) OR runner native `--background` flag (returns jobId in <1s; detached worker survives the orchestrating session).
+- **Valid native `--background` invocation** returns a jobId promptly. If no jobId appears, STOP and diagnose; do NOT poll TaskOutput blindly on the wrapping Bash call.
+- **HARNESS_REAP recovery**: reap orphaned `running` job (flip to `failed` in `state.json`), then re-run via foreground or native `--background`. Do NOT fall back to Path 2 — root cause is the wrapper, not Codex/runner.
+- **Known-good Path 1 pattern**: save prompt to a file → verify completeness → invoke runner foreground OR native `--background` → poll the state-file `.json` (NOT TaskOutput) or use `/cc-suite:status <jobId>` + `/cc-suite:result <jobId>`.
+
+Verified durable facts (do not contradict without explicit RCA superseding them):
+
+1. Path 1 native `--background` is safe after CCSUITE-PATH1-RCA-01 (commit `d3e1cbc`).
+2. Bash-tool `run_in_background: true` around cc-suite/Codex is unsafe.
+3. B6 impl exercised native Path 1 `--background` successfully via audit job `audit-mph4cun6-aav6q2` (commit `667bb9c`).
+4. B7 impl must perform the B6-deferred `impl-parity.test.mjs` split (B6 D4#1; 773 LOC → 7 per-entity files per `dev-memo/plan-case-box-persistence-B7-docket.md` §1.7).
+
+### echo-sleuth continuity workflow
+
+Per `.claude/rules/echo-sleuth.md`. Required triggers:
+
+- **Lane-start recap**: before any major lane (Phase-B sub-WI, umbrella revision, ADR, RCA, autopilot start, project-brief intake), invoke `/echo-sleuth:recap` (or the recall agent) and cite the recap in the new lane's pre-flight section.
+- **Post-RCA extract (REQUIRED)**: after any RCA lane, invoke `/echo-sleuth:extract` within the SAME lane and BEFORE closing it. The extract pass MUST update the relevant `.claude/rules/*.md` file with permanent anti-pattern / recovery sections. Skipping this means the lesson stays buried in the RCA dev-memo.
+- **Pre-rule-change discovery**: before editing any `.claude/rules/*.md`, invoke `/echo-sleuth:lessons` or `/echo-sleuth:recall <rule-name>` to surface prior decisions on the same scope. New edit either supersedes (with explicit recording) or matches.
+- **Periodic memory hygiene**: at natural lane boundaries, invoke `/echo-sleuth:audit` + `/echo-sleuth:dashboard`. Resolve flagged staleness by updating the rule OR by `/echo-sleuth:prune` with the resolution recorded in the commit message.
+
+echo-sleuth MUST NOT edit product source, stage/commit/push, or bypass cc-suite (echo-sleuth is a memory layer, NOT a review layer).
+
 ## Shared Memory
 
 **Always write new instructions, rules, and memory to `AGENTS.md` only.**
