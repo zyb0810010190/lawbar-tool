@@ -37,6 +37,7 @@ import { validateDocumentTarget } from "./documentRepoQueries.js";
 import { SqliteBackedIdSet } from "./sqliteBackedIdSet.js";
 import {
   createFactState,
+  factCanonicalProjection,
   prepareAppendFact,
   prepareTransitionFact,
   type FactState,
@@ -241,6 +242,60 @@ export function applyAppendFactSqlite(
   insertFactRow(db, prepared.row);
   deps.writeAuditEventAndUpdateHead(prepared.audit, eventHash);
   return prepared.row;
+}
+
+// ---------------------------------------------------------------------------
+// applyAppendFactOnceSqlite — replay-safe append (Phase B11)
+//
+// Per B11 plan §1.2 (READY at commit 3937f36). Mirrors in-memory
+// `applyAppendFactOnce` (inMemoryFact.ts line ~602) 3-branch logic
+// verbatim. `factCanonicalProjection` reused verbatim from in-memory.
+//
+// Branches:
+//   1. REPLAY (same id + same tenant + byte-identical canonical
+//      projection): return stored row; NO INSERT, NO audit emission.
+//   2. CROSS-TENANT defense (same id + different tenant_id): fall
+//      through to strict `applyAppendFactSqlite` (NEVER short-circuit
+//      cross-tenant read; security invariant per in-memory audit
+//      Dim 5 #1).
+//   3. CANONICALIZATION-THROW (hostile payload, depth>64, cycles):
+//      catch + fall through to strict, which surfaces invalid_payload.
+//   4. SAME-ID-DIFFERENT-PAYLOAD: fall through to strict, which
+//      throws duplicate_id (A4 semantics).
+//   5. NO PRIOR ROW or missing id: fall through to strict.
+// ---------------------------------------------------------------------------
+
+export function applyAppendFactOnceSqlite(
+  db: Database,
+  input: unknown,
+  deps: AppendDeps,
+): CaseBoxFact {
+  if (input !== null && typeof input === "object") {
+    const candidateId = (input as { id?: unknown }).id;
+    if (typeof candidateId === "string" && candidateId.length > 0) {
+      const priorRow = db
+        .prepare("SELECT payload_json FROM case_box_facts WHERE id = ?")
+        .get(candidateId) as { payload_json: string } | undefined;
+      if (priorRow !== undefined) {
+        const stored = JSON.parse(priorRow.payload_json) as CaseBoxFact;
+        // Tenant defense: never short-circuit into a cross-tenant read.
+        const inputTenant = (input as { tenant_id?: unknown }).tenant_id;
+        if (typeof inputTenant === "string" && inputTenant !== stored.tenant_id) {
+          return applyAppendFactSqlite(db, input, deps);
+        }
+        // Byte-identical canonical projection → REPLAY.
+        try {
+          if (factCanonicalProjection(stored) === factCanonicalProjection(input)) {
+            return stored;
+          }
+        } catch {
+          return applyAppendFactSqlite(db, input, deps);
+        }
+        // Same id, different payload → fall through to strict (throws duplicate_id).
+      }
+    }
+  }
+  return applyAppendFactSqlite(db, input, deps);
 }
 
 // ---------------------------------------------------------------------------

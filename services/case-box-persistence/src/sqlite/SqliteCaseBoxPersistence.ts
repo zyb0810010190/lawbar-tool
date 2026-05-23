@@ -1,11 +1,12 @@
-// SQLite-backed CaseBoxPersistence — Phase B1 (matter entity only).
+// SQLite-backed CaseBoxPersistence — Phase B SQLite implementation
+// complete (B1-B11; per dev-memo/plan-case-box-persistence-B11-once-variants.md).
 //
-// Per dev-memo/plan-case-box-persistence-B1-matter.md §1.2:
-//   - Implements the full CaseBoxPersistence interface (42 public methods).
-//   - B1-scope methods (createMatter / getMatter / archiveMatter /
-//     unarchiveMatter) are implemented end-to-end.
-//   - All other methods throw CaseBoxPersistenceError("not_implemented", ...)
-//     to satisfy the runtime contract until later B sub-WIs land.
+// Every method on the CaseBoxPersistence interface is implemented
+// end-to-end against better-sqlite3. No `not_implemented` stubs remain.
+// Phase B SQLite implementation completion was verified by the full
+// no-filter conformance sweep at tests/sqlite-final.conformance.test.mjs.
+// (Go-live readiness is a separately gated decision per
+// .claude/rules/autonomy.md §"Hard-stop list".)
 //
 // Invariants (per umbrella + B1 plan §4):
 //   - Every write runs inside one `db.transaction(...).immediate()`.
@@ -51,6 +52,7 @@ import {
   listPrivilegeMarkersSqlite,
 } from "./privilegeRepoQueries.js";
 import {
+  applyAppendFactOnceSqlite,
   applyAppendFactSqlite,
   applyTransitionFactSqlite,
   getFactSqlite,
@@ -164,28 +166,10 @@ interface SqliteWriteDeps {
   readonly writeAuditEventAndUpdateHead: (audit: StoredAuditEvent, eventHash: string) => void;
 }
 
-function notImplemented(method: string): never {
-  throw new CaseBoxPersistenceError(
-    "not_implemented",
-    `${method} awaits a future SQLite sub-WI (Phase B${methodSubWiHint(method)})`,
-  );
-}
-
-function methodSubWiHint(method: string): string {
-  // Best-effort mapping per the umbrella plan §2 to give actionable
-  // error messages. Not load-bearing.
-  if (method === "registerDocument" || method === "getDocument" || method === "listDocuments") return "2";
-  if (method === "listAuditEvents" || method === "getAuditChainHead" || method === "verifyAuditChainForMatter") return "3";
-  if (method.includes("ConfidentialityClassification") || method === "getEffectiveClassification") return "4";
-  if (method.includes("PrivilegeMarker") || method === "getPrivilegeStatus") return "5";
-  if (method === "appendFact" || method === "transitionFact" || method === "getFact" || method === "listFacts") return "6";
-  if (method.includes("Docket") || method === "transitionDeadline" || method === "getDeadline" || method === "listDeadlines" || method === "getDeadlineCalendar") return "7";
-  if (method.includes("EvidenceItem")) return "8";
-  if (method.includes("OcrLink")) return "9";
-  if (method === "listMatters" || method === "getMatterSummary" || method === "getDocumentDetail" || method === "getFactSupersessionChain") return "10";
-  if (method === "appendFactOnce") return "11";
-  return "?";
-}
+// `notImplemented` + `methodSubWiHint` were retired at B11 — every
+// Phase B SQLite sub-WI (B1-B11) is shipped; no stubs remain.
+// Re-introduce only if a future phase adds new not-yet-implemented
+// methods to the persistence interface.
 
 export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   readonly #db: Database;
@@ -481,9 +465,9 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
     const row = this.#runImmediateWrite((db, deps) => applyAppendFactSqlite(db, input, deps));
     return structuredClone(row) as CaseBoxFact;
   }
-  async appendFactOnce(_input: unknown): Promise<CaseBoxFact> {
-    // B11 scope (replay-safe Once variants). Stays not_implemented.
-    notImplemented("appendFactOnce");
+  async appendFactOnce(input: unknown): Promise<CaseBoxFact> {
+    const row = this.#runImmediateWrite((db, deps) => applyAppendFactOnceSqlite(db, input, deps));
+    return structuredClone(row) as CaseBoxFact;
   }
   async transitionFact(factId: string, opts: FactTransitionOpts): Promise<CaseBoxFact> {
     const row = this.#runImmediateWrite((db, deps) => applyTransitionFactSqlite(db, factId, opts, deps));

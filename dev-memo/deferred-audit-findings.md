@@ -26,7 +26,25 @@
 
 ---
 
-## Phase B10 — SQLite read-side aggregations (commit `<pending B10 impl commit hash>`)
+## Phase B11 — SQLite replay-safe Once variants + Phase B FINAL sweep (commit `<pending B11 impl commit hash>`)
+
+**Phase B SQLite implementation declared COMPLETE.** Go-live readiness remains separately gated per `.claude/rules/autonomy.md` §"Hard-stop list".
+
+| Audit job | Verify job |
+|---|---|
+| `audit-mpi0qhw5-y5xo98` (mini; Path 1 native --background) | not invoked (0 C/H/M; 3 Lows — 1 fixed in-WI, 2 deferred) |
+
+| Finding ID | Severity | Reason for deferral | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| D2#1 (B11) | Low | Cleanup-only — `SqliteCaseBoxPersistenceTestWrapper` class duplicated between `sqlite.conformance.test.mjs` and `sqlite-final.conformance.test.mjs` (~15 LOC). Reviewer accepted: "optional cleanup; not blocking". | Future shared test-wrapper extraction WI | YES | open | Reviewer: extract only if more SQLite conformance entrypoints appear. |
+| D4#1 (B11) | Low | Cleanup-only — `SqliteCaseBoxPersistence.ts` at 610 LOC (was 609 post-B10; +1 net LOC after thin call-through + dead-helper deletion). Carried debt from B7-B10. | Re-evaluate at Phase C if it appears | YES | open | Reviewer: "carried debt rather than B11 regression". |
+
+Lows fixed in-WI:
+- L D3#1 (dead `notImplemented()` + `methodSubWiHint()` helpers + stale B1-era comment in `SqliteCaseBoxPersistence.ts`): FIXED — both helpers deleted; top-of-file comment refreshed to reflect "Phase B SQLite implementation complete".
+
+---
+
+## Phase B10 — SQLite read-side aggregations (commit `bb40855`)
 
 | Audit job | Verify job |
 |---|---|

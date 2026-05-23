@@ -127,31 +127,9 @@ test("6.2.6 CaseBoxPersistenceError code is one of the documented set (incl. B1+
   }
 });
 
-// ---------------------------------------------------------------------------
-// 6.2.6b SQLite stub emits not_implemented (per rev-1 reviewer Dim-3 #3:
-// 6.2.6 documents the code; this parallel test proves the SQLite impl
-// actually emits it).
-// ---------------------------------------------------------------------------
-
-test("6.2.6b Sqlite stub methods emit CaseBoxPersistenceError with code='not_implemented'", async () => {
-  const { openSqliteCaseBoxPersistence } = await import("../dist/index.js");
-  const { persistence } = openSqliteCaseBoxPersistence({
-    now: makeClock("2026-05-22T09:00:00.000Z"),
-    generateId: makeIdGenerator("notimp"),
-  });
-  // Tracks the current stub frontier. B1 matter; B2 document; B3
-  // audit-read; B4 confidentiality; B5 privilege; B6 facts; B7 docket
-  // + deadlines; B8 evidence items; B9 OCR links; B10 read
-  // aggregations. Next still-stubbed: `appendFactOnce` (B11;
-  // replay-safe Once variants).
-  let caught;
-  try {
-    await persistence.appendFactOnce({});
-  } catch (e) { caught = e; }
-  assert.ok(caught instanceof CaseBoxPersistenceError);
-  assert.equal(caught.code, "not_implemented");
-  assert.match(caught.message, /appendFactOnce/);
-});
+// 6.2.6b RETIRED at Phase B11 — no SQLite stub remains. The B11 impl
+// commit shipped `appendFactOnce`, completing the Phase B SQLite surface.
+// Phase C (if any) re-introduces this invariant when it adds new stubs.
 
 // ---------------------------------------------------------------------------
 // 6.2.7 Prototype allowlist — exactly the 10 documented methods + constructor
