@@ -1,8 +1,50 @@
-# Plan: UI Substrate / Framework Decision (PLAN-ONLY RECOMMENDATION)
+# Plan: UI Substrate / Framework Decision (RATIFIED — Electron)
 
-> **DECISION PLAN ONLY.** This document compares candidate UI substrates for the v1 Mac client, ranks them against the existing repo's constraints, and **RECOMMENDS one path**. The recommendation is a STOP-AND-ASK proposal per brief §20 + `dev-memo/plan-client-00.md` §6 — **the user ratifies; this plan does not autonomously commit a framework choice into runnable code or `package.json` dependencies**. No UI code is authored, no dependency installed, no signing / distribution path chosen, no production action taken. Each follow-up implementation WI requires SEPARATE explicit user authorization.
+> **DECISION PLAN — RATIFIED.** The Electron recommendation in §2 was **ratified by the user on 2026-05-23** against this plan at commit `b655b5f` on `origin/main`. See §"Ratification record" immediately below for the precise scope of what is and is NOT ratified. This document REMAINS plan-only: no UI code is authored, no dependency is installed in `package.json`, no renderer-framework / signing / notarization / distribution / telemetry / cloud-sync decision is made. Each follow-up implementation WI listed in §6 still requires SEPARATE explicit user authorization.
 
-**Status**: READY (revision 2 — Path 1 native --background rev-1 review returned READY (Low-risk clarifications) with 1 Medium + 6 Lows; rev-2 applied all 7: NEW §7 risk row #7 (Medium) — Electron native-module ABI/rebuild/notarization for `better-sqlite3` and OCR native deps; NEW §6 row 4.5 — Electron native-module packaging smoke runs BEFORE case-box screens (rev-1 reviewer R#1 + R#2); §1.1 explicit citations to AGENTS.md Repo Brief + Phase B SQLite completion at 98446aa (rev-1 reviewer M D3#1); §5 "by reference" wording clarified vs literal verbatim (L D2#2); §4 demo screen clarified as "TOKEN-COMPLIANCE FIXTURE, not product UI" (L D1#2); §3.1 vanilla-TS scope bounded to WI #3 only (L D4#2).).
+## Ratification record (revision 3)
+
+**Date of ratification**: 2026-05-23.
+**Ratifying decision**: the user, via the lane authorization message that triggered this revision, explicitly states: "Ratify Electron as the Mac-client UI substrate, based on the reviewed plan at `b655b5f0662f702c9136eeb0d04c80abc260a7c2`."
+**Plan version ratified**: revision 2 (commit `b655b5f` on `origin/main`).
+**Reviewed-and-READY status**: confirmed by cc-suite review-plan job `review-plan-mpj0bhaz-0v1u78` (Path 1 native --background; verdict READY with Low-risk clarifications; all 7 findings applied in rev-2).
+
+### What IS ratified
+
+- **The framework-choice STOP-AND-ASK item from `docs/product/project-requirements-brief.md` §20 line "Electron / Tauri / native runtime dependency"** is resolved in favor of **Electron** for the v1 Mac client substrate.
+- The recommendation in §2 + reasoning in §1.2 + implications matrix in §3 + minimal first UI WI scope in §4 + follow-up WI list in §6 stand as the authoritative substrate baseline.
+
+### What is NOT ratified (each remains a separate STOP-AND-ASK)
+
+- **Adding `electron` to any `package.json`.** Ratification authorizes the FRAMEWORK CHOICE; it does NOT install the dependency. The first UI WI (§6 row 3) is the commit that introduces the `electron` dep and `electron-builder` dep. Each individual dep is its own STOP-AND-ASK at that WI's authorization.
+- **Renderer UI framework choice** (React / Solid / Vue / Svelte / Lit / vanilla). §6 row 2 still requires user authorization.
+- **Apple Developer ID acquisition / signing identity / notarization profile.** §6 row 6 + §3.7 — still STOP-AND-ASK.
+- **Distribution channel** (Mac App Store / direct / in-firm IT). §6 row 7 + §3.8 — still STOP-AND-ASK.
+- **Auto-update mechanism.** Brief §4 + brief §20 — manual download v1; auto-update post-v1.
+- **All other brief §20 STOP-AND-ASK items** (brief §20 enumerates 21 items; Electron framework choice is ONE; **20 remain unresolved** — auth provider, cloud vendor, external document exposure, mini-program publication, sync bridge enablement, LLM enablement, renderer UI framework choice, document text-extraction engine choice, public deployment, code-signing identity + notarization profile, secret material handling, new runtime dependencies each individually, Apple Developer ID acquisition, per-document encryption-at-rest, hard-delete retention, tenant boundary widening, any external network surface beyond WI-03, real-data migration, monetization, redaction ADR). All 20 are inherited by reference per §5.
+
+### Implications of ratification
+
+- §6 WI #1 (user ratification) — **CLOSED by this commit**.
+- §6 WI #2 (renderer-UI-framework decision plan) — UNBLOCKED; the user may now authorize this lane when ready.
+- §6 WI #3 (first UI impl — `apps/lawbar-desktop/` greenfield) — UNBLOCKED in sequencing terms but BLOCKED until WI #2 ratifies the renderer choice AND until each new runtime dep is individually authorized at WI #3's authorization.
+- §6 WIs #4 through #10 — sequencing unchanged; each remains separately authorized.
+- The night-mode foundation plan at `dev-memo/plan-night-mode-foundation-00.md` §7 STOP-AND-ASK item #1 ("Desktop framework decision") is now RESOLVED; that plan's §8 WI #1 ("Plan: desktop framework decision") is correspondingly CLOSED.
+- The `dev-memo/plan-client-00.md` §6 item #1 ("Desktop app framework") STOP-AND-ASK is RESOLVED in favor of Electron.
+
+### Out of scope for this ratification record
+
+- Editing `dev-memo/plan-night-mode-foundation-00.md` (a separate file; cross-reference only).
+- Editing `dev-memo/plan-client-00.md` (a separate file; cross-reference only).
+- Editing `docs/product/project-requirements-brief.md` (brief is READY revision 5; amendment uses `/project-brief` skill).
+- Editing `dev-memo/plan-go-live-readiness-00.md` (a separate file; this ratification does NOT change any blueprint gate state).
+- Editing any service / contract / test code.
+- Adding `electron` to any `package.json`.
+- `git push` (separate explicit authorization).
+
+---
+
+**Status**: READY (revision 3 — Electron substrate ratified by user against rev-2 at commit b655b5f on origin/main; §"Ratification record" added; document title + banner updated from "PLAN-ONLY RECOMMENDATION" to "RATIFIED — Electron"; recommendation in §2 + reasoning in §1.2 + implications matrix in §3 + first UI WI scope in §4 + follow-up WIs in §6 all preserved unchanged. rev-2 — Path 1 native --background rev-1 review returned READY (Low-risk clarifications) with 1 Medium + 6 Lows; rev-2 applied all 7: NEW §7 risk row #7 (Medium) — Electron native-module ABI/rebuild/notarization for `better-sqlite3` and OCR native deps; NEW §6 row 4.5 — Electron native-module packaging smoke runs BEFORE case-box screens (rev-1 reviewer R#1 + R#2); §1.1 explicit citations to AGENTS.md Repo Brief + Phase B SQLite completion at 98446aa (rev-1 reviewer M D3#1); §5 "by reference" wording clarified vs literal verbatim (L D2#2); §4 demo screen clarified as "TOKEN-COMPLIANCE FIXTURE, not product UI" (L D1#2); §3.1 vanilla-TS scope bounded to WI #3 only (L D4#2).).
 **Date**: 2026-05-23.
 **Author**: Claude Code at user's direction.
 **Branch**: main.
@@ -176,9 +218,9 @@ Tauri supports a "sidecar binary" pattern: bundle a Node executable as a sidecar
 
 ---
 
-## §2 RECOMMENDATION (STOP-AND-ASK proposal)
+## §2 RECOMMENDATION → RATIFIED
 
-**RECOMMENDED**: **Electron** (per §1.2).
+**RECOMMENDED** (rev-2): **Electron** (per §1.2). **RATIFIED** (rev-3, 2026-05-23): see §"Ratification record" at the top of this file. The reasoning + trade-offs + alternatives below stand as the authoritative record of the decision.
 
 **Reasoning** (load-bearing first):
 
@@ -200,7 +242,7 @@ Tauri supports a "sidecar binary" pattern: bundle a Node executable as a sidecar
 - **Native macOS Swift**: §1.5. Single-source-of-truth violation OR sidecar pattern; engineering-capacity profile shift; long-term cost not justified for v1.
 - **§1.6 others**: each dismissed in §1.6 with reason.
 
-**STOP-AND-ASK status**: this recommendation is INPUT to the brief §20 hard-stop decision on "Electron / Tauri / native runtime dependency". **The user ratifies**; the plan does not autonomously commit. Ratification consists of the user authorizing the first UI WI per §4, which will be the first commit that introduces an `electron` dependency.
+**STOP-AND-ASK status (rev-3 update)**: the framework-choice STOP-AND-ASK item from brief §20 "Electron / Tauri / native runtime dependency" is **RATIFIED** as Electron — see §"Ratification record" at the top of this file. Ratification clears the FRAMEWORK CHOICE only; **the first UI WI (§6 row 3) is the commit that introduces the `electron` dependency into a `package.json` AND each individual runtime dep (electron, electron-builder, etc.) remains its own SEPARATE STOP-AND-ASK at that WI's authorization** per `.claude/rules/autonomy.md` §"Hard-stop list" + brief §20 "New runtime dependencies (each individually)". This plan does NOT install any dependency; this plan does NOT author UI code.
 
 ---
 
@@ -355,7 +397,7 @@ This plan executes none. The user authorizes each individually.
 
 | # | Suggested follow-up WI | Phase | Risk | Predecessors |
 |---|---|---|---|---|
-| 1 | **User ratification** of the Electron recommendation (no commit; user reply only) | Decision | n/a | This plan READY |
+| 1 | ~~**User ratification** of the Electron recommendation~~ — **CLOSED 2026-05-23** by ratification recorded at top of this file (rev-3) | Decision | n/a | This plan READY |
 | 2 | Plan: renderer-UI-framework decision (vanilla / React / Solid / Vue / Svelte / Lit) | Plan | **STOP-AND-ASK** on framework + new runtime dep | WI 1 |
 | 3 | Impl: first UI WI per §4 — `apps/lawbar-desktop/` greenfield app shell + token module + System/Light/Dark + demo screen | Impl | Medium; **STOP-AND-ASK** on each new runtime dep (electron, electron-builder, Playwright) | WIs 1 + 2 |
 | 4 | Plan: case-box IPC contract (renderer ↔ main; the narrow IPC surface for `listMatters`, `getMatterSummary`, etc.) | Plan | Medium | WI 3 |
