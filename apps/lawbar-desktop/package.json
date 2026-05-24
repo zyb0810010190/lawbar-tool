@@ -17,6 +17,7 @@
     "test": "node --test tests/main.test.mjs tests/smoke.electron.test.mjs",
     "test:unit": "npm run build && node --test tests/main.test.mjs",
     "test:smoke": "npm run build && node --test tests/smoke.electron.test.mjs",
+    "test:packaged": "node --test tests/smoke.packaged.electron.test.mjs",
     "dev": "npm run build && electron .",
     "dist": "npm run build && electron-builder"
   },
