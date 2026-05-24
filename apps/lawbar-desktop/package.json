@@ -1,0 +1,46 @@
+{
+  "name": "lawbar-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "productName": "lawbar",
+  "description": "First UI shell — Electron app + theme-token foundation. Token-compliance fixture only; NOT product UI; NOT signed; NOT for distribution.",
+  "main": "dist/electron/main.js",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0 <26.0.0"
+  },
+  "scripts": {
+    "build:ts": "tsc -p tsconfig.json",
+    "build:assets": "mkdir -p dist/renderer && cp renderer/index.html renderer/index.css dist/renderer/",
+    "build": "npm run build:ts && npm run build:assets",
+    "pretest": "npm run build",
+    "test": "node --test tests/main.test.mjs tests/smoke.electron.test.mjs",
+    "test:unit": "npm run build && node --test tests/main.test.mjs",
+    "test:smoke": "npm run build && node --test tests/smoke.electron.test.mjs",
+    "dev": "npm run build && electron .",
+    "dist": "npm run build && electron-builder"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "@types/node": "^22.0.0",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.0.0",
+    "playwright": "^1.50.0",
+    "typescript": "^5.6.0"
+  },
+  "build": {
+    "appId": "io.lawbar.desktop",
+    "productName": "lawbar",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        { "target": "dir", "arch": ["arm64", "x64"] }
+      ],
+      "identity": null
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ]
+  }
+}
