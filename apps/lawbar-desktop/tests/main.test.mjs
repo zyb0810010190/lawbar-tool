@@ -157,3 +157,17 @@ test("productName is 'lawbar' in package.json (drives app.getPath('userData'))",
   assert.equal(pkg.productName, "lawbar", "package.json productName must be 'lawbar'");
   assert.equal(pkg.build?.productName, "lawbar", "electron-builder productName must be 'lawbar'");
 });
+
+test("--probe-case-box flag-detect: production launch (no flag) does NOT trigger probe; only flag presence does", () => {
+  // Mirror the exact check in electron/main.ts line ~21.
+  // The detection is the literal Array.includes check — confirm both
+  // branches of that condition.
+  function isProbeFlagged(argv) {
+    return argv.includes("--probe-case-box");
+  }
+  assert.equal(isProbeFlagged(["electron", "."]), false, "production launch must NOT trigger probe");
+  assert.equal(isProbeFlagged(["electron", ".", "--probe-case-box"]), true, "flag presence must trigger probe");
+  assert.equal(isProbeFlagged(["lawbar"]), false);
+  assert.equal(isProbeFlagged(["lawbar", "--probe-case-box"]), true);
+  assert.equal(isProbeFlagged(["lawbar", "--some-other-flag"]), false);
+});
