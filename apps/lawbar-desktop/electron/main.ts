@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { runPkgArchProbe } from "../src/casebox-pkg-arch-poc.js";
 import { loadThemePreference } from "../src/persistence/themePreference.js";
 import { runCaseBoxProbe } from "../src/probes/caseBoxProbe.js";
 import {
@@ -36,6 +37,33 @@ if (process.argv.includes("--probe-case-box")) {
       process.exit(0);
     } else {
       process.stdout.write(`PROBE_FAIL: ${result.error ?? "(unknown error)"}\n`);
+      process.exit(1);
+    }
+  })();
+}
+
+// Package-architecture PoC probe flag handler (per dev-memo/plan-desktop-pkg-arch-
+// tarball-poc-00.md §7). Short-circuits the app launch path; runs validateMatter
+// (case-box-contract Ajv runtime) + createMatter (case-box-persistence runtime)
+// against a fixed deterministic payload; prints PROBE_OK / PROBE_FAIL and exits.
+if (process.argv.includes("--probe-casebox-pkg-arch")) {
+  void (async () => {
+    const result = await runPkgArchProbe();
+    if (result.ok) {
+      process.stdout.write(
+        `PROBE_OK matterId=${result.matterId} validatorOk=${result.validatorOk} durationMs=${result.durationMs ?? 0}\n`,
+      );
+      process.exit(0);
+    } else {
+      const err = result.error ?? "(unknown error)";
+      const category = err.startsWith("validateMatter")
+        ? "validator"
+        : err.startsWith("createMatter") || err.startsWith("InMemory")
+          ? "persistence"
+          : err.includes("MODULE_NOT_FOUND") || err.includes("ERR_MODULE_NOT_FOUND")
+            ? "import-failure"
+            : "unknown";
+      process.stdout.write(`PROBE_FAIL ${category}: ${err}\n`);
       process.exit(1);
     }
   })();
@@ -109,10 +137,14 @@ nativeTheme.on("updated", () => {
 // probe is also short-circuited under --probe-case-box (the native-module
 // smoke flag exits before app.whenReady resolves).
 void app.whenReady().then(async () => {
-  // When --probe-case-box is set the top-level IIFE is already racing to
-  // process.exit; skip the FileVault path so we don't pop a dialog or
-  // initiate app.quit in parallel with the probe's exit.
-  if (process.argv.includes("--probe-case-box")) return;
+  // When --probe-case-box or --probe-casebox-pkg-arch is set the top-level
+  // IIFE is already racing to process.exit; skip the FileVault path so we
+  // don't pop a dialog or initiate app.quit in parallel with the probe's
+  // exit.
+  if (
+    process.argv.includes("--probe-case-box") ||
+    process.argv.includes("--probe-casebox-pkg-arch")
+  ) return;
   const mode = resolveMode(process.env);
   const probe = await probeFileVault();
   const action = decideAction(probe.state, mode);
