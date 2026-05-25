@@ -23,35 +23,11 @@ See `dev-memo/plan-first-ui-shell-00.md` (commit `f74b2b2` on `origin/main`) for
 
 ## Dev workflow
 
-**Clean-checkout setup** (post tarball-PoC; required because `package.json` declares two internal-package tarball deps that don't exist until built):
-
 ```sh
-# 1. From repo root: build + stage-pack the two internal-package tarballs.
-#    Must run BEFORE `npm install` in apps/lawbar-desktop because
-#    package.json points at the produced .tgz files.
-node scripts/build-internal-packages.mjs
-
-# 2. Then install the desktop app.
-cd apps/lawbar-desktop
 npm install
-```
-
-**Day-to-day**:
-
-```sh
-npm test                # main-process unit tests + Playwright Electron smoke
-npm run test:pack-helper  # staging-pack helper tests (5 tests)
-npm run test:pkg-arch-poc # packaged-binary tarball-PoC smoke (4 tests)
-npm run dev             # build + launch Electron
-npm run dist            # build a dev-only .app under dist/ (UNSIGNED)
-```
-
-After editing `services/case-box-persistence/` or `docs/contracts/case-box-contract/`:
-
-```sh
-# Re-stage-pack from repo root, then reinstall.
-node scripts/build-internal-packages.mjs
-cd apps/lawbar-desktop && npm install
+npm test        # main-process unit tests + Playwright Electron smoke
+npm run dev     # build + launch Electron
+npm run dist    # build a dev-only .app under release/ (UNSIGNED)
 ```
 
 Requires Node 22.x or 24.x (per `engines.node`). Electron downloads a Chromium binary on first `npm install` (~120MB).

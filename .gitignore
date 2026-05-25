@@ -47,8 +47,3 @@ dev-memo/superseded/
 # <<< cc-suite <<<
 
 *.tsbuildinfo
-
-# Stage-pack tarballs from scripts/pack-internal-package.mjs (PoC)
-services/**/*.tgz
-docs/contracts/**/*.tgz
-apps/**/*.tgz
