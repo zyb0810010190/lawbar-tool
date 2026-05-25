@@ -16,6 +16,12 @@ import {
   loadThemePreference,
   saveThemePreference,
 } from "../dist/src/persistence/themePreference.js";
+import {
+  decideAction,
+  parseFdesetupStatus,
+  probeFileVault,
+  resolveMode,
+} from "../dist/src/security/fileVaultProbe.js";
 import { resolveSystemMode } from "../dist/src/theme/resolveSystemMode.js";
 import { LIGHT_TOKENS, DARK_TOKENS } from "../dist/src/theme/tokens.js";
 
@@ -170,4 +176,127 @@ test("--probe-case-box flag-detect: production launch (no flag) does NOT trigger
   assert.equal(isProbeFlagged(["lawbar"]), false);
   assert.equal(isProbeFlagged(["lawbar", "--probe-case-box"]), true);
   assert.equal(isProbeFlagged(["lawbar", "--some-other-flag"]), false);
+});
+
+// Tier 1 FileVault enforcement tests (per dev-memo/plan-encryption-at-rest-00.md
+// §6.1). Pure parse + pure decide + injected-execFile probe; no real fdesetup
+// invocation, no Electron runtime required.
+
+test("parseFdesetupStatus: 'FileVault is On.' variants → on", () => {
+  assert.equal(parseFdesetupStatus("FileVault is On.\n"), "on");
+  assert.equal(parseFdesetupStatus("FileVault is On"), "on");
+  assert.equal(parseFdesetupStatus("  FileVault is On.  "), "on");
+  assert.equal(parseFdesetupStatus("filevault is on."), "on");
+});
+
+test("parseFdesetupStatus: 'FileVault is Off.' variants → off", () => {
+  assert.equal(parseFdesetupStatus("FileVault is Off.\n"), "off");
+  assert.equal(parseFdesetupStatus("FileVault is Off"), "off");
+  assert.equal(parseFdesetupStatus("FILEVAULT IS OFF."), "off");
+});
+
+test("parseFdesetupStatus: unrecognized stdout → unknown", () => {
+  assert.equal(parseFdesetupStatus(""), "unknown");
+  assert.equal(parseFdesetupStatus("garbage"), "unknown");
+  assert.equal(parseFdesetupStatus("Decryption in Progress"), "unknown");
+  assert.equal(parseFdesetupStatus("Encryption in Progress (45%)"), "unknown");
+});
+
+test("resolveMode: LAWBAR_MODE=dev → dev", () => {
+  assert.equal(resolveMode({ LAWBAR_MODE: "dev" }), "dev");
+});
+
+test("resolveMode: anything other than 'dev' → production (fail-closed default)", () => {
+  assert.equal(resolveMode({}), "production");
+  assert.equal(resolveMode({ LAWBAR_MODE: "production" }), "production");
+  assert.equal(resolveMode({ LAWBAR_MODE: "" }), "production");
+  assert.equal(resolveMode({ LAWBAR_MODE: "DEV" }), "production", "case-sensitive");
+  assert.equal(resolveMode({ LAWBAR_MODE: "test" }), "production");
+  assert.equal(resolveMode({ LAWBAR_MODE: undefined }), "production");
+});
+
+test("decideAction: full matrix (state × mode → action)", () => {
+  assert.equal(decideAction("on", "production"), "proceed");
+  assert.equal(decideAction("on", "dev"), "proceed");
+  assert.equal(decideAction("off", "production"), "block");
+  assert.equal(decideAction("off", "dev"), "warn");
+  assert.equal(decideAction("unknown", "production"), "block", "fail-closed: unknown == off in prod");
+  assert.equal(decideAction("unknown", "dev"), "warn");
+  assert.equal(decideAction("non-macos", "production"), "proceed");
+  assert.equal(decideAction("non-macos", "dev"), "proceed");
+});
+
+test("probeFileVault: non-darwin platform → state=non-macos; fdesetup NOT invoked", async () => {
+  let called = false;
+  const fakeExec = () => {
+    called = true;
+  };
+  for (const platform of ["linux", "win32", "freebsd", "aix"]) {
+    const result = await probeFileVault({ platform, execFile: fakeExec });
+    assert.equal(result.state, "non-macos", `platform=${platform}`);
+  }
+  assert.equal(called, false, "fdesetup must NOT be invoked on non-darwin");
+});
+
+test("probeFileVault: darwin + stdout 'FileVault is On.' → state=on; correct command + args", async () => {
+  let cmdSeen = null;
+  let argsSeen = null;
+  let timeoutSeen = null;
+  const fakeExec = (cmd, args, opts, cb) => {
+    cmdSeen = cmd;
+    argsSeen = [...args];
+    timeoutSeen = opts.timeout;
+    cb(null, "FileVault is On.\n", "");
+  };
+  const result = await probeFileVault({ platform: "darwin", execFile: fakeExec });
+  assert.equal(result.state, "on");
+  assert.equal(result.raw, "FileVault is On.\n");
+  assert.equal(cmdSeen, "/usr/bin/fdesetup", "must invoke macOS fdesetup at absolute path");
+  assert.deepEqual(argsSeen, ["status"]);
+  assert.equal(typeof timeoutSeen, "number");
+  assert.ok(timeoutSeen > 0 && timeoutSeen <= 10_000, "timeout must be positive and ≤10s");
+});
+
+test("probeFileVault: darwin + stdout 'FileVault is Off.' → state=off", async () => {
+  const fakeExec = (_c, _a, _o, cb) => cb(null, "FileVault is Off.\n", "");
+  const result = await probeFileVault({ platform: "darwin", execFile: fakeExec });
+  assert.equal(result.state, "off");
+});
+
+test("probeFileVault: darwin + execFile error (e.g. ENOENT) → state=unknown + error captured", async () => {
+  const fakeExec = (_c, _a, _o, cb) => {
+    const err = Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" });
+    cb(err, "", "fdesetup not found");
+  };
+  const result = await probeFileVault({ platform: "darwin", execFile: fakeExec });
+  assert.equal(result.state, "unknown");
+  assert.match(result.error ?? "", /fdesetup failed/);
+  assert.match(result.error ?? "", /ENOENT/);
+  assert.match(result.error ?? "", /fdesetup not found/);
+});
+
+test("probeFileVault: darwin + unrecognized stdout → state=unknown (no error)", async () => {
+  const fakeExec = (_c, _a, _o, cb) => cb(null, "Decryption in Progress\n", "");
+  const result = await probeFileVault({ platform: "darwin", execFile: fakeExec });
+  assert.equal(result.state, "unknown");
+  assert.equal(result.error, undefined, "no error on parse-unknown; only on exec failure");
+});
+
+test("probeFileVault: darwin + synchronous throw from execFile → state=unknown + error captured", async () => {
+  const fakeExec = () => {
+    throw new Error("spawn ENOMEM");
+  };
+  const result = await probeFileVault({ platform: "darwin", execFile: fakeExec });
+  assert.equal(result.state, "unknown");
+  assert.match(result.error ?? "", /spawn ENOMEM/);
+});
+
+test("probeFileVault: custom timeoutMs is forwarded to execFile options", async () => {
+  let timeoutSeen = null;
+  const fakeExec = (_c, _a, opts, cb) => {
+    timeoutSeen = opts.timeout;
+    cb(null, "FileVault is On.\n", "");
+  };
+  await probeFileVault({ platform: "darwin", execFile: fakeExec, timeoutMs: 1500 });
+  assert.equal(timeoutSeen, 1500);
 });

@@ -92,6 +92,11 @@ test("packaged .app launches; window opens; title correct; 12 panels render with
   const app = await electron.launch({
     executablePath: binary,
     args: [],
+    // LAWBAR_MODE=dev disables the Tier 1 FileVault BLOCK for the
+    // packaged-binary smoke (per dev-memo/plan-encryption-at-rest-00.md
+    // §4.1). The packaged binary inherits this env from the spawning
+    // process; production launches still BLOCK on FileVault-off Macs.
+    env: { ...process.env, LAWBAR_MODE: "dev" },
   });
   t.after(async () => {
     await app.close();
@@ -136,6 +141,11 @@ test("packaged .app theme switching toggles <html data-theme>", async (t) => {
   const app = await electron.launch({
     executablePath: binary,
     args: [],
+    // LAWBAR_MODE=dev disables the Tier 1 FileVault BLOCK for the
+    // packaged-binary smoke (per dev-memo/plan-encryption-at-rest-00.md
+    // §4.1). The packaged binary inherits this env from the spawning
+    // process; production launches still BLOCK on FileVault-off Macs.
+    env: { ...process.env, LAWBAR_MODE: "dev" },
   });
   t.after(async () => {
     await app.close();

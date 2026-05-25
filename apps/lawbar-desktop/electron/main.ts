@@ -1,9 +1,14 @@
-import { app, BrowserWindow, ipcMain, nativeTheme } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadThemePreference } from "../src/persistence/themePreference.js";
 import { runCaseBoxProbe } from "../src/probes/caseBoxProbe.js";
+import {
+  decideAction,
+  probeFileVault,
+  resolveMode,
+} from "../src/security/fileVaultProbe.js";
 import { resolveAndPersist } from "../src/theme/applyTheme.js";
 import {
   resolveSystemMode,
@@ -95,7 +100,39 @@ nativeTheme.on("updated", () => {
   mainWindow.webContents.send("theme:system-change", resolved, preference.mode);
 });
 
-void app.whenReady().then(() => {
+// Tier 1 FileVault enforcement (per dev-memo/plan-encryption-at-rest-00.md
+// §4.1). Runs at app launch BEFORE the first BrowserWindow opens. In
+// production mode (default; LAWBAR_MODE unset or != "dev"), a missing or
+// indeterminate FileVault state blocks launch with a dialog and quits.
+// In dev mode (LAWBAR_MODE=dev), the same condition logs a warning to
+// stderr and proceeds. Non-macOS platforms skip the check entirely. The
+// probe is also short-circuited under --probe-case-box (the native-module
+// smoke flag exits before app.whenReady resolves).
+void app.whenReady().then(async () => {
+  // When --probe-case-box is set the top-level IIFE is already racing to
+  // process.exit; skip the FileVault path so we don't pop a dialog or
+  // initiate app.quit in parallel with the probe's exit.
+  if (process.argv.includes("--probe-case-box")) return;
+  const mode = resolveMode(process.env);
+  const probe = await probeFileVault();
+  const action = decideAction(probe.state, mode);
+  if (action === "block") {
+    const detail =
+      `lawbar requires FileVault to be enabled before launch in production mode.\n\n` +
+      `Detected state: ${probe.state}\n` +
+      (probe.error !== undefined ? `Probe error: ${probe.error}\n\n` : "\n") +
+      `Enable FileVault in System Settings → Privacy & Security → FileVault, ` +
+      `or set LAWBAR_MODE=dev for development builds.`;
+    dialog.showErrorBox("FileVault required", detail);
+    app.quit();
+    return;
+  }
+  if (action === "warn") {
+    process.stderr.write(
+      `[lawbar:fileVault] WARNING — FileVault state=${probe.state}; ` +
+        `running in dev mode (LAWBAR_MODE=dev). Production launch would block.\n`,
+    );
+  }
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

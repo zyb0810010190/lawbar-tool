@@ -16,6 +16,11 @@ test("Electron launches; window opens; title correct; 12 panels render", async (
   const app = await electron.launch({
     args: ["."],
     cwd: projectRoot,
+    // LAWBAR_MODE=dev disables the Tier 1 FileVault enforcement BLOCK so
+    // smoke tests pass on dev machines where FileVault may be off (per
+    // dev-memo/plan-encryption-at-rest-00.md §4.1). Production launches
+    // (mode unset or != "dev") still BLOCK when FileVault is off.
+    env: { ...process.env, LAWBAR_MODE: "dev" },
   });
   t.after(async () => {
     await app.close();
@@ -56,6 +61,11 @@ test("theme switching: light → dark → light updates data-theme attribute", a
   const app = await electron.launch({
     args: ["."],
     cwd: projectRoot,
+    // LAWBAR_MODE=dev disables the Tier 1 FileVault enforcement BLOCK so
+    // smoke tests pass on dev machines where FileVault may be off (per
+    // dev-memo/plan-encryption-at-rest-00.md §4.1). Production launches
+    // (mode unset or != "dev") still BLOCK when FileVault is off.
+    env: { ...process.env, LAWBAR_MODE: "dev" },
   });
   t.after(async () => {
     await app.close();
@@ -94,6 +104,11 @@ test("live OS appearance change (System mode): nativeTheme.themeSource flip prop
   const app = await electron.launch({
     args: ["."],
     cwd: projectRoot,
+    // LAWBAR_MODE=dev disables the Tier 1 FileVault enforcement BLOCK so
+    // smoke tests pass on dev machines where FileVault may be off (per
+    // dev-memo/plan-encryption-at-rest-00.md §4.1). Production launches
+    // (mode unset or != "dev") still BLOCK when FileVault is off.
+    env: { ...process.env, LAWBAR_MODE: "dev" },
   });
   t.after(async () => {
     await app.close();
