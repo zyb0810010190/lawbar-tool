@@ -2,3 +2,8 @@ node_modules/
 dist/
 release/
 *.tsbuildinfo
+
+# Auto-generated wrapper test fixtures (regenerated each run by tests/wrapper.test.mjs; not source).
+tests/_wrapper-noop.test.mjs
+tests/_wrapper-seeder*.test.mjs
+tests/_wrapper-suicide.test.mjs

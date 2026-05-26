@@ -1,6 +1,13 @@
 // Packaged-binary smoke test (Packaging Smoke WI-A per
 // dev-memo/plan-packaging-smoke-00.md §2.2).
 //
+// SUSPECT-CLASS-B — see dev-memo/plan-packaged-probe-verification-00.md §25.
+// Until WI-pkg-verify-detection-impl's §11 G2.7 ≥50-run reproduction passes
+// Outcome A (zero attributable .ips in 50 runs), this test file's
+// `electronApp.close()` pattern is considered observationally usable but
+// not categorically safe against the Class B late-shutdown SIGSEGV. Crash
+// detection now runs via scripts/test-packaged-wrapper.mjs.
+//
 // Asserts that the .app produced by `npm run dist` behaves
 // identically to the dev-mode shell for the 4 properties below.
 // MUST be run AFTER `npm run dist` (the test does NOT trigger the
@@ -19,7 +26,24 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { _electron as electron } from "playwright";
+
+import { launchPackaged } from "./_launch-with-pid-log.mjs";
+
+// Wrapper sentinel — Guard #3 (load-bearing) per
+// dev-memo/plan-pkg-verify-detection-redesign-00.md §6 Guard #3 rev-0.1.
+// Either LAWBAR_CI=true OR CI=true triggers CI mode.
+const __isCi = process.env.LAWBAR_CI === "true" || process.env.CI === "true";
+if (__isCi) {
+  const __missing = [];
+  if (!process.env.LAWBAR_TEST_PID_LOG) __missing.push("LAWBAR_TEST_PID_LOG");
+  if (!process.env.LAWBAR_WRAPPER_VERSION) __missing.push("LAWBAR_WRAPPER_VERSION");
+  if (__missing.length > 0) {
+    console.error(
+      `[smoke.packaged] FATAL: must run through scripts/test-packaged-wrapper.mjs in CI; missing env: ${__missing.join(", ")}`,
+    );
+    process.exit(2);
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -89,7 +113,7 @@ test("packaged .app launches; window opens; title correct; 12 panels render with
   assert.ok(binary !== null, "packaged .app missing");
 
   clearPref();
-  const app = await electron.launch({
+  const app = await launchPackaged({
     executablePath: binary,
     args: [],
     // LAWBAR_MODE=dev disables the Tier 1 FileVault BLOCK for the
@@ -97,7 +121,7 @@ test("packaged .app launches; window opens; title correct; 12 panels render with
     // §4.1). The packaged binary inherits this env from the spawning
     // process; production launches still BLOCK on FileVault-off Macs.
     env: { ...process.env, LAWBAR_MODE: "dev" },
-  });
+  }, { testName: "packaged smoke: 12 panels" });
   t.after(async () => {
     await app.close();
     clearPref();
@@ -138,15 +162,11 @@ test("packaged .app theme switching toggles <html data-theme>", async (t) => {
   assert.ok(binary !== null, "packaged .app missing");
 
   clearPref();
-  const app = await electron.launch({
+  const app = await launchPackaged({
     executablePath: binary,
     args: [],
-    // LAWBAR_MODE=dev disables the Tier 1 FileVault BLOCK for the
-    // packaged-binary smoke (per dev-memo/plan-encryption-at-rest-00.md
-    // §4.1). The packaged binary inherits this env from the spawning
-    // process; production launches still BLOCK on FileVault-off Macs.
     env: { ...process.env, LAWBAR_MODE: "dev" },
-  });
+  }, { testName: "packaged smoke: theme switching" });
   t.after(async () => {
     await app.close();
     clearPref();
