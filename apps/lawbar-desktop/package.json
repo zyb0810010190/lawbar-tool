@@ -18,12 +18,17 @@
     "test:unit": "npm run build && node --test tests/main.test.mjs",
     "test:smoke": "npm run build && node --test tests/smoke.electron.test.mjs",
     "test:packaged": "node scripts/test-packaged-wrapper.mjs",
+    "test:tarball-poc": "LAWBAR_TEST_FILES=tests/tarball-poc.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
+    "pack:internal": "node scripts/pack-internal-packages.mjs",
+    "bootstrap": "npm --prefix ../../docs/contracts/case-box-contract run build && npm --prefix ../../services/case-box-persistence run build && npm run pack:internal && npm install",
     "dev": "npm run build && electron .",
     "dist": "npm run build && electron-builder",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "better-sqlite3": "^12.9.0"
+    "better-sqlite3": "^12.9.0",
+    "case-box-contract": "file:dist-tarballs/case-box-contract-0.1.0.tgz",
+    "case-box-persistence": "file:dist-tarballs/case-box-persistence-0.1.0.tgz"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0",

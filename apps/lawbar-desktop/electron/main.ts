@@ -108,6 +108,20 @@ void app.whenReady().then(async () => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+
+  // Tarball PoC env-gated test hook. Per dev-memo/plan-desktop-pkg-arch-
+  // tarball-poc-01.md (rev-0.3 at 1d04256) §6.1: when
+  // LAWBAR_TARBALL_POC_TEST_HOOK=true (set ONLY by the wrapper-driven
+  // test in tests/tarball-poc.electron.test.mjs), lazily install a probe
+  // function on globalThis that the test invokes via app.evaluate. The
+  // dynamic import below runs in the main process's NATIVE ESM loader
+  // (NOT in app.evaluate's vm context) — this is the load-bearing
+  // bypass for parent §26 step 3 ESM evidence-2 blocker. Production
+  // launches (env var unset; default) install nothing.
+  if (process.env.LAWBAR_TARBALL_POC_TEST_HOOK === "true") {
+    const { runTarballPocProbe } = await import("../src/tarball-poc/probe.js");
+    (globalThis as { __lawbarTarballPocProbe?: typeof runTarballPocProbe }).__lawbarTarballPocProbe = runTarballPocProbe;
+  }
 });
 
 app.on("window-all-closed", () => {
