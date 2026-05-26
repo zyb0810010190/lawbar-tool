@@ -1,6 +1,8 @@
 # PLAN — `WI-desktop-pkg-arch-tarball-poc` (PoC implementation plan)
 
-**Status**: PLAN-ONLY (READY after third review; 3 Low fixes applied inline).
+**SUPERSEDED** by `dev-memo/plan-desktop-pkg-arch-tarball-poc-01.md` after revert `ace57a0` of impl commit `4783521` (Class A SIGABRT crash class per `dev-memo/rollback-ace57a0-pkg-arch-poc.md`). The successor plan retains this file's structural framing but replaces the verification mechanism (rev-0's §6 spawn-then-process-exit pattern → rev-01 Option A1 env-gated `globalThis` test hook invoked via WI-2 wrapper + `app.evaluate`). This file is kept as historical record; do NOT implement against this plan.
+
+**Status**: PLAN-ONLY (READY after third review; 3 Low fixes applied inline). [Historical; superseded as above.]
 **Date**: 2026-05-25.
 **Author**: Claude Code on explicit user direction (PoC impl plan lane).
 **Authoritative after**: `/cc-suite:review-plan` returns READY (or only Low-risk clarifications remain).
