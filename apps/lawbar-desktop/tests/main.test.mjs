@@ -164,18 +164,29 @@ test("productName is 'lawbar' in package.json (drives app.getPath('userData'))",
   assert.equal(pkg.build?.productName, "lawbar", "electron-builder productName must be 'lawbar'");
 });
 
-test("--probe-case-box flag-detect: production launch (no flag) does NOT trigger probe; only flag presence does", () => {
-  // Mirror the exact check in electron/main.ts line ~21.
-  // The detection is the literal Array.includes check — confirm both
-  // branches of that condition.
-  function isProbeFlagged(argv) {
-    return argv.includes("--probe-case-box");
-  }
-  assert.equal(isProbeFlagged(["electron", "."]), false, "production launch must NOT trigger probe");
-  assert.equal(isProbeFlagged(["electron", ".", "--probe-case-box"]), true, "flag presence must trigger probe");
-  assert.equal(isProbeFlagged(["lawbar"]), false);
-  assert.equal(isProbeFlagged(["lawbar", "--probe-case-box"]), true);
-  assert.equal(isProbeFlagged(["lawbar", "--some-other-flag"]), false);
+// WI-retire-probe-case-box (post-017c560 detection-impl): the
+// `--probe-case-box` flag handler in electron/main.ts and the
+// src/probes/caseBoxProbe.ts source are RETIRED per parent plan rev-3.1
+// §26 step 4 + §12 Option A. The prior flag-detect test (which mirrored
+// the Array.includes check that has been removed) is also retired.
+// Replacement coverage for the better-sqlite3 native-module loadability
+// inside packaged Electron is DEFERRED to WI-3 (the pkg-verify-playwright-
+// evaluate-poc; gated on the ESM evidence-2 plan amendment per parent
+// §26 step 3). The retirement commit message records this intentional
+// coverage delta.
+
+test("retire: --probe-case-box flag handler removed from electron/main.ts", () => {
+  const mainTs = fs.readFileSync(path.join(__dirname, "..", "electron", "main.ts"), "utf-8");
+  assert.doesNotMatch(
+    mainTs,
+    /--probe-case-box/,
+    "electron/main.ts must NOT reference --probe-case-box after WI-retire-probe-case-box",
+  );
+  assert.doesNotMatch(
+    mainTs,
+    /runCaseBoxProbe|caseBoxProbe/,
+    "electron/main.ts must NOT import or reference runCaseBoxProbe",
+  );
 });
 
 // Tier 1 FileVault enforcement tests (per dev-memo/plan-encryption-at-rest-00.md

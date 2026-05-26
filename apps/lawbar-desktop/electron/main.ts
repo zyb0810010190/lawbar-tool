@@ -3,7 +3,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadThemePreference } from "../src/persistence/themePreference.js";
-import { runCaseBoxProbe } from "../src/probes/caseBoxProbe.js";
 import {
   decideAction,
   probeFileVault,
@@ -18,28 +17,6 @@ import { DARK_TOKENS, LIGHT_TOKENS } from "../src/theme/tokens.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// Native-module probe flag handler (Packaging Smoke WI-B per
-// dev-memo/plan-packaging-smoke-wib-00.md §1.2; Option A fallback
-// per user authorization — Option B file:-link packaging was
-// abandoned). Short-circuits the app launch path; runs direct
-// `better-sqlite3` against an isolated temp SQLite file inside the
-// packaged binary; prints PROBE_OK / PROBE_FAIL to stdout and exits
-// 0/1 BEFORE app.whenReady fires. Production launch (no flag) is
-// UNCHANGED — the registrations below still execute but app.whenReady
-// never resolves because process.exit terminates the process first.
-if (process.argv.includes("--probe-case-box")) {
-  void (async () => {
-    const result = await runCaseBoxProbe();
-    if (result.ok) {
-      process.stdout.write(`PROBE_OK durationMs=${result.durationMs ?? 0}\n`);
-      process.exit(0);
-    } else {
-      process.stdout.write(`PROBE_FAIL: ${result.error ?? "(unknown error)"}\n`);
-      process.exit(1);
-    }
-  })();
-}
 
 // productName: "lawbar" → app.getPath("userData") resolves to
 // ~/Library/Application Support/lawbar on macOS.
@@ -105,14 +82,8 @@ nativeTheme.on("updated", () => {
 // production mode (default; LAWBAR_MODE unset or != "dev"), a missing or
 // indeterminate FileVault state blocks launch with a dialog and quits.
 // In dev mode (LAWBAR_MODE=dev), the same condition logs a warning to
-// stderr and proceeds. Non-macOS platforms skip the check entirely. The
-// probe is also short-circuited under --probe-case-box (the native-module
-// smoke flag exits before app.whenReady resolves).
+// stderr and proceeds. Non-macOS platforms skip the check entirely.
 void app.whenReady().then(async () => {
-  // When --probe-case-box is set the top-level IIFE is already racing to
-  // process.exit; skip the FileVault path so we don't pop a dialog or
-  // initiate app.quit in parallel with the probe's exit.
-  if (process.argv.includes("--probe-case-box")) return;
   const mode = resolveMode(process.env);
   const probe = await probeFileVault();
   const action = decideAction(probe.state, mode);
