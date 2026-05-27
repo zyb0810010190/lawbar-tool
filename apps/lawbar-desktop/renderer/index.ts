@@ -1,15 +1,26 @@
-// Renderer entry. ZERO imports per dev-memo/plan-first-ui-shell-00.md
-// §1 rev-2. All palette values live in renderer/index.css as CSS
-// custom properties; this script only toggles <html data-theme>,
-// renders the 12 token panels, and calls window.lawbar.theme.* via
-// the preload bridge.
+// Renderer entry. Router bootstrap that mounts the case-box product UI.
+// Per dev-memo/plan-casebox-ui-plan-00.md rev-0.1 §5 (renderer-internal
+// relative imports allowed) + §6 (route → screen mapping).
+//
+// Imports renderer-internal modules ONLY. The renderer-import lint
+// (`scripts/check-renderer-imports.mjs`) enforces that no import resolves to
+// `src/caseBox`, `electron`, `node:*`, `case-box-persistence`, etc.
+
+import { getDefaultApi, type CaseBoxApi } from "./api.js";
+import { attachRouter, type ParsedRoute } from "./router.js";
+import { mountListMatters } from "./screens/listMatters.js";
+import { mountCreateMatter } from "./screens/createMatter.js";
+import { mountViewMatter } from "./screens/viewMatter.js";
+import { mountArchiveMatter } from "./screens/archiveMatter.js";
 
 type ThemePreference = "system" | "light" | "dark";
 type ResolvedTheme = "light" | "dark";
 
 interface LawbarThemeApi {
   get(): Promise<{ preference: ThemePreference; resolved: ResolvedTheme }>;
-  set(mode: ThemePreference): Promise<{ preference: ThemePreference; resolved: ResolvedTheme }>;
+  set(
+    mode: ThemePreference,
+  ): Promise<{ preference: ThemePreference; resolved: ResolvedTheme }>;
   onSystemChange(
     callback: (resolved: ResolvedTheme, preference: ThemePreference) => void,
   ): void;
@@ -17,96 +28,116 @@ interface LawbarThemeApi {
 
 declare global {
   interface Window {
-    lawbar: { theme: LawbarThemeApi };
+    lawbar: {
+      theme: LawbarThemeApi;
+      // The caseBox surface is exposed by preload.mts and consumed via
+      // ./api.js getDefaultApi(); typed loosely here so the renderer entry
+      // doesn't need to repeat the contract.
+      caseBox: unknown;
+    };
   }
 }
 
-const TOKENS = [
-  "background",
-  "surface",
-  "surface-elevated",
-  "text",
-  "muted-text",
-  "border",
-  "accent",
-  "text-on-accent",
-  "danger",
-  "warning",
-  "success",
-  "focus-ring",
-] as const;
+function navigate(hash: string): void {
+  if (window.location.hash === hash) {
+    // Re-mount even when the hash didn't change (caller intent: re-render).
+    void renderRoute({ name: parseRouteName(hash), params: parseParams(hash) });
+    return;
+  }
+  window.location.hash = hash;
+}
 
-async function render(): Promise<void> {
-  const main = document.querySelector("main");
-  if (main === null) {
-    throw new Error("renderer bootstrap: <main> not found");
+function parseRouteName(hash: string): ParsedRoute["name"] {
+  if (hash === "#/matters" || hash === "" || hash === "#") return "list";
+  if (hash === "#/matters/new") return "new";
+  if (/^#\/matters\/[0-9a-z]{26}$/.test(hash)) return "view";
+  if (/^#\/matters\/[0-9a-z]{26}\/archive$/.test(hash)) return "archive";
+  return "not-found";
+}
+
+function parseParams(hash: string): { id?: string } {
+  const view = /^#\/matters\/([0-9a-z]{26})$/.exec(hash);
+  if (view !== null) return { id: view[1] };
+  const archive = /^#\/matters\/([0-9a-z]{26})\/archive$/.exec(hash);
+  if (archive !== null) return { id: archive[1] };
+  return {};
+}
+
+async function renderRoute(route: ParsedRoute): Promise<void> {
+  const app = document.querySelector<HTMLElement>("#app");
+  if (app === null) {
+    throw new Error("renderer bootstrap: #app element not found");
+  }
+  let api: CaseBoxApi;
+  try {
+    api = getDefaultApi();
+  } catch (err) {
+    app.textContent = `Bootstrap error: ${(err as Error).message}`;
+    return;
   }
 
-  const { resolved, preference } = await window.lawbar.theme.get();
-  document.documentElement.setAttribute("data-theme", resolved);
-
-  main.innerHTML = `
-    <header>
-      <h1>lawbar (token fixture)</h1>
-      <p>NOT product UI. Token-compliance fixture. Mode: <span id="mode-display"></span></p>
-      <div role="group" aria-label="Theme selector">
-        <button type="button" data-mode="system">System</button>
-        <button type="button" data-mode="light">Light</button>
-        <button type="button" data-mode="dark">Dark</button>
-      </div>
-    </header>
-    <section id="panels" aria-label="Theme tokens"></section>
-  `;
-
-  updateModeDisplay(preference, resolved);
-
-  const panels = document.querySelector("#panels");
-  if (panels === null) {
-    throw new Error("renderer bootstrap: #panels not found");
+  switch (route.name) {
+    case "list":
+      await mountListMatters(app, { api, navigate });
+      return;
+    case "new":
+      mountCreateMatter(app, { api, navigate });
+      return;
+    case "view":
+      if (route.params.id === undefined) {
+        navigate("#/not-found");
+        return;
+      }
+      await mountViewMatter(app, { api, navigate }, route.params.id);
+      return;
+    case "archive":
+      if (route.params.id === undefined) {
+        navigate("#/not-found");
+        return;
+      }
+      await mountArchiveMatter(app, { api, navigate }, route.params.id);
+      return;
+    case "not-found":
+    default:
+      app.textContent = "";
+      const h1 = document.createElement("h1");
+      h1.textContent = "Not found";
+      const p = document.createElement("p");
+      p.textContent =
+        "The requested screen does not exist or the matter ID is malformed.";
+      const a = document.createElement("a");
+      a.setAttribute("href", "#/matters");
+      a.textContent = "Back to matters";
+      app.appendChild(h1);
+      app.appendChild(p);
+      app.appendChild(a);
+      return;
   }
+}
 
-  panels.innerHTML = TOKENS.map((token) => `
-    <article class="panel" data-token="${token}">
-      <div class="swatch" style="background: var(--color-${token});" aria-hidden="true"></div>
-      <h2>${token}</h2>
-      <code>var(--color-${token})</code>
-    </article>
-  `).join("");
-
-  document.querySelectorAll<HTMLButtonElement>("button[data-mode]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const mode = btn.dataset.mode as ThemePreference | undefined;
-      if (mode === undefined) return;
-      void (async () => {
-        const result = await window.lawbar.theme.set(mode);
-        document.documentElement.setAttribute("data-theme", result.resolved);
-        updateModeDisplay(result.preference, result.resolved);
-      })();
-    });
+function setupTheme(): void {
+  const root = document.documentElement;
+  void window.lawbar.theme.get().then(({ resolved }) => {
+    root.setAttribute("data-theme", resolved);
   });
-
-  window.lawbar.theme.onSystemChange((newResolved, newPreference) => {
-    document.documentElement.setAttribute("data-theme", newResolved);
-    updateModeDisplay(newPreference, newResolved);
+  window.lawbar.theme.onSystemChange((resolved) => {
+    root.setAttribute("data-theme", resolved);
   });
 }
 
-function updateModeDisplay(preference: ThemePreference, resolved: ResolvedTheme): void {
-  const el = document.querySelector("#mode-display");
-  if (el !== null) {
-    el.textContent = `${preference} → ${resolved}`;
-  }
+function bootstrap(): void {
+  setupTheme();
+  // attachRouter from ./router.js fires once on attach and then on every
+  // hashchange event, so the initial route renders on load.
+  attachRouter((route) => {
+    void renderRoute(route);
+  });
 }
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
-    void render();
+    bootstrap();
   });
 } else {
-  void render();
+  bootstrap();
 }
-
-// Force TS to treat this file as a module without emitting any
-// runtime `import`. The compiled JS has zero `import` statements;
-// it is a pure global script in the renderer.
-export {};

@@ -25,7 +25,11 @@ const INDEX_CSS = path.join(RENDERER_DIR, "index.css");
 const HEX_RE = /#[0-9A-Fa-f]{3,8}\b/g;
 const RGB_RE = /\brgba?\s*\(/g;
 const HSL_RE = /\bhsla?\s*\(/g;
-const NAMED_RE = /\b(red|blue|green|yellow|orange|purple|pink|brown|gray|grey|black|white|cyan|magenta)\b/gi;
+// Named-color match requires the color name to be followed by something
+// other than `-` or `_` so CSS property names like `white-space` are not
+// flagged as raw colors. (Lookbehind for the same reason on the preceding
+// side would also work but `\b` already handles the common cases.)
+const NAMED_RE = /\b(red|blue|green|yellow|orange|purple|pink|brown|gray|grey|black|white|cyan|magenta)\b(?![-_])/gi;
 
 function collect(dir) {
   const out = [];
