@@ -24,6 +24,11 @@ const PATTERNS = [
 
 const SCOPE_HINTS = [
   /casebox|case-box|caseBox/i,
+  // Per dev-memo/plan-casebox-ui-plan-00.md rev-0.1 M2 reconciliation: the
+  // first regex above misses renderer paths like `renderer/screens/listMatters.ts`
+  // that do not contain the `casebox` substring. Second regex extends scope to
+  // every file under the desktop app's renderer/.
+  /apps\/lawbar-desktop\/renderer\//,
 ];
 
 const SKIP_DIRS = new Set(["node_modules", "dist", "coverage", "release", ".git", "dist-tarballs", "staging"]);
