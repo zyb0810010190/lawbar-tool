@@ -395,6 +395,14 @@ function renderConfirmation(
     ],
     doc,
   );
+  // Wire the form's `submit` event so Enter-in-input triggers the same path
+  // as a button click (per audit M2 + §7.4 Enter-to-submit). Without this,
+  // the browser default would attempt to navigate the page.
+  form.addEventListener("submit", (event) => {
+    const e = event as Event & { preventDefault?: () => void };
+    if (typeof e.preventDefault === "function") e.preventDefault();
+    void handleSubmit();
+  });
 
   root.appendChild(back);
   root.appendChild(title);

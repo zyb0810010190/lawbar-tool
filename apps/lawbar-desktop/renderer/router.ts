@@ -15,8 +15,10 @@ export interface ParsedRoute {
   readonly params: { readonly id?: string };
 }
 
-// 26-char Crockford base32 lowercase ULID per IPC contract §6.0.
-const ULID_RE = /^[0-9a-z]{26}$/;
+// 26-char Crockford base32 lowercase ULID per IPC contract §6.0. Crockford's
+// alphabet excludes `i`, `l`, `o`, and `u` to avoid confusion with `1` / `0`
+// / `v`. The character class below mirrors that restriction.
+const ULID_RE = /^[0-9a-hjkmnp-tv-z]{26}$/;
 
 export function parseHash(hash: string): ParsedRoute {
   // Drop leading "#"; treat empty hash as root.

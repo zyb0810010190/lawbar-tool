@@ -424,6 +424,36 @@ test("normal valid archive emits NO console.warn", async () => {
   );
 });
 
+test("submit: form 'submit' event (Enter-in-input) triggers handleSubmit + preventDefault", async () => {
+  // Per audit M2: Enter-in-input must invoke handleSubmit + preventDefault,
+  // NOT default browser submission.
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const navCalls = [];
+  const calls = [];
+  const api = makeStubApi({
+    archiveMatter: async (dto) => {
+      calls.push(dto);
+      return { ok: true, value: activeMatter({ status: "archived" }) };
+    },
+  });
+  await mountArchiveMatter(root, { api, navigate: (h) => navCalls.push(h), doc }, VALID_ULID);
+  const ta = findOne(root, (n) => n.getAttribute("id") === "am-reason");
+  fire(ta, "input", "synthetic-archive-reason-fixture");
+  const form = findByTestId(root, "archive-form");
+  let prevented = false;
+  form.dispatchEvent({
+    type: "submit",
+    preventDefault: () => {
+      prevented = true;
+    },
+  });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(prevented, true);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(navCalls, [`#/matters/${VALID_ULID}`]);
+});
+
 test("submit: in-flight submit blocks a second concurrent submit (no double archive)", async () => {
   const doc = new MockDoc();
   const root = doc.createElement("main");

@@ -138,14 +138,11 @@ test("case-box UI packaged flow: list → create → view → archive → chain 
 
   try {
     const win = await app.firstWindow();
-    // Wait for "load" rather than "domcontentloaded": module scripts are
-    // deferred, and Playwright Electron under asar can race the bootstrap
-    // if we attach selectors before the ESM graph finishes loading.
-    await win.waitForLoadState("load");
-    await win.waitForSelector("main#app");
-
-    // 1) Initial list — empty active state.
-    await win.waitForSelector('h1');
+    // Poll selectors directly instead of relying on `waitForLoadState`,
+    // which is intermittently slow under Playwright Electron + asar. The
+    // existing IPC packaged test uses the same direct-evaluate-poll pattern.
+    await win.waitForSelector("main#app", { timeout: 20000 });
+    await win.waitForSelector('h1', { timeout: 20000 });
     const h1Text = await win.locator("h1").first().textContent();
     assert.equal(h1Text, "lawbar — case-box");
     await win.waitForSelector('[data-test-id="list-empty"]', { timeout: 5000 });

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountCreateMatter } from "../dist/renderer/screens/createMatter.js";
 
-const NEW_ULID = "01jzcreatemattercreatedfix0";
+const NEW_ULID = "01jznewmatter0123456789abc";
 
 // --- Minimal MockDocument ---
 
@@ -501,6 +501,33 @@ test("parties: Remove party drops the target row + preserves sibling values", ()
   // Values preserved: row 0 still has "first-role"; row 2 still has "third-role".
   assert.equal(findInputById(root, "cm-party-0-role").getAttribute("value"), "first-role");
   assert.equal(findInputById(root, "cm-party-2-role").getAttribute("value"), "third-role");
+});
+
+test("submit: form 'submit' event (Enter-in-input) triggers handleSubmit + preventDefault", async () => {
+  // Per audit M2: Enter-in-input must invoke handleSubmit, NOT default
+  // browser submission (which would attempt page navigation under file://).
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const calls = [];
+  const api = makeStubApi({
+    createMatter: async (dto) => {
+      calls.push(dto);
+      return { ok: true, value: { id: NEW_ULID } };
+    },
+  });
+  mountCreateMatter(root, { api, navigate: () => {}, doc });
+  fillValidForm(root);
+  const form = findByTestId(root, "create-form");
+  let prevented = false;
+  form.dispatchEvent({
+    type: "submit",
+    preventDefault: () => {
+      prevented = true;
+    },
+  });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(prevented, true);
+  assert.equal(calls.length, 1);
 });
 
 test("submit: optional free-text fields included when non-empty after trim", async () => {
