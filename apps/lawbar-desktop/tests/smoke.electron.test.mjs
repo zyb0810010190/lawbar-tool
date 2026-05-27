@@ -1,6 +1,12 @@
-// Playwright Electron smoke test.
-// Asserts: window opens; title correct; 12 panels render; theme
-// switching toggles <html data-theme>.
+// Playwright Electron smoke test for the case-box product UI shell.
+// Per dev-memo/plan-casebox-ui-plan-00.md rev-0.1 H3 reconciliation (smoke
+// migrated in this WI; was a 12-panel-token-fixture smoke previously).
+//
+// Asserts:
+//   1. Window opens; title is "lawbar".
+//   2. <main id="app"> exists; #/matters route renders the case-box header
+//      and the empty active-list copy (in-memory backing → empty on launch).
+//   3. nativeTheme.themeSource flip propagates to <html data-theme>.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -12,14 +18,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
 
-test("Electron launches; window opens; title correct; 12 panels render", async (t) => {
+test("Electron launches; window opens; title=lawbar; #app renders case-box list shell", async (t) => {
   const app = await electron.launch({
     args: ["."],
     cwd: projectRoot,
     // LAWBAR_MODE=dev disables the Tier 1 FileVault enforcement BLOCK so
     // smoke tests pass on dev machines where FileVault may be off (per
-    // dev-memo/plan-encryption-at-rest-00.md §4.1). Production launches
-    // (mode unset or != "dev") still BLOCK when FileVault is off.
+    // dev-memo/plan-encryption-at-rest-00.md §4.1).
     env: { ...process.env, LAWBAR_MODE: "dev" },
   });
   t.after(async () => {
@@ -30,104 +35,53 @@ test("Electron launches; window opens; title correct; 12 panels render", async (
   await window.waitForLoadState("domcontentloaded");
 
   const title = await window.title();
-  assert.equal(title, "lawbar (token fixture)");
+  assert.equal(title, "lawbar");
 
-  await window.waitForSelector("article.panel");
-  const panelCount = await window.locator("article.panel").count();
-  assert.equal(panelCount, 12, "must render exactly 12 token panels");
+  // The router shell mount point.
+  await window.waitForSelector("main#app");
 
-  // Each panel has the expected data-token attribute.
-  const expected = [
-    "background",
-    "surface",
-    "surface-elevated",
-    "text",
-    "muted-text",
-    "border",
-    "accent",
-    "text-on-accent",
-    "danger",
-    "warning",
-    "success",
-    "focus-ring",
-  ];
-  for (const token of expected) {
-    const found = await window.locator(`article.panel[data-token="${token}"]`).count();
-    assert.equal(found, 1, `missing panel for token: ${token}`);
-  }
-});
+  // Default route is #/matters (the list screen). The list screen renders
+  // an <h1>lawbar — case-box</h1> and, since v1 backing is in-memory and
+  // fresh on launch, an empty-state copy.
+  await window.waitForSelector("h1");
+  const h1Text = await window.locator("h1").first().textContent();
+  assert.equal(h1Text, "lawbar — case-box");
 
-test("theme switching: light → dark → light updates data-theme attribute", async (t) => {
-  const app = await electron.launch({
-    args: ["."],
-    cwd: projectRoot,
-    // LAWBAR_MODE=dev disables the Tier 1 FileVault enforcement BLOCK so
-    // smoke tests pass on dev machines where FileVault may be off (per
-    // dev-memo/plan-encryption-at-rest-00.md §4.1). Production launches
-    // (mode unset or != "dev") still BLOCK when FileVault is off.
-    env: { ...process.env, LAWBAR_MODE: "dev" },
-  });
-  t.after(async () => {
-    await app.close();
-  });
-
-  const window = await app.firstWindow();
-  await window.waitForLoadState("domcontentloaded");
-  await window.waitForSelector("article.panel");
-
-  // Force light first
-  await window.click("button[data-mode='light']");
-  await window.waitForFunction(() => document.documentElement.getAttribute("data-theme") === "light");
-  assert.equal(await window.getAttribute("html", "data-theme"), "light");
-
-  // Switch to dark
-  await window.click("button[data-mode='dark']");
-  await window.waitForFunction(() => document.documentElement.getAttribute("data-theme") === "dark");
-  assert.equal(await window.getAttribute("html", "data-theme"), "dark");
-
-  // Back to light
-  await window.click("button[data-mode='light']");
-  await window.waitForFunction(() => document.documentElement.getAttribute("data-theme") === "light");
-  assert.equal(await window.getAttribute("html", "data-theme"), "light");
-});
-
-test("live OS appearance change (System mode): nativeTheme.themeSource flip propagates to renderer", async (t) => {
-  // Programmatic equivalent of the manual macOS Appearance toggle gate
-  // documented in dev-memo/plan-first-ui-shell-00.md §3.3. The plan's
-  // manual gate (System Preferences toggle while mode === "system")
-  // exercises Electron's nativeTheme.on("updated") listener; this test
-  // exercises the SAME code path by driving nativeTheme.themeSource
-  // from the main process via app.evaluate(), which is what an OS
-  // toggle does internally. Recorded as the in-CI evidence for plan
-  // §3.3 (manual System Preferences toggle is not available in this
-  // CLI environment; see commit message for the osascript-blocked note).
-  const app = await electron.launch({
-    args: ["."],
-    cwd: projectRoot,
-    // LAWBAR_MODE=dev disables the Tier 1 FileVault enforcement BLOCK so
-    // smoke tests pass on dev machines where FileVault may be off (per
-    // dev-memo/plan-encryption-at-rest-00.md §4.1). Production launches
-    // (mode unset or != "dev") still BLOCK when FileVault is off.
-    env: { ...process.env, LAWBAR_MODE: "dev" },
-  });
-  t.after(async () => {
-    await app.close();
-  });
-
-  const window = await app.firstWindow();
-  await window.waitForLoadState("domcontentloaded");
-  await window.waitForSelector("article.panel");
-
-  // Put renderer in "system" preference so nativeTheme.on("updated")
-  // actually propagates.
-  await window.click("button[data-mode='system']");
-  await window.waitForFunction(
-    () => document.querySelector("#mode-display")?.textContent?.startsWith("system"),
+  // The list screen marks its empty state with a stable test id.
+  await window.waitForSelector('[data-test-id="list-empty"]', { timeout: 5000 });
+  const emptyText = await window
+    .locator('[data-test-id="list-empty"]')
+    .textContent();
+  assert.match(
+    emptyText,
+    /Data is held in memory only — relaunching the app clears it\./,
   );
 
-  // From the main process, flip nativeTheme.themeSource to "dark".
-  // This triggers nativeTheme.on("updated") → main sends
-  // "theme:system-change" to renderer → renderer flips <html data-theme>.
+  // The + New matter button is present so the user can navigate forward.
+  const newBtn = window.locator("button.list-new-btn");
+  await newBtn.waitFor({ state: "visible" });
+});
+
+test("nativeTheme.themeSource flip propagates to <html data-theme>", async (t) => {
+  // Programmatic equivalent of the manual macOS Appearance toggle gate.
+  // The renderer's setupTheme() registers an `onSystemChange` callback that
+  // flips <html data-theme> when main sends `theme:system-change`. Driving
+  // nativeTheme.themeSource from the main process exercises the same code
+  // path as a real OS appearance toggle.
+  const app = await electron.launch({
+    args: ["."],
+    cwd: projectRoot,
+    env: { ...process.env, LAWBAR_MODE: "dev" },
+  });
+  t.after(async () => {
+    await app.close();
+  });
+
+  const window = await app.firstWindow();
+  await window.waitForLoadState("domcontentloaded");
+  await window.waitForSelector("main#app");
+
+  // Flip to dark.
   await app.evaluate(({ nativeTheme }) => {
     nativeTheme.themeSource = "dark";
   });
@@ -138,7 +92,7 @@ test("live OS appearance change (System mode): nativeTheme.themeSource flip prop
   );
   assert.equal(await window.getAttribute("html", "data-theme"), "dark");
 
-  // Flip back to "light" via nativeTheme.
+  // Flip back to light.
   await app.evaluate(({ nativeTheme }) => {
     nativeTheme.themeSource = "light";
   });
