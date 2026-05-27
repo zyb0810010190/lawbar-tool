@@ -1,6 +1,6 @@
 # PLAN — `WI-casebox-ipc-impl-refresh` (case-box IPC impl)
 
-**Status**: PLAN-ONLY rev-0.3-DRAFT-PENDING-REVIEW (supersedes rev-0.2 after review-plan-mpnj8tsr-nujf3z returned NEEDS-FIX with 0 Critical / 0 High / 2 Medium / 0 Low — both Mediums were tight acceptance-gate-wording fixes, not architectural; prior chain: rev-0.1 driven by review-plan-mpmtyoyh-97zt15; rev-0.2 driven by review-plan-mpnhj20a-6yj24u; see §25 review-item disposition table for the full chain).
+**Status**: PLAN-ONLY rev-0.3 READY-with-Low (promoted from rev-0.3-DRAFT-PENDING-REVIEW after `review-plan-mpnkh6ng-4iz5bq` returned READY-with-Low with 0 Critical / 0 High / 0 Medium / 3 Low; all 3 Lows applied inline before commit `d4f3abb`. Full review chain: rev-0 → rev-0.1 driven by `review-plan-mpmtyoyh-97zt15`; rev-0.1 → rev-0.2 driven by `review-plan-mpnhj20a-6yj24u`; rev-0.2 → rev-0.3 driven by `review-plan-mpnj8tsr-nujf3z`; rev-0.3 promoted by `review-plan-mpnkh6ng-4iz5bq`. See §25 review-item disposition table for per-finding mapping).
 **Date**: 2026-05-26.
 **Author**: Claude Code on explicit user direction (WI-casebox-ipc-impl-refresh lane).
 **Authoritative after**: `/cc-suite:review-plan` returns READY (or only Low-risk clarifications remain).
