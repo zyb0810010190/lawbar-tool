@@ -31,6 +31,7 @@
     "test:ui-create-matter": "npm run build && node --test tests/renderer-create-matter.test.mjs",
     "test:ui-view-matter": "npm run build && node --test tests/renderer-view-matter.test.mjs",
     "test:ui-archive-matter": "npm run build && node --test tests/renderer-archive-matter.test.mjs",
+    "test:ui-packaged": "LAWBAR_TEST_FILES=tests/casebox-ui.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
     "lint:renderer-imports": "node scripts/check-renderer-imports.mjs",
     "check:no-real-data": "node scripts/check-no-real-data.mjs",
     "pack:internal": "node scripts/pack-internal-packages.mjs",
