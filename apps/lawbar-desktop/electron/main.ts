@@ -2,6 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { closeCaseBoxRuntime } from "../src/caseBox/caseBoxRuntime.js";
+import { registerCaseBoxIpcHandlers } from "./ipc/caseBoxHandlers.js";
 import { loadThemePreference } from "../src/persistence/themePreference.js";
 import {
   decideAction,
@@ -39,7 +41,9 @@ function createWindow(): void {
       preload: path.join(__dirname, "preload.mjs"),
       // sandbox: false is required for ESM preload in this WI.
       // Security boundary is preserved by contextIsolation + nodeIntegration:false +
-      // the narrow contextBridge surface in preload.ts (window.lawbar.theme only).
+      // the narrow contextBridge surface in preload.mts (currently
+      // window.lawbar.theme + window.lawbar.caseBox; each new surface is
+      // a separately authorized + audited WI).
       // A future WI may switch to a CommonJS-compiled preload + sandbox: true.
       sandbox: false,
       contextIsolation: true,
@@ -104,6 +108,8 @@ void app.whenReady().then(async () => {
         `running in dev mode (LAWBAR_MODE=dev). Production launch would block.\n`,
     );
   }
+  registerCaseBoxIpcHandlers();
+
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -128,4 +134,8 @@ app.on("window-all-closed", () => {
   // Standard macOS app stays alive until Cmd-Q. For this token-fixture
   // WI we quit on all-windows-closed on all platforms (simpler test).
   app.quit();
+});
+
+app.on("before-quit", () => {
+  closeCaseBoxRuntime();
 });

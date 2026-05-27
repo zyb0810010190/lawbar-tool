@@ -4,6 +4,18 @@ import type {
   ResolvedTheme,
   ThemePreference,
 } from "../src/theme/resolveSystemMode.js";
+import type {
+  CreateMatterDto,
+  GetMatterDto,
+  ListMattersDto,
+  ArchiveMatterDto,
+  ChainHeadDto,
+  CreateMatterResult,
+  GetMatterResult,
+  ListMattersResult,
+  ArchiveMatterResult,
+  ChainHeadResult,
+} from "../src/caseBox/dto.js";
 
 export interface ThemeApi {
   get(): Promise<{ preference: ThemePreference; resolved: ResolvedTheme }>;
@@ -11,6 +23,14 @@ export interface ThemeApi {
   onSystemChange(
     callback: (resolved: ResolvedTheme, preference: ThemePreference) => void,
   ): void;
+}
+
+export interface CaseBoxApi {
+  createMatter(dto: CreateMatterDto): Promise<CreateMatterResult>;
+  getMatter(dto: GetMatterDto): Promise<GetMatterResult>;
+  listMatters(dto: ListMattersDto): Promise<ListMattersResult>;
+  archiveMatter(dto: ArchiveMatterDto): Promise<ArchiveMatterResult>;
+  chainHead(dto: ChainHeadDto): Promise<ChainHeadResult>;
 }
 
 const themeApi: ThemeApi = {
@@ -26,4 +46,12 @@ const themeApi: ThemeApi = {
   },
 };
 
-contextBridge.exposeInMainWorld("lawbar", { theme: themeApi });
+const caseBoxApi: CaseBoxApi = {
+  createMatter: (dto) => ipcRenderer.invoke("casebox:matter:create", dto),
+  getMatter: (dto) => ipcRenderer.invoke("casebox:matter:get", dto),
+  listMatters: (dto) => ipcRenderer.invoke("casebox:matter:list", dto),
+  archiveMatter: (dto) => ipcRenderer.invoke("casebox:matter:archive", dto),
+  chainHead: (dto) => ipcRenderer.invoke("casebox:audit:chainHead", dto),
+};
+
+contextBridge.exposeInMainWorld("lawbar", { theme: themeApi, caseBox: caseBoxApi });
