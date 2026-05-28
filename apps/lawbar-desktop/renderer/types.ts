@@ -18,6 +18,13 @@ export type ConfidentialityClass = "normal" | "heightened" | "sealed";
 
 export type MatterStatus = "active" | "archived";
 
+// Display-only ledger category derived from `MatterType`. Per
+// dev-memo/plan-casebox-ui-design-hardening-00.md §3 row 9 + handoff §03 Task 5.
+// Mapping lives in renderer/format.ts; this type is additive ONLY and does NOT
+// change any DTO interface or RENDERER_*_DTO_FIELDS array — the DTO sync test
+// continues passing unchanged.
+export type LedgerCategory = "litigation" | "counsel" | "non_litigation";
+
 export interface Party {
   readonly role: string;
   readonly display_name: string;

@@ -1,7 +1,12 @@
 // Pure-function formatters for the case-box UI.
 // Per dev-memo/plan-casebox-ui-plan-00.md rev-0.1 §6.5.
 
-import type { ConfidentialityClass, MatterStatus, MatterType } from "./types.js";
+import type {
+  ConfidentialityClass,
+  LedgerCategory,
+  MatterStatus,
+  MatterType,
+} from "./types.js";
 
 // First 8 chars (Crockford base32 lowercase) of a 26-char ULID.
 export function ulidShort(ulid: string): string {
@@ -62,5 +67,44 @@ export function statusLabel(s: MatterStatus): string {
       return "Active";
     case "archived":
       return "Archived";
+  }
+}
+
+// Display-only derived ledger category. Per dev-memo/plan-casebox-ui-design-
+// hardening-00.md §3 row 8 + handoff §03 Task 5:
+//   litigation, arbitration, criminal_defense → "litigation"
+//   advisory                                  → "counsel"
+//   due_diligence, other                      → "non_litigation"
+//
+// This is purely a display-layer semantic mapping. It does NOT change the
+// underlying DTO `matter_type` field, the IPC contract, or any persistence
+// shape. Callers use it to choose list-screen headers, view-screen tabs, and
+// empty-state copy.
+export function ledgerCategory(t: MatterType): LedgerCategory {
+  switch (t) {
+    case "litigation":
+    case "arbitration":
+    case "criminal_defense":
+      return "litigation";
+    case "advisory":
+      return "counsel";
+    case "due_diligence":
+    case "other":
+      return "non_litigation";
+  }
+}
+
+// English label for the derived ledger category. Per plan §3 row 8 "ADD
+// `ledgerCategoryLabel(c: LedgerCategory): string` for display." The label is
+// English-only at S5 — Chinese localization is S6's scope and will refactor
+// every `*Label` helper (including this one) in a single pass.
+export function ledgerCategoryLabel(c: LedgerCategory): string {
+  switch (c) {
+    case "litigation":
+      return "Litigation";
+    case "counsel":
+      return "Counsel";
+    case "non_litigation":
+      return "Non-litigation";
   }
 }
