@@ -515,3 +515,88 @@ header div[role="group"] button:hover {
   margin-top: 0.25rem;
 }
 
+
+/* ============================================================
+ * S1 — self-hosted font wiring (HS10 resolved at ea13211).
+ * @font-face for the 8 vendored WOFF2 under renderer/fonts/
+ * (copied to dist/renderer/fonts/ by build:assets). CSP-safe:
+ * same-origin `./fonts/*.woff2` satisfies default-src 'self'.
+ * No Google Fonts CDN. System families are FALLBACK only, never
+ * the primary face. Font CSS vars live on `html {}` (not `:root`)
+ * so the canonical-:root-block count stays 2 for the
+ * renderer-no-hardcoded-color lint. Full token/palette + editorial
+ * stacks land in S2/S4. Per dev-memo/plan-casebox-ui-design-
+ * hardening-00.md §8 S1 + §4.3 + renderer/fonts/PROVENANCE.md.
+ * ============================================================ */
+
+@font-face {
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/noto-sans-sc-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/noto-sans-sc-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/noto-sans-sc-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Noto Serif SC";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/noto-serif-sc-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Noto Serif SC";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/noto-serif-sc-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Noto Serif SC";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/noto-serif-sc-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/jetbrains-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/jetbrains-mono-500.woff2") format("woff2");
+}
+
+/* Font wiring vars — self-hosted family FIRST, system only as fallback.
+ * Defined on `html` (not `:root`) intentionally; see comment above. */
+html {
+  --font-ui: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", -apple-system, system-ui, sans-serif;
+  --font-serif: "Noto Serif SC", "Songti SC", Georgia, serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+}
+
+/* Apply the self-hosted UI face as the renderer base (overrides the
+ * earlier token-fixture body font-family). Per-element serif/mono usage
+ * is wired when the component CSS is ported in S3-S4. */
+body {
+  font-family: var(--font-ui);
+}

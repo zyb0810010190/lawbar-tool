@@ -103,3 +103,86 @@ test("nativeTheme.themeSource flip propagates to <html data-theme>", async (t) =
   );
   assert.equal(await window.getAttribute("html", "data-theme"), "light");
 });
+
+test("S1 font wiring: body resolves the self-hosted Noto Sans SC stack + faces load locally", async (t) => {
+  // Per dev-memo/plan-casebox-ui-design-hardening-00.md §8 S1 smoke bar:
+  // "font-family computed style on body includes a CJK family name." Also
+  // asserts the self-hosted @font-face actually loaded (no CDN; same-origin
+  // ./fonts/*.woff2). HS10 resolved by local WOFF2 — see renderer/fonts/PROVENANCE.md.
+  const app = await electron.launch({
+    args: ["."],
+    cwd: projectRoot,
+    env: { ...process.env, LAWBAR_MODE: "dev" },
+  });
+  t.after(async () => {
+    await app.close();
+  });
+
+  const window = await app.firstWindow();
+  await window.waitForLoadState("load");
+  await window.waitForSelector("main#app");
+
+  // 1) The computed body font-family stack LEADS with the self-hosted CJK UI
+  //    face (first position, not merely present — proves --font-ui primary).
+  const bodyFamily = await window.evaluate(
+    () => getComputedStyle(document.body).fontFamily,
+  );
+  const firstFamily = bodyFamily.split(",")[0].trim().replace(/^["']|["']$/g, "");
+  assert.equal(
+    firstFamily,
+    "Noto Sans SC",
+    `body font-family must LEAD with the self-hosted CJK face; got stack: ${bodyFamily}`,
+  );
+
+  // 2) The self-hosted faces are FETCHABLE from local ./fonts/*.woff2 (not a
+  //    CDN). `font-display: swap` faces load lazily — an unused face (serif /
+  //    mono, not yet applied to any element in S1) reports unloaded until
+  //    requested. `document.fonts.load()` forces the fetch; it resolves only
+  //    if the same-origin woff2 is reachable, so a broken @font-face url or a
+  //    missing dist/renderer/fonts/ copy fails this assertion.
+  await window.evaluate(() => document.fonts.ready);
+  const faces = await window.evaluate(async () => {
+    const want = [
+      '400 16px "Noto Sans SC"',
+      '600 16px "Noto Sans SC"',
+      '400 16px "Noto Serif SC"',
+      '600 16px "Noto Serif SC"',
+      '400 16px "JetBrains Mono"',
+      '500 16px "JetBrains Mono"',
+    ];
+    const out = {};
+    for (const spec of want) {
+      try {
+        const matched = await document.fonts.load(spec);
+        out[spec] = matched.length; // >0 ⇒ a local face matched + loaded
+      } catch (e) {
+        out[spec] = `ERR:${String(e)}`;
+      }
+    }
+    return out;
+  });
+  for (const [spec, n] of Object.entries(faces)) {
+    assert.ok(
+      typeof n === "number" && n > 0,
+      `self-hosted face must load from local woff2 for ${spec}; got ${n}`,
+    );
+  }
+
+  // 3) No CDN font origin leaked into the document stylesheets.
+  const hasCdnFont = await window.evaluate(() => {
+    for (const sheet of Array.from(document.styleSheets)) {
+      let rules;
+      try {
+        rules = Array.from(sheet.cssRules ?? []);
+      } catch {
+        continue;
+      }
+      for (const rule of rules) {
+        const css = rule.cssText ?? "";
+        if (/fonts\.googleapis\.com|fonts\.gstatic\.com/.test(css)) return true;
+      }
+    }
+    return false;
+  });
+  assert.equal(hasCdnFont, false, "no Google Fonts CDN reference may appear in runtime CSS");
+});
