@@ -1,36 +1,45 @@
 /* Renderer-side palette — single source for runtime color in the
  * Chromium renderer. Kept byte-equal to src/theme/tokens.ts via the
- * palette-sync test in tests/main.test.mjs. Per
- * dev-memo/plan-night-mode-foundation-00.md §2.1 + §2.2. */
+ * palette-sync test in tests/main.test.mjs.
+ *
+ * S2 (design-hardening): the 12 canonical token VALUES are revalued to the
+ * editorial palette from dev-memo/design-source/editorial-tokens.css (ivory
+ * canvas + honey-orange accent, warm dark). Token NAMES are preserved (no
+ * rename — §4.1 case a, value-change-in-lockstep); src/theme/tokens.ts is
+ * updated to the same 12 values in this slice. The ~40 additional editorial
+ * tokens (accent-hover, text-strong, status-*, etc.) are ADDITIVE and land in
+ * S3/S4 when the component CSS that references them is ported — keeping the
+ * palette-sync "exactly 12" contract intact for S2. focus-ring mirrors the
+ * accent hex (editorial defines --color-focus-ring: var(--color-accent)). */
 
 :root {
-  --color-background: #F8F9FA;
-  --color-surface: #FFFFFF;
+  --color-background: #F7F4EE;
+  --color-surface: #FBF8F3;
   --color-surface-elevated: #FFFFFF;
-  --color-text: #1A1D21;
-  --color-muted-text: #6B7280;
-  --color-border: #E1E4E8;
-  --color-accent: #1E5EBA;
-  --color-text-on-accent: #FFFFFF;
-  --color-danger: #B42318;
-  --color-warning: #B54708;
-  --color-success: #1B7A3B;
-  --color-focus-ring: #2B7FFF;
+  --color-text: #1F1A17;
+  --color-muted-text: #6E655D;
+  --color-border: #E7DED2;
+  --color-accent: #D88B57;
+  --color-text-on-accent: #FBF8F3;
+  --color-danger: #B85E4A;
+  --color-warning: #B07A2C;
+  --color-success: #6E8B74;
+  --color-focus-ring: #D88B57;
 }
 
 :root[data-theme="dark"] {
-  --color-background: #0F1216;
-  --color-surface: #171B21;
-  --color-surface-elevated: #1F242C;
-  --color-text: #EDEEF0;
-  --color-muted-text: #9CA3AF;
-  --color-border: #2A3038;
-  --color-accent: #5594E8;
-  --color-text-on-accent: #0F1216;
-  --color-danger: #F87171;
-  --color-warning: #FBBF24;
-  --color-success: #34D399;
-  --color-focus-ring: #7AAFFF;
+  --color-background: #16130F;
+  --color-surface: #1C1814;
+  --color-surface-elevated: #221D18;
+  --color-text: #EFE6D8;
+  --color-muted-text: #968A78;
+  --color-border: #2D2620;
+  --color-accent: #E59E6B;
+  --color-text-on-accent: #16130F;
+  --color-danger: #D87E6A;
+  --color-warning: #D29E50;
+  --color-success: #8DAB94;
+  --color-focus-ring: #E59E6B;
 }
 
 * {
