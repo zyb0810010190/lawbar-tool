@@ -1,0 +1,242 @@
+/* ============================================================
+ * Lawbar Case Box · 案件台账 — CN overlay
+ * Loads ON TOP of editorial-tokens.css, editorial-styles.css,
+ * and desktop-shell.css. Adjusts for CJK type + small refinements.
+ * ============================================================ */
+
+:root {
+  --font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC",
+                "Newsreader", Georgia, serif;
+  --font-ui:    "Noto Sans SC", "PingFang SC", "Hiragino Sans GB",
+                "Inter", -apple-system, system-ui, sans-serif;
+  --font-mono:  "JetBrains Mono", "SF Mono", ui-monospace,
+                "Noto Sans Mono CJK SC", monospace;
+
+  /* CJK reads at slightly smaller sizes than Latin */
+  --font-size-2xs: 11px;
+  --font-size-xs:  12px;
+  --font-size-sm:  13px;
+  --font-size-base:14px;
+  --font-size-md:  15px;
+  --font-size-lg:  17px;
+
+  /* Serif scale tuned for Noto Serif SC (heavier than Newsreader) */
+  --font-serif-xl:  20px;
+  --font-serif-2xl: 28px;
+  --font-serif-3xl: 40px;
+  --font-serif-4xl: 56px;
+
+  /* CJK letter-spacing is opposite of Latin — never negative */
+  --tracking-tight: 0;
+  --tracking-snug:  0;
+  --tracking-label: 0.18em;   /* mono uppercase stays generous */
+}
+
+/* CJK weights need explicit overrides — Noto Serif SC at 400
+ * already reads as semibold against Latin contexts */
+.app-window h1,
+.app-window .matter-name,
+.app-window .view-title,
+.app-window .view-card-title,
+.app-window .archive-summary dd .dd-serif,
+.app-window .colophon-row dd .dd-serif {
+  font-weight: 500;
+}
+
+.app-window h1 em,
+.app-window .matter-name em,
+.app-window .view-title em,
+.app-window .view-card-title em {
+  font-style: normal;        /* Chinese italics read poorly */
+  color: var(--color-accent-deep);
+  position: relative;
+}
+
+/* The "italic-emphasis" word gets a subtle apricot underline
+ * instead of italic in CJK — equivalent emphasis, legible */
+.app-window h1 em::after,
+.app-window .matter-name em::after,
+.app-window .view-title em::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -2px;
+  height: 2px;
+  background: var(--color-accent);
+  border-radius: 2px;
+  opacity: 0.55;
+}
+
+/* CJK punctuation needs tighter line-height */
+.app-window .view-title,
+.app-window h1 { line-height: 1.15; }
+
+.app-window p,
+.app-window .dd-narrative,
+.app-window .archive-pull-quote { line-height: 1.85; }
+
+/* The serif "MATTERS" small-caps treatment doesn't make sense in CJK;
+ * we keep the serif size but lose the uppercase + tracking. */
+.app-window .main-header h1 {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+/* Pull-quote in CJK — the left-rule + indent reads as a 引文 block */
+.app-window .archive-pull-quote {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 18px;
+  color: var(--color-muted-text);
+}
+.app-window .archive-pull-quote cite { font-style: normal; }
+
+/* Section markers stay Latin mono — they're identifiers, not copy */
+.app-window .section-marker,
+.app-window .header-sublede,
+.app-window .card-eyebrow,
+.app-window .colophon-header,
+.app-window .colophon-footer,
+.app-window .colophon-row dt,
+.app-window .view-field dt,
+.app-window .party-role,
+.app-window .archive-summary dt,
+.app-window .filter-chip,
+.app-window .desk-tab .tab-count,
+.app-window .row-num,
+.app-window .matter-docket,
+.app-window .cell-mono,
+.app-window .cell-type-eyebrow,
+.app-window .chain-label,
+.app-window .archive-pull-marker,
+.app-window .reason-counter,
+.app-window .set-in {
+  font-family: var(--font-mono);
+}
+
+/* Field labels — CJK reads better in sans-serif uppercase than mono */
+.app-window .field label,
+.app-window .field-label,
+.app-window .fieldset legend,
+.app-window .party-row-num {
+  font-family: var(--font-ui);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.05em;
+  color: var(--color-muted-text);
+  font-weight: 500;
+  text-transform: none;
+}
+.app-window .field label .req {
+  font-family: var(--font-mono);
+  color: var(--color-accent);
+}
+
+/* CJK button text is denser — adjust padding */
+.app-window .button {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+.app-window .toolbar-btn {
+  font-family: var(--font-ui);
+}
+.app-window .toolbar-btn--primary {
+  letter-spacing: 0.04em;
+}
+
+/* Stat-card serif numbers stay Latin (they ARE Latin numerals) */
+.app-window .stat-card .stat-value {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sidebar nav text — sans, slightly heavier */
+.app-window .sidebar-link {
+  font-family: var(--font-ui);
+  font-weight: 500;
+}
+.app-window .sidebar-link[aria-current="page"] {
+  font-weight: 600;
+}
+
+/* CN-specific colophon — adapt the dispatch language */
+.app-window .colophon-header,
+.app-window .colophon-footer { letter-spacing: 0.16em; }
+
+/* Workspace card glyph — keep Latin "L" in italic serif */
+.app-window .workspace-card .workspace-glyph {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 500;
+}
+
+/* Confidentiality / status pill text — sans serif for CJK */
+.app-window .conf-pill,
+.app-window .status-pill {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  font-size: var(--font-size-2xs);
+}
+
+/* CN tables — denser rows */
+.app-window .matter-table-desktop tbody td {
+  padding-top: var(--space-4);
+  padding-bottom: var(--space-4);
+}
+.app-window .matter-table-desktop .matter-name {
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+/* Form input — Chinese text usually wants more line-height */
+.app-window .field input[type="text"],
+.app-window .field textarea,
+.app-window .field select {
+  line-height: 1.6;
+  padding: 11px 14px;
+}
+
+/* The serif-italic emphasis underline shouldn't appear inside
+ * inline-table contexts (matter-name in rows) — it would clip */
+.app-window .matter-table-desktop .matter-name em::after {
+  bottom: 0;
+}
+
+/* Narrative paragraphs — Chinese body type */
+.app-window .dd-narrative {
+  font-family: var(--font-ui);
+  line-height: 1.85;
+  letter-spacing: 0.01em;
+}
+
+/* Quote in archive screen — display serif but no italics */
+.app-window .archive-pull-quote {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  border-left-width: 3px;
+}
+
+/* Party name in view */
+.app-window .view-party-row .party-name {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  letter-spacing: 0;
+  font-size: var(--font-serif-xl);
+}
+.app-window .view-party-row .party-kind {
+  font-family: var(--font-mono);
+}
+
+/* Workspace card text — Chinese firm name */
+.app-window .workspace-card .workspace-name {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* Override .recent-name — Chinese matter names */
+.app-window .sidebar-recent-item .recent-name {
+  font-family: var(--font-ui);
+}

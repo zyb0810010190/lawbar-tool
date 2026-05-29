@@ -1,0 +1,582 @@
+/* ============================================================
+ * Lawbar Case Box v0.11 — Auth pages
+ * Editorial composition · paper canvas · single apricot accent.
+ * Loads on top of editorial-tokens.css + cn-overlay.css fonts.
+ * ============================================================ */
+
+.auth-stage {
+  background: var(--color-background);
+  min-height: 100vh;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(440px, 1fr) minmax(0, 1.1fr);
+  font-family: var(--font-ui);
+  color: var(--color-text);
+}
+
+@media (max-width: 980px) {
+  .auth-stage { grid-template-columns: 1fr; }
+}
+
+/* ============================================================
+ * Typography grid — title + body share the same left edge
+ * and a content column matched to the form column width.
+ * ============================================================ */
+.auth-card > *,
+.auth-brand > div > * {
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "ss01", "cv11";
+}
+.auth-card .auth-sync-note,
+.auth-card .auth-meta {
+  max-width: 100%;
+}
+.auth-card .auth-error,
+.auth-card .auth-field,
+.auth-card .auth-submit,
+.auth-card .wechat-cta {
+  width: 100%;
+}
+
+/* ============================================================
+ * Left column — editorial brand panel
+ * ============================================================ */
+.auth-brand {
+  padding: 56px 56px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 100vh;
+  border-right: 1px solid var(--color-rule);
+  background: var(--color-background);
+}
+.auth-brand .brand-mark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--color-text-strong);
+}
+.auth-brand .brand-mark .sigil {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-accent);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  transform: translateY(-5px);
+}
+.auth-brand .brand-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-muted-text);
+  margin: 80px 0 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.auth-brand .brand-eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 48px;
+  height: 1px;
+  background: var(--color-border-strong);
+}
+.auth-brand h1 {
+  font-family: var(--font-serif);
+  font-size: 48px;
+  font-weight: 500;
+  line-height: 1.18;
+  color: var(--color-text-strong);
+  margin: 0 0 14px;
+  letter-spacing: 0;
+  max-width: 12ch;
+  text-wrap: balance;
+}
+.auth-brand h1 em {
+  font-style: normal;
+  color: var(--color-accent-deep);
+  position: relative;
+}
+.auth-brand h1 em::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -3px;
+  height: 2px;
+  background: var(--color-accent);
+  opacity: 0.55;
+  border-radius: 2px;
+}
+.auth-brand .brand-lede {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  color: var(--color-muted-text);
+  line-height: 1.75;
+  margin: 0 0 28px;
+  max-width: 18ch;
+  text-wrap: pretty;
+}
+.auth-brand .brand-marks {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  padding-top: 32px;
+  border-top: 1px solid var(--color-rule);
+  max-width: 480px;
+}
+.auth-brand .brand-marks .bm-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-muted-text);
+  margin-bottom: 4px;
+}
+.auth-brand .brand-marks .bm-value {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text-strong);
+  line-height: 1.4;
+}
+.auth-brand .brand-footer {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-subtle-text);
+  margin-top: 48px;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* ============================================================
+ * Right column — the form
+ * ============================================================ */
+.auth-pane {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 80px;
+  background: var(--color-surface);
+}
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+}
+.auth-card .ac-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-muted-text);
+  margin-bottom: 12px;
+}
+.auth-card .ac-eyebrow .glyph { color: var(--color-accent); }
+.auth-card h2 {
+  font-family: var(--font-serif);
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--color-text-strong);
+  line-height: 1.25;
+  margin: 0 0 10px;
+  text-wrap: balance;
+}
+.auth-card .ac-sub {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  color: var(--color-muted-text);
+  line-height: 1.7;
+  margin: 0 0 28px;
+  max-width: 22ch;
+  text-wrap: pretty;
+}
+
+/* WeChat hero button */
+.wechat-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-radius: 999px;
+  background: #07C160;
+  color: #FFFFFF;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: background 120ms ease;
+  letter-spacing: 0.04em;
+}
+.wechat-cta:hover { background: #05A352; }
+.wechat-cta .wc-icon {
+  width: 18px; height: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.18);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Separator */
+.auth-sep {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 24px 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-muted-text);
+}
+.auth-sep::before, .auth-sep::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-rule);
+}
+
+/* Inputs */
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.auth-field .af-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.auth-field label {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--color-muted-text);
+}
+.auth-field .af-aside {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--color-accent-deep);
+  text-decoration: none;
+  border-bottom: 1px solid var(--color-accent);
+  padding-bottom: 1px;
+  cursor: pointer;
+}
+.auth-field .af-aside:hover { color: var(--color-accent); }
+.auth-field input {
+  padding: 13px 16px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  color: var(--color-text);
+  background: var(--color-background);
+  line-height: 1.5;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+.auth-field input::placeholder {
+  color: var(--color-subtle-text);
+}
+.auth-field input:hover { border-color: var(--color-text); }
+.auth-field input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  background: var(--color-surface-elevated);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+.auth-field input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px var(--color-danger-subtle);
+}
+.auth-field .af-hint {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--color-muted-text);
+}
+.auth-field .af-hint--error { color: var(--color-danger); }
+.auth-field .af-hint--ok { color: #4A6D52; }
+
+/* Primary submit */
+.auth-submit {
+  margin-top: 8px;
+  padding: 14px 20px;
+  background: var(--color-text-strong);
+  color: var(--color-background);
+  border: 1px solid var(--color-text-strong);
+  border-radius: 999px;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.auth-submit:hover {
+  background: var(--color-accent-pressed);
+  border-color: var(--color-accent-pressed);
+  color: var(--color-text-on-accent);
+}
+.auth-submit--accent {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+.auth-submit--accent:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+.auth-submit--loading {
+  background: var(--color-muted-text);
+  border-color: var(--color-muted-text);
+  cursor: progress;
+}
+.auth-submit--loading::after {
+  content: " · 正在登录…";
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+/* Sub-actions row */
+.auth-meta {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-rule);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+.auth-meta a {
+  color: var(--color-accent-deep);
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.auth-meta a:hover { color: var(--color-accent); }
+.auth-meta .meta-muted { color: var(--color-muted-text); }
+
+/* Sync note */
+.auth-sync-note {
+  margin-top: 32px;
+  padding: 12px 16px;
+  background: var(--color-background);
+  border: 1px solid var(--color-rule);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-muted-text);
+  letter-spacing: 0.04em;
+}
+.auth-sync-note .sn-dot {
+  width: 6px; height: 6px;
+  border-radius: 999px;
+  background: var(--color-accent);
+}
+
+/* Error banner */
+.auth-error {
+  margin-bottom: 20px;
+  padding: 12px 14px;
+  background: var(--color-danger-subtle);
+  border: 1px solid var(--color-danger-border);
+  border-left: 3px solid var(--color-danger);
+  border-radius: 5px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--color-text);
+  display: flex;
+  gap: 10px;
+}
+.auth-error .ae-mark {
+  font-family: var(--font-mono);
+  color: var(--color-danger);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.auth-error strong { color: var(--color-danger); display: block; }
+
+/* ============================================================
+ * Mini Program login frame
+ * ============================================================ */
+.mp-auth-stage {
+  background: var(--color-background);
+  padding: 56px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+.mp-auth-stage .mp-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-muted-text);
+}
+.mp-auth-stage .mp-frame-2 {
+  width: 320px;
+  background: #FFFFFF;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 36px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 24px 48px -16px rgba(20, 16, 14, 0.16);
+}
+.mp-frame-2 .mp-statusbar2 {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 22px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-muted-text);
+  letter-spacing: 0.08em;
+}
+.mp-frame-2 .mp-pad { padding: 36px 28px 28px; min-height: 540px; display: flex; flex-direction: column; }
+.mp-frame-2 .mp-mark {
+  font-family: var(--font-serif);
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--color-text-strong);
+  margin-bottom: 4px;
+  display: flex; align-items: baseline; gap: 4px;
+}
+.mp-frame-2 .mp-mark .sigil { font-family: var(--font-mono); font-size: 9px; color: var(--color-accent); letter-spacing: 0.16em; text-transform: uppercase; transform: translateY(-6px); }
+.mp-frame-2 .mp-mark-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-muted-text);
+  margin-bottom: 56px;
+}
+.mp-frame-2 .mp-headline {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.22;
+  color: var(--color-text-strong);
+  margin: 0 0 8px;
+  max-width: 9ch;
+  text-wrap: balance;
+}
+.mp-frame-2 .mp-headline em {
+  font-style: normal;
+  color: var(--color-accent-deep);
+  position: relative;
+}
+.mp-frame-2 .mp-headline em::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -2px;
+  height: 2px;
+  background: var(--color-accent);
+  opacity: 0.55;
+}
+.mp-frame-2 .mp-lede {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  color: var(--color-muted-text);
+  line-height: 1.7;
+  margin: 0 0 32px;
+  max-width: 14ch;
+  text-wrap: pretty;
+}
+.mp-frame-2 .mp-cta-block { margin-top: auto; display: flex; flex-direction: column; gap: 12px; }
+.mp-frame-2 .mp-cta {
+  padding: 14px 18px;
+  background: #07C160;
+  color: #FFFFFF;
+  border-radius: 999px;
+  text-align: center;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+.mp-frame-2 .mp-cta-ghost {
+  padding: 12px 18px;
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  text-align: center;
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+.mp-frame-2 .mp-sync-note {
+  margin-top: 14px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--color-subtle-text);
+  text-align: center;
+  line-height: 1.7;
+}
+
+/* Profile completion variant */
+.mp-frame-2 .mp-prof-field {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-bottom: 14px;
+}
+.mp-frame-2 .mp-prof-field label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--color-muted-text);
+  letter-spacing: 0.04em;
+}
+.mp-frame-2 .mp-prof-field input {
+  padding: 11px 12px;
+  border: 1px solid var(--color-rule);
+  border-radius: 4px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+/* Bound badge */
+.mp-frame-2 .mp-bound-banner {
+  margin-bottom: 24px;
+  padding: 14px;
+  background: #F0F8F3;
+  border: 1px solid #A8DDBE;
+  border-radius: 8px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--color-text);
+  line-height: 1.7;
+  text-align: center;
+}
+.mp-frame-2 .mp-bound-banner strong {
+  display: block;
+  color: #07C160;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}

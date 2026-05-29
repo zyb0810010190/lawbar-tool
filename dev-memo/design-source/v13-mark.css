@@ -1,0 +1,105 @@
+/* ============================================================
+ * Lawbar v0.13 — proprietary micro-mark (Plan D · 卷册书签印)
+ * Replaces "§" across the system.
+ *
+ * Form: a tiny case-volume (booklet) with a bookmark ribbon
+ * extending from the top. Single-color, mask-based, scales with
+ * font-size, inherits currentColor.
+ *
+ *      ┌─┐
+ *    ┌─┤ │─┐
+ *    │ │∇│ │       — booklet (frame + spine)
+ *    │ │ │ │       — bookmark (rect with V-notch bottom)
+ *    └─────┘
+ * ============================================================ */
+
+.lb-mk,
+.lb-mk--solid {
+  --mk-em: 1em;
+  display: inline-block;
+  width: var(--mk-em);
+  height: var(--mk-em);
+  flex-shrink: 0;
+  vertical-align: -0.18em;
+  margin-right: 0.32em;
+  background-color: currentColor;
+  -webkit-mask-image: var(--mk-svg);
+  mask-image: var(--mk-svg);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+/* Plan C — archive index tab (档案索引签)
+ * Pentagon silhouette: rounded top corners, straight sides,
+ * pointed V notch at the bottom + two short index lines inside.
+ * Outline-only, optimised for 12-24px. */
+.lb-mk {
+  --mk-svg: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'><path d='M5 5.4 Q5 3 7.4 3 L16.6 3 Q19 3 19 5.4 L19 15.6 L12 21 L5 15.6 Z'/><path d='M8.4 8.6 H15.6 M8.4 11.6 H15.6'/></g></svg>");
+}
+
+/* Solid variant — same silhouette filled, with knock-out index lines.
+ * Used in tiny eyebrow contexts where outline strokes would disappear. */
+.lb-mk--solid {
+  --mk-svg: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M5 5.4 Q5 3 7.4 3 L16.6 3 Q19 3 19 5.4 L19 15.6 L12 21 L5 15.6 Z'/><path fill='none' stroke='%23F7F4EE' stroke-width='1.6' stroke-linecap='round' d='M8.6 9 H15.4 M8.6 12 H15.4'/></svg>");
+}
+
+/* ============================================================
+ * Color variants — apply via class, color via CSS variable
+ * ============================================================ */
+.lb-mk--accent  { color: var(--color-accent, #D88B57); }
+.lb-mk--ink     { color: var(--color-text-strong, #14100E); }
+.lb-mk--muted   { color: var(--color-muted-text, #6E655D); }
+.lb-mk--danger  { color: var(--color-danger, #B85E4A); }
+
+/* Reverse — for use on dark backgrounds */
+.lb-mk--reverse { color: var(--color-background, #F7F4EE); }
+
+/* ============================================================
+ * Size variants — keyed to common UI scales
+ * ============================================================ */
+.lb-mk--xs { --mk-em: 0.85em; vertical-align: -0.15em; margin-right: 0.3em; }
+.lb-mk--sm { --mk-em: 0.95em; vertical-align: -0.17em; }
+.lb-mk--md { --mk-em: 1.05em; vertical-align: -0.19em; }
+.lb-mk--lg { --mk-em: 1.25em; vertical-align: -0.22em; margin-right: 0.38em; }
+
+/* Inside mono uppercase eyebrows the mark sits a fraction lower
+ * (the JetBrains Mono cap-height is taller than the CJK baseline) */
+.font-mono .lb-mk,
+.mp-eyebrow .lb-mk,
+[class*="eyebrow"] .lb-mk,
+.section-marker .lb-mk,
+.card-eyebrow .lb-mk,
+.cp-marker .lb-mk,
+.us-marker .lb-mk,
+.colophon-header .lb-mk,
+.bm-label .lb-mk,
+.ac-eyebrow .lb-mk { vertical-align: -0.22em; --mk-em: 1.05em; }
+
+/* Strong, mono uppercase that sits beside small caps lockups */
+.archive-banner strong .lb-mk,
+.callout strong .lb-mk { vertical-align: -0.2em; }
+
+/* When the mark sits before a Latin numeric ("01", "02"…) bump
+ * the kerning so neither overlaps */
+.lb-mk + span,
+.lb-mk + sup { letter-spacing: 0.02em; }
+
+/* Inside the workspace-card brand mark (Mini Program) the booklet
+ * needs to sit slightly above the baseline to feel like a sigil */
+.workspace-card .lb-mk,
+.mp-mark .lb-mk { vertical-align: -0.1em; --mk-em: 0.9em; margin-right: 0.18em; transform: translateY(-3%); }
+
+/* ============================================================
+ * Title-lockup wrapper — used in pages where the mark stands
+ * at the start of a serif headline (e.g. login eyebrow).
+ * Provides a thin baseline alignment fix.
+ * ============================================================ */
+.lb-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32em;
+}
