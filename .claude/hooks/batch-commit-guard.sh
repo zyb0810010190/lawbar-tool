@@ -64,12 +64,45 @@ if [ "$OVERRIDE" -eq 0 ]; then
   # queue.linted (check-queue.sh) AND queue.reviewed (Codex /review-plan) — or human approval.
   [ -f "$RUN/queue.governed" ] || deny "Batch guard: queue is not governed. Need queue.linted + queue.reviewed (then govern-queue.sh), or explicit human approval. Lint alone is not sufficient."
 
-  # Counter is GIT-DERIVED, not agent-maintained: commits since the last batch audit.
+  # Counter is GIT-DERIVED, not agent-maintained: commits since the current window start.
+  # BASE = the NEWER of batch-start and last-batch-audit (BATCH-COUNTER-001 fix).
+  #   - batch-start defines the current batch window (reset when a new batch begins).
+  #   - last-batch-audit advances the window when a Layer-B audit is recorded mid-batch.
+  # The newer commit is the live boundary; a stale predecessor must NOT override it (the old
+  # code always preferred last-batch-audit, so resetting batch-start forward had no effect and
+  # non-batch commits before the stale audit kept counting). Moving batch-start forward is a
+  # privileged act — protect-run-control.sh + block-run-control-bash-write.sh restrict those
+  # files to the workflow scripts or a deliberate human action — so newer-wins is not an
+  # agent-exploitable escape. Invalid/garbage refs are dropped (closes a fail-open where an
+  # unresolvable last-batch-audit yielded COUNT=0 and the breaker never fired).
+  GIT() { git -C "$CLAUDE_PROJECT_DIR" "$@"; }
+  valid_ref() { [ -n "$1" ] && GIT cat-file -e "${1}^{commit}" 2>/dev/null; }
+  BS=""; LBA=""
+  [ -r "$RUN/batch-start" ]      && BS=$(tr -dc '0-9a-f' < "$RUN/batch-start")
+  [ -r "$RUN/last-batch-audit" ] && LBA=$(tr -dc '0-9a-f' < "$RUN/last-batch-audit")
+  valid_ref "$BS"  || BS=""
+  valid_ref "$LBA" || LBA=""
   BASE=""
-  [ -r "$RUN/last-batch-audit" ] && BASE=$(tr -dc '0-9a-f' < "$RUN/last-batch-audit")
-  [ -z "$BASE" ] && [ -r "$RUN/batch-start" ] && BASE=$(tr -dc '0-9a-f' < "$RUN/batch-start")
-  [ -n "$BASE" ] || deny "Batch guard: no last-batch-audit or batch-start commit recorded; cannot derive the auto-commit count. Record dev-memo/run/batch-start (current HEAD) before auto-committing."
-  COUNT=$(cd "$CLAUDE_PROJECT_DIR" && git rev-list --count "${BASE}..HEAD" 2>/dev/null)
+  if [ -n "$BS" ] && [ -n "$LBA" ]; then
+    if [ "$BS" = "$LBA" ]; then
+      BASE=$BS
+    elif GIT merge-base --is-ancestor "$BS" "$LBA" 2>/dev/null; then
+      BASE=$LBA   # batch-start is an ancestor of the audit checkpoint -> audit is newer
+    elif GIT merge-base --is-ancestor "$LBA" "$BS" 2>/dev/null; then
+      BASE=$BS    # audit checkpoint is an ancestor of batch-start -> reset batch-start is newer
+    else
+      # Divergent/unrelated history: fail SAFE toward auditing sooner (larger count = older base).
+      cbs=$(GIT rev-list --count "${BS}..HEAD" 2>/dev/null);  cbs=${cbs:-0}
+      clba=$(GIT rev-list --count "${LBA}..HEAD" 2>/dev/null); clba=${clba:-0}
+      if [ "$cbs" -ge "$clba" ]; then BASE=$BS; else BASE=$LBA; fi
+    fi
+  elif [ -n "$BS" ]; then
+    BASE=$BS
+  elif [ -n "$LBA" ]; then
+    BASE=$LBA
+  fi
+  [ -n "$BASE" ] || deny "Batch guard: no valid last-batch-audit or batch-start commit recorded; cannot derive the auto-commit count. Record dev-memo/run/batch-start (current HEAD) before auto-committing."
+  COUNT=$(GIT rev-list --count "${BASE}..HEAD" 2>/dev/null)
   COUNT=${COUNT:-0}
 
   [ "$COUNT" -ge "$EVERY" ] && deny "Batch guard: batch audit DUE ($COUNT commits since last audit >= BATCH_AUDIT_EVERY=$EVERY). Run the batch audit and record new HEAD in dev-memo/run/last-batch-audit, then commit."
