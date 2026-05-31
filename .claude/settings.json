@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(./config/credentials.json)"
+    ]
+  },
+  "extraKnownMarketplaces": {
+    "xiaolai": {
+      "source": {
+        "source": "github",
+        "repo": "xiaolai/claude-plugin-marketplace"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "cc-suite@xiaolai": true,
+    "echo-sleuth@xiaolai": true,
+    "tdd-guardian@xiaolai": false,
+    "loc-guardian@xiaolai": false,
+    "grill@xiaolai": false,
+    "docs-guardian@xiaolai": false,
+    "nlpm@xiaolai": false,
+    "ui-tokenize@xiaolai": false,
+    "ui-responsive@xiaolai": false,
+    "mermaid-preview@xiaolai": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-run-control.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git add*)",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-git-add-all.sh"
+          },
+          {
+            "type": "command",
+            "if": "Bash(git commit*)",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-commit-stage-all.sh"
+          },
+          {
+            "type": "command",
+            "if": "Bash(git commit*)",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/batch-commit-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
