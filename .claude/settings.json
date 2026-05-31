@@ -44,6 +44,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-run-control-bash-write.sh"
+          },
+          {
+            "type": "command",
             "if": "Bash(git add*)",
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-git-add-all.sh"
           },
