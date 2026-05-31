@@ -34,8 +34,9 @@ RUN="${CLAUDE_PROJECT_DIR}/dev-memo/run"
 
 # Read config FIRST — authorization rules depend on mode. Missing/unreadable = fail safe.
 [ -r "$RUN/config" ] || deny "Batch guard: dev-memo/run/config unreadable; cannot verify batch limits. Restore run state or use a gated-mode human.ack."
-MAX=$(sed -n 's/^AUTO_ADVANCE_MAX=\([0-9]\+\).*/\1/p' "$RUN/config" | head -1)
-EVERY=$(sed -n 's/^BATCH_AUDIT_EVERY=\([0-9]\+\).*/\1/p' "$RUN/config" | head -1)
+# BRE \+ is GNU-only; BSD/macOS sed treats it as a literal '+'. Use [0-9][0-9]* for portability.
+MAX=$(sed -n 's/^AUTO_ADVANCE_MAX=\([0-9][0-9]*\).*/\1/p' "$RUN/config" | head -1)
+EVERY=$(sed -n 's/^BATCH_AUDIT_EVERY=\([0-9][0-9]*\).*/\1/p' "$RUN/config" | head -1)
 [ -n "$MAX" ] || deny "Batch guard: AUTO_ADVANCE_MAX not set in config; denying."
 [ -n "$EVERY" ] || EVERY=$MAX
 
