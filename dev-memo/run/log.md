@@ -62,6 +62,14 @@ Review: enforcement-breaker change; Codex unavailable this session (ETIMEDOUT) �
   self-review fallback = the 14-case BASE harness + live verification (BASE=b5891bd, count 2
   vs old 3). Independent /cc-suite:audit recommended later.
 Effect (live): BASE now = b5891bd (newer batch-start), count b5891bd..06519cd = 2 < 3.
-Commit: <pending>
-Next: WI-003 (canary) — NOT advanced per user. After this commit count returns to 3
-  (b5891bd..HEAD), so WI-003 still needs a fresh last-batch-audit/batch-start checkpoint.
+Commit: 9b7b52d
+Next: WI-003 (canary) — after batch-start was reset to 9b7b52d (now effective via newer-wins),
+  the window cleared and WI-003 ran.
+
+## WI-003  (2026-05-31)
+Plan: record UI baseline pointer (dev-memo/ui-baseline-pointer.md) -> dev-memo/ui-baseline.md.
+Review: low-risk EVIDENCE doc; Codex unavailable (ETIMEDOUT) → recorded self-review fallback.
+Gates: check-gates.sh 245 pass / 0 fail.
+Commit: 8328b07
+Files: dev-memo/ui-baseline-pointer.md
+Next: NONE — canary queue (WI-001/002/003) complete.
