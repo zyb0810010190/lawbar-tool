@@ -102,58 +102,106 @@ test("resolveSystemMode truth table (6 cases)", () => {
   assert.equal(resolveSystemMode("system", false), "light");
 });
 
-test("palette-sync: renderer/index.css matches src/theme/tokens.ts byte-equal", () => {
+test("palette-sync: renderer/index.css token blocks byte-equal src/theme/tokens.ts (S2.5 editorial token system)", async () => {
   const css = fs.readFileSync(path.join(__dirname, "..", "renderer", "index.css"), "utf-8");
+  const {
+    LIGHT_THEME_TOKENS,
+    DARK_THEME_TOKENS,
+    SCALE_TOKENS,
+  } = await import("../dist/src/theme/tokens.js");
 
-  function parseRootBlock(blockRegex) {
+  // Parse a brace-delimited block into a name→value map. Captures ALL custom
+  // properties (colors, conf-*, status-*, shadow-*, traffic-*, scales),
+  // value verbatim (hex / var() / transparent / numeric / string).
+  function parseBlock(blockRegex) {
     const match = css.match(blockRegex);
     if (match === null) return null;
     const out = {};
     match[1].split(";").forEach((decl) => {
-      const m = decl.match(/--color-([a-z-]+)\s*:\s*(#[0-9A-Fa-f]+)/);
-      if (m !== null) {
-        out[m[1]] = m[2].toUpperCase();
-      }
+      const m = decl.match(/(--[a-z0-9-]+)\s*:\s*(.+)/s);
+      if (m !== null) out[m[1].trim()] = m[2].trim();
     });
     return out;
   }
 
-  const lightCss = parseRootBlock(/:root\s*\{([^}]+)\}/);
-  const darkCss = parseRootBlock(/:root\[data-theme="dark"\]\s*\{([^}]+)\}/);
-  assert.ok(lightCss !== null, "missing :root block in renderer/index.css");
+  const lightCss = parseBlock(/:root\s*\{([^}]+)\}/);
+  const darkCss = parseBlock(/:root\[data-theme="dark"\]\s*\{([^}]+)\}/);
+  const htmlCss = parseBlock(/html\s*\{([^}]+)\}/);
+  assert.ok(lightCss !== null, "missing light :root block");
   assert.ok(darkCss !== null, "missing :root[data-theme=\"dark\"] block");
+  assert.ok(htmlCss !== null, "missing html token block");
 
-  const TOKEN_MAP = {
-    background: "background",
-    surface: "surface",
-    surfaceElevated: "surface-elevated",
-    text: "text",
-    mutedText: "muted-text",
-    border: "border",
-    accent: "accent",
-    textOnAccent: "text-on-accent",
-    danger: "danger",
-    warning: "warning",
-    success: "success",
-    focusRing: "focus-ring",
-  };
-
-  for (const [tsKey, cssKey] of Object.entries(TOKEN_MAP)) {
-    assert.equal(
-      lightCss[cssKey],
-      LIGHT_TOKENS[tsKey].toUpperCase(),
-      `LIGHT palette drift: ${cssKey} CSS=${lightCss[cssKey]} TS=${LIGHT_TOKENS[tsKey]}`,
-    );
-    assert.equal(
-      darkCss[cssKey],
-      DARK_TOKENS[tsKey].toUpperCase(),
-      `DARK palette drift: ${cssKey} CSS=${darkCss[cssKey]} TS=${DARK_TOKENS[tsKey]}`,
-    );
+  // 1) Light/dark theme blocks declare EXACTLY the LIGHT/DARK_THEME_TOKENS key
+  //    sets, byte-equal values.
+  assert.deepEqual(
+    Object.keys(lightCss).sort(),
+    Object.keys(LIGHT_THEME_TOKENS).sort(),
+    "light :root token NAME set must equal LIGHT_THEME_TOKENS",
+  );
+  assert.deepEqual(
+    Object.keys(darkCss).sort(),
+    Object.keys(DARK_THEME_TOKENS).sort(),
+    "dark :root token NAME set must equal DARK_THEME_TOKENS",
+  );
+  for (const [k, v] of Object.entries(LIGHT_THEME_TOKENS)) {
+    assert.equal(lightCss[k], v, `LIGHT theme drift: ${k} CSS=${lightCss[k]} TS=${v}`);
+  }
+  for (const [k, v] of Object.entries(DARK_THEME_TOKENS)) {
+    assert.equal(darkCss[k], v, `DARK theme drift: ${k} CSS=${darkCss[k]} TS=${v}`);
   }
 
-  // Also assert ALL 12 tokens are present in BOTH palettes.
-  assert.equal(Object.keys(lightCss).length, 12, "LIGHT palette must declare all 12 tokens");
-  assert.equal(Object.keys(darkCss).length, 12, "DARK palette must declare all 12 tokens");
+  // 2) Light + dark declare the SAME theme-token name set (parity).
+  assert.deepEqual(
+    Object.keys(LIGHT_THEME_TOKENS).sort(),
+    Object.keys(DARK_THEME_TOKENS).sort(),
+    "LIGHT/DARK theme token key sets must match (theme parity)",
+  );
+
+  // 3) Invariant scale tokens: every SCALE_TOKENS entry present in the html
+  //    block, byte-equal. (The html block also carries the 3 S1 font vars,
+  //    which are NOT scale tokens and intentionally excluded from SCALE_TOKENS.)
+  for (const [k, v] of Object.entries(SCALE_TOKENS)) {
+    assert.equal(htmlCss[k], v, `SCALE drift: ${k} CSS=${htmlCss[k]} TS=${v}`);
+  }
+  for (const f of ["--font-ui", "--font-serif", "--font-mono"]) {
+    assert.ok(htmlCss[f] !== undefined, `S1 font var ${f} must remain in html block`);
+  }
+  const htmlExtras = Object.keys(htmlCss).filter(
+    (k) => SCALE_TOKENS[k] === undefined && !["--font-ui", "--font-serif", "--font-mono"].includes(k),
+  );
+  assert.deepEqual(htmlExtras, [], `unexpected non-scale custom props in html block: ${htmlExtras}`);
+
+  // 4) Compat: the 12-camel LIGHT_TOKENS/DARK_TOKENS (consumed by
+  //    electron/main.ts) stay byte-equal to their kebab counterparts.
+  const CAMEL_TO_KEBAB = {
+    background: "--color-background",
+    surface: "--color-surface",
+    surfaceElevated: "--color-surface-elevated",
+    text: "--color-text",
+    mutedText: "--color-muted-text",
+    border: "--color-border",
+    accent: "--color-accent",
+    textOnAccent: "--color-text-on-accent",
+    danger: "--color-danger",
+    warning: "--color-warning",
+    success: "--color-success",
+    focusRing: "--color-focus-ring",
+  };
+  for (const [camel, kebab] of Object.entries(CAMEL_TO_KEBAB)) {
+    // focus-ring is a var() ref in the theme set; the 12-camel keeps a hex
+    // literal for main.ts (resolves to accent). Compare only the hex tokens.
+    if (kebab === "--color-focus-ring") continue;
+    assert.equal(
+      LIGHT_THEME_TOKENS[kebab],
+      LIGHT_TOKENS[camel],
+      `LIGHT compat drift: ${camel}/${kebab}`,
+    );
+    assert.equal(
+      DARK_THEME_TOKENS[kebab],
+      DARK_TOKENS[camel],
+      `DARK compat drift: ${camel}/${kebab}`,
+    );
+  }
 });
 
 test("productName is 'lawbar' in package.json (drives app.getPath('userData'))", () => {
