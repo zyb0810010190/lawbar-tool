@@ -736,3 +736,5 @@ html {
 body {
   font-family: var(--font-ui);
 }
+
+/* canary: PR-time UI design guard should fail without Design artifact */
