@@ -33,6 +33,23 @@ const SCOPE_HINTS = [
 
 const SKIP_DIRS = new Set(["node_modules", "dist", "coverage", "release", ".git", "dist-tarballs", "staging"]);
 
+// Binary asset extensions: these are NOT text fixtures, so reading them as UTF-8 produces
+// byte sequences that spuriously match text patterns (e.g. a .woff2 font's bytes matching the
+// email regex). A general extension skip-list — not specific filenames — keeps the scanner
+// focused on real text data. NOTE: .svg is intentionally excluded (it is XML text).
+const BINARY_EXTS = new Set([
+  ".woff2", ".woff", ".ttf", ".otf", ".eot",                            // fonts
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".icns",   // images
+  ".pdf", ".zip", ".gz", ".tgz", ".tar", ".7z", ".rar",                // archives / binary docs
+  ".wasm", ".node", ".bin", ".exe", ".dll", ".dylib", ".so", ".a", ".o", // binaries
+  ".mp4", ".mov", ".webm", ".avi", ".mp3", ".wav", ".ogg", ".flac",    // media
+  ".sqlite", ".sqlite3", ".db",                                        // databases
+]);
+
+function isBinaryAsset(filePath) {
+  return BINARY_EXTS.has(path.extname(filePath).toLowerCase());
+}
+
 const EXEMPT_PATHS = new Set([
   path.join(REPO_ROOT, "apps/lawbar-desktop/scripts/check-no-real-data.mjs"),
   path.join(REPO_ROOT, "apps/lawbar-desktop/tests/check-no-real-data.test.mjs"),
@@ -81,12 +98,14 @@ function collectRecursive(dir) {
 function isInScope(filePath) {
   const rel = path.relative(REPO_ROOT, filePath);
   if (EXEMPT_PATHS.has(filePath)) return false;
+  if (isBinaryAsset(filePath)) return false; // binary assets (fonts/images/etc.) are never text fixtures
   if (SCOPE_HINTS.some((re) => re.test(rel))) return true;
   return false;
 }
 
 function scanFile(filePath) {
   if (!existsSync(filePath)) return [];
+  if (isBinaryAsset(filePath)) return []; // defense-in-depth: never scan a binary asset as text
   const text = readFileSync(filePath, "utf8");
   const lines = text.split("\n");
   const hits = [];
@@ -138,7 +157,7 @@ function main(argv) {
   return 1;
 }
 
-export { scanFile, isInScope, PATTERNS };
+export { scanFile, isInScope, isBinaryAsset, PATTERNS };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   process.exit(main(process.argv.slice(2)));

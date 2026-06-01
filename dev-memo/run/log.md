@@ -142,5 +142,24 @@ Findings: dev-memo/deferred-audit-findings.md — BGAA-1 + BCSA-1 closed; BGAA/B
   arg-taking-wrapper) deferred consistent with the rest of the guard suite.
 Review: enforcement change; self-review = the 56 new test cases + regression + live smoke.
   Independent /cc-suite:audit available if desired (Codex responsive).
-Commit: <pending>
+Commit: 93ce672
 Next: NONE. Per user: do not push until reviewed.
+
+## WI-TEST-001  (2026-06-01, user-authorized; apps/ change, not a canary-queue WI)
+Plan: fix false positives in the lawbar-desktop no-real-data gate. The scanner read binary
+  .woff2 fonts under renderer/fonts/ as UTF-8, so byte runs (e.g. "qx@V.uh") matched the email
+  pattern -> FAIL on a clean tree (full sweep). Added a general BINARY_EXTS skip list (fonts /
+  images / archives / binaries / media / db; .svg deliberately kept as text), applied at BOTH
+  isInScope (binary never enters scope) and scanFile (defense-in-depth). Verified the root cause:
+  the gate passed during the canary because the tree had changes (scanner scanned only changed
+  files, not the unchanged fonts); on a clean tree it does the full sweep and hit the fonts.
+Files: apps/lawbar-desktop/scripts/check-no-real-data.mjs,
+  apps/lawbar-desktop/tests/check-no-real-data.test.mjs, dev-memo/run/log.md.
+Tests: check-no-real-data.test.mjs 11/11 (5 new: isBinaryAsset, scanFile skips .woff2, scanFile
+  still flags a real email in .ts, isInScope excludes fonts but keeps renderer text). Explicit
+  scan of the 3 real fonts -> OK (was FAIL). npm test / check-gates.sh: 245 pass / 0 fail.
+Review: low-risk false-positive fix to a data-hygiene gate; the change only EXCLUDES binary
+  extensions and preserves all text detection (proven by the positive email-in-.ts test). Codex
+  available; not requested. Self-review = the unit tests + explicit font scan + full gate.
+Commit: <pending>
+Next: NONE. Per user: do not push.
