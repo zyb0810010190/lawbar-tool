@@ -26,7 +26,7 @@ risk flag is pending — so these limits are enforced, not merely instructed.
 - `queue.governed` — presence attests the queue passed governance (guard requires it).
 - `config`    — run parameters: `AUTO_ADVANCE_MAX` and `BATCH_AUDIT_EVERY`.
 - `batch-start` — commit hash where the current batch began (guard derives count from this).
-- `last-batch-audit` — commit hash of the last completed batch audit (resets the count).
+- `last-batch-audit` — ignored local checkpoint: commit hash of the last completed batch audit. Create or update it after completing a batch audit.
 - `risk.flag` — presence = a Layer-C trigger is pending; blocks commits until audited.
 - `human.ack` — single-use human authorization for **gated mode only**; consumed on use.
 - `human.override` — single-use **batch-mode** override token; consumed on use.
