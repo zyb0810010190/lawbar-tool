@@ -14,6 +14,29 @@ eyeball each UI change before it commits — add three regression gates.
 > without fixing the underlying problem — and you won't catch that by eye. Treat these gates
 > as a floor that stops *re-introducing* known-detectable defects, not as proof of access.
 
+## Queue entry gate — design artifact (required, enforced now)
+
+This is the only UI gate enforced today; the regression gates below are not yet wired into
+autonomous automation. Before a `Type: UI` Work Item may enter a *governed* queue, its queue
+block MUST carry a concrete **`Design artifact:`** field — a reference to the Claude Design
+output or a committed design doc (e.g. `dev-memo/design/<date>-<topic>.md`). `check-queue.sh`
+fails the lint if a UI WI omits it or uses a placeholder (`none` / `TBD` / `pending`).
+
+```
+## WI-0xx: <ui change>
+Type: UI
+Design artifact: dev-memo/design/2026-06-01-matter-list-empty-state.md (Claude Design export)
+Gates: npm --prefix apps/lawbar-desktop run test:ui-...
+... (all standard WI fields)
+```
+
+Rationale: an autonomous study-after-ship loop must not invent UI direction. The design
+artifact is the human-authored "noun" the UI WI implements against. This gate does **not**
+enable full UI automation — the `frontend-design` → token/responsive → visual/a11y/Lighthouse
+chain below remains un-wired until separately built. It also does **not** apply retroactively:
+the legacy UI baseline (`dev-memo/ui-baseline.md`) is *evidence*, not a queued WI, so it needs
+no design proof.
+
 ## Versions (verified Jan–Apr 2026)
 
 ```jsonc

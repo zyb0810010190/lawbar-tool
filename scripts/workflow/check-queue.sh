@@ -8,7 +8,7 @@ RUN="${CLAUDE_PROJECT_DIR:-.}/dev-memo/run"
 Q="$RUN/queue.md"
 LINTED="$RUN/queue.linted"
 DENY="$RUN/forbidden-paths.txt"
-VALID_TYPES="PLAN SOURCE ASSET IMPL TEST REVIEW EVIDENCE CLOSURE SCAFFOLD WORKFLOW MEMORY"
+VALID_TYPES="PLAN SOURCE ASSET IMPL TEST REVIEW EVIDENCE CLOSURE SCAFFOLD WORKFLOW MEMORY UI"
 problems=(); fail=0
 note(){ problems+=("$1"); fail=1; }
 
@@ -58,6 +58,16 @@ $id"
   case "$typ" in
     IMPL|TEST|UI) printf '%s' "$gates" | grep -qiE '^(none|n/a)?$' && note "WI $id: $typ work needs real Gates, got '$gates'";;
   esac
+  # UI design gate (UI-GATES.md): a Type: UI WI may enter a governed queue only with a concrete
+  # 'Design artifact:' reference (the Claude Design output / design doc). Non-UI WIs are
+  # unaffected; the legacy UI baseline (dev-memo/ui-baseline.md) is evidence, not a queued WI,
+  # so it needs no retroactive design proof.
+  if [ "$typ" = "UI" ]; then
+    design=$(fieldval "Design artifact" "$B")
+    if [ -z "$design" ] || printf '%s' "$design" | grep -qiE '^(none|n/a|na|tbd|todo|pending|tba)$'; then
+      note "WI $id: Type UI requires a concrete 'Design artifact:' reference (Claude Design output / design doc) before entering a governed queue; got '$design'"
+    fi
+  fi
   [ -n "$accept" ] && ! printf '%s' "$accept" | grep -qiE '(show|block|return|equal|match|pass|fail|render|exist|reject|contain|display|>=|<=|==|output)' \
     && note "WI $id: Acceptance criteria not observable/checkable: '$accept'"
   if [ -r "$DENY" ] && [ -n "$allowed" ]; then

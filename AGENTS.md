@@ -17,7 +17,9 @@ authorize the next. Every non-trivial WI declares, before editing: scope, source
 allowed files, forbidden files, gates, review path, commit boundary, report.
 
 WI types: PLAN, SOURCE, ASSET, IMPL, TEST, REVIEW, EVIDENCE, CLOSURE, SCAFFOLD, WORKFLOW,
-MEMORY. Never mix product changes with scaffold/workflow changes in one WI.
+MEMORY, UI. Never mix product changes with scaffold/workflow changes in one WI. A `Type: UI`
+WI may enter a governed queue only with a concrete `Design artifact:` reference (enforced by
+`check-queue.sh`; see `UI-GATES.md`) — full UI automation is not enabled yet.
 
 ## Source hierarchy
 

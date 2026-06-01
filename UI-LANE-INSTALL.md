@@ -40,5 +40,8 @@ contrast, focus states, touch targets, or palettes — coverage that the removed
 
 ## Lane order
 
+Queue-entry gate (enforced now): a `Type: UI` WI needs a concrete `Design artifact:` field
+before it can enter a governed queue (`check-queue.sh`; see `UI-GATES.md`). Then:
+
 Claude Design (direction) → frontend-design (implement) → ui-responsive (responsive advice)
 + ui-tokenize (token enforcement) → delegation chain (Codex review/audit) → commit.
