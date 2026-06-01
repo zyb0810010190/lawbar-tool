@@ -161,5 +161,26 @@ Tests: check-no-real-data.test.mjs 11/11 (5 new: isBinaryAsset, scanFile skips .
 Review: low-risk false-positive fix to a data-hygiene gate; the change only EXCLUDES binary
   extensions and preserves all text detection (proven by the positive email-in-.ts test). Codex
   available; not requested. Self-review = the unit tests + explicit font scan + full gate.
-Commit: <pending>
+Commit: 9122f9d (on main — migration branch was merged via PR #1)
 Next: NONE. Per user: do not push.
+
+## WI-SCAFFOLD-007  (2026-06-01, user-authorized; not a canary-queue WI)
+Plan: add the UI Design gate — a Type: UI WI may enter a governed queue only with a concrete
+  'Design artifact:' reference. check-queue.sh: added UI to VALID_TYPES (was rejected as invalid
+  Type, yet the gates check already referenced UI — inconsistency fixed) + a gate that fails the
+  lint when a UI WI omits Design artifact or uses a placeholder (none/TBD/pending/empty). Non-UI
+  WIs lint unchanged; the legacy UI baseline (dev-memo/ui-baseline.md) is evidence not a queued
+  WI, so no retroactive proof. This adds the gate mechanism + docs only — NOT full UI automation.
+Files: scripts/workflow/check-queue.sh, scripts/workflow/check-queue.test.sh (new),
+  dev-memo/run/queue.example.md (UI example w/ Design artifact), UI-GATES.md (queue-entry gate
+  section), UI-LANE-INSTALL.md (pointer), AGENTS.md (UI added to WI types + note),
+  dev-memo/run/log.md.
+Tests: scripts/workflow/check-queue.test.sh 6/6 — non-UI passes, UI-with-design passes,
+  UI-without-design FAILS, UI-with-placeholder FAILS, mixed-queue FAILS, Type UI accepted.
+  Real queue.md still lints PASS (non-UI). AGENTS.md 12974 B (<32 KiB). check-gates 245/0.
+  Mid-impl bug caught by tests: empty Design field slipped (`printf '%s' ""` gives grep no line);
+  fixed with an explicit `[ -z "$design" ]` check.
+Review: scaffold/workflow gate change; self-review = the 6-case check-queue harness + real-queue
+  lint + gates. Independent /cc-suite:audit available if desired.
+Commit: <pending>
+Next: NONE. Per user: do not push until reviewed.
