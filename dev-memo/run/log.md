@@ -184,3 +184,5 @@ Review: scaffold/workflow gate change; self-review = the 6-case check-queue harn
   lint + gates. Independent /cc-suite:audit available if desired.
 Commit: <pending>
 Next: NONE. Per user: do not push until reviewed.
+
+- Canary: PR-time UI design guard installed on main; non-UI PR should not require design artifact.
