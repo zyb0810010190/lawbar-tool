@@ -37,6 +37,24 @@ chain below remains un-wired until separately built. It also does **not** apply 
 the legacy UI baseline (`dev-memo/ui-baseline.md`) is *evidence*, not a queued WI, so it needs
 no design proof.
 
+## PR-time gate — design artifact for app UI changes (required, enforced in CI)
+
+Manual or interactive UI implementation changes can bypass the governed-queue `Type: UI`
+entry gate. To close that hole, GitHub Actions runs
+`scripts/workflow/check-ui-design-artifact.sh` on pull requests.
+
+If a PR changes app UI implementation paths, the PR body MUST include a concrete
+`Design artifact:` line. Placeholder values such as `none`, `TBD`, `todo`, or `pending`
+fail the check.
+
+Example PR body line:
+
+    Design artifact: dev-memo/design/2026-06-01-matter-list-empty-state.md (Claude Design export)
+
+The guard currently treats app renderer/UI implementation paths as UI-touching. Design-source
+reference files under `dev-memo/design-source/` are not treated as app UI implementation
+changes by this PR-time guard.
+
 ## Versions (verified Jan–Apr 2026)
 
 ```jsonc
