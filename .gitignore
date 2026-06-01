@@ -47,3 +47,6 @@ dev-memo/superseded/
 # <<< cc-suite <<<
 
 *.tsbuildinfo
+
+# Auto-advance local run-state
+/dev-memo/run/last-batch-audit
