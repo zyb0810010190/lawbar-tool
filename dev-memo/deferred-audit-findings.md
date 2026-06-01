@@ -26,7 +26,23 @@
 
 ---
 
-## Independent enforcement-hook audits — post-canary (WI-SCAFFOLD-004, commit `<pending>`)
+## Staging-guard detection hardening (WI-SCAFFOLD-006, commit `<pending>`)
+
+Closes the gap surfaced when WI-SCAFFOLD-005 removed the `if` filters so all git guards run on
+every Bash call: `batch-commit-guard.sh` had statement-aware command-word detection (WI-SCAFFOLD-004)
+but the two staging guards still used substring/boundary matching, so path-prefixed forms slipped
+them even when invoked. Ported the command-word detection (path-prefix, wrappers, env assignments,
+git global options) into both staging guards.
+
+| Finding ID | Severity | Reason for deferral / disposition | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| BGAA-1 | High | FIXED in WI-SCAFFOLD-006 — `block-git-add-all.sh` now detects broad `git add` across `/usr/bin/git`, `./git`, `\git`, wrappers (`env`/`command`/`exec`/`time`/…), env assignments, and global options (`-c`/`-C`/`--no-pager`); also catches quoted broad pathspecs (`"*"`, `"."`). | — | YES | closed | resolved-in `<pending>`; tests `block-git-add-all.test.sh` (30 cases) |
+| BCSA-1 | High | FIXED in WI-SCAFFOLD-006 — `block-commit-stage-all.sh` now detects `git commit -a/--all/-am…` across the same git forms; quoted message content stripped first so `-a` in a message is ignored. | — | YES | closed | resolved-in `<pending>`; tests `block-commit-stage-all.test.sh` (26 cases) |
+| BGAA/BCSA-2 | Low | Deferred (bounded, mirrors batch-commit-guard) — both staging guards inherit the same out-of-scope limits: command-substitution / variable-indirected forms, arg-taking wrapper flags (`env -u NAME`). | WI: shell-aware parsing (shared with BCG-8/9/10, BRCBW path-indirection) | YES | open | consistent with the rest of the guard suite |
+
+---
+
+## Independent enforcement-hook audits — post-canary (WI-SCAFFOLD-004, commit `059e7f6`)
 
 Three independent cc-suite full audits of the workflow enforcement hooks, run while Codex exec was responsive. Severities below are my adjudicated values; the hooks' own headers state the threat model is "cooperative agent + direct-write block, NOT cryptographic", so most bypasses are defense-in-depth gaps, not active Criticals. User (2026-05-31) authorized fixing ONLY the batch-commit-guard git-detection set + rev-list fail-open in WI-SCAFFOLD-004; path-indirection and token-nonce hardening are explicitly deferred to later WIs.
 
@@ -38,9 +54,9 @@ Three independent cc-suite full audits of the workflow enforcement hooks, run wh
 
 | Finding ID | Severity | Reason for deferral / disposition | Target | Safe? | Status | Notes |
 |---|---|---|---|---|---|---|
-| BCG-1 | High | FIXED in WI-SCAFFOLD-004 — git-detection now statement-aware: `/usr/bin/git commit`, `git -c k=v commit`, `git --no-pager commit`, `FOO=bar git commit`, plus command-prefix wrappers `\git` / `command` / `exec` / `time` / `env [-i] FOO=bar git` (scope-extension, audit-mpufm338-2gtelo #1) | — | YES | closed | resolved-in `<pending>`; tests `batch-commit-guard-detect.test.sh` (28 cases) |
-| BCG-2 | High | FIXED in WI-SCAFFOLD-004 — multiple `git commit` in one Bash call now denied (one decision != many commits) | — | YES | closed | resolved-in `<pending>` |
-| BCG-3 | High | FIXED in WI-SCAFFOLD-004 — `rev-list` non-zero/non-numeric now denies, in BOTH the final count AND the divergent-base helpers (was fail-open COUNT=0; audit-mpufm338-2gtelo #4) | — | YES | closed | resolved-in `<pending>` |
+| BCG-1 | High | FIXED in WI-SCAFFOLD-004 — git-detection now statement-aware: `/usr/bin/git commit`, `git -c k=v commit`, `git --no-pager commit`, `FOO=bar git commit`, plus command-prefix wrappers `\git` / `command` / `exec` / `time` / `env [-i] FOO=bar git` (scope-extension, audit-mpufm338-2gtelo #1) | — | YES | closed | resolved-in `059e7f6`; tests `batch-commit-guard-detect.test.sh` (28 cases) |
+| BCG-2 | High | FIXED in WI-SCAFFOLD-004 — multiple `git commit` in one Bash call now denied (one decision != many commits) | — | YES | closed | resolved-in `059e7f6` |
+| BCG-3 | High | FIXED in WI-SCAFFOLD-004 — `rev-list` non-zero/non-numeric now denies, in BOTH the final count AND the divergent-base helpers (was fail-open COUNT=0; audit-mpufm338-2gtelo #4) | — | YES | closed | resolved-in `059e7f6` |
 | BCG-4 | High | Deferred (user-authorized) — `human.ack` consumed even if `rm -f` fails -> reusable gated token | WI: token-nonce hardening | YES | open | nonce + recency instead of file-presence |
 | BCG-5 | High | Deferred (user-authorized) — `human.override` consumed even if log append / rm fails | WI: token-nonce hardening | YES | open | require successful append+removal or deny |
 | BCG-6 | High | Deferred (user-authorized) — governed-queue check trusts `queue.governed` presence; stale marker survives `queue.md` edits | WI: queue-content-hash governance (GOVERNANCE-CHAIN-001) | YES | open | record + verify a queue content hash |

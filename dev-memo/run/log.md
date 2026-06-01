@@ -118,5 +118,29 @@ FLAGGED GAP (not fixed — out of scope; recommend follow-up WI): block-git-add-
   the statement-aware command-word detection from WI-SCAFFOLD-004. Follow-up: port that detection
   to the two staging guards (new deferred class BGAA/BCSA-detection-hardening).
 Review: low-risk wiring change; self-review = JSON validity + carve-out diff + suites + smoke.
+Commit: 68944e8
+Next: WI-SCAFFOLD-006 closes the flagged gap.
+
+## WI-SCAFFOLD-006  (2026-06-01, user-authorized; not a canary-queue WI)
+Plan: port batch-commit-guard.sh's statement-aware command-word detection into the two staging
+  guards so they catch broad staging across path-prefixed git (/usr/bin/git, ./git), wrappers
+  (env/command/exec/time/...), \git, env assignments, and git global options (-c/-C/--no-pager) —
+  not just the literal `git add`/`git commit` prefix. Closes the WI-SCAFFOLD-005 flagged gap.
+  block-git-add-all preserves the broad-pathspec deny set (-A/--all/-u/--update/./././/:/'*');
+  also now catches quoted `"*"`/`"."`. block-commit-stage-all preserves -a/--all/clustered-flag
+  (-am/-va/-aF) detection and strips quoted message content first (so -a in a message + message
+  separators are ignored). emit_deny runs in the main shell via process substitution so a deny
+  terminates the whole hook.
+Files: .claude/hooks/block-git-add-all.sh, .claude/hooks/block-commit-stage-all.sh,
+  .claude/hooks/tests/block-git-add-all.test.sh, .claude/hooks/tests/block-commit-stage-all.test.sh,
+  dev-memo/deferred-audit-findings.md, dev-memo/run/log.md.
+Tests: block-git-add-all 30/30, block-commit-stage-all 26/26 (incl. all 6 user-required cases:
+  /usr/bin/git add -A, git -c x=y add ., command git add ., /usr/bin/git commit -am x,
+  git -c x=y commit -am x, irrelevant ALLOW). Regression: base 14, detect 28, block-run 45 green.
+  gates 245/0. Live smoke: benign ALLOW; path-prefixed/wrapper/global-option broad forms DENY.
+Findings: dev-memo/deferred-audit-findings.md — BGAA-1 + BCSA-1 closed; BGAA/BCSA-2 (cmd-subst /
+  arg-taking-wrapper) deferred consistent with the rest of the guard suite.
+Review: enforcement change; self-review = the 56 new test cases + regression + live smoke.
+  Independent /cc-suite:audit available if desired (Codex responsive).
 Commit: <pending>
 Next: NONE. Per user: do not push until reviewed.
