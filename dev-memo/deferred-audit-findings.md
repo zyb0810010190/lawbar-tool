@@ -26,6 +26,59 @@
 
 ---
 
+## Staging-guard detection hardening (WI-SCAFFOLD-006, commit `<pending>`)
+
+Closes the gap surfaced when WI-SCAFFOLD-005 removed the `if` filters so all git guards run on
+every Bash call: `batch-commit-guard.sh` had statement-aware command-word detection (WI-SCAFFOLD-004)
+but the two staging guards still used substring/boundary matching, so path-prefixed forms slipped
+them even when invoked. Ported the command-word detection (path-prefix, wrappers, env assignments,
+git global options) into both staging guards.
+
+| Finding ID | Severity | Reason for deferral / disposition | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| BGAA-1 | High | FIXED in WI-SCAFFOLD-006 — `block-git-add-all.sh` now detects broad `git add` across `/usr/bin/git`, `./git`, `\git`, wrappers (`env`/`command`/`exec`/`time`/…), env assignments, and global options (`-c`/`-C`/`--no-pager`); also catches quoted broad pathspecs (`"*"`, `"."`). | — | YES | closed | resolved-in `<pending>`; tests `block-git-add-all.test.sh` (30 cases) |
+| BCSA-1 | High | FIXED in WI-SCAFFOLD-006 — `block-commit-stage-all.sh` now detects `git commit -a/--all/-am…` across the same git forms; quoted message content stripped first so `-a` in a message is ignored. | — | YES | closed | resolved-in `<pending>`; tests `block-commit-stage-all.test.sh` (26 cases) |
+| BGAA/BCSA-2 | Low | Deferred (bounded, mirrors batch-commit-guard) — both staging guards inherit the same out-of-scope limits: command-substitution / variable-indirected forms, arg-taking wrapper flags (`env -u NAME`). | WI: shell-aware parsing (shared with BCG-8/9/10, BRCBW path-indirection) | YES | open | consistent with the rest of the guard suite |
+
+---
+
+## Independent enforcement-hook audits — post-canary (WI-SCAFFOLD-004, commit `059e7f6`)
+
+Three independent cc-suite full audits of the workflow enforcement hooks, run while Codex exec was responsive. Severities below are my adjudicated values; the hooks' own headers state the threat model is "cooperative agent + direct-write block, NOT cryptographic", so most bypasses are defense-in-depth gaps, not active Criticals. User (2026-05-31) authorized fixing ONLY the batch-commit-guard git-detection set + rev-list fail-open in WI-SCAFFOLD-004; path-indirection and token-nonce hardening are explicitly deferred to later WIs.
+
+| Audit job | Scope |
+|---|---|
+| `audit-mpuesqmt-4zzpxr` | `.claude/hooks/batch-commit-guard.sh` |
+| `audit-mpuesqil-hgp1vs` | `.claude/hooks/block-run-control-bash-write.sh` |
+| `audit-mpuesqrc-zmw5b5` | `.claude/hooks/protect-run-control.sh` |
+
+| Finding ID | Severity | Reason for deferral / disposition | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| BCG-1 | High | FIXED in WI-SCAFFOLD-004 — git-detection now statement-aware: `/usr/bin/git commit`, `git -c k=v commit`, `git --no-pager commit`, `FOO=bar git commit`, plus command-prefix wrappers `\git` / `command` / `exec` / `time` / `env [-i] FOO=bar git` (scope-extension, audit-mpufm338-2gtelo #1) | — | YES | closed | resolved-in `059e7f6`; tests `batch-commit-guard-detect.test.sh` (28 cases) |
+| BCG-2 | High | FIXED in WI-SCAFFOLD-004 — multiple `git commit` in one Bash call now denied (one decision != many commits) | — | YES | closed | resolved-in `059e7f6` |
+| BCG-3 | High | FIXED in WI-SCAFFOLD-004 — `rev-list` non-zero/non-numeric now denies, in BOTH the final count AND the divergent-base helpers (was fail-open COUNT=0; audit-mpufm338-2gtelo #4) | — | YES | closed | resolved-in `059e7f6` |
+| BCG-4 | High | Deferred (user-authorized) — `human.ack` consumed even if `rm -f` fails -> reusable gated token | WI: token-nonce hardening | YES | open | nonce + recency instead of file-presence |
+| BCG-5 | High | Deferred (user-authorized) — `human.override` consumed even if log append / rm fails | WI: token-nonce hardening | YES | open | require successful append+removal or deny |
+| BCG-6 | High | Deferred (user-authorized) — governed-queue check trusts `queue.governed` presence; stale marker survives `queue.md` edits | WI: queue-content-hash governance (GOVERNANCE-CHAIN-001) | YES | open | record + verify a queue content hash |
+| BCG-7 | Medium | Deferred — huge-digit config values -> bash integer compare error disables checks | WI: config validation | YES | open | whitelist AUTO_ADVANCE_MAX in {1,3,10}, bound EVERY |
+| BCG-8 | Low | Deferred per user (no alias resolution) — git aliases that invoke commit (`git -c alias.x=commit x`) evade subcommand detection (audit-mpufm338-2gtelo #2). Esoteric; generic alias resolution in-hook is heavy. | WI: (only if a real alias-commit workflow appears) | YES | open | my calibration Low vs Codex Critical — needs a deliberately commit-aliased subcommand |
+| BCG-9 | Medium | Deferred per user (no full quote-aware parser) — a single commit whose `-m` message contains `; git commit …` (or `|`/`&`) splits and is wrongly counted as 2 -> DENIED (audit-mpufm338-2gtelo #3). Fails CLOSED (over-denies a legit commit), not a security bypass. | WI: quote-aware statement splitting | YES | open | `&&`-in-message is safe; other separators are not |
+| BCG-10 | Low | Deferred (bounded unwrap only) — command-prefix wrappers with arg-taking flags (`env -u NAME`, `exec -a NAME`) can consume the next token and miss `git` (fail-open for that exotic form). Only no-arg wrapper flags + assignments are unwrapped in WI-SCAFFOLD-004. | WI: shell-aware parsing (with BRCBW path-indirection) | YES | open | `env -i FOO=bar git commit` IS handled; `env -u X git commit` is not |
+| BRCBW-1 | High | Deferred (user-authorized) — `cd dev-memo/run && echo x > config` (relative-after-cd) + variable/`$()`-indirected paths bypass literal matching | WI: Bash path-indirection hardening | YES | open | needs shell-aware parsing/canonicalization |
+| BRCBW-2 | High | Deferred — dynamic redirection targets (`echo x > "$p"`, `$(printf …)`) not caught | WI: Bash path-indirection hardening | YES | open | deny dynamic targets when run-control paths in scope |
+| BRCBW-3 | High | Deferred — `tee -a /tmp/ok; tee dev-memo/run/log.md` allowed (global `-a` check, not per-invocation) -> truncates log.md | WI: per-invocation tee/sed parsing | YES | open | parse each `tee` separately |
+| BRCBW-4 | High | Deferred — `sed -i.bak …` / `perl -pi …` bypass `is_sed_i` (only bare `-i`) | WI: per-invocation tee/sed parsing | YES | open | match `-iEXT`, `-i ''`, perl `-pi`/`-i.bak` |
+| BRCBW-5 | Medium | Deferred (accepted) — verb co-occurrence false-denies read-source `cp dev-memo/run/config /tmp/x` (conservative over-block, documented in hook) | WI: write-target precision | YES | open | identify destination operands / `of=` only |
+| BRCBW-6 | Medium | Deferred — jq-absent fallback not fail-safe for JSON escapes (`dev-memo\/run\/config`) | WI: require-jq-or-deny | YES | open | require jq for this hook, or real JSON decode |
+| BRCBW-7 | Low | Deferred — `[[ x > dev-memo/run/config ]]` comparison false-positive (treated as redirection) | WI: shell-token parsing | YES | open | ignore `[[ … ]]` contexts |
+| PRC-1 | High | DISPUTED, deferred — auditor wants `log.md` in protect-run-control's deny list; I reject a blanket Write/Edit block (it would break the lifecycle's own append step). Real need is append-only enforcement. | WI: append-only audit-trail enforcement | YES | open | not the auditor's proposed fix; see hook-audit-canary-01.md |
+| PRC-2 | High | Deferred (user-authorized) — path-normalization bypass `dev-memo/run/./config`, `//config`, `x/../config` (verified allowed) | WI: path canonicalization (shared w/ BRCBW) | YES | open | canonicalize before matching |
+| PRC-3 | High | Deferred — parse failure not fail-safe: malformed JSON with `jq` present -> empty path -> allow, despite header claim | WI: parse fail-safe | YES | open | deny when raw payload mentions a run-control path but none parsed |
+| PRC-4 | Medium | Deferred — `deny()` doesn't escape newline/control chars; hostile path with newline emits invalid JSON | WI: deny() JSON hardening | YES | open | use `jq -n --arg` or escape control bytes |
+| PRC-5 | Low | Deferred — substring glob `*dev-memo/run/config` also matches `xdev-memo/run/config` (false-positive, not bypass) | WI: path canonicalization | YES | open | exact normalized-path compare |
+
+---
+
 ## Tier 1 FileVault enforcement impl (commit `<pending Tier 1 impl commit hash>`)
 
 | Audit job | Verify job |

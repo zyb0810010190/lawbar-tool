@@ -1,84 +1,229 @@
-# Project Instructions
+# Project Contract
 
-> lawbar-tool
+Single source of truth for Claude Code, Codex CLI, and Gemini CLI. `CLAUDE.md` and
+`GEMINI.md` must remain exactly `@AGENTS.md` — do not add prose to them while cc-suite
+manages the bridge. Keep this file under 32 KiB (Codex truncates above that). Long
+procedures belong in skills, not here; execute the lifecycle with `/workflow`.
 
-⏺ Project: lawbar-tool                                                                                                                                     
-                                                                                                                                                         
-  OCR pipeline split across contract package + 4 sibling services. All TypeScript ESM, NodeNext, Node ≥20 node:test. Files inspected look benign — domain  
-  code for legal-document OCR, not malware.                                                                                                                
-                                                                                                                                                           
-  docs/contracts/ — ocr-worker-contract                                                                                                                    
-                                                                                                                                                         
-  Contract package (treated as if packages/ocr-contract until monorepo). Wire-format only — no engine, queue, DB, UI, auth.                                
-                                                        
-  - schemas/ — JSON Schema 2020-12 source of truth: ocr-submission, ocr-result, ocr-status.                                                                
-  - src/ — Ajv validator wrappers + state-machine + retry classifier.
-    - validateSubmission / validateResult / validateStatusEnvelope / validateStatusTransitionSequence → { ok, value } or { ok:false, summary, errors }.    
-    - assertValidOcrStatusTransition(from, to, controlledBy?) — throw-on-error guard.                                                                      
-    - classifyOcrFailureForRetry → retry / dead_letter / not_failed. Caller owns queue mechanics.                                                          
-    - transitions.ts — legal edges + owners (queue / worker / web_app).                                                                                    
-    - retry-rules.ts — transient vs permanent.                                                                                                             
-    - src/testing/fake-worker.ts (subpath export ocr-worker-contract/testing) — processFakeOcrJob, scenarios success / partial_failure / permanent_failure 
-  / transient_then_success. Deterministic clock.                                                                                                           
-    - src/generated/ — auto-gen types from schemas (json-schema-to-typescript). Not source of truth; cross-schema invariants only enforced at runtime.     
-  - fixtures/{valid,invalid}/ — payload examples. Invalid carry _invalid_reason + _target_schema. Sweep test pins fixture list against explicit-test list. 
-  - tests/contract.test.mjs + validators.test.mjs — schema + semantic + API surface.                                                                       
-  - docs/adr/ocr-processing-coordinator-step-10c.md — ADR for Step 10C coordinator: persistence is source of truth, queue is transport-only, edge-ownership
-   table, redelivery rules, queue-error → outcome mapping. Admits only success + partial_failure fake scenarios; rejects bundled-retry / DLQ.              
-                                                                                                                                                           
-  services/                                                                                                                                                
-                                                                                                                                                         
-  All four privately versioned 0.1.0, all depend on ocr-worker-contract via file:../../docs/contracts.                                                     
-  
-  ┌───────────────────────────┬───────────────────────────────────────────────────────────────────────────────────────┬────────────────────────────────┐   
-  │          Package          │                                         Role                                          │              Deps              │
-  ├───────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┼────────────────────────────────┤ 
-  │ ocr-worker (name:         │ Queue-facing adapter around contract. In-memory default, BullMQ seam. Tests: adapter, │ contract                       │
-  │ ocr-worker-adapter)       │  in-memory queue conformance, coordinator, worker loop.                               │                                │
-  ├───────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┼────────────────────────────────┤   
-  │                           │ Persistence boundary. In-memory + SQLite (better-sqlite3) impls behind one interface. │                                │
-  │ ocr-persistence           │  Provides appendOcrStatusOnce, saveOcrResultOnce (replay-safe). Tests: inMemory +     │ contract                       │   
-  │                           │ sqlite conformance + sqlite hardening.                                                │                                │
-  ├───────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┼────────────────────────────────┤   
-  │ ocr-ingestion             │ Domain → submission. Drives jobs across queue + persistence boundary.                 │ contract, ocr-worker-adapter,  │
-  │                           │                                                                                       │ ocr-persistence                │   
-  ├───────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┼────────────────────────────────┤
-  │ ocr-review                │ Read-only read-model over persistence. Lawyer-facing review state per job. Step 8A    │ contract, ocr-persistence      │   
-  │                           │ single-job-scope; cross-job in 8B.                                                    │ (dev: adapter, ingestion)      │
-  └───────────────────────────┴───────────────────────────────────────────────────────────────────────────────────────┴────────────────────────────────┘   
-   
-  Architecture shape                                                                                                                                       
-                                                        
-  Contract (schemas + validators + state machine) is hub. Persistence = source of truth. Queue = transport. Coordinator (in ocr-worker-adapter, ADR-10C)   
-  owns lifecycle: claim → inspect persistence → run worker → normalize edges → persist → ack/requeue. Review derives lawyer view downstream.
+## Output language
 
-## Repo Brief — lawbar-tool
+All output renders in English: code comments, commit messages, reports, prose. Material in
+another language is input — translate it to English before acting.
 
-Contract package requires Node >=22 because it uses JSON import attributes.
+## Operating model
 
-`services/ocr-persistence` is pinned to **Node 22.x or 24.x** (LTS line; 23.x / 25.x permitted by the engines semver range but not exercised in the repo). Upper bound `<26.0.0` is enforced via `package.json` `engines` until this repo chooses to support Node 26 (a separate ~5-LOC bump WI after verifying `better-sqlite3` prebuilds for Node 26 ABI). An ABI smoke check (`services/ocr-persistence/scripts/abi-smoke.mjs`) runs as `pretest` in `services/ocr-persistence` and fast-fails on any stale `better-sqlite3` native binding so the failure surfaces as a clear `[abi-smoke] FAIL` line, not as opaque `ERR_DLOPEN_FAILED` inside one of dozens of SQLite test files. See `dev-memo/plan-abi-00-better-sqlite3.md`.
+Operate by Work Item. A WI is the unit of authorized change; completing one does not
+authorize the next. Every non-trivial WI declares, before editing: scope, source of truth,
+allowed files, forbidden files, gates, review path, commit boundary, report.
 
-### Core architecture
-- Contract hub: docs/contracts/
-- Worker: services/ocr-worker/
-- Persistence: services/ocr-persistence/
-- Ingestion: services/ocr-ingestion/
-- Review: services/ocr-review/
+WI types: PLAN, SOURCE, ASSET, IMPL, TEST, REVIEW, EVIDENCE, CLOSURE, SCAFFOLD, WORKFLOW,
+MEMORY. Never mix product changes with scaffold/workflow changes in one WI.
 
-### Critical invariants
-- Contract = vocabulary owner. Queue = transport. Persistence = source of truth.
-- Queue dedupe key = job_id + canonical submission JSON, not transport metadata.
-- OcrQueueError codes are stable: dedupe_conflict, unknown_receipt, stale_receipt, lease_expired, invalid_claim.
-- OcrQueueError class identity must stay the same across import paths.
-- Coordinator owns lifecycle. Adapter must not own lifecycle.
-- No simplifying queue/persistence split.
-- No collapsing unknown_receipt, stale_receipt, and lease_expired.
-- No FK from queue rows to ocr_jobs.
-- No read-layer re-sorting that masks persistence bugs.
-- No mutating fixtures without schema and semantic tests both updated.
-- Node 20 is insufficient for the contract package; use Node 22+.
+## Source hierarchy
 
-### Test commands
+When sources conflict, stop and report — do not choose silently. Precedence:
+1. Current explicit user authorization
+2. Approved plan or active WI
+3. Committed source, spec, and design assets
+4. Provenance records
+5. Tests and gates
+6. Current repository state
+7. Prior conversation or memory (advisory only)
+
+Generated local output beats static documentation when they conflict — trust the file a
+tool actually produces over any doc describing it, including this one. Record the tool
+version and date when this happens.
+
+## Gates and hard stops
+
+Run declared project gates before commit. A WI does not advance past a failing gate unless
+the failure is explicitly accepted or its fix is inside the current WI's scope.
+
+Hard stops (halt and report):
+- source conflict
+- missing required source/spec/asset
+- gate failure whose fix is outside scope
+- delegated-agent stall, failure, or unavailability
+- forbidden or unrelated file touched
+- secrets or production-data exposure risk
+- weakening a hard stop, gate, or secrets rule without explicit approval
+- commit would include unrelated files
+
+## Commit policy
+
+Stage exact paths only. Allowed: `git add <path> <path>` then
+`git diff --cached --name-only`. Forbidden without explicit authorization: `git add .`,
+`git add -A` (enforced by `block-git-add-all.sh`).
+
+Commit authorization depends on mode:
+- **Gated mode** (`AUTO_ADVANCE_MAX=1`): stop before committing unless commit authorization
+  is explicit (a `dev-memo/run/human.ack`).
+- **Autonomous batch mode** (`AUTO_ADVANCE_MAX`>1): a WI listed in a *governed*
+  `dev-memo/run/queue.md` may commit after passing per-WI gates, cc-suite review/audit/verify,
+  staged-file verification, and the batch-control checks enforced by `batch-commit-guard.sh`
+  (breaker not exceeded, no audit due, no pending risk flag).
+
+**Push is never automatic.** Batch mode may create local commits; it does not push unless
+push authorization is explicit. Local commits are revertable; pushed commits are shared
+state — keep them separate.
+
+After push, report: commit hash, push output, `git status --short`, `git log --oneline -4`,
+exact files committed, next lane status.
+
+## Delegation (bidirectional via cc-suite)
+
+Claude and Codex delegate to each other through two separate MCP transports:
+
+- **Claude → Codex** via the `codex-cli` MCP server (needs the `codex` binary on PATH).
+  From Claude: `/audit`, `/implement`, `/review-plan`, `/bug-analyze`, `/verify`,
+  `/continue`, `/result`, `/status`, `/preflight`, `/cancel`.
+- **Codex → Claude** via the `claude-code` MCP server (claude-octopus, run through
+  `npx -y`; reuses the Claude CLI login). From Codex, invoke with `$`: `$claude-review`,
+  `$claude-plan`, `$claude-implement`, `$claude-debug`.
+
+`/cc-suite:init` wires both. The Codex→Claude path additionally requires Codex to have
+marked the project **trusted** (otherwise `.codex/config.toml` — and thus the `claude-code`
+server — silently does not load). `/cc-suite:status` reports exactly what is missing.
+
+Either direction's output is advisory unless that agent is explicitly authorized as the
+implementation lane. Delegation calls carry a provenance disclosure, so the receiving agent
+evaluates the work with full rigor rather than deferring to it.
+
+No assumed automatic fallback. If a delegated agent stalls, fails, or is unavailable: mark
+the lane `DELEGATE-STALLED` / `DELEGATE-FAILED` / `DELEGATE-UNAVAILABLE`, preserve partial
+output, continue with the local agent's own review or native gates, and never treat a
+failed delegation lane as review clearance.
+
+### Background-invocation discipline (HARNESS_REAP)
+
+Full rule: `.claude/rules/cc-suite.md` §"Background-invocation discipline" (RCA
+`dev-memo/ccsuite-path1-rca-01.md`, commit `d3e1cbc`). Non-negotiable:
+
+- **Never** wrap cc-suite / Codex / `codex-runner.mjs` in a Claude Code Bash-tool call with
+  `run_in_background: true` — the harness reaper can kill the orchestrating shell before the
+  runner writes terminal state, orphaning a `running` job (the HARNESS_REAP failure class).
+- **Allowed**: runner foreground (blocks on the JSON envelope) OR the runner's native
+  `--background` flag (returns a jobId in <1s; the detached worker survives the session).
+- A valid native `--background` call returns a jobId promptly; if none appears, stop and
+  diagnose — do not blind-poll the wrapping Bash call.
+- Recover an orphan by flipping its `state.json` entry `running` → `failed`, then re-run
+  foreground or native `--background` (not direct-MCP — the wrapper is the root cause).
+
+### echo-sleuth continuity (compatible triggers)
+
+Full rule: `.claude/rules/echo-sleuth.md`. echo-sleuth is a memory layer, not a review layer;
+it MUST NOT edit product source, stage/commit/push, or bypass cc-suite. Triggers, in WI terms:
+
+- **Before a major WI** (new plan, ADR, RCA, batch start): `/echo-sleuth:recap`, cited in the
+  WI's pre-flight.
+- **After an RCA WI, before closing it**: `/echo-sleuth:extract`, promoting the lesson into the
+  relevant `.claude/rules/*.md` as a permanent anti-pattern / recovery section.
+- **Before editing any `.claude/rules/*.md`**: `/echo-sleuth:lessons` or `recall <rule>` to
+  surface prior decisions; a new edit supersedes them (recorded) or matches them.
+- **At WI boundaries**: `/echo-sleuth:audit` + `/echo-sleuth:dashboard`; resolve staleness by
+  updating the rule or `/echo-sleuth:prune`, with the reason in the commit message.
+
+## Autonomy policy (autonomous queued batches)
+
+Chosen posture: **automation executes; the human studies after.** The agent self-advances
+through a bounded, pre-authorized queue, commits per WI, and leaves a study/audit trail to
+review afterward — rather than approving each WI before commit.
+
+The non-negotiable boundary: **the agent may advance through tasks already in
+`dev-memo/run/queue.md`; it may NOT invent the next task.** Generating a queue and executing
+a queue are different authorities (see "Queue governance" below). A Codex `PASS` lets a WI
+commit and the next *queued* WI begin — it is never authority to create new work.
+
+Modes (`AUTO_ADVANCE_MAX` in `dev-memo/run/config`):
+- `1` — gated: stop after every WI (use when learning a new area).
+- `3` — canary batch: prove the queue is sound on a small run first.
+- `10` — full batch.
+
+Per-WI, always (Layer A): baseline → file-boundary → scoped implement → gates (tests/lint/
+typecheck/build; UI gates if UI) → Codex review/audit/verify → exact-path stage → staged-file
+check → one commit → append `dev-memo/run/log.md`.
+
+Batch audit (Layer B): after every N commits, run the major audit (see `BATCH-AUDIT.md`)
+plus the echo-sleuth study packet. Continue only if the audit passes.
+
+Risk triggers (Layer C) — force an immediate batch audit *before* N, on any of: >5 files in
+one WI; >300 net LOC in one WI; a new dependency; a public-API change; any change to auth,
+payments, permissions, deployment, storage, migrations, or security files; tests deleted or
+weakened; the same file edited in 3 consecutive WIs; any UI gate failure.
+
+Hard stops (halt the whole batch, wait for a human): Codex `FAIL`/stall/unavailability,
+gate failure, forbidden-file touch, queue ambiguity, scope conflict, breaker limit reached.
+Never treat a stall or missing verdict as a pass — two models agreeing is not independent
+verification.
+
+Recoverability is the safety net for study-after-ship: every WI is one revertable commit
+logged in `dev-memo/run/log.md`. A bad result that shipped can be `git revert`'d task by
+task. This is why the audit trail is mandatory in batch mode, not optional.
+
+## Queue governance
+
+Generating a queue and executing a queue are different authorities. The agent may propose a
+queue (a PLAN WI), but a proposed queue is not executable until it passes governance:
+
+1. Codex reviews the proposed queue (`/review-plan`).
+2. A queue-lint check confirms every WI has: a concrete scope, declared allowed files,
+   declared gates, no forbidden-area touch, no dependency on a later WI, and concrete
+   acceptance criteria — no bare "cleanup", "refactor", or "improve".
+3. Only after both pass does the queue become authorized for a batch run up to
+   `AUTO_ADVANCE_MAX`.
+
+This is the boundary that prevents a closed self-authorizing loop: the agent can suggest
+what to do next, but cannot treat its own suggestion as permission to do it.
+
+## Authoring discipline
+
+Hold the nouns; let the model do the verbs — thesis, decisions, and judgment stay human;
+drafting, structure, and mechanical edits are model work. Flag, don't silently fix: surface
+issues for a decision unless the WI authorizes the fix. Verify every named thing (library,
+API, version, command, generated file, tool behavior) against the real artifact before
+relying on it.
+
+## Self-improvement bounds
+
+Improve scaffold/workflow only through a SCAFFOLD, WORKFLOW, or MEMORY WI. Allowed: refine
+templates, scripts, the workflow skill, path-scoped `.claude/rules/` (when the need is
+real); record friction; propose tooling changes. Not allowed without explicit approval:
+weaken a hard stop or gate, broaden file permissions, change secrets policy, make a
+delegated agent mandatory, or change deployment/security policy.
+
+## Repo brief — lawbar-tool
+
+Local-first legal-document tool; v1 primary client is the Mac desktop app
+(`.claude/rules/client-local-first.md`). Architecture:
+
+- **Contract hub** `docs/contracts/` (incl. `docs/contracts/case-box-contract/`) — the
+  vocabulary owner.
+- **Services** `services/ocr-worker/`, `services/ocr-persistence/`,
+  `services/case-box-persistence/`, `services/ocr-ingestion/`, `services/ocr-review/`.
+- **Desktop client** `apps/lawbar-desktop/`.
+
+Node: the contract package and services require **Node 22+** (JSON import attributes); Node 20
+is insufficient. `services/ocr-persistence` is pinned to Node 22.x/24.x (`engines` `<26.0.0`)
+and runs a `better-sqlite3` ABI smoke check as `pretest`
+(`services/ocr-persistence/scripts/abi-smoke.mjs`) so a stale native binding fails as a clear
+`[abi-smoke] FAIL`, not an opaque `ERR_DLOPEN_FAILED`. A Node 26 bump is a separate WI.
+
+### Critical invariants (no violation without an ADR + explicit approval)
+
+- **Contract = vocabulary owner. Queue = transport. Persistence = source of truth.**
+- **Coordinator owns lifecycle**; the adapter must not own lifecycle.
+- Queue dedupe key = `job_id` + canonical submission JSON, not transport metadata.
+- `OcrQueueError` codes are stable and class identity is preserved across import paths:
+  `dedupe_conflict`, `unknown_receipt`, `stale_receipt`, `lease_expired`, `invalid_claim`.
+  **Do not collapse** `unknown_receipt` / `stale_receipt` / `lease_expired`, and do not
+  rename/remove codes without an ADR (`.claude/rules/security-boundary.md`).
+- No simplifying the queue/persistence split; no FK from queue rows to `ocr_jobs`; no
+  read-layer re-sorting that masks persistence bugs.
+- **Do not mutate fixtures** without updating BOTH schema and semantic tests.
+
+### Test commands (per package/service)
+
+```
 npm --prefix docs/contracts test
 npm --prefix docs/contracts/case-box-contract test
 npm --prefix services/case-box-persistence test
@@ -86,147 +231,14 @@ npm --prefix services/ocr-persistence test
 npm --prefix services/ocr-worker test
 npm --prefix services/ocr-ingestion test
 npm --prefix services/ocr-review test
+```
 
-## CC-Suite Integration Policy
+The desktop UI gate is `npm --prefix apps/lawbar-desktop test`, run by
+`scripts/workflow/check-gates.sh`.
 
-Claude Code is the implementer. CC-Suite is the main Claude/Codex integration layer.
+### Project layout
 
-### Routing
-
-- Use `cc-suite` as the default bridge for Claude ↔ Codex coordination.
-- Do not use old `codex-octopus` MCP tools unless the user explicitly re-adds them after `/cc-suite:status` is healthy.
-- Do not assume old `/codex-*` octopus commands exist.
-- Verify available commands with `/cc-suite:status`, `/mcp`, and installed plugin help before relying on command names.
-
-### Mutation policy
-
-Codex-side tools are reviewers by default.
-
-Codex must not write code, modify files, create branches, apply patches, or mutate repo/task state unless the user explicitly authorizes implementation in the current turn.
-
-### Failure handling
-
-If cc-suite, Codex, Claude bridge, MCP registration, authentication, or model availability fails:
-- Report the failure explicitly.
-- Do not treat a failed review as success.
-- Use `/cc-suite:status` before assuming the bridge is healthy.
-
-### Background-invocation discipline (HARNESS_REAP)
-
-Per `.claude/rules/cc-suite.md` §"Background-invocation discipline" (codified from `dev-memo/ccsuite-path1-rca-01.md` at commit `d3e1cbc`):
-
-- **NEVER** wrap cc-suite, Codex, or `codex-runner.mjs` inside a Claude Code Bash-tool call with `run_in_background: true`. The harness reaper may terminate the orchestrating shell before the runner writes terminal state, producing an orphaned `running` job (HARNESS_REAP failure class).
-- **Allowed**: runner foreground (synchronous; blocks on JSON envelope) OR runner native `--background` flag (returns jobId in <1s; detached worker survives the orchestrating session).
-- **Valid native `--background` invocation** returns a jobId promptly. If no jobId appears, STOP and diagnose; do NOT poll TaskOutput blindly on the wrapping Bash call.
-- **HARNESS_REAP recovery**: reap orphaned `running` job (flip to `failed` in `state.json`), then re-run via foreground or native `--background`. Do NOT fall back to Path 2 — root cause is the wrapper, not Codex/runner.
-- **Known-good Path 1 pattern**: save prompt to a file → verify completeness → invoke runner foreground OR native `--background` → poll the state-file `.json` (NOT TaskOutput) or use `/cc-suite:status <jobId>` + `/cc-suite:result <jobId>`.
-
-Verified durable facts (do not contradict without explicit RCA superseding them):
-
-1. Path 1 native `--background` is safe after CCSUITE-PATH1-RCA-01 (commit `d3e1cbc`).
-2. Bash-tool `run_in_background: true` around cc-suite/Codex is unsafe.
-3. B6 impl exercised native Path 1 `--background` successfully via audit job `audit-mph4cun6-aav6q2` (commit `667bb9c`).
-4. B7 impl must perform the B6-deferred `impl-parity.test.mjs` split (B6 D4#1; 773 LOC → 7 per-entity files per `dev-memo/plan-case-box-persistence-B7-docket.md` §1.7).
-
-### echo-sleuth continuity workflow
-
-Per `.claude/rules/echo-sleuth.md`. Required triggers:
-
-- **Lane-start recap**: before any major lane (Phase-B sub-WI, umbrella revision, ADR, RCA, autopilot start, project-brief intake), invoke `/echo-sleuth:recap` (or the recall agent) and cite the recap in the new lane's pre-flight section.
-- **Post-RCA extract (REQUIRED)**: after any RCA lane, invoke `/echo-sleuth:extract` within the SAME lane and BEFORE closing it. The extract pass MUST update the relevant `.claude/rules/*.md` file with permanent anti-pattern / recovery sections. Skipping this means the lesson stays buried in the RCA dev-memo.
-- **Pre-rule-change discovery**: before editing any `.claude/rules/*.md`, invoke `/echo-sleuth:lessons` or `/echo-sleuth:recall <rule-name>` to surface prior decisions on the same scope. New edit either supersedes (with explicit recording) or matches.
-- **Periodic memory hygiene**: at natural lane boundaries, invoke `/echo-sleuth:audit` + `/echo-sleuth:dashboard`. Resolve flagged staleness by updating the rule OR by `/echo-sleuth:prune` with the resolution recorded in the commit message.
-
-echo-sleuth MUST NOT edit product source, stage/commit/push, or bypass cc-suite (echo-sleuth is a memory layer, NOT a review layer).
-
-## Shared Memory
-
-**Always write new instructions, rules, and memory to `AGENTS.md` only.**
-
-Never modify `CLAUDE.md` or `GEMINI.md` directly — they only import `AGENTS.md`.
-This keeps Claude Code, Codex CLI, and Gemini CLI on the same context.
-
-## Project Structure
-
-- `.claude/` — Claude Code skills, agents, rules, hooks, commands
-- `.agents/skills/` — symlink to `.claude/skills/` (Codex skill scan path)
-- `.codex/prompts/` — Codex slash-command prompts
-- `.codex/hooks.json` / `.codex/config.toml` — Codex hooks/config (optional)
-- `.gemini/skills/`, `.gemini/commands/` — Gemini skills and TOML commands
-- `.mcp.json` — MCP server registrations (shared by all three tools)
-
-## CC-Suite Autonomous Execution Policy
-
-Claude Code may use cc-suite to plan, implement, audit, fix, verify, validate, and test bounded project work without asking for confirmation on every step, provided all conditions below hold.
-
-### Allowed without further confirmation
-
-- Planning and plan review.
-- Documentation updates.
-- Test writing and test repair.
-- Implementation of one bounded work item at a time.
-- Fixes for correctness, reliability, validation, observability, and test failures within the active work item.
-- Running local test commands listed in this file.
-- Running `/review-plan`, `/implement`, `/audit`, `/audit-fix`, `/verify`, `/status`, `/result`, `/continue`, and `/cancel`.
-
-### Required stop-and-ask gates
-
-Stop and ask the user before:
-- Production deployment or release publication.
-- Database migrations on real data.
-- Secret, credential, billing, auth, authorization, or external account changes.
-- New runtime dependencies.
-- Public API, wire-format, schema, or CLI breaking changes.
-- Security-sensitive rewrites, including SSRF, TLS, DNS, crypto, auth, tenant isolation, or sandboxing.
-- Large cross-service refactors.
-- Deleting data, deleting files not clearly generated, or destructive shell commands.
-- Creating Git commits, tags, branches, or pushes unless explicitly authorized in the current task.
-
-### Required loop
-
-For each work item:
-
-1. `/review-plan` before implementation when the change affects architecture, security, contracts, persistence, queue lifecycle, or multiple packages.
-2. `/implement` for one bounded work item.
-3. Run relevant local tests.
-4. `/verify` after implementation.
-5. `/audit` or `/audit-fix` on the changed scope.
-6. Repeat until verification and audit pass.
-7. Summarize changed files, tests run, remaining risks, and next recommended work item.
-
-### Scope rule
-
-Never interpret “finish the project” as permission to make unbounded changes. Convert it into a queue of small work items and process one item at a time.
-
-### No-Choice Autonomous Default
-
-During cc-suite autonomous execution, do not ask the user to choose among routine process options.
-
-When multiple valid process paths exist, choose the safest optimal path automatically:
-
-- Prefer the next executable WI with all predecessors satisfied.
-- Prefer background cc-suite jobs for review-plan, audit, and long-running validation.
-- Prefer Claude writes / Codex validates unless the WI explicitly authorizes Codex writing.
-- Prefer `/audit-fix` when fixes are allowed, so audit → fix → verify happens as one loop.
-- Prefer `/audit` only for read-only WIs or when fixes are not allowed.
-- Prefer plan-review before implementation for security, TLS/DNS/SSRF, auth, migration, public API, CLI, schema, persistence, queue lifecycle, or multi-package changes.
-- Prefer the smallest bounded change that satisfies the WI.
-- Prefer opening a bounded sub-WI instead of expanding scope.
-
-Only stop and ask the user when:
-- production deployment or release publication is involved;
-- secrets, credentials, billing, external accounts, or auth/authorization are involved;
-- destructive commands or data deletion are involved;
-- new runtime dependencies are required;
-- public API, wire-format, schema, CLI, migration, persistence, or queue lifecycle changes require explicit approval;
-- real user-provided fixtures or legal/business waivers are required;
-- the plan has no safe path forward.
-
-### Go-live rule
-
-The project is not ready to go live until:
-- All planned work items are complete.
-- All package tests pass.
-- Full audit has no unresolved Critical/High findings.
-- Security, migration, persistence, queue, contract, and API risks have been explicitly cleared.
-- A final go-live readiness report is produced.
+- `.claude/` — skills, agents, rules, hooks, commands. `.agents/skills/` → symlink to
+  `.claude/skills/` (Codex scan path). `.codex/`, `.gemini/` — Codex/Gemini bridges.
+  `.mcp.json` — shared MCP registrations.
+- Write rules/memory to `AGENTS.md` only; `CLAUDE.md` / `GEMINI.md` import it verbatim.

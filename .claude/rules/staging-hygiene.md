@@ -12,8 +12,8 @@ Dangerous-mode execution removes the permission prompt safety net. Staging must 
 - **Never** `git add .` or `git add -A` or `git add -u` without per-path review.
 - **Never** stage any of the following:
   - `.cc-suite/**` — plugin cache/state.
-  - `.claude/settings.json` — local-machine plugin enablement.
-  - `.claude/settings.local.json` — local-machine personal config.
+  - `.claude/settings.json` — local-machine plugin enablement / personal config. **Carve-out:** may be staged ONLY by a SCAFFOLD/WORKFLOW WI whose cached diff is confined to project-enforcement wiring (the `hooks` and `permissions` keys). Never stage it for plugin-enablement, theme, model, or other personal toggles. See §"settings.json enforcement carve-out".
+  - `.claude/settings.local.json` — local-machine personal config (no carve-out; never staged).
   - `.claude/tdd-guardian/**` — tdd-guardian local state.
   - `.claude-english-buddy.json` — local english-buddy config.
   - `.env`, `.env.*` (except `.env.example`).
@@ -22,6 +22,30 @@ Dangerous-mode execution removes the permission prompt safety net. Staging must 
 - **Always** use `git add <explicit-path>...` listing each file.
 - **Always** show `git diff --cached --name-only` before committing — confirm only intended files are staged.
 - **Never** `git push` autonomously. Push is on the hard-stop list ([[autonomy]]).
+
+## settings.json enforcement carve-out
+
+`.claude/settings.json` is git-tracked because it carries the project's **enforcement wiring**
+— the PreToolUse `hooks` array (`block-git-add-all.sh`, `block-commit-stage-all.sh`,
+`batch-commit-guard.sh`, `protect-run-control.sh`, `block-run-control-bash-write.sh`) and any
+`permissions` deny/allow rules. The same file also holds local-machine state (plugin
+enablement, theme, model). The original blanket "never stage settings.json" was **overbroad**:
+it would have left the scaffold's own hook wiring uncommittable, so a new enforcement hook
+could never become part of the tracked, reproducible scaffold.
+
+Reconciled posture (authorized by the user on 2026-05-31, during WI-SCAFFOLD-002, superseding
+the prior blanket rule):
+
+- `settings.json` **may** be staged **only** by a SCAFFOLD or WORKFLOW WI, and **only** when the
+  cached diff is confined to the `hooks` / `permissions` enforcement keys.
+- Before staging it, run `git diff --cached .claude/settings.json` and confirm **no**
+  plugin-enablement, theme, model, or other personal key changed. If a personal key is in the
+  diff, unstage and split it out — never let a personal toggle ride a scaffold commit.
+- All other staging-hygiene rules still apply (explicit paths, cached-diff review, no push).
+- `.claude/settings.local.json` keeps the blanket ban — it is personal-only, never tracked.
+
+This carve-out narrows, never weakens: the file is stageable for a strictly-bounded enforcement
+diff, and remains forbidden for everything else.
 
 ## Pre-commit checklist
 
