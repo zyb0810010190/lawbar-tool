@@ -94,6 +94,35 @@ the lane `DELEGATE-STALLED` / `DELEGATE-FAILED` / `DELEGATE-UNAVAILABLE`, preser
 output, continue with the local agent's own review or native gates, and never treat a
 failed delegation lane as review clearance.
 
+### Background-invocation discipline (HARNESS_REAP)
+
+Full rule: `.claude/rules/cc-suite.md` §"Background-invocation discipline" (RCA
+`dev-memo/ccsuite-path1-rca-01.md`, commit `d3e1cbc`). Non-negotiable:
+
+- **Never** wrap cc-suite / Codex / `codex-runner.mjs` in a Claude Code Bash-tool call with
+  `run_in_background: true` — the harness reaper can kill the orchestrating shell before the
+  runner writes terminal state, orphaning a `running` job (the HARNESS_REAP failure class).
+- **Allowed**: runner foreground (blocks on the JSON envelope) OR the runner's native
+  `--background` flag (returns a jobId in <1s; the detached worker survives the session).
+- A valid native `--background` call returns a jobId promptly; if none appears, stop and
+  diagnose — do not blind-poll the wrapping Bash call.
+- Recover an orphan by flipping its `state.json` entry `running` → `failed`, then re-run
+  foreground or native `--background` (not direct-MCP — the wrapper is the root cause).
+
+### echo-sleuth continuity (compatible triggers)
+
+Full rule: `.claude/rules/echo-sleuth.md`. echo-sleuth is a memory layer, not a review layer;
+it MUST NOT edit product source, stage/commit/push, or bypass cc-suite. Triggers, in WI terms:
+
+- **Before a major WI** (new plan, ADR, RCA, batch start): `/echo-sleuth:recap`, cited in the
+  WI's pre-flight.
+- **After an RCA WI, before closing it**: `/echo-sleuth:extract`, promoting the lesson into the
+  relevant `.claude/rules/*.md` as a permanent anti-pattern / recovery section.
+- **Before editing any `.claude/rules/*.md`**: `/echo-sleuth:lessons` or `recall <rule>` to
+  surface prior decisions; a new edit supersedes them (recorded) or matches them.
+- **At WI boundaries**: `/echo-sleuth:audit` + `/echo-sleuth:dashboard`; resolve staleness by
+  updating the rule or `/echo-sleuth:prune`, with the reason in the commit message.
+
 ## Autonomy policy (autonomous queued batches)
 
 Chosen posture: **automation executes; the human studies after.** The agent self-advances
@@ -161,3 +190,55 @@ templates, scripts, the workflow skill, path-scoped `.claude/rules/` (when the n
 real); record friction; propose tooling changes. Not allowed without explicit approval:
 weaken a hard stop or gate, broaden file permissions, change secrets policy, make a
 delegated agent mandatory, or change deployment/security policy.
+
+## Repo brief — lawbar-tool
+
+Local-first legal-document tool; v1 primary client is the Mac desktop app
+(`.claude/rules/client-local-first.md`). Architecture:
+
+- **Contract hub** `docs/contracts/` (incl. `docs/contracts/case-box-contract/`) — the
+  vocabulary owner.
+- **Services** `services/ocr-worker/`, `services/ocr-persistence/`,
+  `services/case-box-persistence/`, `services/ocr-ingestion/`, `services/ocr-review/`.
+- **Desktop client** `apps/lawbar-desktop/`.
+
+Node: the contract package and services require **Node 22+** (JSON import attributes); Node 20
+is insufficient. `services/ocr-persistence` is pinned to Node 22.x/24.x (`engines` `<26.0.0`)
+and runs a `better-sqlite3` ABI smoke check as `pretest`
+(`services/ocr-persistence/scripts/abi-smoke.mjs`) so a stale native binding fails as a clear
+`[abi-smoke] FAIL`, not an opaque `ERR_DLOPEN_FAILED`. A Node 26 bump is a separate WI.
+
+### Critical invariants (no violation without an ADR + explicit approval)
+
+- **Contract = vocabulary owner. Queue = transport. Persistence = source of truth.**
+- **Coordinator owns lifecycle**; the adapter must not own lifecycle.
+- Queue dedupe key = `job_id` + canonical submission JSON, not transport metadata.
+- `OcrQueueError` codes are stable and class identity is preserved across import paths:
+  `dedupe_conflict`, `unknown_receipt`, `stale_receipt`, `lease_expired`, `invalid_claim`.
+  **Do not collapse** `unknown_receipt` / `stale_receipt` / `lease_expired`, and do not
+  rename/remove codes without an ADR (`.claude/rules/security-boundary.md`).
+- No simplifying the queue/persistence split; no FK from queue rows to `ocr_jobs`; no
+  read-layer re-sorting that masks persistence bugs.
+- **Do not mutate fixtures** without updating BOTH schema and semantic tests.
+
+### Test commands (per package/service)
+
+```
+npm --prefix docs/contracts test
+npm --prefix docs/contracts/case-box-contract test
+npm --prefix services/case-box-persistence test
+npm --prefix services/ocr-persistence test
+npm --prefix services/ocr-worker test
+npm --prefix services/ocr-ingestion test
+npm --prefix services/ocr-review test
+```
+
+The desktop UI gate is `npm --prefix apps/lawbar-desktop test`, run by
+`scripts/workflow/check-gates.sh`.
+
+### Project layout
+
+- `.claude/` — skills, agents, rules, hooks, commands. `.agents/skills/` → symlink to
+  `.claude/skills/` (Codex scan path). `.codex/`, `.gemini/` — Codex/Gemini bridges.
+  `.mcp.json` — shared MCP registrations.
+- Write rules/memory to `AGENTS.md` only; `CLAUDE.md` / `GEMINI.md` import it verbatim.
