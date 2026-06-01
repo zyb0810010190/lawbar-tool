@@ -98,5 +98,25 @@ Review: enforcement-breaker change. Independent Codex audit RAN: audit-mpufm338-
   NEEDS WORK) — confirmed all 5 base fixes work; surfaced wrappers (#1, FIXED), divergent
   fail-open (#4, FIXED), git-alias (#2, deferred BCG-8), quote-split (#3, deferred BCG-9).
 Findings recorded: dev-memo/deferred-audit-findings.md (WI-SCAFFOLD-004 section).
-Commit: <pending — blocked at batch-audit-due, count 9b7b52d..HEAD = 3; needs checkpoint>
+Commit: 059e7f6 (after user recorded last-batch-audit=4cefe67 checkpoint)
 Next: NONE new. Per user: do NOT run another autonomous batch until this fix lands.
+
+## WI-SCAFFOLD-005  (2026-06-01, user-authorized; not a canary-queue WI)
+Plan: remove the narrow `if` filters (Bash(git add*) / Bash(git commit*)) from the three git
+  guard hook entries in .claude/settings.json so block-git-add-all.sh, block-commit-stage-all.sh,
+  and batch-commit-guard.sh run on EVERY Bash call. Each script self-inspects and exits 0 for
+  irrelevant commands -> the safe pattern is broad invocation + script-level detection. Without
+  this, the WI-SCAFFOLD-004 hardening was dead code for /usr/bin/git, env/command wrappers, etc.
+  (the `if` prefix-glob never matched them).
+Files: .claude/settings.json (hooks; staging-hygiene carve-out), dev-memo/run/log.md.
+Tests: settings JSON valid; carve-out diff = only the 3 `if` lines removed; base 14/14, detect
+  28/28, block-run-control 45/45; gates 245/0. Smoke: benign (ls/echo/cat/npm) ALLOW on all
+  three guards; `git add -A` and `env git add .` DENY via block-git-add-all.
+FLAGGED GAP (not fixed — out of scope; recommend follow-up WI): block-git-add-all.sh and
+  block-commit-stage-all.sh still use substring/boundary detection, so `/usr/bin/git add -A`
+  (path-prefixed) still slips them even when invoked. batch-commit-guard.sh is the only one with
+  the statement-aware command-word detection from WI-SCAFFOLD-004. Follow-up: port that detection
+  to the two staging guards (new deferred class BGAA/BCSA-detection-hardening).
+Review: low-risk wiring change; self-review = JSON validity + carve-out diff + suites + smoke.
+Commit: <pending>
+Next: NONE. Per user: do not push until reviewed.
