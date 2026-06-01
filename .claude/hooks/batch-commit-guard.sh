@@ -22,13 +22,66 @@ deny() {
   exit 0
 }
 
-# Only act on git commit. If we can't read the command but it mentions commit, fail safe.
+# Only act on git commit. If we can't read the command but it smells like a git commit, fail safe.
 if [ -z "$CMD" ]; then
-  printf '%s' "$INPUT" | grep -qE 'git[[:space:]]+(-C[[:space:]]+[^ ]+[[:space:]]+)?commit' \
-    && deny "Batch guard: could not parse the git commit to verify batch limits; denying as a precaution."
+  if printf '%s' "$INPUT" | grep -qE 'git' && printf '%s' "$INPUT" | grep -qE 'commit'; then
+    deny "Batch guard: could not parse the git commit to verify batch limits; denying as a precaution."
+  fi
   exit 0
 fi
-echo "$CMD" | grep -qE '(^|[;&|[:space:]])git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?commit([[:space:]]|$)' || exit 0
+
+# Count git-commit invocations robustly (closes bypasses in audit job audit-mpuesqmt-4zzpxr):
+#   - absolute/relative path command word:  /usr/bin/git commit ,  ./git commit
+#   - git global options before the subcommand:  git -c k=v commit ,  git --no-pager commit
+#   - leading environment assignments:  FOO=bar git commit
+#   - MULTIPLE commits in one Bash call (one PreToolUse decision must not authorize several)
+# Statement-aware: the COMMAND WORD of each ;/&&/||/|/&-separated statement must itself be git
+# (optionally path-prefixed), so `echo "git commit"` and `git config commit.x` are NOT counted.
+# Out of scope (deferred to a later WI): command-substitution / variable-indirected forms
+# such as `git $(echo commit)` or `c=commit; git $c` — see dev-memo/deferred-audit-findings.md.
+count_git_commits() {
+  # Split on ;  &&  ||  |  & into one statement per line. awk handles the newline replacement
+  # and trailing newline portably (BSD sed drops an unterminated final line -> miscount).
+  printf '%s\n' "$1" \
+    | awk '{gsub(/&&|\|\||[;|&]/, "\n"); print}' \
+    | while IFS= read -r stmt; do
+        set -f; set -- $stmt; set +f
+        # Unwrap leading VAR=value assignments and benign command-prefix wrappers
+        # (env / command / exec / time / nice / nohup / stdbuf / setsid) plus a backslash-escaped
+        # `\git`, to reach the real command word. Only no-arg wrapper flags + assignments are
+        # skipped; exotic arg-taking wrapper forms (env -u NAME, exec -a NAME) remain a recorded
+        # gap (dev-memo/deferred-audit-findings.md). This is bounded unwrapping, NOT a shell parser.
+        while [ $# -gt 0 ]; do
+          w=$1; w=${w#\"}; w=${w#\'}; w=${w#\\}      # strip one quote / backslash-escape
+          case "$w" in
+            [A-Za-z_]*=*) shift ;;                    # VAR=value assignment
+            command|exec|time|env|nice|nohup|stdbuf|setsid)
+              shift                                   # drop wrapper, then its flags + assignments
+              while [ $# -gt 0 ]; do
+                case "$1" in -*) shift ;; [A-Za-z_]*=*) shift ;; *) break ;; esac
+              done ;;
+            *) break ;;                               # real command word reached
+          esac
+        done
+        [ $# -gt 0 ] || continue
+        cmd0=$1; cmd0=${cmd0#\"}; cmd0=${cmd0#\'}; cmd0=${cmd0#\\}   # strip quote / backslash-escape
+        case "$cmd0" in git|*/git) ;; *) continue ;; esac
+        shift
+        sub=""
+        while [ $# -gt 0 ]; do                        # walk git global options to the subcommand
+          case "$1" in
+            -C|-c|--git-dir|--work-tree|--namespace|--super-prefix|--exec-path)
+              shift; [ $# -gt 0 ] && shift ;;         # these take a separate argument
+            -*) shift ;;                              # other global flags / --opt=val forms
+            *) sub=$1; break ;;
+          esac
+        done
+        [ "$sub" = "commit" ] && echo X
+      done | grep -c X
+}
+NCOMMIT=$(count_git_commits "$CMD")
+[ "${NCOMMIT:-0}" -eq 0 ] && exit 0
+[ "${NCOMMIT:-0}" -ge 2 ] && deny "Batch guard: $NCOMMIT git-commit invocations in one command — a single PreToolUse decision cannot authorize multiple commits. Issue one 'git commit' per command so each is gated."
 
 RUN="${CLAUDE_PROJECT_DIR}/dev-memo/run"
 
@@ -92,8 +145,15 @@ if [ "$OVERRIDE" -eq 0 ]; then
       BASE=$BS    # audit checkpoint is an ancestor of batch-start -> reset batch-start is newer
     else
       # Divergent/unrelated history: fail SAFE toward auditing sooner (larger count = older base).
-      cbs=$(GIT rev-list --count "${BS}..HEAD" 2>/dev/null);  cbs=${cbs:-0}
-      clba=$(GIT rev-list --count "${LBA}..HEAD" 2>/dev/null); clba=${clba:-0}
+      # Fail-closed like the final count: a rev-list failure here must NOT coerce to 0 and let a
+      # wrong base be chosen (audit job audit-mpufm338-2gtelo finding #4).
+      cbs=$(GIT rev-list --count "${BS}..HEAD" 2>/dev/null);  cbsrc=$?
+      clba=$(GIT rev-list --count "${LBA}..HEAD" 2>/dev/null); clbarc=$?
+      if [ "$cbsrc" -ne 0 ] || [ "$clbarc" -ne 0 ] \
+         || ! printf '%s' "$cbs" | grep -qE '^[0-9]+$' \
+         || ! printf '%s' "$clba" | grep -qE '^[0-9]+$'; then
+        deny "Batch guard: could not compare divergent batch-start/last-batch-audit (git rev-list failed); denying as a precaution — check repository history integrity."
+      fi
       if [ "$cbs" -ge "$clba" ]; then BASE=$BS; else BASE=$LBA; fi
     fi
   elif [ -n "$BS" ]; then
@@ -102,8 +162,12 @@ if [ "$OVERRIDE" -eq 0 ]; then
     BASE=$LBA
   fi
   [ -n "$BASE" ] || deny "Batch guard: no valid last-batch-audit or batch-start commit recorded; cannot derive the auto-commit count. Record dev-memo/run/batch-start (current HEAD) before auto-committing."
-  COUNT=$(GIT rev-list --count "${BASE}..HEAD" 2>/dev/null)
-  COUNT=${COUNT:-0}
+  # Capture rev-list exit status: a runtime failure (shallow/damaged history) must NOT silently
+  # become COUNT=0 and pass the breaker (fail-open closed; audit job audit-mpuesqmt-4zzpxr).
+  COUNT=$(GIT rev-list --count "${BASE}..HEAD" 2>/dev/null); rlrc=$?
+  if [ "$rlrc" -ne 0 ] || ! printf '%s' "$COUNT" | grep -qE '^[0-9]+$'; then
+    deny "Batch guard: could not derive a reliable commit count (git rev-list failed rc=$rlrc or returned non-numeric '$COUNT') for BASE=$BASE. Denying as a precaution — check repository history (shallow/damaged?) and the recorded batch-start/last-batch-audit."
+  fi
 
   [ "$COUNT" -ge "$EVERY" ] && deny "Batch guard: batch audit DUE ($COUNT commits since last audit >= BATCH_AUDIT_EVERY=$EVERY). Run the batch audit and record new HEAD in dev-memo/run/last-batch-audit, then commit."
   [ "$COUNT" -ge "$MAX" ] && deny "Batch guard: AUTO_ADVANCE_MAX=$MAX reached ($COUNT consecutive auto-commits). Stop for human review; use a logged human.override to continue."

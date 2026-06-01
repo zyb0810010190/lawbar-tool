@@ -73,3 +73,30 @@ Gates: check-gates.sh 245 pass / 0 fail.
 Commit: 8328b07
 Files: dev-memo/ui-baseline-pointer.md
 Next: NONE — canary queue (WI-001/002/003) complete.
+
+## WI-SCAFFOLD-004  (2026-05-31, user-authorized; not a canary-queue WI)
+Plan: harden batch-commit-guard.sh git-detection per independent audit audit-mpuesqmt-4zzpxr.
+  FIXED (scope-limited per user): (1) path-prefixed command word /usr/bin/git; (2) git global
+  options before subcommand (git -c k=v, git --no-pager); (3) leading env assignment FOO=bar git;
+  (4) multiple git-commit invocations in one Bash call -> deny; (5) rev-list runtime error
+  fail-open -> deny on non-zero/non-numeric. Detection is now statement-aware (awk split; the
+  command word of each statement must itself be git), so `echo "git commit"` / `git config
+  commit.x` are not counted.
+Scope extension (user-authorized after independent audit audit-mpufm338-2gtelo): (6) command-
+  prefix wrappers `\git` / `command` / `exec` / `time` / `env [-i] FOO=bar git`; (7) divergent-
+  base helper rev-list calls now fail-closed too (completes item 5). DEFERRED per user: Bash
+  path-indirection, token-nonce, git-alias resolution (BCG-8), quote-aware splitting (BCG-9),
+  arg-taking wrapper-flag residual (BCG-10) — dev-memo/deferred-audit-findings.md (19 open, 3 closed).
+Bug found+fixed mid-impl: BSD sed drops an unterminated final line -> the first detector
+  miscounted single-statement commands as 0 (guard silently allowed). Switched split to awk +
+  printf '%s\n'. Caught by the test suite before commit.
+Tests: .claude/hooks/tests/batch-commit-guard-detect.test.sh — 28/28 (incl. wrappers + divergent
+  selection); base suite 14/14; block-run-control suite 45/45. bash -n OK. Live: normal /
+  `/usr/bin/git` / `\git` / `command git` / multi-commit all DENY at breaker; `git status`,
+  `nohup ls` ALLOW.
+Review: enforcement-breaker change. Independent Codex audit RAN: audit-mpufm338-2gtelo (2m46s,
+  NEEDS WORK) — confirmed all 5 base fixes work; surfaced wrappers (#1, FIXED), divergent
+  fail-open (#4, FIXED), git-alias (#2, deferred BCG-8), quote-split (#3, deferred BCG-9).
+Findings recorded: dev-memo/deferred-audit-findings.md (WI-SCAFFOLD-004 section).
+Commit: <pending — blocked at batch-audit-due, count 9b7b52d..HEAD = 3; needs checkpoint>
+Next: NONE new. Per user: do NOT run another autonomous batch until this fix lands.
