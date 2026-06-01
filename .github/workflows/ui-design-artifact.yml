@@ -1,0 +1,21 @@
+name: UI design artifact
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+jobs:
+  check-ui-design-artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require design artifact for app UI changes
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          bash scripts/workflow/check-ui-design-artifact.sh \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}"
