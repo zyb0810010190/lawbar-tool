@@ -1,5 +1,14 @@
 # Plan: ABI-00 — `better-sqlite3` ABI remediation before case-box-persistence Phase B
 
+> **Historical snapshot (provenance note, added 2026-06-02).** This is a planning record from
+> 2026-05. Point-in-time status statements below — such as "Phase A9 / in-memory only", "SQLite
+> Phase B has not started", or "does not depend on `better-sqlite3`" — were accurate when written
+> but have since been **superseded**: this plan's ABI remediation landed (gate closed) and SQLite
+> Phase B (`services/case-box-persistence/src/sqlite/*`) subsequently landed, so
+> case-box-persistence now uses `better-sqlite3` and the desktop runtime persists to SQLite.
+> Original wording is preserved as the dated record, not a claim about current behavior; the
+> plan's design value is unchanged.
+
 **Status**: READY (revision 2 — review-plan v2 returned READY (Low-risk) at jobId `review-plan-mpgmzfz9-tdripy`; 3 Lows applied opportunistically: stale "version bump" + "≤4 files" prose corrected; review Q4 / risk-6 cross-refs fixed; §6 closing sentence "no Critical/High"; explicit rollback path added to §3.1 Step 1).
 **Date**: 2026-05-22.
 **Author**: Claude Code at user's direction.
