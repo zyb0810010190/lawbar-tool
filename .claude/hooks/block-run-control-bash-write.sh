@@ -53,14 +53,11 @@ if [ -z "$CMD" ]; then
 fi
 printf '%s' "$CMD" | grep -qE 'dev-memo/run/' || exit 0
 
-# --- helpers ---
-ref_auth() { printf '%s' "$CMD" | grep -qE "dev-memo/run/($AUTH)([^A-Za-z0-9._/-]|$)"; }
-ref_log()  { printf '%s' "$CMD" | grep -qE 'dev-memo/run/log\.md([^A-Za-z0-9._/-]|$)'; }
-has_verb() { printf '%s' "$CMD" | grep -qE "(^|[;&|(\`[:space:]])$1([[:space:]]|$)"; }
-is_sed_i() {
-  printf '%s' "$CMD" | grep -qE "(^|[;&|[:space:]])(sed|perl)([[:space:]]|$)" \
-    && printf '%s' "$CMD" | grep -qE "[[:space:]]-i([[:space:]'\"=]|$)"
-}
+# --- helpers --- token classifiers: does a single (quote-stripped) token name an authority file?
+tok_auth()  { local t=$1; t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}
+  case "$t" in *dev-memo/run/*) printf '%s' "${t##*/}" | grep -qE "^($AUTH)$" ;; *) return 1 ;; esac; }
+tok_logmd() { local t=$1; t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}
+  case "$t" in *dev-memo/run/log.md) return 0 ;; *) return 1 ;; esac; }
 
 # --- pass 1: redirection targets (handles > >> >| and fd-prefixed forms) ---
 # Normalize redirection operators into word markers, longest first.
@@ -94,24 +91,81 @@ for tok in $NORM; do
 done
 set +f
 
-# --- pass 2: write verbs targeting an AUTHORITY file (any write verb => deny) ---
-if ref_auth; then
-  for v in tee cp mv install ln rsync truncate dd rm unlink touch chmod chown; do
-    has_verb "$v" && emit_deny "Run-control guard: '$v' touching a dev-memo/run/ authority file is forbidden — governance/audit state changes only via the workflow scripts or a deliberate human action."
+# --- pass 2/3: write VERBS targeting an authority file (statement-aware, command-word gated) ---
+# A write-like word only counts when it is the COMMAND WORD of a ;/&&/||/|/&-separated statement
+# (after unwrapping env-assignments + wrappers + a leading backslash). So a write word in prose
+# (echo "...touch..."), or an authority path named by a read-only tool (cat / grep / gh / ls),
+# no longer false-denies (BRCBW-5). Only an authority path in a WRITE-TARGET position denies: for
+# cp/install/rsync the destination (a source may be read); for dd the of= file (not if=); for
+# mv/ln/rm/unlink/truncate/touch/chmod/chown/shred and tee/sed-i any target operand. log.md stays
+# append-only. This NARROWS false-positives without weakening any real write (every write form
+# above stays covered, and redirection is handled by pass 1).
+set -f
+while IFS= read -r stmt; do
+  set -- $stmt
+  while [ $# -gt 0 ]; do                          # unwrap env assignments + wrappers + \cmd
+    w=$1; w=${w#\"}; w=${w#\'}; w=${w#\\}
+    case "$w" in
+      [A-Za-z_]*=*) shift ;;
+      command|exec|time|env|nice|nohup|stdbuf|setsid)
+        shift; while [ $# -gt 0 ]; do case "$1" in -*) shift ;; [A-Za-z_]*=*) shift ;; *) break ;; esac; done ;;
+      *) break ;;
+    esac
   done
-  is_sed_i && emit_deny "Run-control guard: in-place edit (sed -i / perl -i) of a dev-memo/run/ authority file is forbidden."
-fi
+  [ $# -gt 0 ] || continue
+  cmd0=$1; cmd0=${cmd0#\"}; cmd0=${cmd0#\'}; cmd0=${cmd0#\\}
+  vbase=${cmd0##*/}                               # strip any path prefix (/bin/rm -> rm)
+  shift                                           # $@ now = the command's arguments
 
-# --- pass 3: log.md is append-only under write verbs (tee allowed only with -a) ---
-if ref_log; then
-  if has_verb tee; then
-    printf '%s' "$CMD" | grep -qE 'tee[[:space:]]+(-a|--append)([[:space:]]|$)' \
-      || emit_deny "Run-control guard: 'tee' without -a to dev-memo/run/log.md would truncate the append-only audit trail. Use 'tee -a'."
-  fi
-  for v in rm unlink truncate mv cp ln rsync dd; do
-    has_verb "$v" && emit_deny "Run-control guard: '$v' on dev-memo/run/log.md is forbidden — the audit trail is append-only."
-  done
-  is_sed_i && emit_deny "Run-control guard: in-place edit of dev-memo/run/log.md is forbidden — the audit trail is append-only."
-fi
+  case "$vbase" in
+    rm|unlink|truncate|touch|chmod|chown|shred|mv|ln)
+      # mutation/removal/link/rename: ANY authority operand is a write target.
+      for a in "$@"; do
+        [ "$a" = "--" ] && break
+        tok_auth  "$a" && { set +f; emit_deny "Run-control guard: '$vbase' targets dev-memo/run/${a##*/} — governance/audit state changes only via the workflow scripts or a deliberate human action."; }
+        tok_logmd "$a" && { set +f; emit_deny "Run-control guard: '$vbase' on dev-memo/run/log.md is forbidden — the audit trail is append-only."; }
+      done ;;
+    cp|install|rsync)
+      # destination = value of -t/--target-directory if given, else the last non-flag operand.
+      dest=""; tdir=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          -t|--target-directory) shift; tdir=$1 ;;
+          --target-directory=*) tdir=${1#--target-directory=} ;;
+          --) shift; while [ $# -gt 0 ]; do dest=$1; shift; done; break ;;
+          -*) : ;;
+          *) dest=$1 ;;
+        esac
+        [ $# -gt 0 ] && shift
+      done
+      [ -n "$tdir" ] && dest=$tdir
+      tok_auth  "$dest" && { set +f; emit_deny "Run-control guard: '$vbase' writes dev-memo/run/${dest##*/} (destination) — change run-control state via the workflow scripts or a deliberate human action."; }
+      tok_logmd "$dest" && { set +f; emit_deny "Run-control guard: '$vbase' overwriting dev-memo/run/log.md is forbidden — the audit trail is append-only."; } ;;
+    dd)
+      for a in "$@"; do
+        case "$a" in
+          of=*) ofv=${a#of=}
+                tok_auth  "$ofv" && { set +f; emit_deny "Run-control guard: 'dd of=' writes dev-memo/run/${ofv##*/} — forbidden."; }
+                tok_logmd "$ofv" && { set +f; emit_deny "Run-control guard: 'dd of=' on dev-memo/run/log.md is forbidden — append-only."; } ;;
+        esac
+      done ;;
+    tee)
+      appendf=""; for a in "$@"; do case "$a" in -a|--append) appendf=1 ;; esac; done
+      for a in "$@"; do
+        case "$a" in -*) continue ;; esac
+        tok_auth "$a" && { set +f; emit_deny "Run-control guard: 'tee' writes dev-memo/run/${a##*/} — forbidden."; }
+        if tok_logmd "$a" && [ -z "$appendf" ]; then set +f; emit_deny "Run-control guard: 'tee' without -a to dev-memo/run/log.md would truncate the append-only audit trail. Use 'tee -a'."; fi
+      done ;;
+    sed|perl)
+      has_i=""; for a in "$@"; do case "$a" in -i|-i*|--in-place|--in-place=*) has_i=1 ;; esac; done
+      if [ -n "$has_i" ]; then
+        for a in "$@"; do
+          tok_auth  "$a" && { set +f; emit_deny "Run-control guard: in-place edit (sed -i / perl -i) of dev-memo/run/${a##*/} is forbidden."; }
+          tok_logmd "$a" && { set +f; emit_deny "Run-control guard: in-place edit of dev-memo/run/log.md is forbidden — append-only."; }
+        done
+      fi ;;
+  esac
+done < <(printf '%s\n' "$CMD" | awk '{gsub(/&&|\|\||[;|&]/, "\n"); print}')
+set +f
 
 exit 0
