@@ -122,6 +122,16 @@ expect ALLOW "echo prose with touch+path"  'echo "does the diff touch dev-memo/r
 expect ALLOW "grep pattern with rm+path"   'grep "rm dev-memo/run/config" somefile'
 expect ALLOW "echo prose cp+path"          'echo "cp dev-memo/run/config to backup"'
 
+# --- BRCBW-3: per-invocation tee (the -a exception is per statement, not global) ---
+expect DENY  "tee -a /tmp then tee log.md"     'tee -a /tmp/ok; tee dev-memo/run/log.md'
+expect DENY  "tee log.md then tee -a /tmp"     'tee dev-memo/run/log.md; tee -a /tmp/ok'
+expect DENY  "tee log.md (no -a) via pipe"     'echo X | tee dev-memo/run/log.md'
+expect DENY  "tee -a /tmp/ok && tee log.md"    'echo X | tee -a /tmp/ok && echo Y | tee dev-memo/run/log.md'
+expect ALLOW "tee -a /tmp/ok alone"            'echo X | tee -a /tmp/ok'
+expect ALLOW "tee -a log.md (append)"          'echo X | tee -a dev-memo/run/log.md'
+expect ALLOW "prose: 'use tee -a for log.md'"  'echo "use tee -a for dev-memo/run/log.md"'
+expect ALLOW "grep prose tee+authority"        'grep "tee dev-memo/run/config" somefile'
+
 # ---------------------------------------------------------------------------
 printf 'block-run-control-bash-write: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
