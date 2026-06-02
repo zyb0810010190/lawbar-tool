@@ -228,7 +228,7 @@ function renderEmpty(
   setText(body, "");
   const copy =
     status === "active"
-      ? "No matters yet. Click + New matter to create the first one. Data is held in memory only — relaunching the app clears it."
+      ? "No matters yet. Click + New matter to create the first one. Matters are stored locally on this device."
       : "No archived matters.";
   body.appendChild(
     el(
