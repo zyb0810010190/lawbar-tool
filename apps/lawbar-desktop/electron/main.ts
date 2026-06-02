@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { closeCaseBoxRuntime } from "../src/caseBox/caseBoxRuntime.js";
+import { closeCaseBoxRuntime, getCaseBoxRuntime } from "../src/caseBox/caseBoxRuntime.js";
 import { registerCaseBoxIpcHandlers } from "./ipc/caseBoxHandlers.js";
 import { loadThemePreference } from "../src/persistence/themePreference.js";
 import {
@@ -108,7 +108,8 @@ void app.whenReady().then(async () => {
         `running in dev mode (LAWBAR_MODE=dev). Production launch would block.\n`,
     );
   }
-  registerCaseBoxIpcHandlers();
+  const caseBoxRuntime = getCaseBoxRuntime({ userDataDir: app.getPath("userData") });
+  registerCaseBoxIpcHandlers({ persistenceProvider: () => caseBoxRuntime });
 
   createWindow();
   app.on("activate", () => {
