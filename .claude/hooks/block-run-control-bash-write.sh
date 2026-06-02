@@ -202,15 +202,22 @@ scan_verbs() {
 scan_redir "$CMD" blank
 scan_verbs "$CMD"
 
-# --- pass 4: command-substitution bodies ---
+# --- pass 4: NON-NESTED command-substitution bodies ---
 # `$(...)` and `` `...` `` EXECUTE regardless of surrounding context — including inside [[ ]],
 # where pass-1's [[ ]] blanking would otherwise hide a real write (BRCBW-7 follow-up). Extract
-# each substitution body and run the SAME redirection + write-verb detection on it (no [[ ]]
-# blank — the body has no enclosing test). This is purely ADDITIVE: each body is scanned in
-# isolation and can only ADD a denial, so it never turns an existing deny into an allow. A body
-# that only READS a protected path (cat/grep/…) names no write verb and no redirection, so it
-# still allows. Non-nested matcher: `[^)]*` / `[^`]*` — nested substitutions degrade to a
-# partial body, which (being additive) is still safe.
+# each NON-NESTED substitution body and run the SAME redirection + write-verb detection on it
+# (no [[ ]] blank — the body has no enclosing test). This is purely ADDITIVE: each body is
+# scanned in isolation and can only ADD a denial, so it never turns an existing deny into an
+# allow. A body that only READS a protected path (cat/grep/…) names no write verb and no
+# redirection, so it still allows.
+# SCOPE LIMITS (intentional, documented):
+#   - NESTED substitutions are NOT parsed: `[^)]*` / `[^`]*` stop at the first ) / backtick, so
+#     for `$(echo $(tee config))` only the outer body (`echo $(tee config`) is scanned and the
+#     inner write is missed. This is a real open gap tracked as BRCBW-8 in
+#     dev-memo/deferred-audit-findings.md — pre-existing on main, NOT closed here.
+#   - An escaped/single-quoted LITERAL `$(...)` (e.g. echo "\$(rm config)", echo '$(rm config)')
+#     that bash would NOT execute is still matched textually and OVER-denies. Fail-closed
+#     friction (denies a safe command), never a bypass; noted in the BRCBW-7 row.
 SUBS=$(printf '%s' "$CMD" | grep -oE '\$\([^)]*\)|`[^`]*`' 2>/dev/null \
        | sed -E 's/^\$\(//; s/\)$//; s/^`//; s/`$//')
 if [ -n "$SUBS" ]; then
