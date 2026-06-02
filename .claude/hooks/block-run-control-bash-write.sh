@@ -157,10 +157,27 @@ while IFS= read -r stmt; do
         if tok_logmd "$a" && [ -z "$appendf" ]; then set +f; emit_deny "Run-control guard: 'tee' without -a to dev-memo/run/log.md would truncate the append-only audit trail. Use 'tee -a'."; fi
       done ;;
     sed|perl)
-      has_i=""; for a in "$@"; do case "$a" in -i|-i*|--in-place|--in-place=*) has_i=1 ;; esac; done
+      # In-place edit detection. The flag is -i (optionally with a backup-suffix:
+      # sed -i.bak, perl -i.orig) OR the long form --in-place[=SUFFIX]. Perl also CLUSTERS
+      # flags in one dash group, so the in-place 'i' can be preceded by other flag letters:
+      # perl -pi, -ni, -wpi, -pi.bak (= -p -i / -n -i / ... with i). The old `-i*` glob only
+      # caught a LEADING -i, missing the clustered perl forms (BRCBW-4). A single-dash token
+      # containing a lowercase 'i' (`-*i*`) is in-place for both tools; this is a strict
+      # SUPERSET of the old detection (it still matches -i and -i.bak), so it weakens nothing.
+      # Long opts other than --in-place are explicitly ignored so e.g. sed --separate / perl
+      # one-liners are not mistaken for in-place. The 'i' here is a flag letter, never the
+      # script body: the -e 'script' / sed program is a separate, non-dash-leading argument.
+      has_i=""
+      for a in "$@"; do
+        case "$a" in
+          --in-place|--in-place=*) has_i=1 ;;
+          --*) : ;;                 # other long options are not in-place
+          -*i*) has_i=1 ;;          # single-dash cluster containing i: -i, -i.bak, perl -pi, -wpi.bak
+        esac
+      done
       if [ -n "$has_i" ]; then
         for a in "$@"; do
-          tok_auth  "$a" && { set +f; emit_deny "Run-control guard: in-place edit (sed -i / perl -i) of dev-memo/run/${a##*/} is forbidden."; }
+          tok_auth  "$a" && { set +f; emit_deny "Run-control guard: in-place edit (sed -i / perl -pi) of dev-memo/run/${a##*/} is forbidden — governance/audit state changes only via the workflow scripts or a deliberate human action."; }
           tok_logmd "$a" && { set +f; emit_deny "Run-control guard: in-place edit of dev-memo/run/log.md is forbidden — append-only."; }
         done
       fi ;;

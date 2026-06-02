@@ -109,6 +109,20 @@ expect DENY  "cp dest after trailing flag" 'cp /tmp/x dev-memo/run/config -v'
 expect DENY  "mv any operand authority"    'mv /tmp/x dev-memo/run/risk.flag'
 expect DENY  "dd of= authority"            'dd if=/tmp/x of=dev-memo/run/config'
 expect DENY  "sed -i.bak authority"        "sed -i.bak s/a/b/ dev-memo/run/config"
+# --- BRCBW-4: perl in-place edits (clustered -pi etc.) on protected paths deny ---
+expect DENY  "perl -pi authority"          "perl -pi -e s/a/b/ dev-memo/run/config"
+expect DENY  "perl -p -i authority"        "perl -p -i -e s/a/b/ dev-memo/run/config"
+expect DENY  "perl -i.bak -pe authority"   "perl -i.bak -pe s/a/b/ dev-memo/run/config"
+expect DENY  "/usr/bin/perl -pi authority" "/usr/bin/perl -pi -e s/a/b/ dev-memo/run/config"
+expect DENY  "env perl -pi authority"      "env perl -pi -e s/a/b/ dev-memo/run/config"
+expect DENY  "perl -pi log.md"             "perl -pi -e s/a/b/ dev-memo/run/log.md"
+expect DENY  "perl -ni authority"          "perl -ni -e print dev-memo/run/config"
+# perl WITHOUT in-place that only READS a protected path allows:
+expect ALLOW "perl -ne read authority"     "perl -ne print dev-memo/run/config"
+expect ALLOW "perl -pe read authority"     "perl -pe s/a/b/ dev-memo/run/config"
+# prose / read-only mentions of perl -pi + protected path allow (not actual write targets):
+expect ALLOW "echo prose perl -pi+path"    'echo "perl -pi dev-memo/run/config to patch"'
+expect ALLOW "grep prose perl -pi+path"    'grep "perl -pi dev-memo/run/config" somefile'
 expect DENY  "tee authority (not log)"     'echo X | tee dev-memo/run/queue.reviewed'
 # read-only commands mentioning protected paths ALLOW (the BRCBW-5 fix):
 expect ALLOW "cp authority as SOURCE"      'cp dev-memo/run/config /tmp/x'
