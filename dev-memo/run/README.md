@@ -64,6 +64,8 @@ Each control has ONE source of truth; other files point here rather than restati
 - Batch audit content: `BATCH-AUDIT.md`
 - UI gate limitations: `UI-GATES.md` (do not restate coverage percentages elsewhere)
 - Project invariants & authority boundaries: `AGENTS.md`
+- Autonomous next-WI protocol (human-invoked; pick one bounded WI, one branch, push, PR, stop
+  before merge): `dev-memo/run/autonomous-next.md`
 
 **Enforcement strength — stated honestly.** The commit guard enforces the boundary against a
 *cooperative* agent, plus the write-guard blocks the obvious tamper path (direct edits to the
