@@ -122,30 +122,49 @@ Claude performs steps 1–5, surfaces the exact step-6 command for the human, an
 step-7 verification with `last-batch-audit == HEAD` pending that human write (only that one item
 is human-gated; everything else is automatic). Do not attempt to bypass the guard.
 
-## Future merge-delegate mode
+## Default merge-delegate mode
 
-**Disabled by default.** Claude may merge PRs only after an explicit human opt-in and only
-through GitHub PR merge tooling, not by pushing directly to `main`.
+**Enabled by default for low-risk, non-UI PRs** (validated in practice by the merge-delegate
+canary runs — PR #16 detector-pattern-doc scanner exemption and PR #17 provenance supersession).
+Claude may auto-merge the PR for the WI it just executed **only when ALL of these hold**:
 
-Prerequisites before enabling:
+1. `gh auth status` succeeds.
+2. Local tree is clean.
+3. PR is open, not draft, base is `main`.
+4. PR head branch and head commit match the branch/commit Claude pushed.
+5. `gh pr checks <PR> --watch --fail-fast` passes.
+6. `gh pr view <PR> --json mergeable,mergeStateStatus` reports clean/mergeable — re-query if a
+   transient `UNSTABLE` appears mid-check; require `CLEAN` once checks settle.
+7. Changed files match the chosen WI scope.
+8. No manual-merge category (below) is triggered.
+9. Merge is done ONLY through GitHub PR tooling: `gh pr merge <PR> --merge --delete-branch`.
+10. Claude never pushes directly to `main`.
 
-* `gh` installed and authenticated, or another auditable GitHub PR merge mechanism available.
-* Claude can verify PR state/checks before merge.
-* Claude can verify the PR head commit equals the commit it pushed.
-* Claude can verify no failing checks.
-* Claude can verify UI PRs include a concrete standalone `Design artifact:` line.
-* Claude can stop instead of merging on any ambiguity.
+If any condition cannot be verified, Claude stops before merge and reports. After an auto-merge,
+run the **Post-merge cleanup phase** above (the breaker-baseline write stays human-gated).
 
-Explicitly forbidden:
+Forbidden in all modes: merging via `git push origin main`; bypassing or merging red / skipped /
+flaky / ambiguous checks; merging if the PR changed since Claude's last validation.
 
-* Do not merge by `git push origin main`.
-* Do not bypass PR checks.
-* Do not merge red checks.
-* Do not merge if the PR changed since Claude's last validation.
-* Do not merge if multiple active PRs/branches create ambiguity.
+## Manual-merge categories
 
-Until a human explicitly enables this mode, Claude always stops before merge and hands the merge
-to the human.
+Claude MUST stop before merge and report to the human if the PR touches or involves:
+
+* renderer/app UI paths, visual copy, layout, interaction, design artifacts, or user-facing UI behavior;
+* security, confidentiality, encryption, authentication, authorization, or data-retention logic;
+* migrations, destructive persistence changes, schema rewrites, or data-loss risk;
+* dependency upgrades, native-module/ABI changes, Electron packaging changes, or build-system changes with runtime impact;
+* workflow-gate weakening, bypasses, ignore rules, or scanner exemptions — UNLESS the human explicitly enabled merge-delegate for that specific PR;
+* failed, skipped, flaky, cancelled, missing, or ambiguous checks;
+* multiple active PRs/branches, or unclear branch/PR identity;
+* unclear source of truth or scope expansion.
+
+## UI rule
+
+UI PRs are **never auto-merged by default.** For a UI PR Claude may still create the design
+artifact, edit, validate, commit, push, open the PR, verify the PR body carries a standalone
+concrete `Design artifact:` line, and report the PR is ready — but Claude **stops before merge**
+and hands the merge to the human.
 
 ## Relationship to other autonomy surfaces
 
