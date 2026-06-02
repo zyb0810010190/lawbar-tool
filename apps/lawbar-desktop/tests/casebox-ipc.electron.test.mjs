@@ -43,7 +43,7 @@ function findPackagedAppDir() {
   return null;
 }
 
-const NO_DB_GLOBS = [/\.db$/, /\.sqlite$/, /\.sqlite3$/, /\.db-wal$/, /\.db-shm$/, /case-box\.db/];
+const DB_FILE_GLOBS = [/\.db$/, /\.sqlite$/, /\.sqlite3$/, /\.db-wal$/, /\.db-shm$/, /\.sqlite-wal$/, /\.sqlite-shm$/, /case-box\.db/];
 
 function persistenceFiles(rootDir) {
   const out = [];
@@ -65,7 +65,7 @@ function persistenceFiles(rootDir) {
       }
       if (st.isDirectory()) {
         walk(full);
-      } else if (NO_DB_GLOBS.some((re) => re.test(entry))) {
+      } else if (DB_FILE_GLOBS.some((re) => re.test(entry))) {
         out.push(full);
       }
     }
@@ -74,7 +74,24 @@ function persistenceFiles(rootDir) {
   return out.sort();
 }
 
-test("case-box IPC packaged renderer→main round-trip; isolated HOME; no DB file", async (t) => {
+
+async function waitForCaseBoxSurface(win) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const ready = await win.evaluate(() =>
+      typeof window.lawbar?.caseBox?.createMatter === "function" &&
+      typeof window.lawbar?.caseBox?.getMatter === "function" &&
+      typeof window.lawbar?.caseBox?.listMatters === "function" &&
+      typeof window.lawbar?.caseBox?.archiveMatter === "function" &&
+      typeof window.lawbar?.caseBox?.chainHead === "function",
+    );
+    if (ready) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error("HARNESS FAILURE — window.lawbar.caseBox surface not ready within 5s");
+}
+
+test("case-box IPC packaged renderer→main round-trip persists across restart in isolated userData", async (t) => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "lawbar-ipc-test-"));
   t.after(() => {
     try {
@@ -109,6 +126,7 @@ test("case-box IPC packaged renderer→main round-trip; isolated HOME; no DB fil
     { testName: "casebox-ipc-round-trip" },
   );
   let createdMatterId;
+  let chainAfterCount;
   try {
     const win = await app.firstWindow();
     // Bounded readiness poll: wait up to 5s for window.lawbar.caseBox.createMatter
@@ -200,14 +218,70 @@ test("case-box IPC packaged renderer→main round-trip; isolated HOME; no DB fil
     createdMatterId);
     assert.equal(chainAfter.ok, true);
     assert.ok(chainAfter.value.count > chainBefore.value.count, `chain head count did not grow: before=${chainBefore.value.count} after=${chainAfter.value.count}`);
+    chainAfterCount = chainAfter.value.count;
   } finally {
     await app.close();
   }
 
-  // Post-suite snapshot: scan BOTH isolated temp HOME AND repo working tree.
+  assert.ok(createdMatterId, "created matter id must be captured before restart");
+  assert.ok(typeof chainAfterCount === "number", "chain count must be captured before restart");
+
+  // Relaunch against the SAME isolated userData dir. This is the product
+  // durability canary: data created through packaged renderer→main IPC must
+  // survive an Electron process boundary.
+  const relaunched = await launchPackaged(
+    {
+      executablePath,
+      args: [`--user-data-dir=${tempRoot}`],
+      env: {
+        ...process.env,
+        LAWBAR_MODE: "dev",
+      },
+      timeout: 30000,
+    },
+    { testName: "casebox-ipc-restart" },
+  );
+  try {
+    const win = await relaunched.firstWindow();
+    await waitForCaseBoxSurface(win);
+
+    const persisted = await win.evaluate((id) =>
+      window.lawbar.caseBox.getMatter({ matterId: id }),
+    createdMatterId);
+    assert.equal(persisted.ok, true, JSON.stringify(persisted));
+    assert.equal(persisted.value.id, createdMatterId);
+    assert.equal(persisted.value.name, "PoC synthetic matter");
+    assert.equal(persisted.value.status, "archived");
+
+    const archivedList = await win.evaluate(() =>
+      window.lawbar.caseBox.listMatters({ status: "archived", limit: 50 }),
+    );
+    assert.equal(archivedList.ok, true, JSON.stringify(archivedList));
+    assert.ok(
+      archivedList.value.rows.some((row) => row.id === createdMatterId),
+      `archived list after restart did not contain ${createdMatterId}`,
+    );
+
+    const chainAfterRestart = await win.evaluate((id) =>
+      window.lawbar.caseBox.chainHead({ matterId: id }),
+    createdMatterId);
+    assert.equal(chainAfterRestart.ok, true, JSON.stringify(chainAfterRestart));
+    assert.ok(
+      chainAfterRestart.value.count >= chainAfterCount,
+      `chain count regressed across restart: before=${chainAfterCount} after=${chainAfterRestart.value.count}`,
+    );
+  } finally {
+    await relaunched.close();
+  }
+
+  // Post-suite snapshot: scan BOTH isolated userData AND repo working tree.
   const postTemp = persistenceFiles(tempRoot);
   const postRepo = persistenceFiles(REPO_ROOT);
-  assert.deepEqual(postTemp, [], `post-suite: temp root contains DB files: ${postTemp.join(", ")}`);
+  const expectedDb = path.join(tempRoot, "case-box.sqlite");
+  assert.ok(
+    postTemp.includes(expectedDb),
+    `post-suite: expected SQLite DB at ${expectedDb}; found: ${postTemp.join(", ")}`,
+  );
   // Repo working tree diff: no new entries between pre and post.
   const newRepoEntries = postRepo.filter((p) => !preRepo.includes(p));
   assert.deepEqual(newRepoEntries, [], `post-suite: new DB files appeared in repo: ${newRepoEntries.join(", ")}`);
