@@ -99,6 +99,29 @@ expect ALLOW "unrelated redirect"          'echo X > /tmp/scratch'
 expect ALLOW "git status"                  'git status --short'
 expect ALLOW "non-run dev-memo write"      'echo X > dev-memo/canary-start.md'
 
+# --- BRCBW-5: narrow to actual write operations (command-word gated + write-target only) ---
+# actual writes to protected paths STILL deny (no weakening):
+expect DENY  "rm authority"                'rm dev-memo/run/config'
+expect DENY  "path-prefixed rm authority"  '/usr/bin/rm dev-memo/run/config'
+expect DENY  "env-wrapped rm authority"    'env FOO=bar rm dev-memo/run/batch-start'
+expect DENY  "cp to authority dest"        'cp /tmp/x dev-memo/run/last-batch-audit'
+expect DENY  "cp dest after trailing flag" 'cp /tmp/x dev-memo/run/config -v'
+expect DENY  "mv any operand authority"    'mv /tmp/x dev-memo/run/risk.flag'
+expect DENY  "dd of= authority"            'dd if=/tmp/x of=dev-memo/run/config'
+expect DENY  "sed -i.bak authority"        "sed -i.bak s/a/b/ dev-memo/run/config"
+expect DENY  "tee authority (not log)"     'echo X | tee dev-memo/run/queue.reviewed'
+# read-only commands mentioning protected paths ALLOW (the BRCBW-5 fix):
+expect ALLOW "cp authority as SOURCE"      'cp dev-memo/run/config /tmp/x'
+expect ALLOW "dd if= authority (read)"     'dd if=dev-memo/run/config of=/tmp/x'
+expect ALLOW "cat read authority"          'cat dev-memo/run/last-batch-audit'
+expect ALLOW "grep read authority"         'grep -n pattern dev-memo/run/config'
+expect ALLOW "gh diff naming authority"    'gh pr diff 21 -- dev-memo/run/config'
+expect ALLOW "ls authority"                'ls -la dev-memo/run/config'
+# write-like words in PROSE allow (the observed friction):
+expect ALLOW "echo prose with touch+path"  'echo "does the diff touch dev-memo/run/config"'
+expect ALLOW "grep pattern with rm+path"   'grep "rm dev-memo/run/config" somefile'
+expect ALLOW "echo prose cp+path"          'echo "cp dev-memo/run/config to backup"'
+
 # ---------------------------------------------------------------------------
 printf 'block-run-control-bash-write: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
