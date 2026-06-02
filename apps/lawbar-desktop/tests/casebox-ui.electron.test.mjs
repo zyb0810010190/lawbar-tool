@@ -58,12 +58,14 @@ function findPackagedAppDir() {
   return null;
 }
 
-const NO_DB_GLOBS = [
+const DB_FILE_GLOBS = [
   /\.db$/,
   /\.sqlite$/,
   /\.sqlite3$/,
   /\.db-wal$/,
   /\.db-shm$/,
+  /\.sqlite-wal$/,
+  /\.sqlite-shm$/,
   /case-box\.db/,
 ];
 
@@ -93,7 +95,7 @@ function persistenceFiles(rootDir) {
       }
       if (st.isDirectory()) {
         walk(full);
-      } else if (NO_DB_GLOBS.some((re) => re.test(entry))) {
+      } else if (DB_FILE_GLOBS.some((re) => re.test(entry))) {
         out.push(full);
       }
     }
@@ -226,10 +228,10 @@ test("case-box UI packaged flow: list → create → view → archive → chain 
   // 10) Post-suite no-DB-file scan: both tempRoot and repo working tree.
   const postTemp = persistenceFiles(tempRoot);
   const postRepo = persistenceFiles(REPO_ROOT);
-  assert.deepEqual(
-    postTemp,
-    [],
-    `post-suite: temp root contains DB files: ${postTemp.join(", ")}`,
+  const expectedDb = path.join(tempRoot, "case-box.sqlite");
+  assert.ok(
+    postTemp.includes(expectedDb),
+    `post-suite: expected SQLite DB at ${expectedDb}; found: ${postTemp.join(", ")}`,
   );
   const newRepoEntries = postRepo.filter((p) => !preRepo.includes(p));
   assert.deepEqual(
