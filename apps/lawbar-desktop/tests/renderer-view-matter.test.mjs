@@ -223,7 +223,7 @@ test("value=null: renders not-found copy + back link + focuses back link", async
   await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
   const nf = findByTestId(root, "view-not-found");
   assert.ok(nf !== null);
-  assert.match(collectText(nf), /data is in-memory only/);
+  assert.match(collectText(nf), /link may be out of date/);
   assert.equal(doc._focused, findByTestId(root, "view-back-link"));
 });
 

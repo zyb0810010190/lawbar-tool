@@ -215,7 +215,7 @@ test("getMatter null: not-found copy + back-to-list", async () => {
   await mountArchiveMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
   const nf = findByTestId(root, "archive-not-found");
   assert.ok(nf !== null);
-  assert.match(collectText(nf), /data is in-memory only/);
+  assert.match(collectText(nf), /link may be out of date/);
   assert.equal(doc._focused, findByTestId(root, "archive-back-link-list"));
 });
 

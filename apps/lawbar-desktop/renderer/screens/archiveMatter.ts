@@ -179,7 +179,7 @@ function renderNotFound(
           "p",
           {},
           [
-            "It may have been created in a previous session — data is in-memory only.",
+            "The link may be out of date.",
           ],
           doc,
         ),
