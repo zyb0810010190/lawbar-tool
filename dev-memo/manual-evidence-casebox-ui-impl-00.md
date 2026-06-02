@@ -95,6 +95,10 @@ $ node --test tests/smoke.electron.test.mjs
 - Window opens; title=`lawbar`; `<main id="app">` renders; `#/matters`
   route shows case-box list-shell header + empty-state copy ("Data is
   held in memory only — relaunching the app clears it.").
+  <!-- NOTE 2026-06-02: this observation predates SQLite persistence. The empty-state copy was
+  later corrected to "Matters are stored locally on this device." (PRODUCT(ui): update case-box
+  persistent empty-state copy). The observation above is left intact as a point-in-time record. -->
+
 - `nativeTheme.themeSource` flip propagates to `<html data-theme>`.
 
 ### 1.7 Packaged case-box UI flow (G-UI-10/11/12/13)
