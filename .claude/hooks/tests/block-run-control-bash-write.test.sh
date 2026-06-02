@@ -165,6 +165,16 @@ expect DENY  "[[ -f ]] && echo > authority" '[[ -f dev-memo/run/config ]] && ech
 expect DENY  "[[ ]] || tee authority"      '[[ -f /tmp/x ]] || echo P | tee dev-memo/run/queue.reviewed'
 # a redirect ATTACHED to the compound (> after ]]) is a real write -> still denies:
 expect DENY  "[[ -f ]] > authority"        '[[ -f /tmp/x ]] > dev-memo/run/config'
+# command substitution EXECUTES even inside [[ ]] — a write within one is real, must DENY:
+expect DENY  "[[ \$(echo > auth) == ]]"     '[[ "$(echo X > dev-memo/run/config)" == "" ]]'
+expect DENY  "[[ \$(tee auth) == ]]"        '[[ "$(tee dev-memo/run/config <<< X)" == "" ]]'
+expect DENY  "[[ backtick echo > auth ]]"   '[[ `echo X > dev-memo/run/config` == "" ]]'
+expect DENY  "if [[ \$(echo > auth) ]]"     'if [[ "$(echo X > dev-memo/run/config)" == "" ]]; then true; fi'
+expect DENY  "[[ \$(echo > auth ) ]] space" '[[ "$(echo X > dev-memo/run/config )" == y ]]'
+expect DENY  "[[ \$(rm auth) == ]]"         '[[ "$(rm dev-memo/run/config)" == "" ]]'
+# command substitution that only READS a protected path still allows:
+expect ALLOW "[[ \$(cat auth) == ]]"        '[[ "$(cat dev-memo/run/config)" == "" ]]'
+expect ALLOW "grep \$(cat auth)"            'grep "$(cat dev-memo/run/config)" /tmp/x'
 
 # ---------------------------------------------------------------------------
 printf 'block-run-control-bash-write: %d passed, %d failed\n' "$pass" "$fail"
