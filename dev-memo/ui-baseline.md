@@ -24,7 +24,13 @@ Existing UI is treated as legacy baseline evidence, not as new autonomous UI wor
 
 ## Future UI work
 
-Future UI WIs require the Claude Design gate before autonomous execution:
-- `Type: UI` is not enabled yet.
-- UI WIs must include a design artifact before they can enter a governed queue.
-- UI automation remains deferred until the Design artifact gate is built.
+**Updated 2026-06-02:** the design-artifact entry gate has since been built and merged (see
+`UI-GATES.md`, `scripts/workflow/check-queue.sh`, and the PR-time
+`scripts/workflow/check-ui-design-artifact.sh`). Corrected status:
+- `Type: UI` **is** now a valid WI type — but a UI WI may enter a *governed queue* only with a
+  concrete `Design artifact:` reference (`check-queue.sh`), and a UI PR must carry a standalone
+  `Design artifact:` line (enforced at PR time).
+- **Full** UI automation (the `frontend-design` → token/responsive → visual/a11y/Lighthouse
+  regression chain described in `UI-GATES.md`) remains **deferred** — only the design-artifact
+  entry gate is enforced today.
+- The baseline recorded above remains the legacy pre-gate UI evidence, not new autonomous UI work.
