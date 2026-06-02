@@ -54,7 +54,7 @@ test("Electron launches; window opens; title=lawbar; #app renders case-box list 
     .textContent();
   assert.match(
     emptyText,
-    /Data is held in memory only — relaunching the app clears it\./,
+    /Matters are stored locally on this device\./,
   );
 
   // The + New matter button is present so the user can navigate forward.

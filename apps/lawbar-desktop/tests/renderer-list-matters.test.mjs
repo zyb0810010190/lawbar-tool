@@ -206,7 +206,7 @@ test("mount: empty active state shows the in-memory-volatility copy", async () =
   assert.ok(empty !== null);
   assert.match(
     collectTextContent(empty),
-    /Data is held in memory only — relaunching the app clears it\./,
+    /Matters are stored locally on this device\./,
   );
 });
 

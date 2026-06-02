@@ -151,7 +151,7 @@ test("case-box UI packaged flow: list → create → view → archive → chain 
     const emptyText = await win.locator('[data-test-id="list-empty"]').textContent();
     assert.match(
       emptyText,
-      /Data is held in memory only — relaunching the app clears it\./,
+      /Matters are stored locally on this device\./,
     );
 
     // 2) Click + New matter → create form.
