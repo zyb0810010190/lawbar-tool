@@ -290,7 +290,7 @@ All screens render into `<main id="app">` via the router. Each screen exports `a
 - Action button: `+ New matter` → navigates to `#/matters/new`.
 - Body: matter table OR empty-state copy OR error message.
   - Table columns: `Name` (clickable; navigates to `#/matters/:id`) / `Matter type` (label via `format.matterTypeLabel`) / `Confidentiality` / `Created` / `Status` (pill: Active / Archived).
-  - Empty state (active): "No matters yet. Click **New matter** to create the first one. Data is held in memory only — relaunching the app clears it." (Brief §7 + IPC impl rev-0.3 H3 backing volatility surfaced explicitly per §7.4.)
+  - Empty state (active): "No matters yet. Click **New matter** to create the first one. Data is held in memory only — relaunching the app clears it." (Brief §7 + IPC impl rev-0.3 H3 backing volatility surfaced explicitly per §7.4.) **[SUPERSEDED 2026-06-02 → §7.5: copy corrected to "Matters are stored locally on this device." — SQLite persistence landed.]**
   - Empty state (archived): "No archived matters."
   - Error state: shows safe-envelope `message` inline.
 - Pagination: `Load more` button when cursor present; clicking calls `listMatters({ status, cursor: next, limit: PAGE_SIZE })` and appends rows.
@@ -442,6 +442,16 @@ The renderer NEVER forwards a known-forbidden field (server-authority field). Th
 ### §7.5 In-memory backing volatility surfacing
 
 Empty-state copy in the active list (§6.1) explicitly mentions "Data is held in memory only — relaunching the app clears it." This is a v1 transparency requirement (not a marketing tagline; not promising future SQLite). The wording is intentionally factual.
+
+> **SUPERSEDED 2026-06-02 — persistence landed.** This volatility copy is no longer accurate.
+> Case-box now persists to SQLite under Electron `app.getPath("userData")` (`PRODUCT(desktop):
+> use SQLite case-box runtime`, proven across restart by `PRODUCT(desktop): prove case-box
+> persistence across restart`). The empty-state copy was corrected to **"Matters are stored
+> locally on this device."** (`PRODUCT(ui): update case-box persistent empty-state copy`). The
+> "intentionally factual" rationale held only while the backing store was in-memory; it does not
+> apply now that the store is durable. Authoritative corrected copy + rationale:
+> `dev-memo/design/2026-06-02-casebox-persistent-empty-state-copy.md`. The original wording above
+> is retained as a historical record of the v1 pre-persistence decision.
 
 ### §7.6 No-real-data gates
 
@@ -620,7 +630,7 @@ Each is a testable boolean exit condition for the impl WI. All must pass before 
 
 | # | Decision | Default chosen |
 |---|---|---|
-| D1 | In-memory backing volatility surfacing copy | "Data is held in memory only — relaunching the app clears it." — appears in active-list empty state only (NOT a persistent banner; NOT auto-injected on every screen). |
+| D1 | In-memory backing volatility surfacing copy | **[SUPERSEDED 2026-06-02 → §7.5]** "Data is held in memory only — relaunching the app clears it." — appears in active-list empty state only (NOT a persistent banner; NOT auto-injected on every screen). Persistence landed; copy corrected to "Matters are stored locally on this device." |
 | D2 | Audit chain head UX | Lazy: collapsed `<details><summary>Show audit chain head</summary>` on view-matter; expanding triggers the `api.chainHead` call. Auto-load is REJECTED — adds an IPC call to every view-matter page that most lawyers will never need. |
 | D3 | DTO sync test parser choice | Pure regex extractor over the `Object.freeze([...] as const)` blocks. TS compiler API is REJECTED for this test — it would pull `typescript` as a `tests/` dependency (the existing `check-renderer-imports.mjs` is a script, not a test) and is overkill for matching two well-formed author-controlled files. If the format drifts, the test fails loudly and the impl WI updates both files together. |
 | D4 | ULID short-tag length | First **8 characters** (Crockford base32 lowercase). Full ULID under disclosure. |
