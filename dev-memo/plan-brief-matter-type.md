@@ -1,5 +1,13 @@
 # Plan: WI-brief-matter-type — Matter-type vocabulary + R-5 contract surface
 
+> **Historical snapshot (provenance note, added 2026-06-02).** This is a planning record from
+> 2026-05. Point-in-time status statements below — such as "Phase A9 / in-memory only", "SQLite
+> Phase B has not started", or "does not depend on `better-sqlite3`" — were accurate when written
+> but have since been **superseded**: the ABI gate closed and SQLite Phase B
+> (`services/case-box-persistence/src/sqlite/*`) landed, so case-box-persistence now uses
+> `better-sqlite3` and the desktop runtime persists to SQLite. Original wording is preserved as
+> the dated record, not a claim about current behavior; the plan's design value is unchanged.
+
 **Status**: READY (revision 2 — second review-plan returned READY with Low-risk clarifications; two Lows applied as opportunistic cleanup; ready to commit).
 **Date**: 2026-05-22.
 **Author**: Claude Code at user's direction (resolves project-brief R-5).
