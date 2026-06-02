@@ -55,6 +55,17 @@ The guard currently treats app renderer/UI implementation paths as UI-touching. 
 reference files under `dev-memo/design-source/` are not treated as app UI implementation
 changes by this PR-time guard.
 
+## GitHub enforcement limitation — private repository
+
+The PR-time UI design artifact check is active and has been canary-tested:
+
+- Non-UI PR canary: check ran and passed without `Design artifact:`.
+- UI implementation PR canary touching `apps/lawbar-desktop/renderer/index.css`: check ran and failed without `Design artifact:`.
+
+However, required-check merge blocking is **not currently enforced** for this private repository under the current GitHub account state. Both repository rulesets and classic branch protection could be configured, but GitHub showed they would not be enforced unless the repository is moved to a GitHub Team/Enterprise organization account.
+
+Operational rule: keep the repository private. Treat `UI design artifact / check-ui-design-artifact` as an advisory PR signal until the repository/account is upgraded or moved to an organization where private-repo branch protection is enforced. Do not make this legal/case-box repository public merely to obtain required-check enforcement.
+
 ## Versions (verified Jan–Apr 2026)
 
 ```jsonc

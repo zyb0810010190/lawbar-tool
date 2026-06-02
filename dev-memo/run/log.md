@@ -184,3 +184,12 @@ Review: scaffold/workflow gate change; self-review = the 6-case check-queue harn
   lint + gates. Independent /cc-suite:audit available if desired.
 Commit: <pending>
 Next: NONE. Per user: do not push until reviewed.
+
+## Workflow note — GitHub private-repo branch protection limitation
+
+- UI design artifact PR-time workflow installed and canary-tested.
+- Positive canary: non-UI PR ran the check and passed without `Design artifact:`.
+- Negative canary: UI implementation PR touching `apps/lawbar-desktop/renderer/index.css` ran the check and failed without `Design artifact:`.
+- Attempted GitHub rulesets and classic branch protection for required status checks on `main`.
+- GitHub UI indicated enforcement is unavailable for this private repository under the current account state.
+- Decision: keep repo private; do not make legal/case-box repository public for merge gating. Treat the check as advisory until account/repo enforcement changes.
