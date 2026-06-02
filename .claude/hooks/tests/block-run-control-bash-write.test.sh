@@ -146,6 +146,26 @@ expect ALLOW "tee -a log.md (append)"          'echo X | tee -a dev-memo/run/log
 expect ALLOW "prose: 'use tee -a for log.md'"  'echo "use tee -a for dev-memo/run/log.md"'
 expect ALLOW "grep prose tee+authority"        'grep "tee dev-memo/run/config" somefile'
 
+# --- BRCBW-7: read-only Bash test/conditional expressions do not false-deny ---
+# == / != / = forms: cmd word is [[ / [ / test (not a write verb) -> allow (BRCBW-5 gating).
+expect ALLOW "[[ == authority ]]"          '[[ "$x" == dev-memo/run/config ]]'
+expect ALLOW "[[ != authority ]]"          '[[ "$x" != dev-memo/run/config ]]'
+expect ALLOW "[ = authority ]"             '[ "$x" = dev-memo/run/config ]'
+expect ALLOW "test = authority"            'test "$x" = dev-memo/run/config'
+expect ALLOW "if [[ == ]]; then …"         'if [[ "$x" == dev-memo/run/config ]]; then echo hi; fi'
+# write-like words quoted INSIDE a test expression still allow (not a command word):
+expect ALLOW "[[ == \"rm …path\" ]]"        '[[ "$x" == "rm dev-memo/run/config" ]]'
+expect ALLOW "[[ == \"tee …path\" ]]"       '[[ "$x" == "tee dev-memo/run/config" ]]'
+# the literal recorded BRCBW-7 form: > / < are string comparisons inside [[ ]], not redirection:
+expect ALLOW "[[ > authority ]] (compare)" '[[ "$x" > dev-memo/run/config ]]'
+expect ALLOW "[[ < authority ]] (compare)" '[[ "$x" < dev-memo/run/config ]]'
+# a REAL write after a test expression still denies (no weakening):
+expect DENY  "[[ == ]] && rm authority"    '[[ "$x" == dev-memo/run/config ]] && rm dev-memo/run/config'
+expect DENY  "[[ -f ]] && echo > authority" '[[ -f dev-memo/run/config ]] && echo X > dev-memo/run/config'
+expect DENY  "[[ ]] || tee authority"      '[[ -f /tmp/x ]] || echo P | tee dev-memo/run/queue.reviewed'
+# a redirect ATTACHED to the compound (> after ]]) is a real write -> still denies:
+expect DENY  "[[ -f ]] > authority"        '[[ -f /tmp/x ]] > dev-memo/run/config'
+
 # ---------------------------------------------------------------------------
 printf 'block-run-control-bash-write: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then

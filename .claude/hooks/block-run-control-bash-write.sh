@@ -60,8 +60,16 @@ tok_logmd() { local t=$1; t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}
   case "$t" in *dev-memo/run/log.md) return 0 ;; *) return 1 ;; esac; }
 
 # --- pass 1: redirection targets (handles > >> >| and fd-prefixed forms) ---
+# First neutralize [[ ... ]] conditional spans: inside them, > and < are string-comparison
+# operators, NEVER redirection (bash does not perform redirection from within [[ ]]). Blanking
+# the inner content stops pass-1 from mistaking `[[ "$x" > dev-memo/run/config ]]` for a
+# redirect (BRCBW-7). A redirect ATTACHED to the compound sits AFTER ]] (e.g. `[[ -f x ]] >
+# file`) — outside the span — so it is still detected. `[^]]*` stops at any ], so a malformed
+# or ]-containing [[ … is left intact and still fail-denies. This removes only comparison
+# operators, never a real redirection, so no write protection is weakened.
+PASS1SRC=$(printf '%s' "$CMD" | sed -E 's/\[\[[^]]*\]\]/ __TEST__ /g')
 # Normalize redirection operators into word markers, longest first.
-NORM=$(printf '%s' "$CMD" | sed -E 's/[0-9]*>>/ __APPEND__ /g; s/[0-9]*>[|]/ __TRUNC__ /g; s/[0-9]*>/ __TRUNC__ /g')
+NORM=$(printf '%s' "$PASS1SRC" | sed -E 's/[0-9]*>>/ __APPEND__ /g; s/[0-9]*>[|]/ __TRUNC__ /g; s/[0-9]*>/ __TRUNC__ /g')
 set -f
 mode=""
 for tok in $NORM; do
