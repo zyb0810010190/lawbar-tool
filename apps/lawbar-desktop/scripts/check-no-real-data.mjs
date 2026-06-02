@@ -50,6 +50,20 @@ function isBinaryAsset(filePath) {
   return BINARY_EXTS.has(path.extname(filePath).toLowerCase());
 }
 
+// Detector-pattern documentation exemption. Provenance/planning docs under dev-memo/ sometimes
+// quote the scanner's OWN forbidden-pattern regexes (e.g. a line documenting
+// `/(supreme court|高级人民法院)/i`). That is rule documentation, not real client data, but the
+// scanner cannot tell them apart. A line carrying the EXACT marker below is skipped — but ONLY
+// in `dev-memo/**.md` prose (see isDetectorDoc). The marker is IGNORED in app/renderer/test/
+// fixture/code files, so real-data detection in product code and fixtures is never weakened.
+// Narrow by design: per-line, exact token, doc-path-only. An unknown/partial marker does nothing.
+const DOC_EXEMPT_MARKER = "no-real-data: detector-pattern-doc";
+
+function isDetectorDoc(filePath) {
+  const rel = path.relative(REPO_ROOT, filePath).split(path.sep).join("/");
+  return rel.startsWith("dev-memo/") && rel.toLowerCase().endsWith(".md");
+}
+
 const EXEMPT_PATHS = new Set([
   path.join(REPO_ROOT, "apps/lawbar-desktop/scripts/check-no-real-data.mjs"),
   path.join(REPO_ROOT, "apps/lawbar-desktop/tests/check-no-real-data.test.mjs"),
@@ -103,27 +117,33 @@ function isInScope(filePath) {
   return false;
 }
 
-function scanFile(filePath) {
-  if (!existsSync(filePath)) return [];
-  if (isBinaryAsset(filePath)) return []; // defense-in-depth: never scan a binary asset as text
-  const text = readFileSync(filePath, "utf8");
+// Pure line scanner. `isDoc` enables the detector-pattern-doc marker exemption (dev-memo prose
+// only); `file` is the rel path used in hit records.
+function scanContent(text, { isDoc = false, file = "" } = {}) {
   const lines = text.split("\n");
   const hits = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    // Exempt a single line ONLY when it carries the exact marker AND the file is a dev-memo doc.
+    if (isDoc && line.includes(DOC_EXEMPT_MARKER)) continue;
     for (const p of PATTERNS) {
       const m = p.re.exec(line);
       if (m !== null) {
-        hits.push({
-          file: path.relative(REPO_ROOT, filePath),
-          line: i + 1,
-          pattern: p.name,
-          match: m[0],
-        });
+        hits.push({ file, line: i + 1, pattern: p.name, match: m[0] });
       }
     }
   }
   return hits;
+}
+
+function scanFile(filePath) {
+  if (!existsSync(filePath)) return [];
+  if (isBinaryAsset(filePath)) return []; // defense-in-depth: never scan a binary asset as text
+  const text = readFileSync(filePath, "utf8");
+  return scanContent(text, {
+    isDoc: isDetectorDoc(filePath),
+    file: path.relative(REPO_ROOT, filePath),
+  });
 }
 
 function main(argv) {
@@ -157,7 +177,7 @@ function main(argv) {
   return 1;
 }
 
-export { scanFile, isInScope, isBinaryAsset, PATTERNS };
+export { scanFile, scanContent, isInScope, isBinaryAsset, isDetectorDoc, DOC_EXEMPT_MARKER, PATTERNS };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   process.exit(main(process.argv.slice(2)));
