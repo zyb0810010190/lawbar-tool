@@ -44,6 +44,41 @@ expect() { # expect <DENY|ALLOW> <label> <command>
   fi
 }
 
+# --- BRCBW-6: controlled "jq unavailable" harness ----------------------------
+# Build a temp bin with absolute-path symlinks to every external tool the hook needs EXCEPT jq,
+# then run the hook with PATH set to ONLY that dir (and an absolute /bin/bash, since bash itself
+# is not in the temp bin). `command -v jq` then fails inside the hook, exercising the fail-closed
+# fallback — without depending on the developer machine actually lacking jq. RAW is the exact
+# JSON payload bytes (so JSON escapes like \/ are preserved verbatim, not re-encoded by jq).
+NOJQ_BIN=""
+nojq_setup() {
+  NOJQ_BIN=$(mktemp -d)
+  local t p
+  for t in grep sed tr head awk cat; do
+    p=""
+    [ -x "/usr/bin/$t" ] && p="/usr/bin/$t"
+    [ -z "$p" ] && [ -x "/bin/$t" ] && p="/bin/$t"
+    [ -n "$p" ] && ln -s "$p" "$NOJQ_BIN/$t"
+  done
+}
+nojq_teardown() { [ -n "$NOJQ_BIN" ] && rm -rf "$NOJQ_BIN"; NOJQ_BIN=""; }
+decide_rawnojq() { # decide_rawnojq <raw-json-payload> -> DENY/ALLOW with jq absent
+  local out
+  out=$(printf '%s' "$1" | PATH="$NOJQ_BIN" /bin/bash "$HOOK" 2>/dev/null)
+  case "$out" in *'"permissionDecision":"deny"'*) printf 'DENY' ;; *) printf 'ALLOW' ;; esac
+}
+decide_rawjq() { # same payload, jq present (normal PATH) -> DENY/ALLOW
+  local out
+  out=$(printf '%s' "$1" | bash "$HOOK" 2>/dev/null)
+  case "$out" in *'"permissionDecision":"deny"'*) printf 'DENY' ;; *) printf 'ALLOW' ;; esac
+}
+expect_raw() { # expect_raw <DENY|ALLOW> <jq|nojq> <label> <raw-json-payload>
+  local want="$1" mode="$2" label="$3" raw="$4" got
+  if [ "$mode" = "nojq" ]; then got=$(decide_rawnojq "$raw"); else got=$(decide_rawjq "$raw"); fi
+  if [ "$got" = "$want" ]; then pass=$((pass+1))
+  else fail=$((fail+1)); failed_cases="$failed_cases\n  [want $want got $got] ($mode) $label :: $raw"; fi
+}
+
 # ---------------------------------------------------------------------------
 # DENY — direct Bash writes to authority/state files (the forge-governance set)
 # ---------------------------------------------------------------------------
@@ -212,6 +247,41 @@ expect DENY  "paren body + sed --in-place" '[[ "$(printf "(";sed --in-place s/a/
 expect DENY  "paren body + sed -E -i"      '[[ "$(printf "(";sed -E -i s/a/b/ dev-memo/run/config)" == "" ]]'
 # backstop must NOT fire when the unresolved sub names a NON-authority path (queue.md authored).
 expect ALLOW "paren body + queue.md read"  '[[ "$(printf "("; cat dev-memo/run/queue.md)" == "" ]]'
+
+# --- BRCBW-6: jq-unavailable fail-closed (raw payloads; jq simulated absent via temp PATH) ---
+# Sanity: with jq AVAILABLE, valid protected writes still DENY and non-protected ops still ALLOW.
+expect_raw DENY  jq   "jq-present protected redirect" '{"tool_name":"Bash","tool_input":{"command":"echo X > dev-memo/run/config"}}'
+expect_raw DENY  jq   "jq-present escaped redirect"   '{"tool_name":"Bash","tool_input":{"command":"echo X > dev-memo\/run\/config"}}'
+expect_raw ALLOW jq   "jq-present normal cmd"         '{"tool_name":"Bash","tool_input":{"command":"echo hello"}}'
+expect_raw ALLOW jq   "jq-present read protected"     '{"tool_name":"Bash","tool_input":{"command":"cat dev-memo/run/config"}}'
+nojq_setup
+# THE BYPASS (BRCBW-6): jq absent + JSON-escaped protected path must now DENY (was ALLOW).
+expect_raw DENY  nojq "nojq \/-escaped redirect"     '{"tool_name":"Bash","tool_input":{"command":"echo X > dev-memo\/run\/config"}}'
+expect_raw DENY  nojq "nojq \/-escaped rm"           '{"tool_name":"Bash","tool_input":{"command":"rm dev-memo\/run\/config"}}'
+expect_raw DENY  nojq "nojq partial \/-escape"       '{"tool_name":"Bash","tool_input":{"command":"echo X > dev-memo/run\/config"}}'
+# \uXXXX-encoded path chars must also DENY when jq absent. Built from a backslash var so the
+# literal "backslash-u" never appears contiguously in source (some editors fold it to a char).
+bs=$(printf '%s' '\')
+u_slashes='{"tool_name":"Bash","tool_input":{"command":"echo X > dev-memo'"${bs}u002f"'run'"${bs}u002f"'config"}}'
+u_dot='{"tool_name":"Bash","tool_input":{"command":"echo X > dev-memo/run/risk'"${bs}u002e"'flag"}}'
+expect_raw DENY  nojq "nojq u002f-escaped slashes"   "$u_slashes"
+expect_raw DENY  nojq "nojq u002e-escaped dot risk"  "$u_dot"
+# audit-mpxi9cp3: \\ and \" escapes also defeat a narrow allow-list — Bash strips the backslash
+# (r\\un -> run) or splices quotes; any backslash in the payload must fail closed when jq absent.
+bb='{"tool_name":"Bash","tool_input":{"command":"echo X > dev-memo/r'"${bs}${bs}"'un/config"}}'
+qq='{"tool_name":"Bash","tool_input":{"command":"echo X > dev-memo/'"${bs}"'"run'"${bs}"'"/config"}}'
+expect_raw DENY  nojq "nojq backslash-spliced path"  "$bb"
+expect_raw DENY  nojq "nojq quote-spliced path"      "$qq"
+# jq absent, NO escapes: the plain fallback still works — protected writes DENY, reads/normal ALLOW.
+expect_raw DENY  nojq "nojq plain protected redirect" '{"tool_name":"Bash","tool_input":{"command":"echo X > dev-memo/run/config"}}'
+expect_raw DENY  nojq "nojq plain protected rm"       '{"tool_name":"Bash","tool_input":{"command":"rm dev-memo/run/config"}}'
+expect_raw ALLOW nojq "nojq normal cmd"               '{"tool_name":"Bash","tool_input":{"command":"echo hello"}}'
+expect_raw ALLOW nojq "nojq read protected"           '{"tool_name":"Bash","tool_input":{"command":"cat dev-memo/run/config"}}'
+expect_raw ALLOW nojq "nojq append log.md"            '{"tool_name":"Bash","tool_input":{"command":"echo x >> dev-memo/run/log.md"}}'
+# denial message names jq / unsafe parsing (actionable).
+nojq_msg=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo X > dev-memo\/run\/config"}}' | PATH="$NOJQ_BIN" /bin/bash "$HOOK" 2>/dev/null)
+case "$nojq_msg" in *"jq"*) pass=$((pass+1)) ;; *) fail=$((fail+1)); failed_cases="$failed_cases\n  [want msg-mentions-jq] nojq denial message :: $nojq_msg" ;; esac
+nojq_teardown
 
 # ---------------------------------------------------------------------------
 printf 'block-run-control-bash-write: %d passed, %d failed\n' "$pass" "$fail"
