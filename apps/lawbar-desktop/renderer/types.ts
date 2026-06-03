@@ -75,6 +75,17 @@ export interface ListAuditEventsDto {
   readonly cursor?: string;
 }
 
+export interface ListDocumentsDto {
+  readonly matterId: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface GetDocumentDto {
+  readonly matterId: string;
+  readonly documentId: string;
+}
+
 export interface IpcErrorEnvelope {
   readonly kind: "case_box_persistence_error";
   readonly code: string;
@@ -125,4 +136,15 @@ export const RENDERER_LIST_AUDIT_EVENTS_DTO_FIELDS = Object.freeze([
   "matterId",
   "limit",
   "cursor",
+] as const);
+
+export const RENDERER_LIST_DOCUMENTS_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "limit",
+  "cursor",
+] as const);
+
+export const RENDERER_GET_DOCUMENT_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "documentId",
 ] as const);

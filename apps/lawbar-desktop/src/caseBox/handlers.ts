@@ -14,6 +14,10 @@ import {
   CHAIN_HEAD_FORBIDDEN_FIELDS,
   LIST_AUDIT_EVENTS_DTO_FIELDS,
   LIST_AUDIT_EVENTS_FORBIDDEN_FIELDS,
+  LIST_DOCUMENTS_DTO_FIELDS,
+  LIST_DOCUMENTS_FORBIDDEN_FIELDS,
+  GET_DOCUMENT_DTO_FIELDS,
+  GET_DOCUMENT_FORBIDDEN_FIELDS,
   MAX_LIST_LIMIT,
   MAX_CURSOR_LENGTH,
   type CreateMatterDto,
@@ -22,12 +26,16 @@ import {
   type ArchiveMatterDto,
   type ChainHeadDto,
   type ListAuditEventsDto,
+  type ListDocumentsDto,
+  type GetDocumentDto,
   type CreateMatterResult,
   type GetMatterResult,
   type ListMattersResult,
   type ArchiveMatterResult,
   type ChainHeadResult,
   type ListAuditEventsResult,
+  type ListDocumentsResult,
+  type GetDocumentResult,
   type IpcEnvelope,
 } from "./dto.js";
 import { mapThrownError, makeInvalidPayload, makeBoundaryError } from "./errorMap.js";
@@ -41,6 +49,8 @@ export const CHANNEL = {
   matterArchive: "casebox:matter:archive",
   auditChainHead: "casebox:audit:chainHead",
   auditListEvents: "casebox:audit:listEvents",
+  documentList: "casebox:document:list",
+  documentGet: "casebox:document:get",
 } as const;
 
 export type PersistenceProvider = () => { readonly persistence: CaseBoxPersistence };
@@ -374,5 +384,113 @@ export async function listAuditEventsHandler(
     return { ok: true, value: page };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.auditListEvents }) };
+  }
+}
+
+export async function listDocumentsHandler(
+  payload: unknown,
+  provide: PersistenceProvider,
+): Promise<ListDocumentsResult> {
+  if (!isPlainJsonObject(payload)) return shapeGuardFailure();
+  for (const f of LIST_DOCUMENTS_FORBIDDEN_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(payload, f)) {
+      return forbiddenFieldFailure(f);
+    }
+  }
+  for (const key of Object.keys(payload)) {
+    if (!(LIST_DOCUMENTS_DTO_FIELDS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        error: makeInvalidPayload("unknown field in ListDocumentsDto", { schemaPath: key }),
+      };
+    }
+  }
+  const dto = payload as unknown as ListDocumentsDto;
+  if (typeof dto.matterId !== "string" || dto.matterId.length === 0) {
+    return { ok: false, error: makeInvalidPayload("matterId must be a non-empty string") };
+  }
+  let limit = dto.limit;
+  if (limit !== undefined) {
+    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1) {
+      return { ok: false, error: makeInvalidPayload("limit must be a positive integer") };
+    }
+    if (limit > MAX_LIST_LIMIT) limit = MAX_LIST_LIMIT;
+  }
+  if (dto.cursor !== undefined) {
+    if (typeof dto.cursor !== "string" || dto.cursor.length > MAX_CURSOR_LENGTH) {
+      return {
+        ok: false,
+        error: makeInvalidPayload(`cursor must be an opaque string <=${MAX_CURSOR_LENGTH} chars`),
+      };
+    }
+  }
+  try {
+    const { persistence } = provide();
+    const existing = await persistence.getMatter(dto.matterId);
+    if (existing === null) {
+      return { ok: false, error: makeBoundaryError("unknown_matter") };
+    }
+    if (existing.tenant_id !== getActiveTenantId()) {
+      return { ok: false, error: makeBoundaryError("tenant_mismatch") };
+    }
+    const page = await persistence.listDocuments({
+      tenant_id: getActiveTenantId(),
+      matter_id: dto.matterId,
+      ...(limit !== undefined ? { limit } : {}),
+      ...(dto.cursor !== undefined ? { cursor: dto.cursor } : {}),
+    });
+    return { ok: true, value: page };
+  } catch (err) {
+    return { ok: false, error: mapThrownError(err, { channel: CHANNEL.documentList }) };
+  }
+}
+
+export async function getDocumentHandler(
+  payload: unknown,
+  provide: PersistenceProvider,
+): Promise<GetDocumentResult> {
+  if (!isPlainJsonObject(payload)) return shapeGuardFailure();
+  for (const f of GET_DOCUMENT_FORBIDDEN_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(payload, f)) {
+      return forbiddenFieldFailure(f);
+    }
+  }
+  for (const key of Object.keys(payload)) {
+    if (!(GET_DOCUMENT_DTO_FIELDS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        error: makeInvalidPayload("unknown field in GetDocumentDto", { schemaPath: key }),
+      };
+    }
+  }
+  const dto = payload as unknown as GetDocumentDto;
+  if (typeof dto.matterId !== "string" || dto.matterId.length === 0) {
+    return { ok: false, error: makeInvalidPayload("matterId must be a non-empty string") };
+  }
+  if (typeof dto.documentId !== "string" || dto.documentId.length === 0) {
+    return { ok: false, error: makeInvalidPayload("documentId must be a non-empty string") };
+  }
+  try {
+    const { persistence } = provide();
+    const matter = await persistence.getMatter(dto.matterId);
+    if (matter === null) {
+      return { ok: false, error: makeBoundaryError("unknown_matter") };
+    }
+    if (matter.tenant_id !== getActiveTenantId()) {
+      return { ok: false, error: makeBoundaryError("tenant_mismatch") };
+    }
+    const document = await persistence.getDocument(dto.documentId);
+    if (document === null) return { ok: true, value: null };
+    // Defense-in-depth: a document fetched by id must belong to the active
+    // tenant AND the requested matter, else it is out of scope for this view.
+    if (document.tenant_id !== getActiveTenantId()) {
+      return { ok: false, error: makeBoundaryError("tenant_mismatch") };
+    }
+    if (document.matter_id !== dto.matterId) {
+      return { ok: true, value: null };
+    }
+    return { ok: true, value: document };
+  } catch (err) {
+    return { ok: false, error: mapThrownError(err, { channel: CHANNEL.documentGet }) };
   }
 }

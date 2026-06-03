@@ -8,6 +8,8 @@ import {
   archiveMatterHandler,
   chainHeadHandler,
   listAuditEventsHandler,
+  listDocumentsHandler,
+  getDocumentHandler,
   CHANNEL,
 } from "../dist/src/caseBox/handlers.js";
 import { CaseBoxPersistenceError } from "case-box-persistence";
@@ -40,6 +42,8 @@ function makeProvider(overrides) {
     }),
     getAuditChainHead: async (id) => ({ headHash: null, lastEventId: null, count: 0, _matterId: id }),
     listAuditEvents: async (q) => ({ rows: [], next_cursor: null, query: q }),
+    listDocuments: async (q) => ({ rows: [], next_cursor: null, query: q }),
+    getDocument: async () => null,
     ...overrides,
   };
   return () => ({ persistence });
@@ -64,6 +68,8 @@ test("channel names match contract pattern casebox:<scope>:<op>", () => {
   assert.equal(CHANNEL.matterArchive, "casebox:matter:archive");
   assert.equal(CHANNEL.auditChainHead, "casebox:audit:chainHead");
   assert.equal(CHANNEL.auditListEvents, "casebox:audit:listEvents");
+  assert.equal(CHANNEL.documentList, "casebox:document:list");
+  assert.equal(CHANNEL.documentGet, "casebox:document:get");
 });
 
 // ---------- createMatter ----------
@@ -612,4 +618,218 @@ test("listAuditEvents tenant mismatch → tenant_mismatch; listAuditEvents not c
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "tenant_mismatch");
   assert.equal(listCalled, false);
+});
+
+// ---------- listDocuments ----------
+
+const DOC_ID = "01jzdoc0000000000000000000";
+
+test("listDocuments happy path returns page + injects tenant_id and matter_id", async () => {
+  let received;
+  const provide = makeProvider({
+    listDocuments: async (q) => {
+      received = q;
+      return {
+        rows: [
+          {
+            id: DOC_ID,
+            filename: "complaint.pdf",
+            doc_type: "pleading",
+            status: "registered",
+            received_at: "2026-05-27T00:00:00.000Z",
+          },
+        ],
+        next_cursor: null,
+      };
+    },
+  });
+  const result = await listDocumentsHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, true);
+  assert.equal(result.value.rows.length, 1);
+  assert.equal(received.tenant_id, "default-tenant");
+  assert.equal(received.matter_id, FIXED_ID);
+});
+
+test("listDocuments passes limit + cursor through", async () => {
+  let received;
+  const provide = makeProvider({
+    listDocuments: async (q) => {
+      received = q;
+      return { rows: [], next_cursor: "next" };
+    },
+  });
+  const result = await listDocumentsHandler(
+    { matterId: FIXED_ID, limit: 7, cursor: "c1" },
+    provide,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(received.limit, 7);
+  assert.equal(received.cursor, "c1");
+});
+
+test("listDocuments empty matterId → invalid_payload", async () => {
+  const result = await listDocumentsHandler({ matterId: "" }, makeProvider());
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listDocuments forbidden field tenant_id → invalid_payload", async () => {
+  const result = await listDocumentsHandler(
+    { matterId: FIXED_ID, tenant_id: "evil" },
+    makeProvider(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+  assert.equal(result.error.details?.schemaPath, "tenant_id");
+});
+
+test("listDocuments unknown field → invalid_payload", async () => {
+  const result = await listDocumentsHandler(
+    { matterId: FIXED_ID, bogus: 1 },
+    makeProvider(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listDocuments absent matter → unknown_matter; listDocuments not called", async () => {
+  let listCalled = false;
+  const provide = makeProvider({
+    getMatter: async () => null,
+    listDocuments: async () => {
+      listCalled = true;
+      throw new Error("should not have been called");
+    },
+  });
+  const result = await listDocumentsHandler(
+    { matterId: "01jz0000000000000000000099" },
+    provide,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "unknown_matter");
+  assert.equal(listCalled, false);
+});
+
+test("listDocuments tenant mismatch → tenant_mismatch; listDocuments not called", async () => {
+  let listCalled = false;
+  const provide = makeProvider({
+    getMatter: async () => ({ id: FIXED_ID, tenant_id: "other-tenant" }),
+    listDocuments: async () => {
+      listCalled = true;
+      throw new Error("should not have been called");
+    },
+  });
+  const result = await listDocumentsHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "tenant_mismatch");
+  assert.equal(listCalled, false);
+});
+
+// ---------- getDocument ----------
+
+test("getDocument happy path returns the in-scope document", async () => {
+  const provide = makeProvider({
+    getDocument: async (id) => ({
+      id,
+      tenant_id: "default-tenant",
+      matter_id: FIXED_ID,
+      filename: "complaint.pdf",
+      doc_type: "pleading",
+      status: "registered",
+      received_at: "2026-05-27T00:00:00.000Z",
+    }),
+  });
+  const result = await getDocumentHandler(
+    { matterId: FIXED_ID, documentId: DOC_ID },
+    provide,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.value.id, DOC_ID);
+  assert.equal(result.value.matter_id, FIXED_ID);
+});
+
+test("getDocument null when persistence returns null", async () => {
+  const provide = makeProvider({ getDocument: async () => null });
+  const result = await getDocumentHandler(
+    { matterId: FIXED_ID, documentId: DOC_ID },
+    provide,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.value, null);
+});
+
+test("getDocument doc from another matter → value null (scoped not-found)", async () => {
+  const provide = makeProvider({
+    getDocument: async (id) => ({
+      id,
+      tenant_id: "default-tenant",
+      matter_id: "01jzothermatter0000000000x",
+      filename: "x.pdf",
+    }),
+  });
+  const result = await getDocumentHandler(
+    { matterId: FIXED_ID, documentId: DOC_ID },
+    provide,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.value, null);
+});
+
+test("getDocument doc from another tenant → tenant_mismatch", async () => {
+  const provide = makeProvider({
+    getDocument: async (id) => ({
+      id,
+      tenant_id: "other-tenant",
+      matter_id: FIXED_ID,
+      filename: "x.pdf",
+    }),
+  });
+  const result = await getDocumentHandler(
+    { matterId: FIXED_ID, documentId: DOC_ID },
+    provide,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "tenant_mismatch");
+});
+
+test("getDocument missing documentId → invalid_payload", async () => {
+  const result = await getDocumentHandler({ matterId: FIXED_ID }, makeProvider());
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("getDocument forbidden field tenant_id → invalid_payload", async () => {
+  const result = await getDocumentHandler(
+    { matterId: FIXED_ID, documentId: DOC_ID, tenant_id: "evil" },
+    makeProvider(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.details?.schemaPath, "tenant_id");
+});
+
+test("getDocument unknown field → invalid_payload", async () => {
+  const result = await getDocumentHandler(
+    { matterId: FIXED_ID, documentId: DOC_ID, bogus: 1 },
+    makeProvider(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("getDocument absent matter → unknown_matter; getDocument not called", async () => {
+  let docCalled = false;
+  const provide = makeProvider({
+    getMatter: async () => null,
+    getDocument: async () => {
+      docCalled = true;
+      throw new Error("should not have been called");
+    },
+  });
+  const result = await getDocumentHandler(
+    { matterId: "01jz0000000000000000000099", documentId: DOC_ID },
+    provide,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "unknown_matter");
+  assert.equal(docCalled, false);
 });

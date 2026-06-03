@@ -8,6 +8,8 @@ import {
   archiveMatterHandler,
   chainHeadHandler,
   listAuditEventsHandler,
+  listDocumentsHandler,
+  getDocumentHandler,
   type PersistenceProvider,
   type ClockFn,
 } from "../../src/caseBox/handlers.js";
@@ -46,6 +48,12 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.auditListEvents, async (_evt, payload: unknown) => {
     return listAuditEventsHandler(payload, provide);
+  });
+  ipcMain.handle(CHANNEL.documentList, async (_evt, payload: unknown) => {
+    return listDocumentsHandler(payload, provide);
+  });
+  ipcMain.handle(CHANNEL.documentGet, async (_evt, payload: unknown) => {
+    return getDocumentHandler(payload, provide);
   });
 }
 
