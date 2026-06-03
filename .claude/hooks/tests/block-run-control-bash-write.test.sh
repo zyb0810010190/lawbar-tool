@@ -176,6 +176,43 @@ expect DENY  "[[ \$(rm auth) == ]]"         '[[ "$(rm dev-memo/run/config)" == "
 expect ALLOW "[[ \$(cat auth) == ]]"        '[[ "$(cat dev-memo/run/config)" == "" ]]'
 expect ALLOW "grep \$(cat auth)"            'grep "$(cat dev-memo/run/config)" /tmp/x'
 
+# --- BRCBW-8: NESTED command substitutions — inner write at any depth denies (WI-A) ---
+expect DENY  "nested sub tee (in [[]])"    '[[ "$(echo $(tee dev-memo/run/config))" = y ]]'
+expect DENY  "nested sub tee (bare)"       'echo $(echo $(tee dev-memo/run/config))'
+expect DENY  "nested sub redirect (bare)"  'echo $(echo X > dev-memo/run/config)'
+expect DENY  "nested sub redirect deep"    'echo $(echo $(echo X > dev-memo/run/config))'
+expect DENY  "triple-nested write verb"    'echo $(echo $(echo $(rm dev-memo/run/config)))'
+expect DENY  "nested backtick inside \$()"  'echo $(echo `tee dev-memo/run/config`)'
+expect DENY  "nested sub rm (in [[]])"     '[[ "$(echo $(rm dev-memo/run/config))" = y ]]'
+# nested READ-ONLY substitutions still allow (false-positive guard):
+expect ALLOW "nested sub cat (bare)"       'echo $(echo $(cat dev-memo/run/config))'
+expect ALLOW "nested sub cat (in [[]])"    '[[ "$(echo $(cat dev-memo/run/config))" = y ]]'
+expect ALLOW "nested grep read"            'echo $(grep x $(printf dev-memo/run/config))'
+# spec Option 1: escaped/single-quoted literal $(...) over-denies (fail-closed; unchanged) ---
+expect DENY  "single-quoted literal sub"   "echo '\$(rm dev-memo/run/config)'"
+# comparison operators OUTSIDE any substitution must NOT regress to deny (BRCBW-7 floor):
+expect ALLOW "[[ \$(echo) > auth ]] cmp"    '[[ "$(echo X)" > dev-memo/run/config ]]'
+
+# --- BRCBW-8 audit findings (audit-mpxebdwd-4vuouz) — fail-closed backstop ---
+# Finding 1: nesting beyond the peel cap must NOT allow an outer-substitution write.
+expect DENY  "deep-nested redirect >cap"   '[[ "$(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo X))))))))))))))))) > dev-memo/run/config)" == "" ]]'
+# Finding 2: a substitution body with a literal ( or backtick that also writes must DENY.
+expect DENY  "literal-paren body + rm"     '[[ "$(printf "("; rm dev-memo/run/config)" == "" ]]'
+expect DENY  "literal-paren body + redir"  'echo $(printf "("; echo X > dev-memo/run/config)'
+# An UNPARSEABLE sub (literal paren/backtick body) that names a protected file fails CLOSED —
+# deny whether it reads or writes (pass-0 posture; over-deny of the read form is accepted).
+expect DENY  "literal-paren body + cat"    '[[ "$(printf "("; cat dev-memo/run/config)" == "" ]]'
+# verify-mpxehbp8: write verb with NO leading space (right after ; or $() must DENY.
+expect DENY  "no-space ;rm in paren body"  '[[ "$(printf "(";rm dev-memo/run/config)" == "" ]]'
+expect DENY  "verb first in paren body"    '[[ "$(rm dev-memo/run/config; printf "(")" == "" ]]'
+# verify-mpxelds9: sed/perl in-place variants in a literal-paren body must DENY.
+expect DENY  "paren body + perl -0pi"      '[[ "$(printf "(";perl -0pi -e s/a/b/ dev-memo/run/config)" == "" ]]'
+expect DENY  "paren body + sed -n -i"      '[[ "$(printf "(";sed -n -i s/a/b/ dev-memo/run/config)" == "" ]]'
+expect DENY  "paren body + sed --in-place" '[[ "$(printf "(";sed --in-place s/a/b/ dev-memo/run/config)" == "" ]]'
+expect DENY  "paren body + sed -E -i"      '[[ "$(printf "(";sed -E -i s/a/b/ dev-memo/run/config)" == "" ]]'
+# backstop must NOT fire when the unresolved sub names a NON-authority path (queue.md authored).
+expect ALLOW "paren body + queue.md read"  '[[ "$(printf "("; cat dev-memo/run/queue.md)" == "" ]]'
+
 # ---------------------------------------------------------------------------
 printf 'block-run-control-bash-write: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
