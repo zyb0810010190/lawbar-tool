@@ -383,8 +383,13 @@ export function listFactsSqlite(db: Database, query: ListFactsQuery): ListFactsP
       ? decodeCursor(query.cursor, { kind: "facts_by_matter", filters_hash })
       : null;
 
-  const params: unknown[] = [query.matter_id];
-  const whereParts: string[] = ["matter_id = ?"];
+  // Tenant-scope the fact rows themselves, not just the matter. requireMatterTenant
+  // above proves the MATTER belongs to query.tenant_id, but the SELECT must also
+  // filter fact rows by tenant_id so a row whose own tenant_id differs from its
+  // matter's (a data-integrity violation) cannot leak. Matches getFactSqlite and
+  // listDocumentsSqlite. (cc-suite audit-mpxoq4ma-dn3m0h, FACTS-AUD-1.)
+  const params: unknown[] = [query.tenant_id, query.matter_id];
+  const whereParts: string[] = ["tenant_id = ?", "matter_id = ?"];
   if (query.status !== undefined) {
     whereParts.push("status = ?");
     params.push(query.status);

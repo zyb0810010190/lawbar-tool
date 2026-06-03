@@ -187,8 +187,12 @@ export function listDeadlinesSqlite(
       ? decodeCursor((query as { cursor: string }).cursor, { kind: "deadlines_by_matter", filters_hash })
       : null;
 
-  const params: unknown[] = [query.matter_id];
-  const whereParts: string[] = ["matter_id = ?"];
+  // Tenant-scope the deadline rows themselves, not just the matter (parallels
+  // the facts list fix; matches getDeadlineSqlite + listDocumentsSqlite). A
+  // deadline row whose own tenant_id differs from its matter's cannot leak.
+  // (cc-suite audit-mpxoq4ma-dn3m0h, FACTS-AUD-1.)
+  const params: unknown[] = [query.tenant_id, query.matter_id];
+  const whereParts: string[] = ["tenant_id = ?", "matter_id = ?"];
   if (filters.status !== undefined) {
     whereParts.push("status = ?");
     params.push(filters.status);
