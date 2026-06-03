@@ -54,3 +54,43 @@ export function forbiddenFieldFailure<T>(field: string): IpcEnvelope<T> {
     error: makeInvalidPayload("DTO contains a server-authority field", { schemaPath: field }),
   };
 }
+
+// Response-projection helpers (FACTS-AUD-3). Persistence rows carry
+// server-authority identity fields that must not cross the IPC boundary:
+// tenant_id + actor_user_id on every entity, plus reviewer_actor_user_id
+// (facts) and custody_chain (documents — the append-only actor audit trail).
+// These are exactly the fields the per-entity *_RESPONSE_FIELDS allowlists
+// EXCLUDE. (Document storage/provenance metadata — content_hash / storage_uri /
+// ocr_job_id / submission_hash — is NOT actor identity and is intentionally
+// retained, because the document detail view reads it.)
+// `renderer/api.ts` only strips outgoing REQUEST DTOs, not responses, so the
+// list handlers MUST project every row through a renderer-safe allowlist in the
+// main process BEFORE returning. Projection lives here (not in persistence) so
+// the source of truth keeps the full entity.
+
+// Returns a new object containing only the allowlisted keys present on `row`.
+// Keys absent from `row` are skipped (no `undefined` holes are introduced).
+export function projectRow<Out extends object>(
+  row: Record<string, unknown>,
+  allow: ReadonlyArray<string>,
+): Out {
+  const out: Record<string, unknown> = {};
+  for (const k of allow) {
+    if (Object.prototype.hasOwnProperty.call(row, k)) {
+      out[k] = row[k];
+    }
+  }
+  return out as Out;
+}
+
+// Projects every row of a `{ rows, next_cursor }` page through the allowlist,
+// preserving `next_cursor` unchanged.
+export function projectPage<Row extends object>(
+  page: { readonly rows: ReadonlyArray<Record<string, unknown>>; readonly next_cursor: string | null },
+  allow: ReadonlyArray<string>,
+): { readonly rows: ReadonlyArray<Row>; readonly next_cursor: string | null } {
+  return {
+    rows: page.rows.map((r) => projectRow<Row>(r, allow)),
+    next_cursor: page.next_cursor,
+  };
+}

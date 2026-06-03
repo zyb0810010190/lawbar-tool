@@ -2,12 +2,14 @@ import type {
   CaseBoxPersistenceErrorCode,
   AuditChainHead,
   ListAuditEventsPage,
-  ListDocumentsPage,
-  ListDeadlinesPage,
-  ListFactsPage,
   ListMattersPage,
 } from "case-box-persistence";
-import type { CaseBoxMatter, CaseBoxDocument } from "case-box-contract";
+import type {
+  CaseBoxMatter,
+  CaseBoxDocument,
+  CaseBoxDeadline,
+  CaseBoxFact,
+} from "case-box-contract";
 
 export interface CreateMatterDto {
   readonly name: string;
@@ -254,8 +256,120 @@ export const LIST_FACTS_FORBIDDEN_FIELDS = Object.freeze([
   "actor_user_id",
 ] as const);
 
+// Renderer-safe RESPONSE-row allowlists (FACTS-AUD-3). Each list handler
+// projects every persistence row through the matching allowlist before
+// returning, so server-authority fields never cross the IPC boundary. The
+// excluded fields are exactly the per-entity authority fields:
+//   facts:     tenant_id, actor_user_id, reviewer_actor_user_id
+//   documents: tenant_id, actor_user_id, custody_chain
+//   deadlines: tenant_id, actor_user_id
+// Provenance / lifecycle fields the renderer does not yet read are retained so
+// future read-only UI can render them without a contract change. content_hash /
+// storage_uri / ocr_job_id / submission_hash stay in the documents allowlist:
+// they are not actor identities and the document detail view reads them.
+
+export const LIST_FACTS_RESPONSE_FIELDS = Object.freeze([
+  "id",
+  "statement_text",
+  "status",
+  "source_type",
+  "source_document_id",
+  "source_page_number",
+  "source_excerpt",
+  "source_ocr_job_id",
+  "extractor_name",
+  "extractor_version",
+  "extraction_confidence",
+  "reviewed_at",
+  "accepted_at",
+  "rejected_at",
+  "rejection_reason",
+  "supersedes_fact_id",
+  "created_at",
+  "purpose",
+  "as_of_date",
+  "matter_id",
+] as const);
+
+export const LIST_DOCUMENTS_RESPONSE_FIELDS = Object.freeze([
+  "id",
+  "filename",
+  "doc_type",
+  "status",
+  "received_at",
+  "content_hash",
+  "storage_uri",
+  "page_count",
+  "language",
+  "mime_type",
+  "byte_size",
+  "matter_id",
+  "source",
+  "ocr_job_id",
+  "submission_hash",
+  "purpose",
+  "work_order_status",
+  "supersedes_document_id",
+  "letter_date",
+  "service_status",
+  "client_authorization_summary",
+  "preliminary_evidence_summary",
+  "review_date",
+  "final_version_marker",
+  "manual_extracted_text",
+] as const);
+
+export const LIST_DEADLINES_RESPONSE_FIELDS = Object.freeze([
+  "id",
+  "matter_id",
+  "kind",
+  "source_rule_citation",
+  "due_at",
+  "owner_user_id",
+  "status",
+  "met_at",
+  "previous_status",
+  "transition_reason",
+] as const);
+
 export const MAX_LIST_LIMIT = 200;
 export const MAX_CURSOR_LENGTH = 512;
+
+// Renderer-safe projected row types (FACTS-AUD-3). The list handlers project
+// each persistence row through the matching *_RESPONSE_FIELDS allowlist, so the
+// renderer-facing row is exactly the allowlisted keys of the contract entity.
+// Modelled as `Pick<Entity, (typeof *_RESPONSE_FIELDS)[number]>` — NOT `Omit` —
+// because the generated `CaseBox*` contract types carry a `[k: string]: unknown`
+// index signature that survives `Omit`, leaving the stripped authority fields
+// still reachable (as `unknown`) on the result type. `Pick` over the allowlist
+// tuple yields a CLOSED type with no index signature, so an authority field is a
+// compile error, and it ties the row type to the single runtime source of truth
+// (the allowlist) — type and projection cannot drift apart.
+export type RendererFactRow = Pick<CaseBoxFact, (typeof LIST_FACTS_RESPONSE_FIELDS)[number]>;
+export type RendererDocumentRow = Pick<
+  CaseBoxDocument,
+  (typeof LIST_DOCUMENTS_RESPONSE_FIELDS)[number]
+>;
+export type RendererDeadlineRow = Pick<
+  CaseBoxDeadline,
+  (typeof LIST_DEADLINES_RESPONSE_FIELDS)[number]
+>;
+
+// Projected (renderer-safe) page shapes returned by the list handlers. Same
+// `{ rows, next_cursor }` shape as the persistence pages, but with authority
+// fields stripped from every row.
+export interface ListFactsPage {
+  readonly rows: ReadonlyArray<RendererFactRow>;
+  readonly next_cursor: string | null;
+}
+export interface ListDocumentsPage {
+  readonly rows: ReadonlyArray<RendererDocumentRow>;
+  readonly next_cursor: string | null;
+}
+export interface ListDeadlinesPage {
+  readonly rows: ReadonlyArray<RendererDeadlineRow>;
+  readonly next_cursor: string | null;
+}
 
 export type CreateMatterResult = IpcEnvelope<CaseBoxMatter>;
 export type GetMatterResult = IpcEnvelope<CaseBoxMatter | null>;
