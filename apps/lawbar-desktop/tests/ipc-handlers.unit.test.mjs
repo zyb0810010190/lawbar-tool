@@ -11,6 +11,7 @@ import {
   listDocumentsHandler,
   getDocumentHandler,
   registerDocumentHandler,
+  listDeadlinesHandler,
   CHANNEL,
 } from "../dist/src/caseBox/handlers.js";
 import { CaseBoxPersistenceError } from "case-box-persistence";
@@ -46,6 +47,7 @@ function makeProvider(overrides) {
     listDocuments: async (q) => ({ rows: [], next_cursor: null, query: q }),
     getDocument: async () => null,
     registerDocument: async (_matterId, document) => document,
+    listDeadlines: async (q) => ({ rows: [], next_cursor: null, query: q }),
     ...overrides,
   };
   return () => ({ persistence });
@@ -73,6 +75,7 @@ test("channel names match contract pattern casebox:<scope>:<op>", () => {
   assert.equal(CHANNEL.documentList, "casebox:document:list");
   assert.equal(CHANNEL.documentGet, "casebox:document:get");
   assert.equal(CHANNEL.documentRegister, "casebox:document:register");
+  assert.equal(CHANNEL.deadlineList, "casebox:deadline:list");
 });
 
 // ---------- createMatter ----------
@@ -1017,4 +1020,100 @@ test("registerDocument schema violation (negative byte_size from storeFile) → 
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "invalid_payload");
   assert.equal(registered, false);
+});
+
+// ---------- listDeadlines ----------
+
+test("listDeadlines happy path returns page + injects tenant_id and matter_id", async () => {
+  let received;
+  const provide = makeProvider({
+    listDeadlines: async (q) => {
+      received = q;
+      return {
+        rows: [
+          {
+            id: "01jzdl00000000000000000000",
+            kind: "filing",
+            due_at: "2026-06-30T00:00:00.000Z",
+            owner_user_id: "local-user",
+            status: "pending",
+          },
+        ],
+        next_cursor: null,
+      };
+    },
+  });
+  const result = await listDeadlinesHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, true);
+  assert.equal(result.value.rows.length, 1);
+  assert.equal(received.tenant_id, "default-tenant");
+  assert.equal(received.matter_id, FIXED_ID);
+});
+
+test("listDeadlines passes limit + cursor through", async () => {
+  let received;
+  const provide = makeProvider({
+    listDeadlines: async (q) => {
+      received = q;
+      return { rows: [], next_cursor: "next" };
+    },
+  });
+  const result = await listDeadlinesHandler({ matterId: FIXED_ID, limit: 9, cursor: "c1" }, provide);
+  assert.equal(result.ok, true);
+  assert.equal(received.limit, 9);
+  assert.equal(received.cursor, "c1");
+});
+
+test("listDeadlines empty matterId → invalid_payload", async () => {
+  const result = await listDeadlinesHandler({ matterId: "" }, makeProvider());
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listDeadlines forbidden field tenant_id → invalid_payload", async () => {
+  const result = await listDeadlinesHandler({ matterId: FIXED_ID, tenant_id: "evil" }, makeProvider());
+  assert.equal(result.ok, false);
+  assert.equal(result.error.details?.schemaPath, "tenant_id");
+});
+
+test("listDeadlines unknown field → invalid_payload", async () => {
+  const result = await listDeadlinesHandler({ matterId: FIXED_ID, bogus: 1 }, makeProvider());
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listDeadlines non-integer limit → invalid_payload", async () => {
+  const result = await listDeadlinesHandler({ matterId: FIXED_ID, limit: 2.5 }, makeProvider());
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listDeadlines absent matter → unknown_matter; listDeadlines not called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getMatter: async () => null,
+    listDeadlines: async () => {
+      called = true;
+      throw new Error("should not be called");
+    },
+  });
+  const result = await listDeadlinesHandler({ matterId: "01jz0000000000000000000099" }, provide);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "unknown_matter");
+  assert.equal(called, false);
+});
+
+test("listDeadlines tenant mismatch → tenant_mismatch; listDeadlines not called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getMatter: async () => ({ id: FIXED_ID, tenant_id: "other-tenant" }),
+    listDeadlines: async () => {
+      called = true;
+      throw new Error("should not be called");
+    },
+  });
+  const result = await listDeadlinesHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "tenant_mismatch");
+  assert.equal(called, false);
 });
