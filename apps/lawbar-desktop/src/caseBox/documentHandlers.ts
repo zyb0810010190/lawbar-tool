@@ -10,6 +10,7 @@ import {
   LIST_DOCUMENTS_RESPONSE_FIELDS,
   GET_DOCUMENT_DTO_FIELDS,
   GET_DOCUMENT_FORBIDDEN_FIELDS,
+  GET_DOCUMENT_RESPONSE_FIELDS,
   REGISTER_DOCUMENT_DTO_FIELDS,
   REGISTER_DOCUMENT_FORBIDDEN_FIELDS,
   MAX_LIST_LIMIT,
@@ -22,6 +23,7 @@ import {
   type GetDocumentResult,
   type RegisterDocumentResult,
   type RendererDocumentRow,
+  type RendererDocumentDetail,
 } from "./dto.js";
 import { mapThrownError, makeInvalidPayload, makeBoundaryError } from "./errorMap.js";
 import { getActiveTenantId } from "../security/activeTenant.js";
@@ -32,6 +34,7 @@ import {
   shapeGuardFailure,
   forbiddenFieldFailure,
   projectPage,
+  projectRow,
   type PersistenceProvider,
   type ClockFn,
 } from "./handlerShared.js";
@@ -176,7 +179,13 @@ export async function getDocumentHandler(
     if (document.matter_id !== dto.matterId) {
       return { ok: true, value: null };
     }
-    return { ok: true, value: document };
+    // Project to the renderer-safe allowlist so server-authority fields
+    // (tenant_id / actor_user_id / custody_chain) never cross the IPC boundary
+    // on the get-document channel (GET-AUD-1; parallels the list projection).
+    return {
+      ok: true,
+      value: projectRow<RendererDocumentDetail>(document, GET_DOCUMENT_RESPONSE_FIELDS),
+    };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.documentGet }) };
   }

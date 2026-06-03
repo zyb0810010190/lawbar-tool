@@ -332,6 +332,44 @@ export const LIST_DEADLINES_RESPONSE_FIELDS = Object.freeze([
   "transition_reason",
 ] as const);
 
+// GET-AUD-1: the get-document channel (`getDocumentHandler`) returns a SINGLE
+// document; it carries the same server-authority identity fields as the list
+// rows (tenant_id / actor_user_id / custody_chain) and must be projected the
+// same way before crossing the IPC boundary. This allowlist is deliberately a
+// SEPARATE constant from LIST_DOCUMENTS_RESPONSE_FIELDS — get (detail view) and
+// list (row view) are distinct view contracts that may diverge later — even
+// though they currently enumerate the same non-authority document fields. The
+// document detail view reads a strict SUBSET of these (content_hash /
+// storage_uri / page_count / language / mime_type / byte_size, plus the list
+// columns), so no field beyond the list set is needed today.
+export const GET_DOCUMENT_RESPONSE_FIELDS = Object.freeze([
+  "id",
+  "filename",
+  "doc_type",
+  "status",
+  "received_at",
+  "content_hash",
+  "storage_uri",
+  "page_count",
+  "language",
+  "mime_type",
+  "byte_size",
+  "matter_id",
+  "source",
+  "ocr_job_id",
+  "submission_hash",
+  "purpose",
+  "work_order_status",
+  "supersedes_document_id",
+  "letter_date",
+  "service_status",
+  "client_authorization_summary",
+  "preliminary_evidence_summary",
+  "review_date",
+  "final_version_marker",
+  "manual_extracted_text",
+] as const);
+
 export const MAX_LIST_LIMIT = 200;
 export const MAX_CURSOR_LENGTH = 512;
 
@@ -353,6 +391,13 @@ export type RendererDocumentRow = Pick<
 export type RendererDeadlineRow = Pick<
   CaseBoxDeadline,
   (typeof LIST_DEADLINES_RESPONSE_FIELDS)[number]
+>;
+// GET-AUD-1: renderer-safe projected SINGLE document for the get-document
+// channel — same Pick-over-allowlist pattern, closed type tied to the runtime
+// GET_DOCUMENT_RESPONSE_FIELDS allowlist.
+export type RendererDocumentDetail = Pick<
+  CaseBoxDocument,
+  (typeof GET_DOCUMENT_RESPONSE_FIELDS)[number]
 >;
 
 // Projected (renderer-safe) page shapes returned by the list handlers. Same
@@ -378,7 +423,8 @@ export type ArchiveMatterResult = IpcEnvelope<CaseBoxMatter>;
 export type ChainHeadResult = IpcEnvelope<AuditChainHead>;
 export type ListAuditEventsResult = IpcEnvelope<ListAuditEventsPage>;
 export type ListDocumentsResult = IpcEnvelope<ListDocumentsPage>;
-export type GetDocumentResult = IpcEnvelope<CaseBoxDocument | null>;
+// value === null signals the document is absent / out of matter+tenant scope.
+export type GetDocumentResult = IpcEnvelope<RendererDocumentDetail | null>;
 // value === null signals the user cancelled the file-chooser dialog.
 export type RegisterDocumentResult = IpcEnvelope<CaseBoxDocument | null>;
 export type ListDeadlinesResult = IpcEnvelope<ListDeadlinesPage>;
