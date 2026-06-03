@@ -102,6 +102,8 @@ const RESPONSE_ALLOWLISTS = [
   ["LIST_FACTS_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "reviewer_actor_user_id"]],
   ["LIST_DOCUMENTS_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "custody_chain"]],
   ["LIST_DEADLINES_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
+  // GET-AUD-1: the get-document channel uses its own allowlist; same exclusions.
+  ["GET_DOCUMENT_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "custody_chain"]],
 ];
 
 test("response projection: canonical *_RESPONSE_FIELDS allowlists exist and are non-empty", () => {
