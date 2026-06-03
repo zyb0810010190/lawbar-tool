@@ -202,33 +202,83 @@ scan_verbs() {
 scan_redir "$CMD" blank
 scan_verbs "$CMD"
 
-# --- pass 4: NON-NESTED command-substitution bodies ---
+# --- pass 4: command-substitution bodies, ANY nesting depth (innermost peeling) ---
 # `$(...)` and `` `...` `` EXECUTE regardless of surrounding context — including inside [[ ]],
-# where pass-1's [[ ]] blanking would otherwise hide a real write (BRCBW-7 follow-up). Extract
-# each NON-NESTED substitution body and run the SAME redirection + write-verb detection on it
-# (no [[ ]] blank — the body has no enclosing test). This is purely ADDITIVE: each body is
-# scanned in isolation and can only ADD a denial, so it never turns an existing deny into an
-# allow. A body that only READS a protected path (cat/grep/…) names no write verb and no
-# redirection, so it still allows.
-# SCOPE LIMITS (intentional, documented):
-#   - NESTED substitutions are NOT parsed: `[^)]*` / `[^`]*` stop at the first ) / backtick, so
-#     for `$(echo $(tee config))` only the outer body (`echo $(tee config`) is scanned and the
-#     inner write is missed. This is a real open gap tracked as BRCBW-8 in
-#     dev-memo/deferred-audit-findings.md — pre-existing on main, NOT closed here.
-#   - An escaped/single-quoted LITERAL `$(...)` (e.g. echo "\$(rm config)", echo '$(rm config)')
-#     that bash would NOT execute is still matched textually and OVER-denies. Fail-closed
-#     friction (denies a safe command), never a bypass; noted in the BRCBW-7 row.
-SUBS=$(printf '%s' "$CMD" | grep -oE '\$\([^)]*\)|`[^`]*`' 2>/dev/null \
-       | sed -E 's/^\$\(//; s/\)$//; s/^`//; s/`$//')
-if [ -n "$SUBS" ]; then
-  while IFS= read -r body; do
-    [ -n "$body" ] || continue
+# where pass-1's [[ ]] blanking would otherwise hide a real write. A write inside a substitution
+# (redirection, tee, or a write verb) is therefore a real write and must deny. The previous
+# implementation extracted only NON-NESTED bodies (`[^)]*` stops at the first `)`), so a write in
+# a NESTED substitution like `$(echo $(tee config))` was missed (BRCBW-8). This pass closes that
+# by peeling INNERMOST substitutions layer by layer (WI-A of dev-memo/plan-brcbw-parser-depth-00.md):
+#
+#   1. Match every INNERMOST substitution — `$(...)` whose body has no `(`/`)`/backtick, or
+#      `` `...` `` whose body has no backtick. Scan each body with scan_redir (no [[ ]] blank —
+#      the body has no enclosing test) + scan_verbs.
+#   2. Replace this layer with a space so the next-outer substitution becomes innermost.
+#   3. Repeat until no substitution remains (bounded to MAXDEPTH as a runaway backstop).
+#
+# Why this is correct AND additive:
+#   - Only SUBSTITUTION BODY interiors are scanned, never the surrounding tokens. So an outer
+#     `[[ "$x" > config ]]` comparison (no substitution) is untouched here and stays handled by
+#     the top-level scan_redir "$CMD" blank above — no BRCBW-7 regression. A `>` that is a
+#     comparison OUTSIDE a substitution never enters a body, so it is never read as redirection.
+#   - The top-level passes (lines 202-203) already ran, so every prior denial is emitted before
+#     this pass. Peeling can only CALL emit_deny (add a denial); it never converts deny -> allow.
+#   - A body that only READS a protected path (cat/grep/…) names no write verb and no redirection,
+#     so it still allows.
+# SCOPE LIMITS (intentional, lexical-heuristic — documented, all fail-closed or pre-existing):
+#   - Escaped/single-quoted LITERAL `$(...)` (e.g. echo '$(rm config)') is quote-blind here and
+#     OVER-denies. Fail-closed friction (denies a safe command), never a bypass; same behavior as
+#     before this change — no false-positive change. (Spec Option 1.)
+#   - A substitution body containing a literal `(` or backtick char (e.g. `$(echo "(")`) is not
+#     matched by the innermost regex and is left for the next outer layer / unscanned. Esoteric;
+#     does not affect any authority-write fixture. Full quoting/paren awareness needs a real lexer
+#     (out of scope; would be a separate WI).
+#   - Variable/`cd`-indirected targets are still BRCBW-1/2 (separate WI-B), not this pass.
+MAXDEPTH=16
+work=$CMD
+peel=0
+while [ "$peel" -lt "$MAXDEPTH" ]; do
+  peel=$((peel + 1))
+  subs=$(printf '%s' "$work" | grep -oE '\$\([^()`]*\)|`[^`]*`' 2>/dev/null)
+  [ -n "$subs" ] || break
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    body=$s; body=${body#\$\(}; body=${body%\)}; body=${body#\`}; body=${body%\`}
     printf '%s' "$body" | grep -qE 'dev-memo/run/' || continue
     scan_redir "$body" ""
     scan_verbs "$body"
   done <<SUBS_EOF
-$SUBS
+$subs
 SUBS_EOF
+  # Remove this innermost layer so the next-outer substitution becomes innermost next iteration.
+  work=$(printf '%s' "$work" | sed -E 's/\$\([^()`]*\)/ /g; s/`[^`]*`/ /g')
+done
+
+# --- pass 4b: fail-closed backstop for substitutions the peeler could not fully resolve ---
+# Two residual cases leave an UNRESOLVED `$(`/backtick in $work after the loop, each a real
+# under-denial if allowed (found by cc-suite audit audit-mpxebdwd-4vuouz + verifies
+# verify-mpxehbp8 / verify-mpxelds9, all High):
+#   1. nesting deeper than MAXDEPTH — peeling stops before reaching an outer body that writes
+#      (e.g. >16 inner read-only subs wrapping `… > dev-memo/run/config`);
+#   2. a body containing a literal `(`, `)`, or backtick the innermost regex cannot classify
+#      (e.g. `$(printf "("; rm dev-memo/run/config)`), so that layer is never peeled or scanned.
+# In both, the top-level pass-1 [[ ]] blank can hide the write. Earlier attempts gated this on a
+# write-INDICATOR allow-list (redirection / specific write verbs); the verifies kept finding write
+# vectors the list missed (`;rm` with no space, `sed -n -i`, `sed --in-place`, `perl -0pi`, …).
+# Chasing that tail is a losing game. So adopt the SAME posture pass-0 already uses for an
+# unparseable command: if an unresolved command substitution REMAINS and it references a protected
+# authority file (the AUTH set or log.md), the peeler could not prove what it does — refuse to
+# guess and DENY. This closes the whole class rather than enumerating verbs.
+# Cost: a read-only substitution that happens to contain a literal paren/backtick AND names a
+# protected file (e.g. `$(printf "("; cat dev-memo/run/config)`) also denies. That is a fail-closed
+# OVER-denial of a pathological, rarely-written command — acceptable per the spec (over-denials are
+# friction, not bypass) and consistent with pass-0. Fully-resolved commands (no residual `$(`) are
+# untouched: the BRCBW-7 comparison cases and all normally-nested read cases peel cleanly and still
+# allow. This is fail-closed — it can only ADD a denial.
+if printf '%s' "$work" | grep -qE '\$\(|`'; then
+  if printf '%s' "$work" | grep -qE "dev-memo/run/($AUTH|log\.md)"; then
+    emit_deny "Run-control guard: a command substitution referencing a protected dev-memo/run/ file could not be fully parsed (nested beyond the peel limit, or a body with a literal paren/backtick), so a hidden write cannot be ruled out. Denying as a precaution (fail-closed). Simplify the command, or change run-control state via the workflow scripts or a deliberate human action."
+  fi
 fi
 
 exit 0
