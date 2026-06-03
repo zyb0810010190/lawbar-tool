@@ -12,6 +12,7 @@ import type {
   CreateMatterDto,
   GetMatterDto,
   IpcEnvelope,
+  ListAuditEventsDto,
   ListMattersDto,
 } from "./types.js";
 
@@ -20,6 +21,7 @@ import {
   RENDERER_CHAIN_HEAD_DTO_FIELDS,
   RENDERER_CREATE_MATTER_DTO_FIELDS,
   RENDERER_GET_MATTER_DTO_FIELDS,
+  RENDERER_LIST_AUDIT_EVENTS_DTO_FIELDS,
   RENDERER_LIST_MATTERS_DTO_FIELDS,
 } from "./types.js";
 
@@ -30,6 +32,7 @@ export interface CaseBoxClient {
   listMatters(dto: ListMattersDto): Promise<IpcEnvelope<unknown>>;
   archiveMatter(dto: ArchiveMatterDto): Promise<IpcEnvelope<unknown>>;
   chainHead(dto: ChainHeadDto): Promise<IpcEnvelope<unknown>>;
+  listAuditEvents(dto: ListAuditEventsDto): Promise<IpcEnvelope<unknown>>;
 }
 
 export interface CaseBoxApi {
@@ -38,6 +41,7 @@ export interface CaseBoxApi {
   listMatters(dto: ListMattersDto): Promise<IpcEnvelope<unknown>>;
   archiveMatter(dto: ArchiveMatterDto): Promise<IpcEnvelope<unknown>>;
   chainHead(dto: ChainHeadDto): Promise<IpcEnvelope<unknown>>;
+  listAuditEvents(dto: ListAuditEventsDto): Promise<IpcEnvelope<unknown>>;
 }
 
 // Strip any DTO key not in the renderer-side allowlist. Drops with a
@@ -74,6 +78,8 @@ export function createCaseBoxApi(client: CaseBoxClient): CaseBoxApi {
       client.archiveMatter(stripDtoFields(dto, RENDERER_ARCHIVE_MATTER_DTO_FIELDS)),
     chainHead: (dto) =>
       client.chainHead(stripDtoFields(dto, RENDERER_CHAIN_HEAD_DTO_FIELDS)),
+    listAuditEvents: (dto) =>
+      client.listAuditEvents(stripDtoFields(dto, RENDERER_LIST_AUDIT_EVENTS_DTO_FIELDS)),
   };
 }
 

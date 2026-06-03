@@ -69,6 +69,12 @@ export interface ChainHeadDto {
   readonly matterId: string;
 }
 
+export interface ListAuditEventsDto {
+  readonly matterId: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
 export interface IpcErrorEnvelope {
   readonly kind: "case_box_persistence_error";
   readonly code: string;
@@ -113,4 +119,10 @@ export const RENDERER_ARCHIVE_MATTER_DTO_FIELDS = Object.freeze([
 
 export const RENDERER_CHAIN_HEAD_DTO_FIELDS = Object.freeze([
   "matterId",
+] as const);
+
+export const RENDERER_LIST_AUDIT_EVENTS_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "limit",
+  "cursor",
 ] as const);

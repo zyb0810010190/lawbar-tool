@@ -7,6 +7,7 @@ import {
   listMattersHandler,
   archiveMatterHandler,
   chainHeadHandler,
+  listAuditEventsHandler,
   type PersistenceProvider,
   type ClockFn,
 } from "../../src/caseBox/handlers.js";
@@ -42,6 +43,9 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.auditChainHead, async (_evt, payload: unknown) => {
     return chainHeadHandler(payload, provide);
+  });
+  ipcMain.handle(CHANNEL.auditListEvents, async (_evt, payload: unknown) => {
+    return listAuditEventsHandler(payload, provide);
   });
 }
 
