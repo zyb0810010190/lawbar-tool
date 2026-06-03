@@ -5,10 +5,12 @@
 import {
   LIST_FACTS_DTO_FIELDS,
   LIST_FACTS_FORBIDDEN_FIELDS,
+  LIST_FACTS_RESPONSE_FIELDS,
   MAX_LIST_LIMIT,
   MAX_CURSOR_LENGTH,
   type ListFactsDto,
   type ListFactsResult,
+  type RendererFactRow,
 } from "./dto.js";
 import { mapThrownError, makeInvalidPayload, makeBoundaryError } from "./errorMap.js";
 import { getActiveTenantId } from "../security/activeTenant.js";
@@ -17,6 +19,7 @@ import {
   isPlainJsonObject,
   shapeGuardFailure,
   forbiddenFieldFailure,
+  projectPage,
   type PersistenceProvider,
 } from "./handlerShared.js";
 
@@ -72,7 +75,10 @@ export async function listFactsHandler(
       ...(limit !== undefined ? { limit } : {}),
       ...(dto.cursor !== undefined ? { cursor: dto.cursor } : {}),
     });
-    return { ok: true, value: page };
+    // Project every row to the renderer-safe allowlist so server-authority
+    // fields (tenant_id / actor_user_id / reviewer_actor_user_id) never cross
+    // the IPC boundary. next_cursor is preserved unchanged.
+    return { ok: true, value: projectPage<RendererFactRow>(page, LIST_FACTS_RESPONSE_FIELDS) };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.factList }) };
   }

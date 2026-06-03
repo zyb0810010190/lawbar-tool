@@ -7,6 +7,7 @@ import { validateDocument } from "case-box-contract";
 import {
   LIST_DOCUMENTS_DTO_FIELDS,
   LIST_DOCUMENTS_FORBIDDEN_FIELDS,
+  LIST_DOCUMENTS_RESPONSE_FIELDS,
   GET_DOCUMENT_DTO_FIELDS,
   GET_DOCUMENT_FORBIDDEN_FIELDS,
   REGISTER_DOCUMENT_DTO_FIELDS,
@@ -20,6 +21,7 @@ import {
   type ListDocumentsResult,
   type GetDocumentResult,
   type RegisterDocumentResult,
+  type RendererDocumentRow,
 } from "./dto.js";
 import { mapThrownError, makeInvalidPayload, makeBoundaryError } from "./errorMap.js";
 import { getActiveTenantId } from "../security/activeTenant.js";
@@ -29,6 +31,7 @@ import {
   isPlainJsonObject,
   shapeGuardFailure,
   forbiddenFieldFailure,
+  projectPage,
   type PersistenceProvider,
   type ClockFn,
 } from "./handlerShared.js";
@@ -117,7 +120,13 @@ export async function listDocumentsHandler(
       ...(limit !== undefined ? { limit } : {}),
       ...(dto.cursor !== undefined ? { cursor: dto.cursor } : {}),
     });
-    return { ok: true, value: page };
+    // Project every row to the renderer-safe allowlist so server-authority
+    // fields (tenant_id / actor_user_id / custody_chain) never cross the IPC
+    // boundary. next_cursor is preserved unchanged.
+    return {
+      ok: true,
+      value: projectPage<RendererDocumentRow>(page, LIST_DOCUMENTS_RESPONSE_FIELDS),
+    };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.documentList }) };
   }

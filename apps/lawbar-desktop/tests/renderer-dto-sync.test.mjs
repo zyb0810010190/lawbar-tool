@@ -88,3 +88,39 @@ for (const [rendererName, canonicalName] of PAIRS) {
     );
   });
 }
+
+// FACTS-AUD-3: the RESPONSE projection is now the asserted line of defense.
+// Renderer-side request stripping (the PAIRS above) is no longer the first
+// line — the main-process list handlers project every response row through a
+// canonical *_RESPONSE_FIELDS allowlist that EXCLUDES the entity's
+// server-authority fields. These arrays live in `src/caseBox/dto.ts` only (the
+// renderer never sees the response allowlist), so this block asserts against
+// the canonical file. The per-entity authority fields below MUST stay absent
+// from the allowlist; if a future field becomes authority-bearing it must be
+// added here AND removed from the allowlist.
+const RESPONSE_ALLOWLISTS = [
+  ["LIST_FACTS_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "reviewer_actor_user_id"]],
+  ["LIST_DOCUMENTS_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "custody_chain"]],
+  ["LIST_DEADLINES_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
+];
+
+test("response projection: canonical *_RESPONSE_FIELDS allowlists exist and are non-empty", () => {
+  const canonical = extractFieldArrays(CANONICAL_DTO);
+  for (const [name] of RESPONSE_ALLOWLISTS) {
+    assert.ok(canonical.has(name), `src/caseBox/dto.ts missing ${name}`);
+    assert.ok((canonical.get(name) ?? []).length > 0, `${name} extracted empty`);
+  }
+});
+
+for (const [name, authorityFields] of RESPONSE_ALLOWLISTS) {
+  test(`response projection: ${name} excludes every authority field`, () => {
+    const canonical = extractFieldArrays(CANONICAL_DTO);
+    const allow = new Set(canonical.get(name));
+    const leaked = authorityFields.filter((f) => allow.has(f));
+    assert.deepEqual(
+      leaked,
+      [],
+      `${name} must not contain authority fields: ${JSON.stringify(leaked)}`,
+    );
+  });
+}
