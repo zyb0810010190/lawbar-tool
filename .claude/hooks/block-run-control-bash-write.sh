@@ -32,10 +32,32 @@ emit_deny() {
   exit 0
 }
 
-# --- parse .tool_input.command (jq preferred; portable fallback) ---
+# --- parse .tool_input.command (jq preferred; fail-closed fallback) ---
+# jq is the only safe JSON decoder here. Its absence forces a regex fallback that extracts the
+# RAW command string WITHOUT decoding JSON string escapes. ANY JSON escape then becomes a
+# bypass vector for the lexical `grep dev-memo/run/` that follows (BRCBW-6):
+#   - `\/`  : JSON `/`->`\/`, so `dev-memo\/run\/config` never matches `dev-memo/run/`.
+#   - `\uXXXX`: any path char encoded as `/` (/), `.` (.), letters, etc.
+#   - `\\`  : JSON `\\`->`\`, and Bash then STRIPS that backslash during word-splitting, so
+#             `dev-memo/r\\un/config` (raw) -> Bash target `dev-memo/run/config` (Codex
+#             audit-mpxi9cp3-oz4ae8).
+#   - `\"`  : quote-splicing inside a path segment, same effect.
+# A narrow allow-list (only `\/`+`\uXXXX`) is whack-a-mole — `\\` and `\"` defeat it. Per the WI
+# (prefer fail-closed over a partial JSON decoder): when jq is unavailable AND the raw payload
+# contains ANY backslash, deny. In well-formed JSON a backslash appears ONLY inside a string
+# escape, so a backslash IS an escape we cannot safely resolve without jq. Plain commands carry no
+# backslash and are unaffected; this only bites the (already anomalous) jq-absent path. When jq IS
+# available it decodes everything and behavior is entirely unchanged (this branch never runs).
+# NOTE: a Bash-metacharacter path obfuscation that needs no JSON escape (e.g. jq-PRESENT
+# `echo X > dev-memo/r\un/config`, or quote-splicing) is a SEPARATE, pre-existing path-indirection
+# gap tracked with BRCBW-1/2 (WI-B) — not closed here; this WI closes only the jq-absent class.
 if command -v jq >/dev/null 2>&1; then
   CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 else
+  case "$INPUT" in
+    *\\*)
+      emit_deny "Run-control guard: 'jq' is not available to parse the tool input, and the payload contains a JSON string escape (backslash) that cannot be safely decoded without it — an escaped or backslash-spliced dev-memo/run/ path could be hidden, so the guard cannot prove the command is safe. Denying as a precaution (fail-closed). Install jq, or re-issue the command without backslash escapes in the path." ;;
+  esac
   CMD=$(printf '%s' "$INPUT" | tr -d '\n' | grep -oE '"command"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"' | head -1 | sed -E 's/^"command"[[:space:]]*:[[:space:]]*"//; s/"$//')
 fi
 
