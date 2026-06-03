@@ -4,6 +4,7 @@ import type {
   ListAuditEventsPage,
   ListDocumentsPage,
   ListDeadlinesPage,
+  ListFactsPage,
   ListMattersPage,
 } from "case-box-persistence";
 import type { CaseBoxMatter, CaseBoxDocument } from "case-box-contract";
@@ -87,6 +88,12 @@ export interface RegisterDocumentDto {
 }
 
 export interface ListDeadlinesDto {
+  readonly matterId: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface ListFactsDto {
   readonly matterId: string;
   readonly limit?: number;
   readonly cursor?: string;
@@ -236,6 +243,17 @@ export const LIST_DEADLINES_FORBIDDEN_FIELDS = Object.freeze([
   "actor_user_id",
 ] as const);
 
+export const LIST_FACTS_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "limit",
+  "cursor",
+] as const);
+
+export const LIST_FACTS_FORBIDDEN_FIELDS = Object.freeze([
+  "tenant_id",
+  "actor_user_id",
+] as const);
+
 export const MAX_LIST_LIMIT = 200;
 export const MAX_CURSOR_LENGTH = 512;
 
@@ -250,3 +268,4 @@ export type GetDocumentResult = IpcEnvelope<CaseBoxDocument | null>;
 // value === null signals the user cancelled the file-chooser dialog.
 export type RegisterDocumentResult = IpcEnvelope<CaseBoxDocument | null>;
 export type ListDeadlinesResult = IpcEnvelope<ListDeadlinesPage>;
+export type ListFactsResult = IpcEnvelope<ListFactsPage>;

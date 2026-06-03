@@ -105,6 +105,12 @@ export interface ListDeadlinesDto {
   readonly cursor?: string;
 }
 
+export interface ListFactsDto {
+  readonly matterId: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
 export interface IpcErrorEnvelope {
   readonly kind: "case_box_persistence_error";
   readonly code: string;
@@ -174,6 +180,12 @@ export const RENDERER_REGISTER_DOCUMENT_DTO_FIELDS = Object.freeze([
 ] as const);
 
 export const RENDERER_LIST_DEADLINES_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "limit",
+  "cursor",
+] as const);
+
+export const RENDERER_LIST_FACTS_DTO_FIELDS = Object.freeze([
   "matterId",
   "limit",
   "cursor",

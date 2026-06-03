@@ -12,6 +12,7 @@ import {
   getDocumentHandler,
   registerDocumentHandler,
   listDeadlinesHandler,
+  listFactsHandler,
   CHANNEL,
 } from "../dist/src/caseBox/handlers.js";
 import { CaseBoxPersistenceError } from "case-box-persistence";
@@ -48,6 +49,7 @@ function makeProvider(overrides) {
     getDocument: async () => null,
     registerDocument: async (_matterId, document) => document,
     listDeadlines: async (q) => ({ rows: [], next_cursor: null, query: q }),
+    listFacts: async (q) => ({ rows: [], next_cursor: null, query: q }),
     ...overrides,
   };
   return () => ({ persistence });
@@ -76,6 +78,7 @@ test("channel names match contract pattern casebox:<scope>:<op>", () => {
   assert.equal(CHANNEL.documentGet, "casebox:document:get");
   assert.equal(CHANNEL.documentRegister, "casebox:document:register");
   assert.equal(CHANNEL.deadlineList, "casebox:deadline:list");
+  assert.equal(CHANNEL.factList, "casebox:fact:list");
 });
 
 // ---------- createMatter ----------
@@ -1113,6 +1116,102 @@ test("listDeadlines tenant mismatch → tenant_mismatch; listDeadlines not calle
     },
   });
   const result = await listDeadlinesHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "tenant_mismatch");
+  assert.equal(called, false);
+});
+
+// ---------- listFacts ----------
+
+test("listFacts happy path returns page + injects tenant_id and matter_id", async () => {
+  let received;
+  const provide = makeProvider({
+    listFacts: async (q) => {
+      received = q;
+      return {
+        rows: [
+          {
+            id: "01jzfact00000000000000000a",
+            statement_text: "Defendant filed answer on 2026-06-01.",
+            status: "accepted",
+            source_type: "lawyer_authored",
+            created_at: "2026-06-01T00:00:00.000Z",
+          },
+        ],
+        next_cursor: null,
+      };
+    },
+  });
+  const result = await listFactsHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, true);
+  assert.equal(result.value.rows.length, 1);
+  assert.equal(received.tenant_id, "default-tenant");
+  assert.equal(received.matter_id, FIXED_ID);
+});
+
+test("listFacts passes limit + cursor through", async () => {
+  let received;
+  const provide = makeProvider({
+    listFacts: async (q) => {
+      received = q;
+      return { rows: [], next_cursor: "next" };
+    },
+  });
+  const result = await listFactsHandler({ matterId: FIXED_ID, limit: 4, cursor: "c1" }, provide);
+  assert.equal(result.ok, true);
+  assert.equal(received.limit, 4);
+  assert.equal(received.cursor, "c1");
+});
+
+test("listFacts empty matterId → invalid_payload", async () => {
+  const result = await listFactsHandler({ matterId: "" }, makeProvider());
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listFacts forbidden field tenant_id → invalid_payload", async () => {
+  const result = await listFactsHandler({ matterId: FIXED_ID, tenant_id: "evil" }, makeProvider());
+  assert.equal(result.ok, false);
+  assert.equal(result.error.details?.schemaPath, "tenant_id");
+});
+
+test("listFacts unknown field → invalid_payload", async () => {
+  const result = await listFactsHandler({ matterId: FIXED_ID, bogus: 1 }, makeProvider());
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listFacts non-integer limit → invalid_payload", async () => {
+  const result = await listFactsHandler({ matterId: FIXED_ID, limit: 3.3 }, makeProvider());
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listFacts absent matter → unknown_matter; listFacts not called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getMatter: async () => null,
+    listFacts: async () => {
+      called = true;
+      throw new Error("should not be called");
+    },
+  });
+  const result = await listFactsHandler({ matterId: "01jz0000000000000000000099" }, provide);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "unknown_matter");
+  assert.equal(called, false);
+});
+
+test("listFacts tenant mismatch → tenant_mismatch; listFacts not called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getMatter: async () => ({ id: FIXED_ID, tenant_id: "other-tenant" }),
+    listFacts: async () => {
+      called = true;
+      throw new Error("should not be called");
+    },
+  });
+  const result = await listFactsHandler({ matterId: FIXED_ID }, provide);
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "tenant_mismatch");
   assert.equal(called, false);
