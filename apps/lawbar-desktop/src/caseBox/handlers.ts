@@ -1,4 +1,4 @@
-import { validateMatter } from "case-box-contract";
+import { validateMatter, validateDocument } from "case-box-contract";
 import type { CaseBoxPersistence } from "case-box-persistence";
 
 import {
@@ -18,6 +18,8 @@ import {
   LIST_DOCUMENTS_FORBIDDEN_FIELDS,
   GET_DOCUMENT_DTO_FIELDS,
   GET_DOCUMENT_FORBIDDEN_FIELDS,
+  REGISTER_DOCUMENT_DTO_FIELDS,
+  REGISTER_DOCUMENT_FORBIDDEN_FIELDS,
   MAX_LIST_LIMIT,
   MAX_CURSOR_LENGTH,
   type CreateMatterDto,
@@ -28,6 +30,8 @@ import {
   type ListAuditEventsDto,
   type ListDocumentsDto,
   type GetDocumentDto,
+  type RegisterDocumentDto,
+  type DocType,
   type CreateMatterResult,
   type GetMatterResult,
   type ListMattersResult,
@@ -36,6 +40,7 @@ import {
   type ListAuditEventsResult,
   type ListDocumentsResult,
   type GetDocumentResult,
+  type RegisterDocumentResult,
   type IpcEnvelope,
 } from "./dto.js";
 import { mapThrownError, makeInvalidPayload, makeBoundaryError } from "./errorMap.js";
@@ -51,10 +56,43 @@ export const CHANNEL = {
   auditListEvents: "casebox:audit:listEvents",
   documentList: "casebox:document:list",
   documentGet: "casebox:document:get",
+  documentRegister: "casebox:document:register",
 } as const;
 
 export type PersistenceProvider = () => { readonly persistence: CaseBoxPersistence };
 export type ClockFn = () => Date;
+
+const DOC_TYPES: ReadonlyArray<DocType> = [
+  "pleading",
+  "contract",
+  "correspondence",
+  "transcript",
+  "exhibit",
+  "other",
+];
+
+// Injected main-process side effects for document registration. Kept as
+// dependencies so the handler logic is unit-testable WITHOUT Electron's dialog
+// or the real filesystem; production wires the dialog + documentStorage util.
+export interface RegisterDocumentDeps {
+  // Opens the OS file chooser in main; null when the user cancels. The renderer
+  // never supplies a filesystem path — this is the only source of the path.
+  readonly chooseFile: () => Promise<{ readonly sourcePath: string; readonly filename: string } | null>;
+  // Hashes + copies the chosen file into app-controlled storage; returns the
+  // computed content_hash / storage_uri / byte_size / stored filename.
+  readonly storeFile: (a: {
+    readonly sourcePath: string;
+    readonly documentId: string;
+    readonly filename: string;
+  }) => Promise<{
+    readonly content_hash: string;
+    readonly storage_uri: string;
+    readonly byte_size: number;
+    readonly stored_filename: string;
+  }>;
+  readonly now: ClockFn;
+  readonly idFactory: () => string;
+}
 
 function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
@@ -492,5 +530,85 @@ export async function getDocumentHandler(
     return { ok: true, value: document };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.documentGet }) };
+  }
+}
+
+export async function registerDocumentHandler(
+  payload: unknown,
+  provide: PersistenceProvider,
+  deps: RegisterDocumentDeps,
+): Promise<RegisterDocumentResult> {
+  if (!isPlainJsonObject(payload)) return shapeGuardFailure();
+  for (const f of REGISTER_DOCUMENT_FORBIDDEN_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(payload, f)) {
+      return forbiddenFieldFailure(f);
+    }
+  }
+  for (const key of Object.keys(payload)) {
+    if (!(REGISTER_DOCUMENT_DTO_FIELDS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        error: makeInvalidPayload("unknown field in RegisterDocumentDto", { schemaPath: key }),
+      };
+    }
+  }
+  const dto = payload as unknown as RegisterDocumentDto;
+  if (typeof dto.matterId !== "string" || dto.matterId.length === 0) {
+    return { ok: false, error: makeInvalidPayload("matterId must be a non-empty string") };
+  }
+  if (!DOC_TYPES.includes(dto.doc_type as DocType)) {
+    return { ok: false, error: makeInvalidPayload("doc_type must be a known document type") };
+  }
+  try {
+    const { persistence } = provide();
+    // Validate the matter (and tenant scope) BEFORE opening any dialog or
+    // touching the filesystem.
+    const matter = await persistence.getMatter(dto.matterId);
+    if (matter === null) {
+      return { ok: false, error: makeBoundaryError("unknown_matter") };
+    }
+    if (matter.tenant_id !== getActiveTenantId()) {
+      return { ok: false, error: makeBoundaryError("tenant_mismatch") };
+    }
+    const chosen = await deps.chooseFile();
+    if (chosen === null) {
+      // User cancelled the file chooser — not an error.
+      return { ok: true, value: null };
+    }
+    const documentId = deps.idFactory();
+    const stored = await deps.storeFile({
+      sourcePath: chosen.sourcePath,
+      documentId,
+      filename: chosen.filename,
+    });
+    const document: Record<string, unknown> = {
+      id: documentId,
+      tenant_id: getActiveTenantId(),
+      actor_user_id: getActiveActorUserId(),
+      matter_id: dto.matterId,
+      source: "uploaded",
+      filename: stored.stored_filename,
+      content_hash: stored.content_hash,
+      storage_uri: stored.storage_uri,
+      doc_type: dto.doc_type,
+      received_at: deps.now().toISOString(),
+      status: "registered",
+      byte_size: stored.byte_size,
+    };
+    const validation = validateDocument(document);
+    if (!validation.ok) {
+      const first = validation.errors[0];
+      return {
+        ok: false,
+        error: makeInvalidPayload("document schema violation", {
+          schemaPath: first?.schemaPath,
+          keyword: first?.keyword,
+        }),
+      };
+    }
+    const registered = await persistence.registerDocument(dto.matterId, validation.value);
+    return { ok: true, value: registered };
+  } catch (err) {
+    return { ok: false, error: mapThrownError(err, { channel: CHANNEL.documentRegister }) };
   }
 }

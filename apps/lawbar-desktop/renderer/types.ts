@@ -86,6 +86,19 @@ export interface GetDocumentDto {
   readonly documentId: string;
 }
 
+export type DocType =
+  | "pleading"
+  | "contract"
+  | "correspondence"
+  | "transcript"
+  | "exhibit"
+  | "other";
+
+export interface RegisterDocumentDto {
+  readonly matterId: string;
+  readonly doc_type: DocType;
+}
+
 export interface IpcErrorEnvelope {
   readonly kind: "case_box_persistence_error";
   readonly code: string;
@@ -147,4 +160,9 @@ export const RENDERER_LIST_DOCUMENTS_DTO_FIELDS = Object.freeze([
 export const RENDERER_GET_DOCUMENT_DTO_FIELDS = Object.freeze([
   "matterId",
   "documentId",
+] as const);
+
+export const RENDERER_REGISTER_DOCUMENT_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "doc_type",
 ] as const);

@@ -13,6 +13,7 @@ import type {
   ListAuditEventsDto,
   ListDocumentsDto,
   GetDocumentDto,
+  RegisterDocumentDto,
   CreateMatterResult,
   GetMatterResult,
   ListMattersResult,
@@ -21,6 +22,7 @@ import type {
   ListAuditEventsResult,
   ListDocumentsResult,
   GetDocumentResult,
+  RegisterDocumentResult,
 } from "../src/caseBox/dto.js";
 
 export interface ThemeApi {
@@ -40,6 +42,7 @@ export interface CaseBoxApi {
   listAuditEvents(dto: ListAuditEventsDto): Promise<ListAuditEventsResult>;
   listDocuments(dto: ListDocumentsDto): Promise<ListDocumentsResult>;
   getDocument(dto: GetDocumentDto): Promise<GetDocumentResult>;
+  registerDocument(dto: RegisterDocumentDto): Promise<RegisterDocumentResult>;
 }
 
 const themeApi: ThemeApi = {
@@ -64,6 +67,7 @@ const caseBoxApi: CaseBoxApi = {
   listAuditEvents: (dto) => ipcRenderer.invoke("casebox:audit:listEvents", dto),
   listDocuments: (dto) => ipcRenderer.invoke("casebox:document:list", dto),
   getDocument: (dto) => ipcRenderer.invoke("casebox:document:get", dto),
+  registerDocument: (dto) => ipcRenderer.invoke("casebox:document:register", dto),
 };
 
 contextBridge.exposeInMainWorld("lawbar", { theme: themeApi, caseBox: caseBoxApi });

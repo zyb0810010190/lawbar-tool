@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { closeCaseBoxRuntime, getCaseBoxRuntime } from "../src/caseBox/caseBoxRuntime.js";
 import { registerCaseBoxIpcHandlers } from "./ipc/caseBoxHandlers.js";
+import { makeStoreFile } from "../src/caseBox/documentStorage.js";
 import { loadThemePreference } from "../src/persistence/themePreference.js";
 import {
   decideAction,
@@ -108,8 +109,25 @@ void app.whenReady().then(async () => {
         `running in dev mode (LAWBAR_MODE=dev). Production launch would block.\n`,
     );
   }
-  const caseBoxRuntime = getCaseBoxRuntime({ userDataDir: app.getPath("userData") });
-  registerCaseBoxIpcHandlers({ persistenceProvider: () => caseBoxRuntime });
+  const userDataDir = app.getPath("userData");
+  const caseBoxRuntime = getCaseBoxRuntime({ userDataDir });
+  // Document files live in an app-controlled directory beside the SQLite DB.
+  const documentStorageRoot = path.join(userDataDir, "case-box-documents");
+  registerCaseBoxIpcHandlers({
+    persistenceProvider: () => caseBoxRuntime,
+    storeDocumentFile: makeStoreFile(documentStorageRoot),
+    // Open a single-file chooser in main; the renderer never supplies a path.
+    chooseDocumentFile: async () => {
+      const win = mainWindow ?? undefined;
+      const result =
+        win !== undefined
+          ? await dialog.showOpenDialog(win, { properties: ["openFile"] })
+          : await dialog.showOpenDialog({ properties: ["openFile"] });
+      if (result.canceled || result.filePaths.length === 0) return null;
+      const sourcePath = result.filePaths[0];
+      return { sourcePath, filename: path.basename(sourcePath) };
+    },
+  });
 
   createWindow();
   app.on("activate", () => {

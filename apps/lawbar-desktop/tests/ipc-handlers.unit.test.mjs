@@ -10,6 +10,7 @@ import {
   listAuditEventsHandler,
   listDocumentsHandler,
   getDocumentHandler,
+  registerDocumentHandler,
   CHANNEL,
 } from "../dist/src/caseBox/handlers.js";
 import { CaseBoxPersistenceError } from "case-box-persistence";
@@ -44,6 +45,7 @@ function makeProvider(overrides) {
     listAuditEvents: async (q) => ({ rows: [], next_cursor: null, query: q }),
     listDocuments: async (q) => ({ rows: [], next_cursor: null, query: q }),
     getDocument: async () => null,
+    registerDocument: async (_matterId, document) => document,
     ...overrides,
   };
   return () => ({ persistence });
@@ -70,6 +72,7 @@ test("channel names match contract pattern casebox:<scope>:<op>", () => {
   assert.equal(CHANNEL.auditListEvents, "casebox:audit:listEvents");
   assert.equal(CHANNEL.documentList, "casebox:document:list");
   assert.equal(CHANNEL.documentGet, "casebox:document:get");
+  assert.equal(CHANNEL.documentRegister, "casebox:document:register");
 });
 
 // ---------- createMatter ----------
@@ -832,4 +835,186 @@ test("getDocument absent matter → unknown_matter; getDocument not called", asy
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "unknown_matter");
   assert.equal(docCalled, false);
+});
+
+// ---------- registerDocument ----------
+
+const REG_DOC_ID = "01jzaaaaaaaaaaaaaaaaaaaaaa"; // valid lowercase ULID chars
+
+function makeRegisterDeps(overrides = {}) {
+  return {
+    chooseFile:
+      "chooseFile" in overrides
+        ? overrides.chooseFile
+        : async () => ({ sourcePath: "/tmp/fake/complaint.pdf", filename: "complaint.pdf" }),
+    storeFile:
+      overrides.storeFile ??
+      (async ({ documentId, filename }) => ({
+        content_hash: "a".repeat(64),
+        storage_uri: "file:///app/case-box-documents/" + documentId + "/" + filename,
+        byte_size: 123,
+        stored_filename: filename,
+      })),
+    now: () => FIXED_NOW,
+    idFactory: () => REG_DOC_ID,
+  };
+}
+
+test("registerDocument happy path: builds full document, validates, persists, returns it", async () => {
+  let registeredWith;
+  const provide = makeProvider({
+    registerDocument: async (matterId, document) => {
+      registeredWith = { matterId, document };
+      return document;
+    },
+  });
+  const result = await registerDocumentHandler(
+    { matterId: FIXED_ID, doc_type: "pleading" },
+    provide,
+    makeRegisterDeps(),
+  );
+  assert.equal(result.ok, true);
+  assert.equal(registeredWith.matterId, FIXED_ID);
+  const d = registeredWith.document;
+  assert.equal(d.id, REG_DOC_ID);
+  assert.equal(d.tenant_id, "default-tenant");
+  assert.equal(d.actor_user_id, "local-user");
+  assert.equal(d.matter_id, FIXED_ID);
+  assert.equal(d.source, "uploaded");
+  assert.equal(d.status, "registered");
+  assert.equal(d.doc_type, "pleading");
+  assert.equal(d.filename, "complaint.pdf");
+  assert.equal(d.content_hash, "a".repeat(64));
+  assert.equal(d.storage_uri, "file:///app/case-box-documents/" + REG_DOC_ID + "/complaint.pdf");
+  assert.equal(result.value.id, REG_DOC_ID);
+});
+
+test("registerDocument cancelled: chooseFile null → ok+null; storeFile + registerDocument NOT called", async () => {
+  let stored = false;
+  let registered = false;
+  const provide = makeProvider({
+    registerDocument: async () => {
+      registered = true;
+      throw new Error("should not register");
+    },
+  });
+  const deps = makeRegisterDeps({
+    chooseFile: async () => null,
+    storeFile: async () => {
+      stored = true;
+      throw new Error("should not store");
+    },
+  });
+  const result = await registerDocumentHandler({ matterId: FIXED_ID, doc_type: "other" }, provide, deps);
+  assert.equal(result.ok, true);
+  assert.equal(result.value, null);
+  assert.equal(stored, false);
+  assert.equal(registered, false);
+});
+
+test("registerDocument forbidden field tenant_id → invalid_payload", async () => {
+  const result = await registerDocumentHandler(
+    { matterId: FIXED_ID, doc_type: "other", tenant_id: "evil" },
+    makeProvider(),
+    makeRegisterDeps(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+  assert.equal(result.error.details?.schemaPath, "tenant_id");
+});
+
+test("registerDocument forbidden field content_hash → invalid_payload", async () => {
+  const result = await registerDocumentHandler(
+    { matterId: FIXED_ID, doc_type: "other", content_hash: "x" },
+    makeProvider(),
+    makeRegisterDeps(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.details?.schemaPath, "content_hash");
+});
+
+test("registerDocument unknown field → invalid_payload", async () => {
+  const result = await registerDocumentHandler(
+    { matterId: FIXED_ID, doc_type: "other", bogus: 1 },
+    makeProvider(),
+    makeRegisterDeps(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("registerDocument invalid doc_type → invalid_payload", async () => {
+  const result = await registerDocumentHandler(
+    { matterId: FIXED_ID, doc_type: "not-a-type" },
+    makeProvider(),
+    makeRegisterDeps(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("registerDocument empty matterId → invalid_payload", async () => {
+  const result = await registerDocumentHandler(
+    { matterId: "", doc_type: "other" },
+    makeProvider(),
+    makeRegisterDeps(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("registerDocument absent matter → unknown_matter; chooseFile NOT called", async () => {
+  let chooseCalled = false;
+  const provide = makeProvider({ getMatter: async () => null });
+  const deps = makeRegisterDeps({
+    chooseFile: async () => {
+      chooseCalled = true;
+      throw new Error("dialog should not open for an invalid matter");
+    },
+  });
+  const result = await registerDocumentHandler(
+    { matterId: "01jz0000000000000000000099", doc_type: "other" },
+    provide,
+    deps,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "unknown_matter");
+  assert.equal(chooseCalled, false);
+});
+
+test("registerDocument tenant mismatch → tenant_mismatch; chooseFile NOT called", async () => {
+  let chooseCalled = false;
+  const provide = makeProvider({ getMatter: async () => ({ id: FIXED_ID, tenant_id: "other-tenant" }) });
+  const deps = makeRegisterDeps({
+    chooseFile: async () => {
+      chooseCalled = true;
+      throw new Error("dialog should not open");
+    },
+  });
+  const result = await registerDocumentHandler({ matterId: FIXED_ID, doc_type: "other" }, provide, deps);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "tenant_mismatch");
+  assert.equal(chooseCalled, false);
+});
+
+test("registerDocument schema violation (negative byte_size from storeFile) → invalid_payload; registerDocument NOT called", async () => {
+  let registered = false;
+  const provide = makeProvider({
+    registerDocument: async () => {
+      registered = true;
+      throw new Error("should not register an invalid doc");
+    },
+  });
+  const deps = makeRegisterDeps({
+    storeFile: async ({ filename }) => ({
+      content_hash: "a".repeat(64),
+      storage_uri: "file:///x",
+      byte_size: -5, // violates schema byte_size minimum: 0
+      stored_filename: filename,
+    }),
+  });
+  const result = await registerDocumentHandler({ matterId: FIXED_ID, doc_type: "other" }, provide, deps);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+  assert.equal(registered, false);
 });

@@ -163,6 +163,7 @@ function makeStubApi(impl = {}) {
     listDocuments:
       impl.listDocuments ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
     getDocument: impl.getDocument ?? (async () => ({ ok: true, value: null })),
+    registerDocument: impl.registerDocument ?? (async () => ({ ok: true, value: null })),
   };
 }
 
@@ -873,4 +874,79 @@ test("documents: row details disclosure loads metadata via getDocument", async (
   assert.ok(detail !== null);
   assert.match(collectText(detail), /file:\/\/\/local\/complaint\.pdf/);
   assert.match(collectText(detail), /12/);
+});
+
+// --- Add document (B2 WI-2b) ---
+
+test("add document: success registers (default doc_type) then refreshes the list", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let listCall = 0;
+  let regDto;
+  const api = makeStubApi({
+    listDocuments: async () => {
+      listCall++;
+      return listCall === 1
+        ? { ok: true, value: { rows: [], next_cursor: null } }
+        : { ok: true, value: { rows: [docRow({ filename: "new.pdf" })], next_cursor: null } };
+    },
+    registerDocument: async (dto) => {
+      regDto = dto;
+      return { ok: true, value: { id: docRow().id, filename: "new.pdf" } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.ok(findByTestId(root, "view-docs-empty") !== null);
+  const addBtn = findByTestId(root, "view-docs-add");
+  assert.ok(addBtn !== null);
+  addBtn.dispatchEvent({ type: "click" });
+  await flush();
+  assert.deepEqual(regDto, { matterId: VALID_ULID, doc_type: "other" });
+  assert.equal(collectText(findByTestId(root, "view-docs-add-status")), "Added.");
+  // list refreshed → now shows the registered document
+  assert.equal(findAllByTestId(root, "view-docs-item").length, 1);
+  assert.equal(addBtn.hasAttribute("disabled"), false);
+});
+
+test("add document: cancelled (value null) shows Cancelled, does not refresh", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let listCall = 0;
+  const api = makeStubApi({
+    listDocuments: async () => {
+      listCall++;
+      return { ok: true, value: { rows: [], next_cursor: null } };
+    },
+    registerDocument: async () => ({ ok: true, value: null }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(listCall, 1);
+  findByTestId(root, "view-docs-add").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(collectText(findByTestId(root, "view-docs-add-status")), "Cancelled.");
+  assert.equal(listCall, 1, "list not refreshed on cancel");
+});
+
+test("add document: registration error renders inline role=alert", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    registerDocument: async () => ({
+      ok: false,
+      error: { kind: "case_box_persistence_error", code: "not_implemented", message: "register failed" },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
+  await flush();
+  findByTestId(root, "view-docs-add").dispatchEvent({ type: "click" });
+  await flush();
+  const err = findByTestId(root, "view-docs-add-error");
+  assert.ok(err !== null);
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err), "register failed");
 });
