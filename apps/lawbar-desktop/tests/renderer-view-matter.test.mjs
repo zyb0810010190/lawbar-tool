@@ -166,6 +166,8 @@ function makeStubApi(impl = {}) {
     registerDocument: impl.registerDocument ?? (async () => ({ ok: true, value: null })),
     listDeadlines:
       impl.listDeadlines ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
+    listFacts:
+      impl.listFacts ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
   };
 }
 
@@ -1064,4 +1066,125 @@ test("deadlines: next_cursor → Show more appends then disappears", async () =>
   await flush();
   assert.equal(findAllByTestId(root, "view-deadlines-row").length, 2);
   assert.equal(findByTestId(root, "view-deadlines-more"), null);
+});
+
+// --- Facts section (B6 read-only) ---
+
+function factRow(overrides = {}) {
+  return {
+    id: "01jzfact00000000000000000a",
+    statement_text: "Defendant filed answer on 2026-06-01.",
+    status: "accepted",
+    source_type: "lawyer_authored",
+    created_at: "2026-06-01T10:30:00Z",
+    ...overrides,
+  };
+}
+
+test("facts: NOT loaded until summary clicked", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let calls = 0;
+  const api = makeStubApi({
+    listFacts: async () => {
+      calls++;
+      return { ok: true, value: { rows: [], next_cursor: null } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  assert.equal(calls, 0);
+  findByTestId(root, "view-facts-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(calls, 1);
+});
+
+test("facts: empty state when none", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    listFacts: async () => ({ ok: true, value: { rows: [], next_cursor: null } }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-facts-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const empty = findByTestId(root, "view-facts-empty");
+  assert.ok(empty !== null);
+  assert.equal(collectText(empty), "No facts recorded for this matter.");
+  assert.equal(findAllByTestId(root, "view-facts-row").length, 0);
+});
+
+test("facts: populated rows render statement + status·source (+confidence)", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    listFacts: async () => ({
+      ok: true,
+      value: {
+        rows: [
+          factRow({ statement_text: "Fact A", status: "accepted", source_type: "lawyer_authored" }),
+          factRow({
+            id: "01jzfact00000000000000000b",
+            statement_text: "Fact B",
+            status: "candidate",
+            source_type: "llm_extraction",
+            extraction_confidence: 0.82,
+          }),
+        ],
+        next_cursor: null,
+      },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-facts-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-facts-row").length, 2);
+  const statements = findAllByTestId(root, "view-facts-statement").map(collectText);
+  assert.deepEqual(statements, ["Fact A", "Fact B"]);
+  const statuses = findAllByTestId(root, "view-facts-status").map(collectText);
+  assert.deepEqual(statuses, ["accepted · lawyer_authored", "candidate · llm_extraction"]);
+  const conf = findAllByTestId(root, "view-facts-confidence").map(collectText);
+  assert.deepEqual(conf, ["confidence: 0.82"]);
+  assert.equal(findByTestId(root, "view-facts-more"), null);
+});
+
+test("facts: envelope error renders inline role=alert", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    listFacts: async () => ({
+      ok: false,
+      error: { kind: "case_box_persistence_error", code: "invalid_payload", message: "facts failed" },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-facts-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const err = findByTestId(root, "view-facts-error");
+  assert.ok(err !== null);
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err), "facts failed");
+});
+
+test("facts: next_cursor → Show more appends then disappears", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let call = 0;
+  const api = makeStubApi({
+    listFacts: async (dto) => {
+      call++;
+      if (call === 1) return { ok: true, value: { rows: [factRow()], next_cursor: "cur-2" } };
+      assert.equal(dto.cursor, "cur-2");
+      return { ok: true, value: { rows: [factRow({ id: "01jzfact00000000000000000c" })], next_cursor: null } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-facts-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-facts-row").length, 1);
+  const more = findByTestId(root, "view-facts-more");
+  assert.ok(more !== null);
+  more.dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-facts-row").length, 2);
+  assert.equal(findByTestId(root, "view-facts-more"), null);
 });

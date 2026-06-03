@@ -24,3 +24,5 @@ export {
 } from "./documentHandlers.js";
 
 export { listDeadlinesHandler } from "./deadlineHandlers.js";
+
+export { listFactsHandler } from "./factHandlers.js";

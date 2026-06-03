@@ -306,3 +306,14 @@ When closing an entry, leave the row in place and update `Status` + append to `N
 When a finding becomes irrelevant (e.g. the affected code was removed by another WI), mark `superseded` and cite the commit that removed the underlying surface.
 
 When several rows close together (e.g. A2 F2.2 + A3 F2.1 + A3 F2.2 all close under one A4 refactor), keep them as separate rows so the grep for any one of them still surfaces the close.
+
+## Case-box list channels — persistence tenant-filter gap (facts WI, audit `audit-mpxoq4ma-dn3m0h`)
+
+Surfaced during the read-only facts WI (UI+IPC). The findings are NOT in that WI's scope
+(`services/**` SQL) and are pre-existing; the WI's IPC/UI layer audited clean. Recorded here
+for a dedicated persistence-hardening WI.
+
+| Finding ID | Severity | Reason for deferral / disposition | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|
+| FACTS-AUD-1 | Medium | ESCALATED (out of UI-WI scope; pre-existing; v1-single-tenant-moot) — `listFactsSqlite` (`services/case-box-persistence/src/sqlite/factsRepoQueries.ts:124`) and `listDeadlines` (`deadlineRepoQueries.ts:86`) filter `WHERE matter_id = ?` only, NOT `tenant_id`. The IPC handlers verify the MATTER's tenant + inject `tenant_id` into the query, but the SQL ignores it, so a fact/deadline row whose own `tenant_id` differs from its matter's (a data-integrity violation, impossible in single-tenant v1) would be returned. `listDocuments` already tenant-filters (`documentRepoQueries.ts:117`) — the fix is to make facts + deadlines match. Touching `services/**` SQL is a security-boundary/persistence change requiring the full review-plan→tests→audit→verify loop. | WI: persistence list tenant-filter hardening (facts + deadlines list SQL; align with documents) | YES (v1 single-tenant) | open | NOT introduced by the facts WI; affects the already-merged deadline list channel (PR #32) too |
+| FACTS-AUD-2 | Low | Accepted-as-intentional (consistent + prior-CLEAN) — `listFactsHandler` returns `unknown_matter` for a missing matter vs `tenant_mismatch` for a wrong-tenant matter, a cross-tenant matter-existence oracle. This is the SAME pattern used by every handler (matter/audit/document/deadline), audited CLEAN in each prior WI, and the distinct boundary error codes are a deliberate stable contract per `.claude/rules/security-boundary.md` (do not collapse codes). Single-tenant-moot in v1. | cleanup-accepted (no follow-up planned; revisit if multi-tenant ships) | YES | open | revisiting requires an ADR if the error-code contract is to change |

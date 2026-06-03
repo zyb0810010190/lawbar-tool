@@ -20,6 +20,7 @@ export const CHANNEL = {
   documentGet: "casebox:document:get",
   documentRegister: "casebox:document:register",
   deadlineList: "casebox:deadline:list",
+  factList: "casebox:fact:list",
 } as const;
 
 export type PersistenceProvider = () => { readonly persistence: CaseBoxPersistence };
