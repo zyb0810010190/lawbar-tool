@@ -32,15 +32,35 @@ interface ListDocumentsPage {
   readonly next_cursor: string | null;
 }
 
+const DOC_TYPES = [
+  "pleading",
+  "contract",
+  "correspondence",
+  "transcript",
+  "exhibit",
+  "other",
+] as const;
+
 export function renderDocumentsDisclosure(
   doc: Document,
   api: CaseBoxApi,
   matterId: string,
 ): HTMLElement {
+  // The list container is owned by loadDocuments (cleared + refilled), so a
+  // successful registration can refresh it in place.
+  const listContainer = el(
+    "div",
+    { class: "view-docs-list-container", "data-test-id": "view-docs-list-container" },
+    [],
+    doc,
+  );
+  const refresh = (): Promise<void> => loadDocuments(listContainer, doc, api, matterId);
+  const addControl = renderAddControl(doc, api, matterId, refresh);
+
   const body = el(
     "div",
     { class: "view-docs-body", "data-test-id": "view-docs-body" },
-    [],
+    [addControl, listContainer],
     doc,
   );
   const summary = el(
@@ -60,9 +80,69 @@ export function renderDocumentsDisclosure(
   summary.addEventListener("click", () => {
     if (loaded) return;
     loaded = true;
-    void loadDocuments(body, doc, api, matterId);
+    void loadDocuments(listContainer, doc, api, matterId);
   });
   return details;
+}
+
+// "Add document" control: pick a doc type, then register a local file. The file
+// itself is chosen by the MAIN process (the renderer never supplies a path);
+// on success the list refreshes. Read-only display elsewhere — this is the only
+// write affordance, and it never opens a file.
+function renderAddControl(
+  doc: Document,
+  api: CaseBoxApi,
+  matterId: string,
+  refresh: () => Promise<void>,
+): HTMLElement {
+  const select = el(
+    "select",
+    { class: "view-docs-add-type", "data-test-id": "view-docs-add-type" },
+    DOC_TYPES.map((t) => el("option", { value: t }, [t], doc)),
+    doc,
+  );
+  const status = el(
+    "span",
+    { class: "view-docs-add-status", "data-test-id": "view-docs-add-status" },
+    [],
+    doc,
+  );
+  const btn = el(
+    "button",
+    { type: "button", class: "view-docs-add-btn", "data-test-id": "view-docs-add" },
+    ["Add document"],
+    doc,
+  );
+  btn.addEventListener("click", () => {
+    void (async () => {
+      const docType =
+        ((select as unknown as { value?: string }).value as (typeof DOC_TYPES)[number]) || "other";
+      btn.setAttribute("disabled", "true");
+      status.removeAttribute("role");
+      setText(status, "Adding…");
+      const env = await api.registerDocument({ matterId, doc_type: docType });
+      btn.removeAttribute("disabled");
+      if (!env.ok) {
+        status.setAttribute("role", "alert");
+        status.setAttribute("data-test-id", "view-docs-add-error");
+        setText(status, env.error.message);
+        return;
+      }
+      if (env.value === null) {
+        // User cancelled the file chooser — nothing registered.
+        setText(status, "Cancelled.");
+        return;
+      }
+      setText(status, "Added.");
+      await refresh();
+    })();
+  });
+  return el(
+    "div",
+    { class: "view-docs-add", "data-test-id": "view-docs-add-control" },
+    [select, " ", btn, " ", status],
+    doc,
+  );
 }
 
 function metaField(doc: Document, label: string, value: string): HTMLElement {
@@ -164,6 +244,9 @@ async function loadDocuments(
   api: CaseBoxApi,
   matterId: string,
 ): Promise<void> {
+  // Clear any prior render so this can be called again to refresh after a
+  // successful registration.
+  setText(parent, "");
   const list = el(
     "ul",
     { class: "view-docs-list", "data-test-id": "view-docs-list" },

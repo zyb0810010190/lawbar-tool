@@ -16,6 +16,7 @@ import type {
   ListAuditEventsDto,
   ListDocumentsDto,
   ListMattersDto,
+  RegisterDocumentDto,
 } from "./types.js";
 
 import {
@@ -27,6 +28,7 @@ import {
   RENDERER_LIST_AUDIT_EVENTS_DTO_FIELDS,
   RENDERER_LIST_DOCUMENTS_DTO_FIELDS,
   RENDERER_LIST_MATTERS_DTO_FIELDS,
+  RENDERER_REGISTER_DOCUMENT_DTO_FIELDS,
 } from "./types.js";
 
 // Shape of the preload-injected client (`window.lawbar.caseBox`).
@@ -39,6 +41,7 @@ export interface CaseBoxClient {
   listAuditEvents(dto: ListAuditEventsDto): Promise<IpcEnvelope<unknown>>;
   listDocuments(dto: ListDocumentsDto): Promise<IpcEnvelope<unknown>>;
   getDocument(dto: GetDocumentDto): Promise<IpcEnvelope<unknown>>;
+  registerDocument(dto: RegisterDocumentDto): Promise<IpcEnvelope<unknown>>;
 }
 
 export interface CaseBoxApi {
@@ -50,6 +53,7 @@ export interface CaseBoxApi {
   listAuditEvents(dto: ListAuditEventsDto): Promise<IpcEnvelope<unknown>>;
   listDocuments(dto: ListDocumentsDto): Promise<IpcEnvelope<unknown>>;
   getDocument(dto: GetDocumentDto): Promise<IpcEnvelope<unknown>>;
+  registerDocument(dto: RegisterDocumentDto): Promise<IpcEnvelope<unknown>>;
 }
 
 // Strip any DTO key not in the renderer-side allowlist. Drops with a
@@ -92,6 +96,8 @@ export function createCaseBoxApi(client: CaseBoxClient): CaseBoxApi {
       client.listDocuments(stripDtoFields(dto, RENDERER_LIST_DOCUMENTS_DTO_FIELDS)),
     getDocument: (dto) =>
       client.getDocument(stripDtoFields(dto, RENDERER_GET_DOCUMENT_DTO_FIELDS)),
+    registerDocument: (dto) =>
+      client.registerDocument(stripDtoFields(dto, RENDERER_REGISTER_DOCUMENT_DTO_FIELDS)),
   };
 }
 

@@ -67,6 +67,24 @@ export interface GetDocumentDto {
   readonly documentId: string;
 }
 
+export type DocType =
+  | "pleading"
+  | "contract"
+  | "correspondence"
+  | "transcript"
+  | "exhibit"
+  | "other";
+
+// Register a local document into a matter. The file itself is chosen via the
+// main-process dialog (the renderer never supplies a filesystem path); the
+// renderer only declares the document kind. content_hash, storage_uri,
+// received_at, status, source, id, tenant_id, actor_user_id are all computed/
+// injected server-side.
+export interface RegisterDocumentDto {
+  readonly matterId: string;
+  readonly doc_type: DocType;
+}
+
 export type IpcEnvelope<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: IpcErrorEnvelope };
@@ -179,6 +197,27 @@ export const GET_DOCUMENT_FORBIDDEN_FIELDS = Object.freeze([
   "actor_user_id",
 ] as const);
 
+export const REGISTER_DOCUMENT_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "doc_type",
+] as const);
+
+// Every server-computed / server-authority document field is forbidden from the
+// renderer DTO: identity, scope, content/storage facts, lifecycle, and source.
+export const REGISTER_DOCUMENT_FORBIDDEN_FIELDS = Object.freeze([
+  "id",
+  "tenant_id",
+  "actor_user_id",
+  "content_hash",
+  "storage_uri",
+  "received_at",
+  "status",
+  "source",
+  "filename",
+  "byte_size",
+  "custody_chain",
+] as const);
+
 export const MAX_LIST_LIMIT = 200;
 export const MAX_CURSOR_LENGTH = 512;
 
@@ -190,3 +229,5 @@ export type ChainHeadResult = IpcEnvelope<AuditChainHead>;
 export type ListAuditEventsResult = IpcEnvelope<ListAuditEventsPage>;
 export type ListDocumentsResult = IpcEnvelope<ListDocumentsPage>;
 export type GetDocumentResult = IpcEnvelope<CaseBoxDocument | null>;
+// value === null signals the user cancelled the file-chooser dialog.
+export type RegisterDocumentResult = IpcEnvelope<CaseBoxDocument | null>;
