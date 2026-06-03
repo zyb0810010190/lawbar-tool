@@ -45,6 +45,22 @@ interface AuditChainHead {
   readonly count: number;
 }
 
+// Minimal structural shape of a persisted audit event row (the renderer never
+// imports the service; field-name drift is a non-issue because only these
+// human-rendered fields are read, and main is the authoritative validator).
+interface AuditEventRow {
+  readonly timestamp: string;
+  readonly action: string;
+  readonly entity_type: string;
+  readonly entity_id: string;
+  readonly reason?: string;
+}
+
+interface ListAuditEventsPage {
+  readonly rows: ReadonlyArray<AuditEventRow>;
+  readonly next_cursor: string | null;
+}
+
 export interface ViewMatterDeps {
   readonly api: CaseBoxApi;
   readonly navigate: (hash: string) => void;
@@ -613,4 +629,131 @@ async function loadChainHead(
   body.appendChild(headHashLine);
   if (lastEventLine !== null) body.appendChild(lastEventLine);
   body.appendChild(countLine);
+
+  // The full ordered audit-event log loads in the same disclosure (read-only).
+  await loadAuditEvents(body, doc, deps, matterId);
+}
+
+function renderAuditEventRow(doc: Document, ev: AuditEventRow): HTMLElement {
+  const meta = el(
+    "div",
+    { class: "view-audit-event-meta" },
+    [
+      el(
+        "span",
+        { class: "view-audit-time", "data-test-id": "view-audit-time" },
+        [formatLocalDateTime(ev.timestamp)],
+        doc,
+      ),
+      " ",
+      el(
+        "span",
+        { class: "view-audit-action", "data-test-id": "view-audit-action" },
+        [ev.action],
+        doc,
+      ),
+    ],
+    doc,
+  );
+  const detailChildren: Array<HTMLElement | string> = [
+    el(
+      "span",
+      { class: "view-audit-entity" },
+      [`${ev.entity_type} · ${ulidShort(ev.entity_id)}`],
+      doc,
+    ),
+  ];
+  if (ev.reason !== undefined && ev.reason.length > 0) {
+    detailChildren.push(
+      " ",
+      el(
+        "span",
+        { class: "view-audit-reason", "data-test-id": "view-audit-reason" },
+        [`reason: ${ev.reason}`],
+        doc,
+      ),
+    );
+  }
+  const detail = el("div", { class: "view-audit-event-detail" }, detailChildren, doc);
+  return el(
+    "li",
+    { class: "view-audit-event", "data-test-id": "view-audit-event" },
+    [meta, detail],
+    doc,
+  );
+}
+
+async function loadAuditEvents(
+  parent: HTMLElement,
+  doc: Document,
+  deps: ViewMatterDeps,
+  matterId: string,
+): Promise<void> {
+  parent.appendChild(
+    el("div", { class: "view-audit-heading" }, ["Audit events"], doc),
+  );
+  const list = el(
+    "ol",
+    { class: "view-audit-list", "data-test-id": "view-audit-list" },
+    [],
+    doc,
+  );
+  parent.appendChild(list);
+  const loading = el(
+    "p",
+    { "data-test-id": "view-audit-loading" },
+    ["Loading audit events…"],
+    doc,
+  );
+  parent.appendChild(loading);
+
+  let cursor: string | null = null;
+  let moreBtn: HTMLElement | null = null;
+
+  async function loadPage(): Promise<void> {
+    const env = await deps.api.listAuditEvents({
+      matterId,
+      ...(cursor !== null ? { cursor } : {}),
+    });
+    loading.remove();
+    if (moreBtn !== null) {
+      moreBtn.remove();
+      moreBtn = null;
+    }
+    if (!env.ok) {
+      parent.appendChild(
+        el(
+          "p",
+          { role: "alert", "data-test-id": "view-audit-error" },
+          [env.error.message],
+          doc,
+        ),
+      );
+      return;
+    }
+    const page = env.value as ListAuditEventsPage;
+    for (const ev of page.rows) {
+      list.appendChild(renderAuditEventRow(doc, ev));
+    }
+    cursor = page.next_cursor;
+    if (cursor !== null) {
+      const btn = el(
+        "button",
+        {
+          type: "button",
+          class: "view-audit-more",
+          "data-test-id": "view-audit-more",
+        },
+        ["Show more"],
+        doc,
+      );
+      btn.addEventListener("click", () => {
+        void loadPage();
+      });
+      moreBtn = btn;
+      parent.appendChild(btn);
+    }
+  }
+
+  await loadPage();
 }

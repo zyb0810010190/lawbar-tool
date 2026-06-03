@@ -7,6 +7,7 @@ import {
   listMattersHandler,
   archiveMatterHandler,
   chainHeadHandler,
+  listAuditEventsHandler,
   CHANNEL,
 } from "../dist/src/caseBox/handlers.js";
 import { CaseBoxPersistenceError } from "case-box-persistence";
@@ -38,6 +39,7 @@ function makeProvider(overrides) {
       opts,
     }),
     getAuditChainHead: async (id) => ({ headHash: null, lastEventId: null, count: 0, _matterId: id }),
+    listAuditEvents: async (q) => ({ rows: [], next_cursor: null, query: q }),
     ...overrides,
   };
   return () => ({ persistence });
@@ -61,6 +63,7 @@ test("channel names match contract pattern casebox:<scope>:<op>", () => {
   assert.equal(CHANNEL.matterList, "casebox:matter:list");
   assert.equal(CHANNEL.matterArchive, "casebox:matter:archive");
   assert.equal(CHANNEL.auditChainHead, "casebox:audit:chainHead");
+  assert.equal(CHANNEL.auditListEvents, "casebox:audit:listEvents");
 });
 
 // ---------- createMatter ----------
@@ -492,4 +495,121 @@ test("chainHead tenant mismatch → tenant_mismatch; getAuditChainHead not calle
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "tenant_mismatch");
   assert.equal(chainCalled, false);
+});
+
+// ---------- listAuditEvents ----------
+
+test("listAuditEvents happy path returns page + injects tenant_id and matter_id", async () => {
+  let received;
+  const provide = makeProvider({
+    listAuditEvents: async (q) => {
+      received = q;
+      return {
+        rows: [
+          {
+            timestamp: "2026-05-27T00:00:00.000Z",
+            action: "matter.created",
+            entity_type: "matter",
+            entity_id: FIXED_ID,
+            after_state_hash: "h1",
+          },
+        ],
+        next_cursor: null,
+      };
+    },
+  });
+  const result = await listAuditEventsHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, true);
+  assert.equal(result.value.rows.length, 1);
+  assert.equal(result.value.next_cursor, null);
+  assert.equal(received.tenant_id, "default-tenant");
+  assert.equal(received.matter_id, FIXED_ID);
+});
+
+test("listAuditEvents passes limit + cursor through to persistence", async () => {
+  let received;
+  const provide = makeProvider({
+    listAuditEvents: async (q) => {
+      received = q;
+      return { rows: [], next_cursor: "next" };
+    },
+  });
+  const result = await listAuditEventsHandler(
+    { matterId: FIXED_ID, limit: 5, cursor: "c1" },
+    provide,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(received.limit, 5);
+  assert.equal(received.cursor, "c1");
+});
+
+test("listAuditEvents empty matterId → invalid_payload", async () => {
+  const provide = makeProvider();
+  const result = await listAuditEventsHandler({ matterId: "" }, provide);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listAuditEvents forbidden field tenant_id in DTO → invalid_payload", async () => {
+  const provide = makeProvider();
+  const result = await listAuditEventsHandler(
+    { matterId: FIXED_ID, tenant_id: "evil" },
+    provide,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+  assert.equal(result.error.details?.schemaPath, "tenant_id");
+});
+
+test("listAuditEvents unknown field → invalid_payload", async () => {
+  const provide = makeProvider();
+  const result = await listAuditEventsHandler(
+    { matterId: FIXED_ID, bogus: 1 },
+    provide,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listAuditEvents non-integer limit → invalid_payload", async () => {
+  const provide = makeProvider();
+  const result = await listAuditEventsHandler(
+    { matterId: FIXED_ID, limit: 1.5 },
+    provide,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listAuditEvents absent matter → unknown_matter; listAuditEvents not called", async () => {
+  let listCalled = false;
+  const provide = makeProvider({
+    getMatter: async () => null,
+    listAuditEvents: async () => {
+      listCalled = true;
+      throw new Error("should not have been called");
+    },
+  });
+  const result = await listAuditEventsHandler(
+    { matterId: "01jz0000000000000000000099" },
+    provide,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "unknown_matter");
+  assert.equal(listCalled, false);
+});
+
+test("listAuditEvents tenant mismatch → tenant_mismatch; listAuditEvents not called", async () => {
+  let listCalled = false;
+  const provide = makeProvider({
+    getMatter: async () => ({ id: FIXED_ID, tenant_id: "other-tenant" }),
+    listAuditEvents: async () => {
+      listCalled = true;
+      throw new Error("should not have been called");
+    },
+  });
+  const result = await listAuditEventsHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "tenant_mismatch");
+  assert.equal(listCalled, false);
 });

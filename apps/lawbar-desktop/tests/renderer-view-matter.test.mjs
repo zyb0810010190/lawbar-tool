@@ -62,6 +62,13 @@ class MockEl {
     const list = this.listeners[event.type] ?? [];
     for (const h of list) h(event);
   }
+  remove() {
+    if (this.parentNode !== null) {
+      const i = this.parentNode.children.indexOf(this);
+      if (i >= 0) this.parentNode.children.splice(i, 1);
+      this.parentNode = null;
+    }
+  }
   focus() {
     this._doc._focused = this;
   }
@@ -151,6 +158,8 @@ function makeStubApi(impl = {}) {
     listMatters: async () => ({ ok: true, value: { rows: [], next_cursor: null } }),
     archiveMatter: async () => ({ ok: true, value: {} }),
     chainHead: impl.chainHead ?? (async () => ({ ok: true, value: { headHash: null, lastEventId: null, count: 0 } })),
+    listAuditEvents:
+      impl.listAuditEvents ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
   };
 }
 
@@ -562,4 +571,154 @@ test("full ULID disclosure: short tag (8) + full ULID present", async () => {
   assert.match(collectText(summary), new RegExp(VALID_ULID_2.slice(0, 8)));
   const full = findByTestId(root, "view-full-id");
   assert.equal(collectText(full), VALID_ULID_2);
+});
+
+// --- BRCBW... no: audit-event log viewer (this WI) ---
+
+// Flush several macro/microtask turns: the disclosure click triggers
+// loadChainHead -> loadAuditEvents -> api.listAuditEvents -> loadPage, which is
+// several await hops deep.
+async function flush() {
+  for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
+}
+
+function auditEvent(overrides = {}) {
+  return {
+    timestamp: "2026-05-27T10:30:00Z",
+    action: "matter.created",
+    entity_type: "matter",
+    entity_id: EVENT_ULID,
+    after_state_hash: SAMPLE_HASH,
+    ...overrides,
+  };
+}
+
+function findAllByTestId(root, id) {
+  return findAll(root, (n) => n.getAttribute("data-test-id") === id);
+}
+
+test("audit events: disclosure renders ordered event list (count>0)", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 2 },
+    }),
+    listAuditEvents: async () => ({
+      ok: true,
+      value: {
+        rows: [
+          auditEvent({ action: "matter.created" }),
+          auditEvent({ action: "matter.archived", reason: "closed" }),
+        ],
+        next_cursor: null,
+      },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const list = findByTestId(root, "view-audit-list");
+  assert.ok(list !== null, "audit list rendered");
+  assert.equal(list.tagName, "OL");
+  const events = findAllByTestId(root, "view-audit-event");
+  assert.equal(events.length, 2);
+  const actions = findAllByTestId(root, "view-audit-action").map(collectText);
+  assert.deepEqual(actions, ["matter.created", "matter.archived"]);
+  // reason shown only when present
+  const reasons = findAllByTestId(root, "view-audit-reason").map(collectText);
+  assert.deepEqual(reasons, ["reason: closed"]);
+  // no "Show more" when next_cursor is null
+  assert.equal(findByTestId(root, "view-audit-more"), null);
+});
+
+test("audit events: count=0 shows no event list (existing empty copy only)", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let listCalls = 0;
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: null, lastEventId: null, count: 0 },
+    }),
+    listAuditEvents: async () => {
+      listCalls++;
+      return { ok: true, value: { rows: [], next_cursor: null } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.ok(findByTestId(root, "view-chain-empty") !== null);
+  assert.equal(findByTestId(root, "view-audit-list"), null);
+  assert.equal(listCalls, 0, "listAuditEvents not called for an empty chain");
+});
+
+test("audit events: envelope error renders inline role=alert; head summary intact", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 1 },
+    }),
+    listAuditEvents: async () => ({
+      ok: false,
+      error: {
+        kind: "case_box_persistence_error",
+        code: "invalid_payload",
+        message: "audit list failed",
+      },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const err = findByTestId(root, "view-audit-error");
+  assert.ok(err !== null);
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err), "audit list failed");
+  // chain head summary still shown (count rendered)
+  assert.equal(collectText(findByTestId(root, "view-chain-count")), "1");
+});
+
+test("audit events: next_cursor → 'Show more' appends next page then disappears", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let call = 0;
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 3 },
+    }),
+    listAuditEvents: async (dto) => {
+      call++;
+      if (call === 1) {
+        return {
+          ok: true,
+          value: {
+            rows: [auditEvent({ action: "ev.one" }), auditEvent({ action: "ev.two" })],
+            next_cursor: "cursor-2",
+          },
+        };
+      }
+      // second page: cursor must be threaded through
+      assert.equal(dto.cursor, "cursor-2");
+      return {
+        ok: true,
+        value: { rows: [auditEvent({ action: "ev.three" })], next_cursor: null },
+      };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-audit-event").length, 2);
+  const more = findByTestId(root, "view-audit-more");
+  assert.ok(more !== null, "Show more present after first page");
+  more.dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-audit-event").length, 3, "second page appended");
+  assert.equal(findByTestId(root, "view-audit-more"), null, "Show more removed when cursor exhausted");
 });

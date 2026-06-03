@@ -12,6 +12,8 @@ import {
   GET_MATTER_FORBIDDEN_FIELDS,
   CHAIN_HEAD_DTO_FIELDS,
   CHAIN_HEAD_FORBIDDEN_FIELDS,
+  LIST_AUDIT_EVENTS_DTO_FIELDS,
+  LIST_AUDIT_EVENTS_FORBIDDEN_FIELDS,
   MAX_LIST_LIMIT,
   MAX_CURSOR_LENGTH,
   type CreateMatterDto,
@@ -19,11 +21,13 @@ import {
   type ListMattersDto,
   type ArchiveMatterDto,
   type ChainHeadDto,
+  type ListAuditEventsDto,
   type CreateMatterResult,
   type GetMatterResult,
   type ListMattersResult,
   type ArchiveMatterResult,
   type ChainHeadResult,
+  type ListAuditEventsResult,
   type IpcEnvelope,
 } from "./dto.js";
 import { mapThrownError, makeInvalidPayload, makeBoundaryError } from "./errorMap.js";
@@ -36,6 +40,7 @@ export const CHANNEL = {
   matterList: "casebox:matter:list",
   matterArchive: "casebox:matter:archive",
   auditChainHead: "casebox:audit:chainHead",
+  auditListEvents: "casebox:audit:listEvents",
 } as const;
 
 export type PersistenceProvider = () => { readonly persistence: CaseBoxPersistence };
@@ -305,5 +310,69 @@ export async function chainHeadHandler(
     return { ok: true, value: head };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.auditChainHead }) };
+  }
+}
+
+export async function listAuditEventsHandler(
+  payload: unknown,
+  provide: PersistenceProvider,
+): Promise<ListAuditEventsResult> {
+  if (!isPlainJsonObject(payload)) return shapeGuardFailure();
+  for (const f of LIST_AUDIT_EVENTS_FORBIDDEN_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(payload, f)) {
+      return forbiddenFieldFailure(f);
+    }
+  }
+  for (const key of Object.keys(payload)) {
+    if (!(LIST_AUDIT_EVENTS_DTO_FIELDS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        error: makeInvalidPayload("unknown field in ListAuditEventsDto", { schemaPath: key }),
+      };
+    }
+  }
+  const dto = payload as unknown as ListAuditEventsDto;
+  if (typeof dto.matterId !== "string" || dto.matterId.length === 0) {
+    return {
+      ok: false,
+      error: makeInvalidPayload("matterId must be a non-empty string"),
+    };
+  }
+  let limit = dto.limit;
+  if (limit !== undefined) {
+    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1) {
+      return {
+        ok: false,
+        error: makeInvalidPayload("limit must be a positive integer"),
+      };
+    }
+    if (limit > MAX_LIST_LIMIT) limit = MAX_LIST_LIMIT;
+  }
+  if (dto.cursor !== undefined) {
+    if (typeof dto.cursor !== "string" || dto.cursor.length > MAX_CURSOR_LENGTH) {
+      return {
+        ok: false,
+        error: makeInvalidPayload(`cursor must be an opaque string <=${MAX_CURSOR_LENGTH} chars`),
+      };
+    }
+  }
+  try {
+    const { persistence } = provide();
+    const existing = await persistence.getMatter(dto.matterId);
+    if (existing === null) {
+      return { ok: false, error: makeBoundaryError("unknown_matter") };
+    }
+    if (existing.tenant_id !== getActiveTenantId()) {
+      return { ok: false, error: makeBoundaryError("tenant_mismatch") };
+    }
+    const page = await persistence.listAuditEvents({
+      tenant_id: getActiveTenantId(),
+      matter_id: dto.matterId,
+      ...(limit !== undefined ? { limit } : {}),
+      ...(dto.cursor !== undefined ? { cursor: dto.cursor } : {}),
+    });
+    return { ok: true, value: page };
+  } catch (err) {
+    return { ok: false, error: mapThrownError(err, { channel: CHANNEL.auditListEvents }) };
   }
 }

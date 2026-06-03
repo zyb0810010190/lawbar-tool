@@ -10,11 +10,13 @@ import type {
   ListMattersDto,
   ArchiveMatterDto,
   ChainHeadDto,
+  ListAuditEventsDto,
   CreateMatterResult,
   GetMatterResult,
   ListMattersResult,
   ArchiveMatterResult,
   ChainHeadResult,
+  ListAuditEventsResult,
 } from "../src/caseBox/dto.js";
 
 export interface ThemeApi {
@@ -31,6 +33,7 @@ export interface CaseBoxApi {
   listMatters(dto: ListMattersDto): Promise<ListMattersResult>;
   archiveMatter(dto: ArchiveMatterDto): Promise<ArchiveMatterResult>;
   chainHead(dto: ChainHeadDto): Promise<ChainHeadResult>;
+  listAuditEvents(dto: ListAuditEventsDto): Promise<ListAuditEventsResult>;
 }
 
 const themeApi: ThemeApi = {
@@ -52,6 +55,7 @@ const caseBoxApi: CaseBoxApi = {
   listMatters: (dto) => ipcRenderer.invoke("casebox:matter:list", dto),
   archiveMatter: (dto) => ipcRenderer.invoke("casebox:matter:archive", dto),
   chainHead: (dto) => ipcRenderer.invoke("casebox:audit:chainHead", dto),
+  listAuditEvents: (dto) => ipcRenderer.invoke("casebox:audit:listEvents", dto),
 };
 
 contextBridge.exposeInMainWorld("lawbar", { theme: themeApi, caseBox: caseBoxApi });
