@@ -160,6 +160,9 @@ function makeStubApi(impl = {}) {
     chainHead: impl.chainHead ?? (async () => ({ ok: true, value: { headHash: null, lastEventId: null, count: 0 } })),
     listAuditEvents:
       impl.listAuditEvents ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
+    listDocuments:
+      impl.listDocuments ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
+    getDocument: impl.getDocument ?? (async () => ({ ok: true, value: null })),
   };
 }
 
@@ -721,4 +724,153 @@ test("audit events: next_cursor → 'Show more' appends next page then disappear
   await flush();
   assert.equal(findAllByTestId(root, "view-audit-event").length, 3, "second page appended");
   assert.equal(findByTestId(root, "view-audit-more"), null, "Show more removed when cursor exhausted");
+});
+
+// --- Documents section (B2 WI-2a) ---
+
+function docRow(overrides = {}) {
+  return {
+    id: "01jzdoc0000000000000000000",
+    filename: "complaint.pdf",
+    doc_type: "pleading",
+    status: "registered",
+    received_at: "2026-05-27T10:30:00Z",
+    ...overrides,
+  };
+}
+
+test("documents: NOT loaded until summary clicked", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let calls = 0;
+  const api = makeStubApi({
+    listDocuments: async () => {
+      calls++;
+      return { ok: true, value: { rows: [], next_cursor: null } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  assert.equal(calls, 0);
+  findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(calls, 1);
+});
+
+test("documents: empty state shown when no documents", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    listDocuments: async () => ({ ok: true, value: { rows: [], next_cursor: null } }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const empty = findByTestId(root, "view-docs-empty");
+  assert.ok(empty !== null);
+  assert.equal(collectText(empty), "No documents in this matter yet.");
+  assert.equal(findAllByTestId(root, "view-docs-item").length, 0);
+});
+
+test("documents: populated list renders rows with filename", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    listDocuments: async () => ({
+      ok: true,
+      value: {
+        rows: [docRow({ filename: "a.pdf" }), docRow({ id: "01jzdoc0000000000000000001", filename: "b.pdf" })],
+        next_cursor: null,
+      },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-docs-item").length, 2);
+  const names = findAllByTestId(root, "view-docs-filename").map(collectText);
+  assert.deepEqual(names, ["a.pdf", "b.pdf"]);
+  assert.equal(findByTestId(root, "view-docs-empty"), null);
+  assert.equal(findByTestId(root, "view-docs-more"), null);
+});
+
+test("documents: list envelope error renders inline role=alert", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    listDocuments: async () => ({
+      ok: false,
+      error: { kind: "case_box_persistence_error", code: "invalid_payload", message: "docs failed" },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const err = findByTestId(root, "view-docs-error");
+  assert.ok(err !== null);
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err), "docs failed");
+});
+
+test("documents: next_cursor → Show more appends next page then disappears", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let call = 0;
+  const api = makeStubApi({
+    listDocuments: async (dto) => {
+      call++;
+      if (call === 1) {
+        return { ok: true, value: { rows: [docRow({ filename: "p1.pdf" })], next_cursor: "cur-2" } };
+      }
+      assert.equal(dto.cursor, "cur-2");
+      return { ok: true, value: { rows: [docRow({ id: "01jzdoc0000000000000000002", filename: "p2.pdf" })], next_cursor: null } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-docs-item").length, 1);
+  const more = findByTestId(root, "view-docs-more");
+  assert.ok(more !== null);
+  more.dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-docs-item").length, 2);
+  assert.equal(findByTestId(root, "view-docs-more"), null);
+});
+
+test("documents: row details disclosure loads metadata via getDocument", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let getArgs;
+  const api = makeStubApi({
+    listDocuments: async () => ({ ok: true, value: { rows: [docRow()], next_cursor: null } }),
+    getDocument: async (dto) => {
+      getArgs = dto;
+      return {
+        ok: true,
+        value: {
+          id: dto.documentId,
+          filename: "complaint.pdf",
+          doc_type: "pleading",
+          status: "registered",
+          received_at: "2026-05-27T10:30:00Z",
+          content_hash: SAMPLE_HASH,
+          storage_uri: "file:///local/complaint.pdf",
+          page_count: 12,
+        },
+      };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
+  await flush();
+  // not fetched until the row is expanded
+  assert.equal(getArgs, undefined);
+  findByTestId(root, "view-docs-item-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(getArgs.matterId, VALID_ULID);
+  assert.equal(getArgs.documentId, "01jzdoc0000000000000000000");
+  const detail = findByTestId(root, "view-docs-detail");
+  assert.ok(detail !== null);
+  assert.match(collectText(detail), /file:\/\/\/local\/complaint\.pdf/);
+  assert.match(collectText(detail), /12/);
 });

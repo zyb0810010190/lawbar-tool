@@ -2,9 +2,10 @@ import type {
   CaseBoxPersistenceErrorCode,
   AuditChainHead,
   ListAuditEventsPage,
+  ListDocumentsPage,
   ListMattersPage,
 } from "case-box-persistence";
-import type { CaseBoxMatter } from "case-box-contract";
+import type { CaseBoxMatter, CaseBoxDocument } from "case-box-contract";
 
 export interface CreateMatterDto {
   readonly name: string;
@@ -53,6 +54,17 @@ export interface ListAuditEventsDto {
   readonly matterId: string;
   readonly limit?: number;
   readonly cursor?: string;
+}
+
+export interface ListDocumentsDto {
+  readonly matterId: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface GetDocumentDto {
+  readonly matterId: string;
+  readonly documentId: string;
 }
 
 export type IpcEnvelope<T> =
@@ -146,6 +158,27 @@ export const LIST_AUDIT_EVENTS_FORBIDDEN_FIELDS = Object.freeze([
   "actor_user_id",
 ] as const);
 
+export const LIST_DOCUMENTS_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "limit",
+  "cursor",
+] as const);
+
+export const LIST_DOCUMENTS_FORBIDDEN_FIELDS = Object.freeze([
+  "tenant_id",
+  "actor_user_id",
+] as const);
+
+export const GET_DOCUMENT_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "documentId",
+] as const);
+
+export const GET_DOCUMENT_FORBIDDEN_FIELDS = Object.freeze([
+  "tenant_id",
+  "actor_user_id",
+] as const);
+
 export const MAX_LIST_LIMIT = 200;
 export const MAX_CURSOR_LENGTH = 512;
 
@@ -155,3 +188,5 @@ export type ListMattersResult = IpcEnvelope<ListMattersPage>;
 export type ArchiveMatterResult = IpcEnvelope<CaseBoxMatter>;
 export type ChainHeadResult = IpcEnvelope<AuditChainHead>;
 export type ListAuditEventsResult = IpcEnvelope<ListAuditEventsPage>;
+export type ListDocumentsResult = IpcEnvelope<ListDocumentsPage>;
+export type GetDocumentResult = IpcEnvelope<CaseBoxDocument | null>;
