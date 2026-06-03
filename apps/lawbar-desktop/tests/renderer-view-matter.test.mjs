@@ -164,6 +164,8 @@ function makeStubApi(impl = {}) {
       impl.listDocuments ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
     getDocument: impl.getDocument ?? (async () => ({ ok: true, value: null })),
     registerDocument: impl.registerDocument ?? (async () => ({ ok: true, value: null })),
+    listDeadlines:
+      impl.listDeadlines ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
   };
 }
 
@@ -949,4 +951,117 @@ test("add document: registration error renders inline role=alert", async () => {
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
   assert.equal(collectText(err), "register failed");
+});
+
+// --- Deadlines section (B7 read-only) ---
+
+function deadlineRow(overrides = {}) {
+  return {
+    id: "01jzdl00000000000000000000",
+    kind: "filing",
+    due_at: "2026-06-30T10:30:00Z",
+    owner_user_id: EVENT_ULID,
+    status: "pending",
+    ...overrides,
+  };
+}
+
+test("deadlines: NOT loaded until summary clicked", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let calls = 0;
+  const api = makeStubApi({
+    listDeadlines: async () => {
+      calls++;
+      return { ok: true, value: { rows: [], next_cursor: null } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  assert.equal(calls, 0);
+  findByTestId(root, "view-deadlines-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(calls, 1);
+});
+
+test("deadlines: empty state when none", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    listDeadlines: async () => ({ ok: true, value: { rows: [], next_cursor: null } }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-deadlines-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const empty = findByTestId(root, "view-deadlines-empty");
+  assert.ok(empty !== null);
+  assert.equal(collectText(empty), "No deadlines recorded for this matter.");
+  assert.equal(findAllByTestId(root, "view-deadlines-row").length, 0);
+});
+
+test("deadlines: populated rows render due/kind/status (+rule)", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    listDeadlines: async () => ({
+      ok: true,
+      value: {
+        rows: [
+          deadlineRow({ kind: "filing", status: "pending", source_rule_citation: "FRCP 12(a)" }),
+          deadlineRow({ id: "01jzdl00000000000000000001", kind: "hearing", status: "met" }),
+        ],
+        next_cursor: null,
+      },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-deadlines-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-deadlines-row").length, 2);
+  const kinds = findAllByTestId(root, "view-deadlines-kind").map(collectText);
+  assert.deepEqual(kinds, ["filing · pending", "hearing · met"]);
+  const rules = findAllByTestId(root, "view-deadlines-rule").map(collectText);
+  assert.deepEqual(rules, ["rule: FRCP 12(a)"]);
+  assert.equal(findByTestId(root, "view-deadlines-more"), null);
+});
+
+test("deadlines: envelope error renders inline role=alert", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    listDeadlines: async () => ({
+      ok: false,
+      error: { kind: "case_box_persistence_error", code: "invalid_payload", message: "deadlines failed" },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-deadlines-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const err = findByTestId(root, "view-deadlines-error");
+  assert.ok(err !== null);
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err), "deadlines failed");
+});
+
+test("deadlines: next_cursor → Show more appends then disappears", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let call = 0;
+  const api = makeStubApi({
+    listDeadlines: async (dto) => {
+      call++;
+      if (call === 1) return { ok: true, value: { rows: [deadlineRow()], next_cursor: "cur-2" } };
+      assert.equal(dto.cursor, "cur-2");
+      return { ok: true, value: { rows: [deadlineRow({ id: "01jzdl00000000000000000002" })], next_cursor: null } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-deadlines-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-deadlines-row").length, 1);
+  const more = findByTestId(root, "view-deadlines-more");
+  assert.ok(more !== null);
+  more.dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-deadlines-row").length, 2);
+  assert.equal(findByTestId(root, "view-deadlines-more"), null);
 });

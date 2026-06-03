@@ -22,6 +22,7 @@ import {
 } from "../format.js";
 import { renderChainHeadDisclosure } from "./viewMatterAudit.js";
 import { renderDocumentsDisclosure } from "./viewMatterDocuments.js";
+import { renderDeadlinesDisclosure } from "./viewMatterDeadlines.js";
 
 interface ViewMatterRow {
   readonly id: string;
@@ -398,6 +399,9 @@ function renderDetail(
   // Read-only Documents section (B2, lazy load on disclosure open).
   const documentsDetails = renderDocumentsDisclosure(doc, deps.api, row.id);
 
+  // Read-only Deadlines section (B7, lazy load on disclosure open).
+  const deadlinesDetails = renderDeadlinesDisclosure(doc, deps.api, row.id);
+
   // Audit chain head + event-log disclosure.
   const chainHeadDetails = renderChainHeadDisclosure(doc, deps.api, row.id);
 
@@ -408,6 +412,7 @@ function renderDetail(
   root.appendChild(dl);
   root.appendChild(primaryAction);
   root.appendChild(documentsDetails);
+  root.appendChild(deadlinesDetails);
   root.appendChild(chainHeadDetails);
   root.appendChild(announce);
 
