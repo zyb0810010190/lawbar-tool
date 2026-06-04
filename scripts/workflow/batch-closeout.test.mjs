@@ -386,7 +386,10 @@ test("t14b: sentinel basename protected by both run-control hooks", () => {
   const S = "dev-memo/run/.closeout-pending";
   assert.equal(runBashHook("block-run-control-bash-write.sh", `printf X > ${S}`), "DENY");
   assert.equal(runBashHook("block-run-control-bash-write.sh", `rm ${S}`), "DENY");
-  assert.equal(runWriteHook("protect-run-control.sh", `/x/${S}`), "DENY");
+  // PRC-2: protect-run-control canonicalizes + scopes to THIS repo; a repo-relative sentinel path
+  // resolves under dev-memo/run and is denied. (A foreign absolute path under a different root is
+  // correctly out of scope; absolute-under-root coverage lives in the PRC-2 suites.)
+  assert.equal(runWriteHook("protect-run-control.sh", S), "DENY");
 });
 
 // =========================================================================

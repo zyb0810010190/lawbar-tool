@@ -25,7 +25,11 @@ expect ALLOW "valid Write to dev-memo/run/queue.md (authored, not protected)" '{
 
 # --- valid parse of a protected target still denies (unchanged behavior) ---
 expect DENY  "valid Write to dev-memo/run/config"           '{"tool_input":{"file_path":"dev-memo/run/config"}}'
-expect DENY  "valid Edit to .../dev-memo/run/last-batch-audit (absolute)" '{"tool_input":{"file_path":"/Users/x/p/dev-memo/run/last-batch-audit"}}'
+# PRC-2 scopes protection to THIS workspace's dev-memo/run/ (canonical match), so a foreign
+# absolute path under a DIFFERENT root is correctly not this hook's concern; a repo-relative path
+# to the protected file is still denied. (Absolute paths under a known root are covered by the
+# temp-project-dir PRC-2 section near the end + the runcontrol-canon.test.mjs unit suite.)
+expect DENY  "valid Edit to dev-memo/run/last-batch-audit (relative)" '{"tool_input":{"file_path":"dev-memo/run/last-batch-audit"}}'
 expect DENY  "valid Write to dev-memo/run/queue.governed"   '{"tool_input":{"file_path":"dev-memo/run/queue.governed"}}'
 
 # --- NEW: parse failure / missing / malformed referencing a protected file -> FAIL CLOSED ---
@@ -78,6 +82,34 @@ else
   printf 'protect-run-control: NOTE node present in /usr/bin:/bin; skipped node-absent cases\n'
 fi
 rm -rf "$PD_A" "$PD_E"
+
+# --- PRC-2: canonical path matching through the hook (temp project dirs) ---
+# The expected protected-basename list is an EXPLICIT table here (NOT imported from
+# runcontrol-canon.mjs) so the hook E2E is the tested source of truth for the bash-glob -> Node
+# shift (per the review). mk_pd/expect_pd/expect_nonode are defined in the PRC-1 section above.
+PD2=$(mk_pd)
+for base in queue.governed queue.linted queue.reviewed human.ack human.override override-reason.md \
+            batch-start last-batch-audit risk.flag config forbidden-paths.txt .closeout-pending; do
+  expect_pd DENY "PRC-2: protected basename $base (canonical)" "$PD2" "{\"tool_input\":{\"file_path\":\"$PD2/dev-memo/run/$base\",\"content\":\"x\"}}"
+done
+# lexical spelling bypasses (the PRC-2 bug) now DENY
+expect_pd DENY  "PRC-2: dev-memo/run/./config"      "$PD2" "{\"tool_input\":{\"file_path\":\"$PD2/dev-memo/run/./config\",\"content\":\"x\"}}"
+expect_pd DENY  "PRC-2: dev-memo/run//config"       "$PD2" "{\"tool_input\":{\"file_path\":\"$PD2/dev-memo/run//config\",\"content\":\"x\"}}"
+expect_pd DENY  "PRC-2: dev-memo/run/x/../config"   "$PD2" "{\"tool_input\":{\"file_path\":\"$PD2/dev-memo/run/x/../config\",\"content\":\"x\"}}"
+# PRC-5: xdev-memo/run/config is a different file -> ALLOW (no false positive)
+expect_pd ALLOW "PRC-2/PRC-5: xdev-memo/run/config not falsely denied" "$PD2" "{\"tool_input\":{\"file_path\":\"$PD2/xdev-memo/run/config\",\"content\":\"x\"}}"
+# symlink NAMED OUTSIDE dev-memo/run resolving to a protected file -> DENY (outside-symlink closure)
+printf 'x' > "$PD2/dev-memo/run/config"
+ln -s "$PD2/dev-memo/run/config" "$PD2/clink" 2>/dev/null
+expect_pd DENY  "PRC-2: outside-named symlink -> config DENY" "$PD2" "{\"tool_input\":{\"file_path\":\"$PD2/clink\",\"content\":\"x\"}}"
+# DANGLING symlink to an ABSENT protected file (a Write through it would CREATE it) -> DENY (audit High)
+ln -s "$PD2/dev-memo/run/human.ack" "$PD2/acklink" 2>/dev/null
+expect_pd DENY  "PRC-2: dangling symlink -> absent human.ack DENY" "$PD2" "{\"tool_input\":{\"file_path\":\"$PD2/acklink\",\"content\":\"x\"}}"
+# node-absent fallback still denies the raw protected path (degraded, not fail-open)
+if ! PATH=/usr/bin:/bin command -v node >/dev/null 2>&1; then
+  expect_nonode DENY "PRC-2: node-absent fallback denies config" "$PD2" "{\"tool_input\":{\"file_path\":\"$PD2/dev-memo/run/config\",\"content\":\"x\"}}"
+fi
+rm -rf "$PD2"
 
 printf 'protect-run-control: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then printf 'FAILED:%b\n' "$failed"; exit 1; fi
