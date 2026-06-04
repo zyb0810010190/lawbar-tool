@@ -40,6 +40,36 @@ if [ -z "$P" ]; then
   exit 0
 fi
 
+# PRC-2: canonicalize + classify the target by EXACT normalized path (path.resolve + best-effort
+# realpath), NOT the suffix globs below. Closes lexical spelling bypasses (dev-memo/run/./config,
+# dev-memo/run//config, dev-memo/run/x/../config) AND the symlink residual (a path that REALPATHs to
+# a protected file, regardless of its own name). Runs on EVERY parsed Write/Edit/MultiEdit path when
+# node is available. Plan: dev-memo/plan-prc2-path-canon.md (rev-1). Helper exit codes:
+#   0 not-protected (allow) · 10 blanket-protected (deny) · 11 log.md (PRC-1 append-only verifier) ·
+#   2 could-not-classify -> fall through to the bash-glob fallback below (NOT a blanket allow).
+HOOKDIR="$(cd "$(dirname "$0")" && pwd)"
+if command -v node >/dev/null 2>&1; then
+  printf '%s' "$INPUT" | node "$HOOKDIR/runcontrol-canon.mjs"
+  crc=$?
+  case $crc in
+    0) exit 0 ;;
+    10) deny "Run-control file is protected (canonical path match): change $(basename "$P") only via the workflow scripts (check-queue.sh / mark-queue-reviewed.sh / govern-queue.sh) or a deliberate human action — not a direct agent write. This prevents forging governance/override/audit state." ;;
+    11)
+      printf '%s' "$INPUT" | node "$HOOKDIR/logmd-append-guard.mjs"
+      case $? in
+        0) exit 0 ;;
+        3) deny "dev-memo/run/log.md reached via a symlink/alias cannot be append-verified; denying (fail-closed)." ;;
+        *) deny "dev-memo/run/log.md is the append-only audit trail: this Write/Edit would truncate or rewrite existing content (or a Write targets the existing trail). Append a new entry at the end, or use Bash '>>'." ;;
+      esac ;;
+    2) : ;;   # designed parse-error -> fall through to the bash-glob fallback below
+    *) deny "Run-control guard: canonical classification failed unexpectedly (runcontrol-canon.mjs exit $crc); denying as a precaution (fail-closed)." ;;
+  esac
+fi
+
+# --- bash-glob FALLBACK (node absent, or helper could not classify) — pre-PRC-2 behavior ---
+# Degraded (lexical/symlink bypasses possible) but never worse than before PRC-2, never deny-all /
+# fail-open. node is a project requirement (Node 22+), so reaching here is anomalous.
+#
 # Append-only audit trail (PRC-1): dev-memo/run/log.md is intentionally NOT in the blanket deny
 # set below — a direct Write/Edit/MultiEdit is allowed ONLY if it preserves the trail
 # (append-only: the result keeps the current content as a strict prefix; a Write may only CREATE
