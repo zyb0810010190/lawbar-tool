@@ -50,3 +50,6 @@ dev-memo/superseded/
 
 # Auto-advance local run-state
 /dev-memo/run/last-batch-audit
+# Batch-closeout transient sentinel (BATCH-CLOSEOUT-AUTO-00); written/removed only by
+# scripts/workflow/batch-closeout.mjs, never committed.
+/dev-memo/run/.closeout-pending

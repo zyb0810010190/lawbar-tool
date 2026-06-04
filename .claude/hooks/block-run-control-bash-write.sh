@@ -62,7 +62,10 @@ else
 fi
 
 # Authority/state basenames. Keep in sync with protect-run-control.sh.
-AUTH='config|batch-start|last-batch-audit|queue\.governed|queue\.linted|queue\.reviewed|risk\.flag|human\.ack|human\.override|override-reason\.md|forbidden-paths\.txt'
+# `.closeout-pending` is the batch-closeout sentinel (BATCH-CLOSEOUT-AUTO-00): writable/removable
+# ONLY by the named closeout script (script channel), never by a direct agent write — else the
+# additive batch-commit-guard.sh deny it drives could be forged or cleared.
+AUTH='config|batch-start|last-batch-audit|queue\.governed|queue\.linted|queue\.reviewed|risk\.flag|human\.ack|human\.override|override-reason\.md|forbidden-paths\.txt|\.closeout-pending'
 
 # --- fast exit / fail-safe when nothing references dev-memo/run/ ---
 if [ -z "$CMD" ]; then
@@ -220,9 +223,73 @@ scan_verbs() {
   set +f
 }
 
+# --- pass 5: interpreter inline-code mutations of an authority file (payload-scoped) ---
+# Closes the pre-existing loophole that a shell redirection/verb scan cannot see: an interpreter
+# given INLINE CODE (node -e/-p/--eval, python -c, perl -e, ruby -e) that writes an authority
+# file (e.g. `node -e "fs.writeFileSync('dev-memo/run/last-batch-audit', …)"`) is not a shell
+# redirection and carries no shell write-verb, so passes 1-4 allow it.
+# Scope (narrow, per the cc-suite review-plan of BATCH-CLOSEOUT-AUTO-00, to avoid the lexical
+# whole-string over-deny): deny ONLY when ALL hold — (a) the statement command word is an
+# interpreter; (b) it carries an inline-code flag; (c) the inline payload (the post-command
+# remainder of that interpreter statement) names a protected dev-memo/run/ authority file AND a
+# mutation indicator. A read-only ref (readFileSync) or a payload naming no protected file is
+# ALLOWED. A NAMED script (`node scripts/…batch-closeout.mjs`) carries no inline-code flag, so it
+# stays on the sanctioned script channel. Residual (documented): a mutation routed through a
+# child-process shell string the interpreter spawns is the same cooperative-agent floor as the
+# rest of this hook; the outer shell form is still caught by passes 1-4.
+# Mutation primitives (fs method names + pathlib writers). The write-mode open(...) family
+# (python open(path,'w'|'a'|'x'|'+'), perl open(FH,'>file') / open(FH,'>',$p)) is matched
+# separately by OPENMUT because its signal is the MODE ARGUMENT after the first comma, not a
+# method name (audit finding H2: open()/write_text/perl-'>' were false negatives).
+MUT='writeFile|appendFile|truncate|unlink|rename|symlink|chmod|chown|mkdir|rmdir|copyFile|createWriteStream|write_text|write_bytes|\.touch[[:space:]]*\(|\.write[[:space:]]*\('
+OPENMUT='open[[:space:]]*\([^,)]*,[[:space:]]*.?[awx+>]'
+scan_interp() {
+  local stmt w cmd0 vbase payload sawflag a full=$1
+  set -f
+  while IFS= read -r stmt; do
+    set -- $stmt
+    while [ $# -gt 0 ]; do                          # unwrap env-assignments + benign wrappers
+      w=$1; w=${w#\"}; w=${w#\'}; w=${w#\\}
+      case "$w" in
+        [A-Za-z_]*=*) shift ;;
+        command|exec|time|env|nice|nohup|stdbuf|setsid)
+          shift; while [ $# -gt 0 ]; do case "$1" in -*) shift ;; [A-Za-z_]*=*) shift ;; *) break ;; esac; done ;;
+        *) break ;;
+      esac
+    done
+    [ $# -gt 0 ] || continue
+    cmd0=$1; cmd0=${cmd0#\"}; cmd0=${cmd0#\'}; cmd0=${cmd0#\\}
+    vbase=${cmd0##*/}
+    case "$vbase" in node|nodejs|python|python3|perl|ruby) ;; *) continue ;; esac
+    shift
+    sawflag=""                                       # inline-code flag present?
+    for a in "$@"; do
+      case "$a" in -e|-p|--eval|-c|-e*|-p*|--eval=*) sawflag=1 ;; esac
+    done
+    [ -n "$sawflag" ] || continue
+    # Inline code can legitimately contain `;` (e.g. python `import x; Path(p).write_text(y)`),
+    # which the statement splitter breaks on — so once ANY statement is an interpreter+inline-flag
+    # invocation, scan the WHOLE command for a protected-path + mutation pair (not just this
+    # fragment), else the in-quote `;` case is a false negative (audit finding H2). Over-deny stays
+    # narrow: it only fires when an interpreter inline-flag invocation co-occurs with a protected
+    # path AND a write primitive. A read-only inline ref (readFileSync / open(...,'r')) has no
+    # mutation match and is allowed; a write primitive in a SEPARATE shell statement is the concern
+    # of scan_redir/scan_verbs, not this pass.
+    payload="$full"
+    printf '%s' "$payload" | grep -qE "dev-memo/run/($AUTH|log\.md)" || continue
+    if printf '%s' "$payload" | grep -qE "$MUT" \
+       || printf '%s' "$payload" | grep -qE "$OPENMUT"; then
+      set +f
+      emit_deny "Run-control guard: interpreter inline-code ($vbase -e/-c) that mutates a dev-memo/run/ authority file is forbidden. Change run-control state via the workflow scripts (which name a script path, not inline code) or a deliberate human action."
+    fi
+  done < <(printf '%s\n' "$1" | awk '{gsub(/&&|\|\||[;|&]/, "\n"); print}')
+  set +f
+}
+
 # Primary scan of the top-level command line.
 scan_redir "$CMD" blank
 scan_verbs "$CMD"
+scan_interp "$CMD"
 
 # --- pass 4: command-substitution bodies, ANY nesting depth (innermost peeling) ---
 # `$(...)` and `` `...` `` EXECUTE regardless of surrounding context — including inside [[ ]],

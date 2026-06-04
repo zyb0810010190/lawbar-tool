@@ -22,7 +22,7 @@ deny(){ esc=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')
 
 # Protected run-control basenames under dev-memo/run/. Keep this regex in sync with the case
 # below and with block-run-control-bash-write.sh.
-PROTECTED_RE='dev-memo/run/(queue\.governed|queue\.linted|queue\.reviewed|human\.ack|human\.override|override-reason\.md|batch-start|last-batch-audit|risk\.flag|config|forbidden-paths\.txt)'
+PROTECTED_RE='dev-memo/run/(queue\.governed|queue\.linted|queue\.reviewed|human\.ack|human\.override|override-reason\.md|batch-start|last-batch-audit|risk\.flag|config|forbidden-paths\.txt|\.closeout-pending)'
 
 if command -v jq >/dev/null 2>&1; then
   P=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // empty' 2>/dev/null)
@@ -45,7 +45,7 @@ case "$P" in
   *dev-memo/run/queue.governed|*dev-memo/run/queue.linted|*dev-memo/run/queue.reviewed\
   |*dev-memo/run/human.ack|*dev-memo/run/human.override|*dev-memo/run/override-reason.md\
   |*dev-memo/run/batch-start|*dev-memo/run/last-batch-audit|*dev-memo/run/risk.flag\
-  |*dev-memo/run/config|*dev-memo/run/forbidden-paths.txt)
+  |*dev-memo/run/config|*dev-memo/run/forbidden-paths.txt|*dev-memo/run/.closeout-pending)
     deny "Run-control file is protected: change $(basename "$P") only via the workflow scripts (check-queue.sh / mark-queue-reviewed.sh / govern-queue.sh) or a deliberate human action — not a direct agent write. This prevents forging governance/override/audit state." ;;
 esac
 exit 0
