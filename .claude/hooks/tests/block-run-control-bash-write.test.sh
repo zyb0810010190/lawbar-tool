@@ -332,6 +332,35 @@ expect ALLOW "cd then [[ > ]] comparison"     'cd dev-memo/run && [[ "$x" > conf
 expect DENY  "regression direct redirect"     'echo x > dev-memo/run/config'
 expect DENY  "regression direct rm"           'rm dev-memo/run/config'
 
+# --- PRC-4-FU: emit_deny() must emit VALID JSON for control chars / quotes / backslashes ---
+# Extract emit_deny() in isolation (depends only on $1, jq, sed, tr, printf) and assert the output
+# parses as JSON with permissionDecision=deny — for both the jq-present and jq-fallback branches.
+EMITDENY_DEF=$(sed -n '/^emit_deny() {/,/^}/p' "$HOOK")
+fu_valid() { printf '%s' "$1" | python3 -c "import json,sys
+try:
+  d=json.load(sys.stdin); print('OK' if d.get('hookSpecificOutput',{}).get('permissionDecision')=='deny' else 'BAD')
+except Exception: print('BAD')" 2>/dev/null; }
+fu_check() { # fu_check <label> <reason> [path]
+  local label=$1 reason=$2 pth=${3:-$PATH} out got
+  out=$(PATH="$pth" bash -c "$EMITDENY_DEF"$'\n''emit_deny "$1"' _ "$reason" 2>/dev/null)
+  got=$(fu_valid "$out")
+  if [ "$got" = "OK" ]; then pass=$((pass+1)); else fail=$((fail+1)); failed_cases="$failed_cases\n  [PRC-4-FU invalid emit_deny JSON] $label :: $(printf '%s' "$out" | head -c 120)"; fi
+}
+FU_NL=$(printf 'reason with\nnewline');   FU_TAB=$(printf 'reason\twith tab')
+FU_CR=$(printf 'reason\rwith cr');        FU_QB='reason with "quote" and \backslash'
+FU_MIX=$(printf 'mix\n\t"q"\\b\rend');     FU_NORMAL='plain ascii reason'
+FU_STUB=$(mktemp -d); printf '#!/bin/sh\nexit 1\n' > "$FU_STUB/jq"; chmod +x "$FU_STUB/jq"
+for variant in "jq-present:$PATH" "jq-fallback:$FU_STUB:$PATH"; do
+  vlabel=${variant%%:*}; vpath=${variant#*:}
+  fu_check "emit_deny $vlabel newline"  "$FU_NL"     "$vpath"
+  fu_check "emit_deny $vlabel tab"      "$FU_TAB"    "$vpath"
+  fu_check "emit_deny $vlabel CR"       "$FU_CR"     "$vpath"
+  fu_check "emit_deny $vlabel quote+bs" "$FU_QB"     "$vpath"
+  fu_check "emit_deny $vlabel mixed"    "$FU_MIX"    "$vpath"
+  fu_check "emit_deny $vlabel normal"   "$FU_NORMAL" "$vpath"
+done
+rm -rf "$FU_STUB"
+
 # ---------------------------------------------------------------------------
 printf 'block-run-control-bash-write: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then

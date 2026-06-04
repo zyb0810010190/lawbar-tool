@@ -26,9 +26,21 @@
 
 INPUT=$(cat)
 
+# emit_deny <reason>: emit the PreToolUse deny decision as VALID JSON (PRC-4-FU; mirrors
+# protect-run-control.sh deny()). Escaping only `\` and `"` (the old behaviour) left ASCII C0
+# control bytes (newline/tab/CR, 0x00-0x1F) UNescaped, which is invalid JSON (RFC 8259 §7) and
+# could make the harness fail to register the deny (fail-open). jq -Rs encodes the whole reason as
+# a JSON string literal (quotes + all escaping incl C0 + UTF-8). If jq is unavailable OR errors
+# (e.g. invalid UTF-8), fall back to stripping C0 controls to spaces + escaping `\`/`"` — still
+# valid JSON (non-UTF-8 bytes in that degraded path are a documented residual).
 emit_deny() {
-  esc=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$esc"
+  local reason=$1 enc
+  if command -v jq >/dev/null 2>&1 && enc=$(printf '%s' "$reason" | jq -Rs . 2>/dev/null) && [ -n "$enc" ]; then
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' "$enc"
+  else
+    enc=$(printf '%s' "$reason" | tr '\000-\037' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$enc"
+  fi
   exit 0
 }
 
