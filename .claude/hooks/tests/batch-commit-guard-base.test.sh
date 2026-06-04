@@ -83,6 +83,35 @@ expect ALLOW "garbage audit dropped, bs C3 count1<3"         "${C[3]}" "$GARBAGE
 # both missing -> deny.
 expect DENY  "neither file -> deny"                          ""        ""         10 3
 
+# --- PRC-4-FU: deny() must emit VALID JSON for control chars / quotes / backslashes ---
+# Extract deny() in isolation (depends only on $1, jq, sed, tr, printf) and assert the output
+# parses as JSON with permissionDecision=deny — for both the jq-present and jq-fallback branches.
+DENY_DEF=$(sed -n '/^deny() {/,/^}/p' "$HOOK")
+fu_valid() { printf '%s' "$1" | python3 -c "import json,sys
+try:
+  d=json.load(sys.stdin); print('OK' if d.get('hookSpecificOutput',{}).get('permissionDecision')=='deny' else 'BAD')
+except Exception: print('BAD')" 2>/dev/null; }
+fu_check() { # fu_check <label> <reason> [path]
+  local label=$1 reason=$2 pth=${3:-$PATH} out got
+  out=$(PATH="$pth" bash -c "$DENY_DEF"$'\n''deny "$1"' _ "$reason" 2>/dev/null)
+  got=$(fu_valid "$out")
+  if [ "$got" = "OK" ]; then pass=$((pass+1)); else fail=$((fail+1)); failed="$failed\n  [PRC-4-FU invalid deny JSON] $label :: $(printf '%s' "$out" | head -c 120)"; fi
+}
+FU_NL=$(printf 'reason with\nnewline');   FU_TAB=$(printf 'reason\twith tab')
+FU_CR=$(printf 'reason\rwith cr');        FU_QB='reason with "quote" and \backslash'
+FU_MIX=$(printf 'mix\n\t"q"\\b\rend');     FU_NORMAL='plain ascii reason'
+FU_STUB=$(mktemp -d); printf '#!/bin/sh\nexit 1\n' > "$FU_STUB/jq"; chmod +x "$FU_STUB/jq"
+for variant in "jq-present:$PATH" "jq-fallback:$FU_STUB:$PATH"; do
+  vlabel=${variant%%:*}; vpath=${variant#*:}
+  fu_check "deny $vlabel newline"  "$FU_NL"     "$vpath"
+  fu_check "deny $vlabel tab"      "$FU_TAB"    "$vpath"
+  fu_check "deny $vlabel CR"       "$FU_CR"     "$vpath"
+  fu_check "deny $vlabel quote+bs" "$FU_QB"     "$vpath"
+  fu_check "deny $vlabel mixed"    "$FU_MIX"    "$vpath"
+  fu_check "deny $vlabel normal"   "$FU_NORMAL" "$vpath"
+done
+rm -rf "$FU_STUB"
+
 printf 'batch-commit-guard-base: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then printf 'FAILED:%b\n' "$failed"; exit 1; fi
 echo "ALL PASS"; exit 0
