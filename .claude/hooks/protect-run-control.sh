@@ -34,11 +34,40 @@ fi
 # (an unparseable write to a governance file must not be allowed through); otherwise allow —
 # it is not a recognizable run-control write, so leave it to other hooks/permissions.
 if [ -z "$P" ]; then
-  if printf '%s' "$INPUT" | grep -qE "$PROTECTED_RE"; then
-    deny "Run-control guard: could not parse the target path of this Write/Edit, but the payload references a protected dev-memo/run/ file. Denying as a precaution (fail-closed). Re-issue with an explicit file_path, or change run-control state only via the workflow scripts (check-queue.sh / mark-queue-reviewed.sh / govern-queue.sh) or a deliberate human action."
+  if printf '%s' "$INPUT" | grep -qE "$PROTECTED_RE|dev-memo/run/log\.md"; then
+    deny "Run-control guard: could not parse the target path of this Write/Edit, but the payload references a protected dev-memo/run/ file (or the append-only audit trail). Denying as a precaution (fail-closed). Re-issue with an explicit file_path, or change run-control state only via the workflow scripts (check-queue.sh / mark-queue-reviewed.sh / govern-queue.sh) or a deliberate human action."
   fi
   exit 0
 fi
+
+# Append-only audit trail (PRC-1): dev-memo/run/log.md is intentionally NOT in the blanket deny
+# set below — a direct Write/Edit/MultiEdit is allowed ONLY if it preserves the trail
+# (append-only: the result keeps the current content as a strict prefix; a Write may only CREATE
+# an absent trail). Route any path whose basename mentions log.md to the verifier, which LEXICALLY
+# canonicalizes file_path (path.resolve) and enforces the invariant when it resolves to
+# dev-memo/run/log.md, exiting 3 (fall through) for any other *log.md* file. Symlink /
+# non-"log.md"-named indirection is deferred to PRC-2 (dev-memo/deferred-audit-findings.md).
+# Fail-closed: a non-zero verifier exit, or node unavailable for a path that names the trail.
+case "$P" in
+  *log.md*)
+    HOOKDIR="$(cd "$(dirname "$0")" && pwd)"
+    if command -v node >/dev/null 2>&1; then
+      printf '%s' "$INPUT" | node "$HOOKDIR/logmd-append-guard.mjs"
+      case $? in
+        0) exit 0 ;;   # canonically dev-memo/run/log.md AND append-only/create -> allow
+        3) ;;          # not the audit trail -> fall through to the blanket check below
+        *) deny "dev-memo/run/log.md is the append-only audit trail: this Write/Edit would truncate or rewrite existing content (or a Write targets the existing trail). Append a new entry at the end, or use Bash '>>'." ;;
+      esac
+    else
+      # node unavailable: cannot verify append-only NOR lexically canonicalize spellings. A narrow
+      # raw-glob (e.g. *dev-memo/run/log.md) would MISS `//`/`../` spellings, which then fall through
+      # to the blanket case (where log.md is intentionally unprotected) and ALLOW — a fail-OPEN
+      # (audit audit-mpz56jzu-6xiqep, Medium). Fail CLOSED instead: deny EVERY routed *log.md* path.
+      # node is a project requirement (Node 22+), so this degraded-mode over-deny of unrelated
+      # *log.md* files (e.g. cc-suite-reliability-log.md) is acceptable friction.
+      deny "dev-memo/run/log.md append-only check requires node, which is unavailable; denying this *log.md* Write/Edit as a precaution (fail-closed)."
+    fi ;;
+esac
 
 # Match the protected control files by basename under dev-memo/run/.
 case "$P" in
