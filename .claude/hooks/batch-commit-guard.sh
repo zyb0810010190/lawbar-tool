@@ -117,6 +117,18 @@ if [ "$OVERRIDE" -eq 0 ]; then
   # queue.linted (check-queue.sh) AND queue.reviewed (Codex /review-plan) — or human approval.
   [ -f "$RUN/queue.governed" ] || deny "Batch guard: queue is not governed. Need queue.linted + queue.reviewed (then govern-queue.sh), or explicit human approval. Lint alone is not sufficient."
 
+  # Closeout-in-progress (BATCH-CLOSEOUT-AUTO-00). The verified closeout
+  # (scripts/workflow/batch-closeout.mjs) writes dev-memo/run/.closeout-pending BEFORE it mutates
+  # the marker and removes it only after its own batch-close commit succeeds. While the sentinel
+  # exists the audit window is, by construction, NOT yet cleared — so treat the batch as still
+  # audit-DUE and deny every normal agent commit. This is STRICTLY ADDITIVE: it can only ADD a
+  # denial (it never permits a commit the count/governed/risk checks already blocked). The
+  # closeout's own commit is a child process of node, not a Claude Bash-tool call, so it is not
+  # gated here. A crash mid-closeout leaves the sentinel → this deny holds → re-running the
+  # closeout reconciles. The sentinel is tamper-protected by protect-run-control.sh +
+  # block-run-control-bash-write.sh (only the closeout script may write/remove it).
+  [ -f "$RUN/.closeout-pending" ] && deny "Batch guard: a batch-closeout is in progress (dev-memo/run/.closeout-pending present); the audit window is not yet cleared, so commits remain blocked as audit-DUE. Re-run scripts/workflow/batch-closeout.mjs to complete or reconcile the closeout first."
+
   # Counter is GIT-DERIVED, not agent-maintained: commits since the current window start.
   # BASE = the NEWER of batch-start and last-batch-audit (BATCH-COUNTER-001 fix).
   #   - batch-start defines the current batch window (reset when a new batch begins).
