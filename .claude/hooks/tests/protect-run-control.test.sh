@@ -111,6 +111,40 @@ if ! PATH=/usr/bin:/bin command -v node >/dev/null 2>&1; then
 fi
 rm -rf "$PD2"
 
+# --- PRC-4: deny() must emit VALID JSON for control chars / quotes / backslashes / newlines ---
+# Extract the deny() function in isolation (it depends only on $1, jq, sed, tr, printf) and assert the
+# output parses as JSON with permissionDecision=deny — for both the jq-present and jq-absent branches.
+DENY_DEF=$(sed -n '/^deny(){/,/exit 0; }/p' "$HOOK")
+prc4_valid() { # prc4_valid <output> -> OK iff valid JSON + permissionDecision deny
+  printf '%s' "$1" | python3 -c "import json,sys
+try:
+  d=json.load(sys.stdin); print('OK' if d.get('hookSpecificOutput',{}).get('permissionDecision')=='deny' else 'BAD')
+except Exception: print('BAD')" 2>/dev/null
+}
+prc4_check() { # prc4_check <label> <reason> [path-for-jq-control]
+  local label=$1 reason=$2 pth=${3:-$PATH} out got
+  out=$(PATH="$pth" bash -c "$DENY_DEF"$'\n''deny "$1"' _ "$reason" 2>/dev/null)
+  got=$(prc4_valid "$out")
+  if [ "$got" = "OK" ]; then pass=$((pass+1)); else fail=$((fail+1)); failed="$failed\n  [PRC-4 invalid deny JSON] $label :: $(printf '%s' "$out" | head -c 120)"; fi
+}
+PRC4_NL=$(printf 'reason with\nnewline');     PRC4_TAB=$(printf 'reason\twith tab')
+PRC4_CR=$(printf 'reason\rwith cr');          PRC4_QB='reason with "quote" and \backslash'
+PRC4_MIX=$(printf 'mix\n\t"q"\\b\rend');       PRC4_NORMAL='plain ascii reason'
+# jq-fallback variant: prepend a `jq` STUB that exits non-zero, so deny() takes the no-jq fallback
+# branch (also exercises the "jq errors -> fallback" robustness). The fallback's tr/sed come from the
+# rest of PATH. (jq is present system-wide here — /usr/bin/jq — so a PATH-strip cannot force absence.)
+PRC4_STUB=$(mktemp -d); printf '#!/bin/sh\nexit 1\n' > "$PRC4_STUB/jq"; chmod +x "$PRC4_STUB/jq"
+for variant in "jq-present:$PATH" "jq-fallback:$PRC4_STUB:$PATH"; do
+  vlabel=${variant%%:*}; vpath=${variant#*:}
+  prc4_check "PRC-4 $vlabel newline"   "$PRC4_NL"     "$vpath"
+  prc4_check "PRC-4 $vlabel tab"       "$PRC4_TAB"    "$vpath"
+  prc4_check "PRC-4 $vlabel CR"        "$PRC4_CR"     "$vpath"
+  prc4_check "PRC-4 $vlabel quote+bs"  "$PRC4_QB"     "$vpath"
+  prc4_check "PRC-4 $vlabel mixed"     "$PRC4_MIX"    "$vpath"
+  prc4_check "PRC-4 $vlabel normal"    "$PRC4_NORMAL" "$vpath"
+done
+rm -rf "$PRC4_STUB"
+
 printf 'protect-run-control: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then printf 'FAILED:%b\n' "$failed"; exit 1; fi
 echo "ALL PASS"; exit 0
