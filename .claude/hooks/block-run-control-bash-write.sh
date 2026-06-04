@@ -76,7 +76,27 @@ if [ -z "$CMD" ]; then
   fi
   exit 0
 fi
-printf '%s' "$CMD" | grep -qE 'dev-memo/run/' || exit 0
+# --- BRCBW-10: de-obfuscate lexical shell-word obfuscation of the path (Mechanism 0) ---
+# Produce a best-effort de-obfuscated copy: strip an unquoted backslash before a non-special char
+# (`r\un` -> `run`, `d\ev-memo` -> `dev-memo`), and — when each quote type is BALANCED (even count)
+# — remove the surrounding `'`/`"` of literal concatenation (`"run"` -> `run`, `ru''n` -> `run`),
+# preserving contents. ODD (unbalanced) quote count => leave unchanged (fail-safe). Does NOT resolve
+# $IFS / $(...) / variables / brace expansion (Mechanism-C non-goals). Used to (a) widen the
+# fast-exit and (b) feed an ADDITIVE rescan so obfuscated targets reach tok_auth.
+deobf() {
+  local s=$1 dq sq
+  s=$(printf '%s' "$s" | sed 's/\\\(.\)/\1/g')
+  dq=$(printf '%s' "$s" | tr -cd '"' | wc -c | tr -d ' ')
+  sq=$(printf '%s' "$s" | tr -cd "'" | wc -c | tr -d ' ')
+  if [ $((dq % 2)) -eq 0 ] && [ $((sq % 2)) -eq 0 ]; then
+    s=$(printf '%s' "$s" | tr -d "\"'")
+  fi
+  printf '%s' "$s"
+}
+DEOBF=$(deobf "$CMD")
+# Fast-exit gate (BRCBW-10/-1 High fix): proceed iff CMD or DEOBF references dev-memo/run — NO
+# trailing-slash requirement, so `cd dev-memo/run` (no slash) and de-obfuscated paths are seen.
+printf '%s' "$CMD" | grep -qE 'dev-memo/run' || printf '%s' "$DEOBF" | grep -qE 'dev-memo/run' || exit 0
 
 # --- helpers --- token classifiers: does a single (quote-stripped) token name an authority file?
 tok_auth()  { local t=$1; t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}
@@ -286,10 +306,142 @@ scan_interp() {
   set +f
 }
 
+# --- pass 6: bounded indirection resolver (BRCBW-1/2) — literal cd + literal-var, context-gated ---
+# Tracks, within a single command line, a literal `cd dev-memo/run` directory and standalone
+# `VAR=<literal>` assignments, then resolves a write-verb operand / redirection target through them
+# before the authority check. Bounded/lexical (spec §3 Mechanism B): literal RHS only (no $/$()/`);
+# same line, last-assignment-wins, prior-assignments-only; subshell scope over-approximated to the
+# enclosing cd (deny-safe); a BARE reserved basename is denied ONLY when a run-control cd is tracked
+# (the narrow reserved-basename fallback — no global bare-basename deny). Non-goals (computed paths,
+# $IFS, brace, eval, dynamic cd) are documented residuals. Strictly ADDITIVE — only adds DENYs.
+ind_check() {            # ind_check <token> <cwd> <vars> <verb> <append:0|1>
+  local t=$1 cwd=$2 vars=$3 verb=$4 append=${5:-0} v base was_var=0
+  t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}
+  case "$t" in
+    '$'*) was_var=1; v=${t#\$}; v=${v#\{}; v=${v%\}}
+      t=$(printf '%s\n' "$vars" | grep -E "^${v}=" 2>/dev/null | tail -1 | cut -d= -f2-)
+      [ -n "$t" ] || return 0 ;;            # unresolved var -> Mechanism-C non-goal, allow
+  esac
+  case "$t" in
+    *dev-memo/run/*)
+      # A token that is ALREADY a literal dev-memo/run/ path is handled by scan_redir/scan_verbs
+      # (which correctly honour >> append + [[ ]] comparison). Only act here when it was RESOLVED
+      # from a variable — otherwise return so we never re-deny a direct path (and never re-introduce
+      # the log.md-append / BRCBW-7 [[ ]] false positives).
+      [ "$was_var" = 1 ] || return 0
+      base=${t##*/}
+      if [ "$base" = "log.md" ]; then
+        [ "$append" = 1 ] || { set +f; emit_deny "Run-control guard: indirected '$verb' (via variable) truncates dev-memo/run/log.md — the audit trail is append-only."; }
+      else
+        printf '%s' "$base" | grep -qE "^($AUTH)$" && { set +f; emit_deny "Run-control guard: indirected '$verb' resolves to dev-memo/run/$base (via variable) — governance/audit state changes only via the workflow scripts or a deliberate human action."; }
+      fi ;;
+    */*) : ;;                               # relative path with a dir prefix, not bare -> bound
+    *) [ "$cwd" = "dev-memo/run" ] || return 0   # bare basename: deny ONLY under a tracked run-control cd
+      if [ "$t" = "log.md" ]; then
+        [ "$append" = 1 ] || { set +f; emit_deny "Run-control guard: '$verb $t' after 'cd dev-memo/run' truncates dev-memo/run/log.md — append-only."; }
+      else
+        printf '%s' "$t" | grep -qE "^($AUTH)$" && { set +f; emit_deny "Run-control guard: '$verb $t' after 'cd dev-memo/run' resolves to dev-memo/run/$t — forbidden."; }
+      fi ;;
+  esac
+}
+scan_indirection() {
+  local full=$1 stmt t name val w cmd0 vbase a norm mode cwd="" vars="" onlyassign ta dest tdir has_i
+  set -f
+  while IFS= read -r stmt; do
+    set -- $stmt
+    [ $# -gt 0 ] || continue
+    onlyassign=1
+    for t in "$@"; do case "$t" in [A-Za-z_]*=*) ;; *) onlyassign=0; break ;; esac; done
+    if [ "$onlyassign" = 1 ]; then          # standalone assignment statement -> record literal vars
+      for t in "$@"; do
+        name=${t%%=*}; val=${t#*=}
+        case "$val" in *'$'*|*'`'*) : ;;     # computed RHS -> non-goal, not recorded
+          *) val=${val#\"}; val=${val%\"}; val=${val#\'}; val=${val%\'}
+             vars="${vars}
+${name}=${val}" ;;
+        esac
+      done
+      continue
+    fi
+    while [ $# -gt 0 ]; do                   # unwrap env-assigns + wrappers + leading "("
+      w=$1; w=${w#\"}; w=${w#\'}; w=${w#\\}; w=${w#(}
+      case "$w" in
+        [A-Za-z_]*=*) shift ;;
+        command|exec|time|env|nice|nohup|stdbuf|setsid) shift; while [ $# -gt 0 ]; do case "$1" in -*) shift ;; [A-Za-z_]*=*) shift ;; *) break ;; esac; done ;;
+        '') shift ;;
+        *) break ;;
+      esac
+    done
+    [ $# -gt 0 ] || continue
+    cmd0=$1; cmd0=${cmd0#\"}; cmd0=${cmd0#\'}; cmd0=${cmd0#\\}; cmd0=${cmd0#(}
+    vbase=${cmd0##*/}
+    shift
+    case "$vbase" in
+      cd) a=$1; a=${a#\"}; a=${a%\"}; a=${a#\'}; a=${a%\'}; a=${a%)}
+        case "$a" in
+          dev-memo/run|dev-memo/run/|*/dev-memo/run|*/dev-memo/run/) cwd="dev-memo/run" ;;
+          ''|..|../*|-|*'$'*) : ;;           # cd-up / cd- / cd"$x" / computed -> KEEP prior cwd (deny-safe)
+          *) cwd="$a" ;;                     # absolute or other literal relative -> leaves run-control
+        esac
+        continue ;;
+      rm|unlink|truncate|touch|chmod|chown|shred|mv|ln)
+        for a in "$@"; do [ "$a" = "--" ] && break; a=${a%)}; ind_check "$a" "$cwd" "$vars" "$vbase" 0; done ;;
+      tee)
+        ta=0; for a in "$@"; do case "$a" in -a|--append) ta=1 ;; esac; done
+        for a in "$@"; do case "$a" in -*) continue ;; esac; a=${a%)}; ind_check "$a" "$cwd" "$vars" "tee" "$ta"; done ;;
+      cp|install|rsync)                     # destination operand (a source may be read); mirror scan_verbs
+        dest=""; tdir=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            -t|--target-directory) shift; tdir=$1 ;;
+            --target-directory=*) tdir=${1#--target-directory=} ;;
+            --) shift; while [ $# -gt 0 ]; do dest=$1; shift; done; break ;;
+            -*) : ;;
+            *) dest=$1 ;;
+          esac
+          [ $# -gt 0 ] && shift
+        done
+        [ -n "$tdir" ] && dest=$tdir
+        dest=${dest%)}; ind_check "$dest" "$cwd" "$vars" "$vbase" 0 ;;
+      dd)
+        for a in "$@"; do case "$a" in of=*) a=${a#of=}; a=${a%)}; ind_check "$a" "$cwd" "$vars" "dd" 0 ;; esac; done ;;
+      sed|perl)                             # in-place edit (-i / -*i* / --in-place) targets
+        has_i=""
+        for a in "$@"; do case "$a" in --in-place|--in-place=*) has_i=1 ;; --*) : ;; -*i*) has_i=1 ;; esac; done
+        if [ -n "$has_i" ]; then
+          for a in "$@"; do case "$a" in -*) continue ;; esac; a=${a%)}; ind_check "$a" "$cwd" "$vars" "$vbase" 0; done
+        fi ;;
+    esac
+    # Blank [[ ... ]] spans before redirection normalization: inside them, > is a comparison, not a
+    # redirect (BRCBW-7) — the resolver's redirect scan must not treat it as a write (even under a
+    # tracked cd). A redirect ATTACHED after ]] sits outside the span and is still seen.
+    stmt=$(printf '%s' "$stmt" | sed -E 's/\[\[[^]]*\]\]/ /g')
+    norm=$(printf '%s' "$stmt" | sed -E 's/[0-9]*>>/ __RA__ /g; s/[0-9]*>[|]/ __R__ /g; s/[0-9]*>/ __R__ /g')
+    mode=""
+    for t in $norm; do
+      case "$mode" in
+        R)  t=${t%)}; ind_check "$t" "$cwd" "$vars" "redirect" 0; mode="" ; continue ;;
+        RA) t=${t%)}; ind_check "$t" "$cwd" "$vars" "redirect" 1; mode="" ; continue ;;
+      esac
+      case "$t" in __R__) mode=R ;; __RA__) mode=RA ;; esac
+    done
+  done < <(printf '%s\n' "$full" | awk '{gsub(/&&|\|\||[;|&]/, "\n"); print}')
+  set +f
+}
+
 # Primary scan of the top-level command line.
 scan_redir "$CMD" blank
 scan_verbs "$CMD"
 scan_interp "$CMD"
+scan_indirection "$CMD"
+# BRCBW-10 + mixed obfuscation/indirection: additive rescan over the de-obfuscated form (only when it
+# differs — keeps the un-obfuscated path identical and avoids any DEOBF-mangling regression). Runs the
+# full resolver too, so `cd dev-memo/r\un && rm config` (mixed) reaches the cd/var resolution.
+if [ "$DEOBF" != "$CMD" ]; then
+  scan_redir "$DEOBF" blank
+  scan_verbs "$DEOBF"
+  scan_indirection "$DEOBF"
+fi
 
 # --- pass 4: command-substitution bodies, ANY nesting depth (innermost peeling) ---
 # `$(...)` and `` `...` `` EXECUTE regardless of surrounding context — including inside [[ ]],
@@ -333,9 +485,10 @@ while [ "$peel" -lt "$MAXDEPTH" ]; do
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     body=$s; body=${body#\$\(}; body=${body%\)}; body=${body#\`}; body=${body%\`}
-    printf '%s' "$body" | grep -qE 'dev-memo/run/' || continue
+    printf '%s' "$body" | grep -qE 'dev-memo/run' || continue   # no trailing slash: catch `cd dev-memo/run` bodies
     scan_redir "$body" ""
     scan_verbs "$body"
+    scan_indirection "$body"
   done <<SUBS_EOF
 $subs
 SUBS_EOF
