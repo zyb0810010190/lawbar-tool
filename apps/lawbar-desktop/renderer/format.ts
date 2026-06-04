@@ -32,6 +32,40 @@ export function formatLocalDateTime(iso: string): string {
   return `${y}-${mo}-${da} ${h}:${mi}`;
 }
 
+// Deadline urgency classification for the matter deadlines view (brief §18
+// day-one must-have: "visible overdue-deadline list … banner when overdue or
+// due within 7 days"). Pure + clock-injected (caller passes `nowMs`) so the
+// classification is deterministic in tests. Only `pending` deadlines are
+// flagged; met/missed/withdrawn are settled and never urgent.
+export type DeadlineUrgency = "overdue" | "due-soon" | "none";
+
+// 7 calendar days, in milliseconds — the brief's "due within 7 days" window.
+export const DEADLINE_DUE_SOON_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function classifyDeadlineUrgency(
+  dueAtIso: string,
+  status: string,
+  nowMs: number,
+): DeadlineUrgency {
+  if (status !== "pending") return "none";
+  const dueMs = Date.parse(dueAtIso);
+  if (Number.isNaN(dueMs)) return "none";
+  if (dueMs < nowMs) return "overdue";
+  if (dueMs <= nowMs + DEADLINE_DUE_SOON_WINDOW_MS) return "due-soon";
+  return "none";
+}
+
+export function deadlineUrgencyLabel(u: DeadlineUrgency): string {
+  switch (u) {
+    case "overdue":
+      return "Overdue";
+    case "due-soon":
+      return "Due soon";
+    default:
+      return "";
+  }
+}
+
 // Per brief §7 vocabulary alignment + §6.5.
 export function matterTypeLabel(t: MatterType): string {
   switch (t) {

@@ -4,188 +4,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
-
-const VALID_ULID = "01jzabcdef0123456789ghjkmn";
-const VALID_ULID_2 = "01jzwxyzpq0123456789rstvwx";
-const EVENT_ULID = "01jzevent0123456789abcdefgh";
-const SAMPLE_HASH =
-  "abcd1234ef567890123456789012345678901234567890abcd1234ef56789012";
-
-// --- Minimal MockDocument ---
-
-class MockText {
-  constructor(text) {
-    this.nodeType = 3;
-    this.textContent = text;
-  }
-}
-
-class MockEl {
-  constructor(tag, doc) {
-    this.tagName = tag.toUpperCase();
-    this.children = [];
-    this.attributes = Object.create(null);
-    this._textContent = "";
-    this.listeners = Object.create(null);
-    this.parentNode = null;
-    this._doc = doc;
-  }
-  setAttribute(name, value) {
-    this.attributes[name] = String(value);
-  }
-  getAttribute(name) {
-    return name in this.attributes ? this.attributes[name] : null;
-  }
-  hasAttribute(name) {
-    return name in this.attributes;
-  }
-  removeAttribute(name) {
-    delete this.attributes[name];
-  }
-  appendChild(child) {
-    if (child instanceof MockText || child instanceof MockEl) {
-      child.parentNode = this;
-      this.children.push(child);
-    }
-    return child;
-  }
-  addEventListener(type, handler) {
-    (this.listeners[type] ||= []).push(handler);
-  }
-  removeEventListener(type, handler) {
-    const list = this.listeners[type];
-    if (list === undefined) return;
-    const i = list.indexOf(handler);
-    if (i >= 0) list.splice(i, 1);
-  }
-  dispatchEvent(event) {
-    const list = this.listeners[event.type] ?? [];
-    for (const h of list) h(event);
-  }
-  remove() {
-    if (this.parentNode !== null) {
-      const i = this.parentNode.children.indexOf(this);
-      if (i >= 0) this.parentNode.children.splice(i, 1);
-      this.parentNode = null;
-    }
-  }
-  focus() {
-    this._doc._focused = this;
-  }
-  get textContent() {
-    if (this._textContent !== "") return this._textContent;
-    return this.children
-      .map((c) => (c instanceof MockText ? c.textContent : c.textContent))
-      .join("");
-  }
-  set textContent(v) {
-    this._textContent = v;
-    this.children = [];
-  }
-  querySelector() {
-    return null;
-  }
-}
-
-class MockDoc {
-  constructor() {
-    this._focused = null;
-  }
-  createElement(tag) {
-    return new MockEl(tag, this);
-  }
-  createTextNode(text) {
-    return new MockText(text);
-  }
-}
-
-// --- Traversal helpers ---
-
-function findAll(root, predicate) {
-  const out = [];
-  function rec(n) {
-    if (n instanceof MockEl) {
-      if (predicate(n)) out.push(n);
-      for (const c of n.children) rec(c);
-    }
-  }
-  rec(root);
-  return out;
-}
-
-function findOne(root, predicate) {
-  const all = findAll(root, predicate);
-  return all.length === 0 ? null : all[0];
-}
-
-function findByTestId(root, id) {
-  return findOne(root, (n) => n.getAttribute("data-test-id") === id);
-}
-
-function findByTag(root, tag) {
-  return findOne(root, (n) => n.tagName === tag.toUpperCase());
-}
-
-function collectText(node) {
-  if (node === null || node === undefined) return "";
-  if (node instanceof MockText) return node.textContent;
-  if (node._textContent !== "") return node._textContent;
-  return node.children.map(collectText).join("");
-}
-
-// --- Fixtures ---
-
-function syntheticMatter(overrides = {}) {
-  return {
-    id: VALID_ULID,
-    name: "matter-fixture-A",
-    matter_type: "litigation",
-    jurisdiction: { value: "test-jx", locked: false },
-    parties: [
-      { role: "client", display_name: "syn-party-A", party_kind: "individual" },
-    ],
-    confidentiality_class: "normal",
-    created_at: "2026-05-27T10:30:00Z",
-    status: "active",
-    ...overrides,
-  };
-}
-
-function makeStubApi(impl = {}) {
-  return {
-    createMatter: async () => ({ ok: true, value: {} }),
-    getMatter: impl.getMatter ?? (async () => ({ ok: true, value: syntheticMatter() })),
-    listMatters: async () => ({ ok: true, value: { rows: [], next_cursor: null } }),
-    archiveMatter: async () => ({ ok: true, value: {} }),
-    chainHead: impl.chainHead ?? (async () => ({ ok: true, value: { headHash: null, lastEventId: null, count: 0 } })),
-    listAuditEvents:
-      impl.listAuditEvents ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
-    listDocuments:
-      impl.listDocuments ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
-    getDocument: impl.getDocument ?? (async () => ({ ok: true, value: null })),
-    registerDocument: impl.registerDocument ?? (async () => ({ ok: true, value: null })),
-    listDeadlines:
-      impl.listDeadlines ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
-    listFacts:
-      impl.listFacts ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
-  };
-}
-
-function captureWarn(fn) {
-  const original = console.warn;
-  const calls = [];
-  console.warn = (...args) => calls.push(args);
-  return Promise.resolve(fn()).then(
-    (v) => {
-      console.warn = original;
-      return { value: v, calls };
-    },
-    (err) => {
-      console.warn = original;
-      throw err;
-    },
-  );
-}
+import {
+  VALID_ULID,
+  VALID_ULID_2,
+  EVENT_ULID,
+  SAMPLE_HASH,
+  MockText,
+  MockDoc,
+  findAll,
+  findOne,
+  findByTestId,
+  findAllByTestId,
+  collectText,
+  flush,
+  syntheticMatter,
+  makeStubApi,
+  captureWarn,
+  auditEvent,
+  deadlineRow,
+} from "./_view-matter-dom.mjs";
 
 // --- Tests ---
 
@@ -584,26 +421,6 @@ test("full ULID disclosure: short tag (8) + full ULID present", async () => {
 // --- BRCBW... no: audit-event log viewer (this WI) ---
 
 // Flush several macro/microtask turns: the disclosure click triggers
-// loadChainHead -> loadAuditEvents -> api.listAuditEvents -> loadPage, which is
-// several await hops deep.
-async function flush() {
-  for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
-}
-
-function auditEvent(overrides = {}) {
-  return {
-    timestamp: "2026-05-27T10:30:00Z",
-    action: "matter.created",
-    entity_type: "matter",
-    entity_id: EVENT_ULID,
-    after_state_hash: SAMPLE_HASH,
-    ...overrides,
-  };
-}
-
-function findAllByTestId(root, id) {
-  return findAll(root, (n) => n.getAttribute("data-test-id") === id);
-}
 
 test("audit events: disclosure renders ordered event list (count>0)", async () => {
   const doc = new MockDoc();
@@ -957,16 +774,6 @@ test("add document: registration error renders inline role=alert", async () => {
 
 // --- Deadlines section (B7 read-only) ---
 
-function deadlineRow(overrides = {}) {
-  return {
-    id: "01jzdl00000000000000000000",
-    kind: "filing",
-    due_at: "2026-06-30T10:30:00Z",
-    owner_user_id: EVENT_ULID,
-    status: "pending",
-    ...overrides,
-  };
-}
 
 test("deadlines: NOT loaded until summary clicked", async () => {
   const doc = new MockDoc();
@@ -1042,30 +849,6 @@ test("deadlines: envelope error renders inline role=alert", async () => {
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
   assert.equal(collectText(err), "deadlines failed");
-});
-
-test("deadlines: next_cursor → Show more appends then disappears", async () => {
-  const doc = new MockDoc();
-  const root = doc.createElement("main");
-  let call = 0;
-  const api = makeStubApi({
-    listDeadlines: async (dto) => {
-      call++;
-      if (call === 1) return { ok: true, value: { rows: [deadlineRow()], next_cursor: "cur-2" } };
-      assert.equal(dto.cursor, "cur-2");
-      return { ok: true, value: { rows: [deadlineRow({ id: "01jzdl00000000000000000002" })], next_cursor: null } };
-    },
-  });
-  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
-  findByTestId(root, "view-deadlines-summary").dispatchEvent({ type: "click" });
-  await flush();
-  assert.equal(findAllByTestId(root, "view-deadlines-row").length, 1);
-  const more = findByTestId(root, "view-deadlines-more");
-  assert.ok(more !== null);
-  more.dispatchEvent({ type: "click" });
-  await flush();
-  assert.equal(findAllByTestId(root, "view-deadlines-row").length, 2);
-  assert.equal(findByTestId(root, "view-deadlines-more"), null);
 });
 
 // --- Facts section (B6 read-only) ---
