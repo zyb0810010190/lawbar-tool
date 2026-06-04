@@ -283,6 +283,55 @@ nojq_msg=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo X > de
 case "$nojq_msg" in *"jq"*) pass=$((pass+1)) ;; *) fail=$((fail+1)); failed_cases="$failed_cases\n  [want msg-mentions-jq] nojq denial message :: $nojq_msg" ;; esac
 nojq_teardown
 
+# --- BRCBW-1 + BRCBW-10: Bash path-indirection hardening (plan-brcbw-1-10-path-indirection.md) ---
+# BRCBW-10: lexical shell-word obfuscation (backslash + balanced-quote) of the path.
+expect DENY  "BRCBW-10 backslash run"         'echo X > dev-memo/r\un/config'
+expect DENY  "BRCBW-10 quoted run"            'echo X > dev-memo/"run"/config'
+expect DENY  "BRCBW-10 empty-quote run"       "echo X > dev-memo/ru''n/config"
+expect DENY  "BRCBW-10 backslash devmemo"     'echo X > d\ev-memo/run/config'
+expect DENY  "BRCBW-10 rm quoted run"         'rm dev-memo/"run"/config'
+# BRCBW-1: cd-relative (literal cd, no trailing slash) reaches the operand.
+expect DENY  "BRCBW-1 cd then redirect bare"  'cd dev-memo/run && echo x > config'
+expect DENY  "BRCBW-1 cd then rm bare"        'cd dev-memo/run && rm config'
+expect DENY  "BRCBW-1 cd then tee bare"       'cd dev-memo/run && echo X | tee config'
+expect DENY  "BRCBW-1 paren subshell cd"      '(cd dev-memo/run; rm config)'
+expect DENY  "BRCBW-1 cd then subshell cd .." 'cd dev-memo/run && (cd ..; rm config)'
+# BRCBW-1/2: literal-var redirect/operand (the shared literal-var resolver path).
+expect DENY  "BRCBW-1/2 var redirect target"  'p=dev-memo/run/config; echo x > "$p"'
+expect DENY  "BRCBW-1/2 var rm operand"       'p=dev-memo/run/config; rm "$p"'
+expect DENY  "BRCBW-1/2 var braced redirect"  'p=dev-memo/run/config; echo x > "${p}"'
+# Must remain ALLOW — read-source / false-positive floor (BRCBW-5 discipline).
+expect ALLOW "cd then cat bare"               'cd dev-memo/run && cat config'
+expect ALLOW "var cat operand"                'p=dev-memo/run/config; cat "$p"'
+expect ALLOW "cd then write other file"       'cd dev-memo/run && echo x > scratch.txt'
+expect ALLOW "grep authority co-occur"        'grep config dev-memo/run/queue.md'
+expect ALLOW "bare config write no cd"        'echo x > config'
+expect ALLOW "bare rm config no cd"           'rm config'
+expect ALLOW "leading env-assign on command"  'FOO=bar rm config'
+expect ALLOW "use-before-assign"              'rm "$p"; p=dev-memo/run/config'
+expect ALLOW "cd absolute then rm config"     'cd /tmp && rm config'
+# Documented Mechanism-C non-goal (computed) -> ALLOW (known residual, not a silent miss).
+expect ALLOW "computed var residual non-goal" 'p=$(printf dev-memo/run/config); echo x > "$p"'
+# --- audit-mpzlb7b3 remediation: verb completeness + mixed-obfuscation + substitution + [[]] ---
+# H1: indirected cp/dd/sed-i/perl-pi destinations.
+expect DENY  "ind cp dest after cd"           'cd dev-memo/run && cp /tmp/x config'
+expect DENY  "ind dd of= after cd"            'cd dev-memo/run && dd if=/dev/null of=config'
+expect DENY  "ind sed -i after cd"            'cd dev-memo/run && sed -i s/a/b/ config'
+expect DENY  "ind cp dest via var"            'p=dev-memo/run/config; cp /tmp/x "$p"'
+expect ALLOW "ind cp SOURCE after cd (read)"  'cd dev-memo/run && cp config /tmp/x'
+# H2: mixed de-obfuscation + cd/var indirection.
+expect DENY  "mixed obf cd + redirect"        'cd dev-memo/r\un && echo x > config'
+expect DENY  "mixed obf cd + rm"              'cd dev-memo/"run" && rm config'
+expect DENY  "mixed obf var redirect"         'p=dev-memo/"run"/config; echo x > "$p"'
+# H3: indirection inside a command substitution body.
+expect DENY  "subst body cd + rm"             'echo $(cd dev-memo/run; rm config)'
+expect DENY  "subst body var rm"              'echo $(p=dev-memo/run/config; rm "$p")'
+# M: [[ ]] comparison under a tracked cwd must NOT be a write.
+expect ALLOW "cd then [[ > ]] comparison"     'cd dev-memo/run && [[ "$x" > config ]]'
+# Regression floor — existing direct protections still DENY.
+expect DENY  "regression direct redirect"     'echo x > dev-memo/run/config'
+expect DENY  "regression direct rm"           'rm dev-memo/run/config'
+
 # ---------------------------------------------------------------------------
 printf 'block-run-control-bash-write: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
