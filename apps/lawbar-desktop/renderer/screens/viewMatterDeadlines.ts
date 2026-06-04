@@ -2,10 +2,25 @@
 // Lazily lists the matter's persisted deadlines. NO create / confirm / dismiss
 // / transition — display only. The renderer never imports the service; only the
 // human-rendered fields are read, and main is the authoritative validator.
+//
+// Urgency surfacing (brief §18 day-one must-have): each `pending` deadline is
+// classified overdue / due-soon (≤7 days) / none against an injected clock; a
+// `role="status"` banner summarises the counts and a per-row pill marks the
+// urgent ones. Deadlines arrive sorted by due_at ASC, so the earliest sort to
+// the top naturally — no client reordering needed. ALL pages are eager-loaded
+// (see `loadDeadlines`) so the banner reflects every deadline: because settled
+// and pending rows share the due_at ordering, a partial load could hide a
+// pending overdue deadline behind older settled ones and undercount silently.
 
 import type { CaseBoxApi } from "../api.js";
 import { el, setText } from "../dom.js";
-import { formatLocalDateTime, ulidShort } from "../format.js";
+import {
+  classifyDeadlineUrgency,
+  deadlineUrgencyLabel,
+  formatLocalDateTime,
+  ulidShort,
+  type DeadlineUrgency,
+} from "../format.js";
 
 // Display-only subset of CaseBoxDeadline.
 interface DeadlineRow {
@@ -26,6 +41,11 @@ export function renderDeadlinesDisclosure(
   doc: Document,
   api: CaseBoxApi,
   matterId: string,
+  // Optional injected clock (tests pass a fixed value for determinism). When omitted, the
+  // "now" used for urgency classification is resolved at LOAD time (the click handler below),
+  // not at render time — the disclosure is lazy, so a matter view left open across a deadline
+  // boundary must classify against the time the deadlines are actually loaded.
+  nowMs?: number,
 ): HTMLElement {
   const body = el(
     "div",
@@ -50,32 +70,42 @@ export function renderDeadlinesDisclosure(
   summary.addEventListener("click", () => {
     if (loaded) return;
     loaded = true;
-    void loadDeadlines(body, doc, api, matterId);
+    void loadDeadlines(body, doc, api, matterId, nowMs ?? Date.now());
   });
   return details;
 }
 
-function renderDeadlineRow(doc: Document, d: DeadlineRow): HTMLElement {
-  const meta = el(
-    "div",
-    { class: "view-deadlines-row-meta" },
-    [
+function renderDeadlineRow(doc: Document, d: DeadlineRow, urgency: DeadlineUrgency): HTMLElement {
+  const metaChildren: Array<HTMLElement | string> = [
+    el(
+      "span",
+      { class: "view-deadlines-due", "data-test-id": "view-deadlines-due" },
+      [formatLocalDateTime(d.due_at)],
+      doc,
+    ),
+    " ",
+    el(
+      "span",
+      { class: "view-deadlines-kind", "data-test-id": "view-deadlines-kind" },
+      [`${d.kind} · ${d.status}`],
+      doc,
+    ),
+  ];
+  if (urgency !== "none") {
+    metaChildren.push(
       el(
         "span",
-        { class: "view-deadlines-due", "data-test-id": "view-deadlines-due" },
-        [formatLocalDateTime(d.due_at)],
+        {
+          class: `view-deadlines-urgency view-deadlines-urgency--${urgency}`,
+          "data-test-id": "view-deadlines-urgency",
+          "data-urgency": urgency,
+        },
+        [deadlineUrgencyLabel(urgency)],
         doc,
       ),
-      " ",
-      el(
-        "span",
-        { class: "view-deadlines-kind", "data-test-id": "view-deadlines-kind" },
-        [`${d.kind} · ${d.status}`],
-        doc,
-      ),
-    ],
-    doc,
-  );
+    );
+  }
+  const meta = el("div", { class: "view-deadlines-row-meta" }, metaChildren, doc);
   const detailChildren: Array<HTMLElement | string> = [];
   if (d.source_rule_citation !== undefined && d.source_rule_citation.length > 0) {
     detailChildren.push(
@@ -115,7 +145,22 @@ async function loadDeadlines(
   doc: Document,
   api: CaseBoxApi,
   matterId: string,
+  nowMs: number,
 ): Promise<void> {
+  // Banner sits above the list and summarises urgent counts. Created hidden;
+  // shown only once an overdue / due-soon deadline is seen.
+  const banner = el(
+    "div",
+    {
+      class: "view-deadlines-banner",
+      role: "status",
+      "data-test-id": "view-deadlines-banner",
+      hidden: "",
+    },
+    [],
+    doc,
+  );
+  parent.appendChild(banner);
   const list = el(
     "ul",
     { class: "view-deadlines-list", "data-test-id": "view-deadlines-list" },
@@ -126,21 +171,47 @@ async function loadDeadlines(
   const loading = el("p", { "data-test-id": "view-deadlines-loading" }, ["Loading deadlines…"], doc);
   parent.appendChild(loading);
 
-  let cursor: string | null = null;
-  let moreBtn: HTMLElement | null = null;
-  let total = 0;
+  let overdue = 0;
+  let dueSoon = 0;
 
-  async function loadPage(): Promise<void> {
+  function refreshBanner(): void {
+    if (overdue === 0 && dueSoon === 0) {
+      banner.setAttribute("hidden", "");
+      return;
+    }
+    banner.removeAttribute("hidden");
+    // Danger styling when anything is overdue; warning otherwise.
+    banner.setAttribute(
+      "class",
+      overdue > 0 ? "view-deadlines-banner view-deadlines-banner--overdue" : "view-deadlines-banner",
+    );
+    const parts: string[] = [];
+    if (overdue > 0) parts.push(`${overdue} overdue`);
+    if (dueSoon > 0) parts.push(`${dueSoon} due within 7 days`);
+    setText(banner, parts.join(" · "));
+  }
+
+  // Eager-load EVERY page before finalising. Deadlines are sorted due_at ASC
+  // across ALL statuses, so a page of old settled (met/missed/withdrawn)
+  // deadlines could otherwise sit ahead of — and hide — a later pending overdue
+  // one, making the urgency banner silently undercount. A complete overdue
+  // picture is the whole point (brief §18: "visible overdue-deadline list"), so
+  // partial loading is unsafe here. Per-matter deadline counts are bounded, so
+  // exhausting the seek cursor is cheap; if matters ever grow huge, a
+  // server-side overdue aggregate (new IPC) would replace this loop.
+  // Guard against a malformed/stuck cursor: if listDeadlines ever returns a next_cursor we have
+  // already used, the seek is not advancing and an unguarded loop would spin forever, hammering
+  // IPC. Track seen cursors and abort with an inline alert instead.
+  const seenCursors = new Set<string>();
+  let cursor: string | null = null;
+  let total = 0;
+  for (;;) {
     const env = await api.listDeadlines({
       matterId,
       ...(cursor !== null ? { cursor } : {}),
     });
-    loading.remove();
-    if (moreBtn !== null) {
-      moreBtn.remove();
-      moreBtn = null;
-    }
     if (!env.ok) {
+      loading.remove();
       parent.appendChild(
         el("p", { role: "alert", "data-test-id": "view-deadlines-error" }, [env.error.message], doc),
       );
@@ -148,30 +219,34 @@ async function loadDeadlines(
     }
     const page = env.value as ListDeadlinesPage;
     for (const row of page.rows) {
-      list.appendChild(renderDeadlineRow(doc, row));
+      const urgency = classifyDeadlineUrgency(row.due_at, row.status, nowMs);
+      if (urgency === "overdue") overdue += 1;
+      else if (urgency === "due-soon") dueSoon += 1;
+      list.appendChild(renderDeadlineRow(doc, row, urgency));
       total += 1;
     }
-    if (total === 0) {
+    cursor = page.next_cursor;
+    if (cursor === null) break;
+    if (seenCursors.has(cursor)) {
+      loading.remove();
       parent.appendChild(
-        el("p", { "data-test-id": "view-deadlines-empty" }, ["No deadlines recorded for this matter."], doc),
+        el(
+          "p",
+          { role: "alert", "data-test-id": "view-deadlines-error" },
+          ["Deadline pagination did not advance (repeated cursor); load aborted."],
+          doc,
+        ),
       );
       return;
     }
-    cursor = page.next_cursor;
-    if (cursor !== null) {
-      const btn = el(
-        "button",
-        { type: "button", class: "view-deadlines-more", "data-test-id": "view-deadlines-more" },
-        ["Show more"],
-        doc,
-      );
-      btn.addEventListener("click", () => {
-        void loadPage();
-      });
-      moreBtn = btn;
-      parent.appendChild(btn);
-    }
+    seenCursors.add(cursor);
   }
 
-  await loadPage();
+  loading.remove();
+  refreshBanner();
+  if (total === 0) {
+    parent.appendChild(
+      el("p", { "data-test-id": "view-deadlines-empty" }, ["No deadlines recorded for this matter."], doc),
+    );
+  }
 }
