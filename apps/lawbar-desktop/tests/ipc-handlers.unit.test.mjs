@@ -21,6 +21,9 @@ import {
   createDocketEntryHandler,
   confirmDocketEntryHandler,
 } from "../dist/src/caseBox/docketHandlers.js";
+// WI-602: fact write handler imported directly from the per-entity module
+// (same Allowed-files reason as the docket handlers; CBW-601-BARREL follow-up).
+import { createFactHandler } from "../dist/src/caseBox/factHandlers.js";
 import { CaseBoxPersistenceError } from "case-box-persistence";
 
 const FIXED_NOW = new Date("2026-05-27T00:00:00.000Z");
@@ -1371,4 +1374,161 @@ test("docketConfirm: unknown matter -> unknown_matter (before entry preflight)",
   assert.equal(r.ok, false);
   assert.equal(r.error.code, "unknown_matter");
   assert.equal(calls.confirm, 0);
+});
+
+// ===========================================================================
+// WI-602 — fact create IPC (claims / timeline write path)
+// ===========================================================================
+
+// A fact-aware provider. getMatter returns an active-tenant matter for FIXED_ID.
+// appendFact records the constructed input and echoes it as the stored row, plus
+// the server-authority identities (tenant_id / actor_user_id /
+// reviewer_actor_user_id) to prove the projection strips them. A scoped spy
+// records whether appendFact was reached (the matter/tenant guards must run first).
+function makeFactProvider(overrides = {}) {
+  const calls = { append: 0 };
+  let received;
+  const persistence = {
+    getMatter: async (id) =>
+      id === FIXED_ID ? { id: FIXED_ID, tenant_id: "default-tenant", status: "active" } : null,
+    appendFact: async (input) => {
+      calls.append += 1;
+      received = input;
+      return {
+        ...input,
+        // server-authority fields present on the stored row — projection MUST strip:
+        tenant_id: "default-tenant",
+        actor_user_id: "local-user",
+        reviewer_actor_user_id: null,
+      };
+    },
+    ...(overrides.persistence ?? {}),
+  };
+  return { provide: () => ({ persistence }), calls, getReceived: () => received };
+}
+
+const validFactDto = { matterId: FIXED_ID, statement_text: "Defendant filed answer on 2026-06-01." };
+
+test("CHANNEL.factCreate matches contract pattern casebox:fact:create", () => {
+  assert.equal(CHANNEL.factCreate, "casebox:fact:create");
+});
+
+test("factCreate: valid (no purpose) -> ok, candidate lawyer_authored, authority stripped", async () => {
+  const { provide, getReceived } = makeFactProvider();
+  const r = await createFactHandler(validFactDto, provide, clock, idFactory);
+  assert.equal(r.ok, true);
+  assert.equal(r.value.status, "candidate");
+  assert.equal(r.value.source_type, "lawyer_authored");
+  assert.equal(r.value.statement_text, validFactDto.statement_text);
+  assert.equal(r.value.matter_id, FIXED_ID);
+  // provenance + review fields null on a manual candidate fact
+  assert.equal(r.value.source_document_id, null);
+  assert.equal(r.value.reviewed_at, null);
+  // server-authority identities must NOT cross the boundary
+  assert.equal("tenant_id" in r.value, false);
+  assert.equal("actor_user_id" in r.value, false);
+  assert.equal("reviewer_actor_user_id" in r.value, false);
+  // server-injected authority on the persistence INPUT
+  const received = getReceived();
+  assert.equal(received.id, FIXED_ID);
+  assert.equal(received.tenant_id, "default-tenant");
+  assert.equal(received.actor_user_id, "local-user");
+  assert.equal(received.created_at, FIXED_NOW.toISOString());
+  // no purpose / as_of_date supplied => not injected (persistence defaults purpose)
+  assert.equal("purpose" in received, false);
+  assert.equal("as_of_date" in received, false);
+});
+
+test("factCreate: purpose=timeline_event WITHOUT as_of_date -> invalid_payload, appendFact NOT called", async () => {
+  const { provide, calls } = makeFactProvider();
+  const r = await createFactHandler({ ...validFactDto, purpose: "timeline_event" }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+  assert.equal(calls.append, 0);
+});
+
+test("factCreate: purpose=timeline_event WITH valid as_of_date -> ok, fields passed through", async () => {
+  const { provide, getReceived } = makeFactProvider();
+  const r = await createFactHandler(
+    { ...validFactDto, purpose: "timeline_event", as_of_date: "2026-06-15" },
+    provide,
+    clock,
+    idFactory,
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.value.purpose, "timeline_event");
+  assert.equal(r.value.as_of_date, "2026-06-15");
+  const received = getReceived();
+  assert.equal(received.purpose, "timeline_event");
+  assert.equal(received.as_of_date, "2026-06-15");
+});
+
+test("factCreate: malformed as_of_date (time component) under non-timeline purpose -> invalid_payload", async () => {
+  const { provide, calls } = makeFactProvider();
+  const r = await createFactHandler(
+    { ...validFactDto, purpose: "claim", as_of_date: "2026-06-15T17:00:00Z" },
+    provide,
+    clock,
+    idFactory,
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+  assert.equal(calls.append, 0);
+});
+
+test("factCreate: malformed as_of_date with NO purpose -> invalid_payload (format rule applies always)", async () => {
+  const { provide, calls } = makeFactProvider();
+  const r = await createFactHandler({ ...validFactDto, as_of_date: "not-a-date" }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+  assert.equal(calls.append, 0);
+});
+
+test("factCreate: invalid purpose -> invalid_payload", async () => {
+  const { provide, calls } = makeFactProvider();
+  const r = await createFactHandler({ ...validFactDto, purpose: "nonsense" }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+  assert.equal(calls.append, 0);
+});
+
+test("factCreate: unknown matter -> unknown_matter; appendFact NOT called", async () => {
+  const { provide, calls } = makeFactProvider();
+  const r = await createFactHandler({ ...validFactDto, matterId: "01jz0000000000000000000xxx" }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "unknown_matter");
+  assert.equal(calls.append, 0);
+});
+
+test("factCreate: wrong-tenant matter -> tenant_mismatch; appendFact NOT called", async () => {
+  const { provide, calls } = makeFactProvider({
+    persistence: { getMatter: async () => ({ id: FIXED_ID, tenant_id: "other-tenant", status: "active" }) },
+  });
+  const r = await createFactHandler(validFactDto, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "tenant_mismatch");
+  assert.equal(calls.append, 0);
+});
+
+test("factCreate: forbidden server-authority field (actor_user_id) -> invalid_payload", async () => {
+  const { provide, calls } = makeFactProvider();
+  const r = await createFactHandler({ ...validFactDto, actor_user_id: "evil" }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+  assert.equal(r.error.details?.schemaPath, "actor_user_id");
+  assert.equal(calls.append, 0);
+});
+
+test("factCreate: missing statement_text -> invalid_payload", async () => {
+  const { provide } = makeFactProvider();
+  const r = await createFactHandler({ matterId: FIXED_ID }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+});
+
+test("factCreate: unknown field -> invalid_payload", async () => {
+  const { provide } = makeFactProvider();
+  const r = await createFactHandler({ ...validFactDto, bogus: 1 }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
 });

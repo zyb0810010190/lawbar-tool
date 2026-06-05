@@ -24,6 +24,10 @@ import {
   createDocketEntryHandler,
   confirmDocketEntryHandler,
 } from "../../src/caseBox/docketHandlers.js";
+// WI-602 fact write handler — imported DIRECTLY from the per-entity module for
+// the same reason as the docket handlers above (handlers.ts barrel is outside
+// this WI's governed Allowed-files; CBW-601-BARREL follow-up).
+import { createFactHandler } from "../../src/caseBox/factHandlers.js";
 import { getCaseBoxRuntime } from "../../src/caseBox/caseBoxRuntime.js";
 import { newUlid } from "../../src/caseBox/ulid.js";
 
@@ -101,6 +105,9 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.factList, async (_evt, payload: unknown) => {
     return listFactsHandler(payload, provide);
+  });
+  ipcMain.handle(CHANNEL.factCreate, async (_evt, payload: unknown) => {
+    return createFactHandler(payload, provide, nowFn, idFactory);
   });
 }
 
