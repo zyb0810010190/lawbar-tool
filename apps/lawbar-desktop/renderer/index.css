@@ -777,3 +777,20 @@ html {
 body {
   font-family: var(--font-ui);
 }
+
+/* WI-701 Add-fact control (layout only; colors inherit from tokens). */
+.view-facts-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.view-facts-add-statement {
+  flex: 1 1 100%;
+  min-height: 3rem;
+  font-family: var(--font-ui);
+}
+.view-facts-add-asof[hidden] {
+  display: none;
+}

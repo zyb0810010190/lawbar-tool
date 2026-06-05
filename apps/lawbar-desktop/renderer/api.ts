@@ -9,6 +9,7 @@
 import type {
   ArchiveMatterDto,
   ChainHeadDto,
+  CreateFactDto,
   CreateMatterDto,
   GetDocumentDto,
   GetMatterDto,
@@ -24,6 +25,7 @@ import type {
 import {
   RENDERER_ARCHIVE_MATTER_DTO_FIELDS,
   RENDERER_CHAIN_HEAD_DTO_FIELDS,
+  RENDERER_CREATE_FACT_DTO_FIELDS,
   RENDERER_CREATE_MATTER_DTO_FIELDS,
   RENDERER_GET_DOCUMENT_DTO_FIELDS,
   RENDERER_GET_MATTER_DTO_FIELDS,
@@ -48,6 +50,7 @@ export interface CaseBoxClient {
   registerDocument(dto: RegisterDocumentDto): Promise<IpcEnvelope<unknown>>;
   listDeadlines(dto: ListDeadlinesDto): Promise<IpcEnvelope<unknown>>;
   listFacts(dto: ListFactsDto): Promise<IpcEnvelope<unknown>>;
+  createFact(dto: CreateFactDto): Promise<IpcEnvelope<unknown>>;
 }
 
 export interface CaseBoxApi {
@@ -62,6 +65,7 @@ export interface CaseBoxApi {
   registerDocument(dto: RegisterDocumentDto): Promise<IpcEnvelope<unknown>>;
   listDeadlines(dto: ListDeadlinesDto): Promise<IpcEnvelope<unknown>>;
   listFacts(dto: ListFactsDto): Promise<IpcEnvelope<unknown>>;
+  createFact(dto: CreateFactDto): Promise<IpcEnvelope<unknown>>;
 }
 
 // Strip any DTO key not in the renderer-side allowlist. Drops with a
@@ -110,6 +114,8 @@ export function createCaseBoxApi(client: CaseBoxClient): CaseBoxApi {
       client.listDeadlines(stripDtoFields(dto, RENDERER_LIST_DEADLINES_DTO_FIELDS)),
     listFacts: (dto) =>
       client.listFacts(stripDtoFields(dto, RENDERER_LIST_FACTS_DTO_FIELDS)),
+    createFact: (dto) =>
+      client.createFact(stripDtoFields(dto, RENDERER_CREATE_FACT_DTO_FIELDS)),
   };
 }
 

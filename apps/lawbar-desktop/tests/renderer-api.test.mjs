@@ -31,6 +31,7 @@ function makeMockClient() {
       listMatters: mk("listMatters"),
       archiveMatter: mk("archiveMatter"),
       chainHead: mk("chainHead"),
+      createFact: mk("createFact"),
     },
   };
 }
@@ -151,6 +152,39 @@ test("createCaseBoxApi: chainHead passes only matterId", async () => {
   assert.equal(m.calls.length, 1);
   assert.equal(m.calls[0].name, "chainHead");
   assert.deepEqual(m.calls[0].dto, { matterId: VALID_ULID });
+});
+
+test("createCaseBoxApi: createFact forwards only the 4 allowlisted fields", async () => {
+  const m = makeMockClient();
+  const api = createCaseBoxApi(m.client);
+  await api.createFact({
+    matterId: VALID_ULID,
+    statement_text: "Defendant filed answer.",
+    purpose: "timeline_event",
+    as_of_date: "2026-06-15",
+  });
+  assert.equal(m.calls.length, 1);
+  assert.equal(m.calls[0].name, "createFact");
+  assert.deepEqual(m.calls[0].dto, {
+    matterId: VALID_ULID,
+    statement_text: "Defendant filed answer.",
+    purpose: "timeline_event",
+    as_of_date: "2026-06-15",
+  });
+});
+
+test("createCaseBoxApi: createFact drops a smuggled server-authority field", async () => {
+  const m = makeMockClient();
+  const api = createCaseBoxApi(m.client);
+  await api.createFact({
+    matterId: VALID_ULID,
+    statement_text: "x",
+    // not in RENDERER_CREATE_FACT_DTO_FIELDS — must be stripped before invoke:
+    tenant_id: "evil",
+    status: "accepted",
+    actor_user_id: "evil",
+  });
+  assert.deepEqual(m.calls[0].dto, { matterId: VALID_ULID, statement_text: "x" });
 });
 
 // --- envelope passthrough ---
