@@ -99,11 +99,36 @@ RUN="${CLAUDE_PROJECT_DIR}/dev-memo/run"
 
 # Read config FIRST — authorization rules depend on mode. Missing/unreadable = fail safe.
 [ -r "$RUN/config" ] || deny "Batch guard: dev-memo/run/config unreadable; cannot verify batch limits. Restore run state or use a gated-mode human.ack."
-# BRE \+ is GNU-only; BSD/macOS sed treats it as a literal '+'. Use [0-9][0-9]* for portability.
-MAX=$(sed -n 's/^AUTO_ADVANCE_MAX=\([0-9][0-9]*\).*/\1/p' "$RUN/config" | head -1)
-EVERY=$(sed -n 's/^BATCH_AUDIT_EVERY=\([0-9][0-9]*\).*/\1/p' "$RUN/config" | head -1)
-[ -n "$MAX" ] || deny "Batch guard: AUTO_ADVANCE_MAX not set in config; denying."
-[ -n "$EVERY" ] || EVERY=$MAX
+# BCG-7 hardening: read the RAW value (full RHS, trailing inline #comment + surrounding whitespace
+# normalized) and validate STRICTLY so a malformed / out-of-set / huge-digit value FAILS CLOSED (deny)
+# instead of being captured and then crashing a later bash integer compare ([ COUNT -ge EVERY/MAX ]),
+# which returned non-true and SILENTLY SKIPPED the breaker (fail-OPEN). AUTO_ADVANCE_MAX must be one of
+# the documented modes {1,3,10}; BATCH_AUDIT_EVERY, WHEN PRESENT, must be a bare integer in [1,100].
+# Strip ONLY a whitespace-separated trailing inline comment (`value  # note`), then trim trailing
+# whitespace. A `#` with NO preceding whitespace is NOT a comment (shell assignment semantics treat
+# `VAR=3#x` as the literal `3#x`), so e.g. `BATCH_AUDIT_EVERY=3#junk` survives as `3#junk` and fails the
+# bare-integer check below (fail-closed) rather than being silently normalized to `3` (audit Low).
+cfgval(){ sed -n "s/^$1=//p" "$RUN/config" | head -1 | sed 's/[[:space:]][[:space:]]*#.*$//; s/[[:space:]]*$//'; }
+RAWMAX=$(cfgval AUTO_ADVANCE_MAX)
+RAWEVERY=$(cfgval BATCH_AUDIT_EVERY)
+[ -n "$RAWMAX" ] || deny "Batch guard: AUTO_ADVANCE_MAX not set in config; denying."
+case "$RAWMAX" in
+  1|3|10) MAX=$RAWMAX ;;
+  *) deny "Batch guard: AUTO_ADVANCE_MAX='$RAWMAX' is not one of the allowed modes {1,3,10}; refusing to evaluate batch limits on a malformed config (fail-closed)." ;;
+esac
+if [ -n "$RAWEVERY" ]; then
+  # Reject any non-digit first; then bound the digit LENGTH (<=3, since 100 has 3 digits) BEFORE any
+  # arithmetic/compare so a huge-digit value cannot overflow/crash the integer compare (the BCG-7 bug).
+  case "$RAWEVERY" in
+    *[!0-9]*) deny "Batch guard: BATCH_AUDIT_EVERY='$RAWEVERY' is not a bare positive integer; fail-closed." ;;
+  esac
+  if [ "${#RAWEVERY}" -gt 3 ] || [ "$((10#$RAWEVERY))" -lt 1 ] || [ "$((10#$RAWEVERY))" -gt 100 ]; then
+    deny "Batch guard: BATCH_AUDIT_EVERY='$RAWEVERY' is outside the allowed range [1,100]; fail-closed."
+  fi
+  EVERY=$((10#$RAWEVERY))
+else
+  EVERY=$MAX   # documented fallback: an unset/empty BATCH_AUDIT_EVERY defaults to the (validated) MAX
+fi
 
 # --- Gated mode (MAX<=1): every commit needs a single-use human.ack. Nothing else applies. ---
 if [ "$MAX" -le 1 ]; then

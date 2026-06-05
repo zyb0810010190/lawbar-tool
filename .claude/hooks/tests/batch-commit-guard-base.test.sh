@@ -83,6 +83,27 @@ expect ALLOW "garbage audit dropped, bs C3 count1<3"         "${C[3]}" "$GARBAGE
 # both missing -> deny.
 expect DENY  "neither file -> deny"                          ""        ""         10 3
 
+# --- WI-301 / BCG-7: fail-closed validation of malformed batch config ---
+# All on a CLEAN window (bs=C4 -> count 0), so a VALID config ALLOWs and only the config validation
+# distinguishes DENY vs ALLOW. Genuine red-before (pre-fix ALLOW): MAX=5, MAX=huge, EVERY=abc,
+# EVERY=huge, EVERY=101. Already-deny-today (kept as regression): MAX=abc, EVERY=0.
+expect DENY  "BCG-7 MAX out-of-set (5)"             "${C[4]}" "" 5 3
+expect DENY  "BCG-7 MAX non-numeric (abc)"          "${C[4]}" "" abc 3
+expect DENY  "BCG-7 MAX huge-digit"                 "${C[4]}" "" 99999999999999999999 3
+expect DENY  "BCG-7 EVERY non-numeric (abc)"        "${C[4]}" "" 10 abc
+expect DENY  "BCG-7 EVERY huge-digit (fail-open)"   "${C[4]}" "" 10 99999999999999999999
+expect DENY  "BCG-7 EVERY zero"                     "${C[4]}" "" 10 0
+expect DENY  "BCG-7 EVERY over-100 (101)"           "${C[4]}" "" 10 101
+expect ALLOW "BCG-7 valid MAX=3 EVERY=3 clean"      "${C[4]}" "" 3 3
+expect ALLOW "BCG-7 valid MAX=10 EVERY=100 clean"   "${C[4]}" "" 10 100
+expect ALLOW "BCG-7 EVERY empty -> defaults to MAX" "${C[4]}" "" 10 ""
+# Comment-stripping must be whitespace-separated only (audit Low): `VAR=3#junk` is a literal, not a
+# comment -> fail-closed; `VAR=3 # note` IS an inline comment -> normalized to 3 -> valid.
+expect DENY  "BCG-7 MAX=3#junk (no-ws # is literal)"   "${C[4]}" "" "3#junk" 3
+expect DENY  "BCG-7 EVERY=3#junk (no-ws # is literal)" "${C[4]}" "" 10 "3#junk"
+expect DENY  "BCG-7 EVERY=#junk (no-ws # is literal)"  "${C[4]}" "" 10 "#junk"
+expect ALLOW "BCG-7 EVERY=3 # note (ws comment ok)"    "${C[4]}" "" 10 "3 # note"
+
 # --- PRC-4-FU: deny() must emit VALID JSON for control chars / quotes / backslashes ---
 # Extract deny() in isolation (depends only on $1, jq, sed, tr, printf) and assert the output
 # parses as JSON with permissionDecision=deny — for both the jq-present and jq-fallback branches.
