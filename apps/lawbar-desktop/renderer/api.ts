@@ -9,6 +9,8 @@
 import type {
   ArchiveMatterDto,
   ChainHeadDto,
+  ConfirmDocketEntryDto,
+  CreateDocketEntryDto,
   CreateFactDto,
   CreateMatterDto,
   GetDocumentDto,
@@ -25,6 +27,8 @@ import type {
 import {
   RENDERER_ARCHIVE_MATTER_DTO_FIELDS,
   RENDERER_CHAIN_HEAD_DTO_FIELDS,
+  RENDERER_CONFIRM_DOCKET_DTO_FIELDS,
+  RENDERER_CREATE_DOCKET_DTO_FIELDS,
   RENDERER_CREATE_FACT_DTO_FIELDS,
   RENDERER_CREATE_MATTER_DTO_FIELDS,
   RENDERER_GET_DOCUMENT_DTO_FIELDS,
@@ -51,6 +55,8 @@ export interface CaseBoxClient {
   listDeadlines(dto: ListDeadlinesDto): Promise<IpcEnvelope<unknown>>;
   listFacts(dto: ListFactsDto): Promise<IpcEnvelope<unknown>>;
   createFact(dto: CreateFactDto): Promise<IpcEnvelope<unknown>>;
+  createDocketEntry(dto: CreateDocketEntryDto): Promise<IpcEnvelope<unknown>>;
+  confirmDocketEntry(dto: ConfirmDocketEntryDto): Promise<IpcEnvelope<unknown>>;
 }
 
 export interface CaseBoxApi {
@@ -66,6 +72,8 @@ export interface CaseBoxApi {
   listDeadlines(dto: ListDeadlinesDto): Promise<IpcEnvelope<unknown>>;
   listFacts(dto: ListFactsDto): Promise<IpcEnvelope<unknown>>;
   createFact(dto: CreateFactDto): Promise<IpcEnvelope<unknown>>;
+  createDocketEntry(dto: CreateDocketEntryDto): Promise<IpcEnvelope<unknown>>;
+  confirmDocketEntry(dto: ConfirmDocketEntryDto): Promise<IpcEnvelope<unknown>>;
 }
 
 // Strip any DTO key not in the renderer-side allowlist. Drops with a
@@ -116,6 +124,10 @@ export function createCaseBoxApi(client: CaseBoxClient): CaseBoxApi {
       client.listFacts(stripDtoFields(dto, RENDERER_LIST_FACTS_DTO_FIELDS)),
     createFact: (dto) =>
       client.createFact(stripDtoFields(dto, RENDERER_CREATE_FACT_DTO_FIELDS)),
+    createDocketEntry: (dto) =>
+      client.createDocketEntry(stripDtoFields(dto, RENDERER_CREATE_DOCKET_DTO_FIELDS)),
+    confirmDocketEntry: (dto) =>
+      client.confirmDocketEntry(stripDtoFields(dto, RENDERER_CONFIRM_DOCKET_DTO_FIELDS)),
   };
 }
 

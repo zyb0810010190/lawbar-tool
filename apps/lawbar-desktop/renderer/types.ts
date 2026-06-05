@@ -111,6 +111,26 @@ export interface ListFactsDto {
   readonly cursor?: string;
 }
 
+// Renderer-supplied fields for casebox:docket:create (WI-702). The server injects
+// every authority / provenance / lifecycle field; the renderer forwards only these.
+// proposed_due_at is an ISO-8601 datetime; proposed_due_at_timezone is an IANA zone
+// (constrained to the host zone for this slice).
+export interface CreateDocketEntryDto {
+  readonly matterId: string;
+  readonly proposed_kind: string;
+  readonly proposed_due_at: string;
+  readonly proposed_due_at_timezone: string;
+  readonly proposed_owner_user_id?: string;
+}
+
+// Renderer-supplied fields for casebox:docket:confirm (WI-702): the scope (matterId)
+// + the entry to confirm (entryId, from the create response). The server injects the
+// confirmation actor, timestamp, and materialized deadline id.
+export interface ConfirmDocketEntryDto {
+  readonly matterId: string;
+  readonly entryId: string;
+}
+
 // R-5 fact purpose enum (case-box-fact.schema.json). Absent ⇒ server defaults to "other".
 export type FactPurpose =
   | "claim"
@@ -217,4 +237,17 @@ export const RENDERER_CREATE_FACT_DTO_FIELDS = Object.freeze([
   "statement_text",
   "purpose",
   "as_of_date",
+] as const);
+
+export const RENDERER_CREATE_DOCKET_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "proposed_kind",
+  "proposed_due_at",
+  "proposed_due_at_timezone",
+  "proposed_owner_user_id",
+] as const);
+
+export const RENDERER_CONFIRM_DOCKET_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "entryId",
 ] as const);
