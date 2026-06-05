@@ -11,6 +11,19 @@ Risk flags: UI write affordance consuming a tenant-scoped write IPC (renderer fo
 Depends on: none
 Commit boundary: one local commit for the Add-fact renderer control + bridge wiring + renderer/api/dto-sync tests
 
+## WI-703: Fix Add Fact default purpose
+Type: UI
+Design artifact: dev-memo/design/2026-06-05-casebox-fact-create.md
+Scope: fix the WI-701 Layer-B finding CBW-UI-701-DEFAULT-PURPOSE — the Add-Fact purpose <select> has no selected <option>, so in a real browser it defaults to its FIRST option ("claim") and an unchanged submission forwards purpose:"claim" instead of the design's intended "other" (the per-WI mock tests missed this because MockEl.value starts undefined). Make the default browser-explicit by marking the "other" <option> selected so an untouched select resolves to "other"; keep the handler's existing "|| other" guard as defense-in-depth. Do NOT change the bridge/DTO, the backend/contract, or any WI-702 deadline UI; do NOT reorder the visible purposes beyond setting the selected default. Close the CBW-UI-701-DEFAULT-PURPOSE row in dev-memo/deferred-audit-findings.md (status open->closed) citing this WI's commit.
+Source of truth: dev-memo/study/2026-06-05-batch-audit-54.md (CBW-UI-701-DEFAULT-PURPOSE, audit-mq0zsm14-ic09t5); dev-memo/design/2026-06-05-casebox-fact-create.md (default purpose = other); apps/lawbar-desktop/renderer/screens/viewMatterFacts.ts (the Add-fact control)
+Allowed files: apps/lawbar-desktop/renderer/screens/viewMatterFacts.ts, apps/lawbar-desktop/tests/renderer-view-matter.test.mjs, dev-memo/deferred-audit-findings.md
+Forbidden files: apps/lawbar-desktop/src/caseBox/**, services/case-box-persistence/**, docs/contracts/**, apps/lawbar-desktop/electron/**, apps/lawbar-desktop/renderer/api.ts, apps/lawbar-desktop/renderer/types.ts, apps/lawbar-desktop/renderer/screens/viewMatterDeadlines.ts
+Gates: npm --prefix apps/lawbar-desktop test
+Acceptance criteria: the Add-fact purpose select renders the "other" option carrying a selected attribute and NO other option marked selected; the regression test encodes BROWSER-DEFAULT SEMANTICS — it computes the effective default as the value of the option bearing the selected attribute, ELSE the first option's value (mirroring how a real browser resolves an untouched select) — and asserts that effective default === "other" (this FAILS before the fix, where no option is selected so the first option "claim" is the default, and PASSES after; it must NOT assert only the handler's submitted payload, which the mock resolves via its undefined-value fallback and would hide the bug); all existing add-fact tests still pass; the CBW-UI-701-DEFAULT-PURPOSE row in dev-memo/deferred-audit-findings.md is flipped to closed citing this WI; no backend/contract/bridge/WI-702 file is modified; the full apps/lawbar-desktop test suite passes
+Risk flags: small renderer default-value correctness fix; design-gated (Design artifact present); broker review-plan + audit + verify required; closes the deferred Layer-B Low CBW-UI-701-DEFAULT-PURPOSE
+Depends on: WI-701
+Commit boundary: one local commit for the default-purpose fix + browser-faithful regression test + ledger closure
+
 ## WI-702: Add/Confirm Deadline UI + renderer bridge
 Type: UI
 Design artifact: dev-memo/design/2026-06-05-casebox-deadline-create-confirm.md
