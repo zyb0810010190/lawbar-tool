@@ -559,3 +559,85 @@ export interface ConfirmDocketEntryValue {
 }
 export type CreateDocketEntryResult = IpcEnvelope<RendererDocketEntryRow>;
 export type ConfirmDocketEntryResult = IpcEnvelope<ConfirmDocketEntryValue>;
+
+// ---------------------------------------------------------------------------
+// WI-602: fact create (claims / timeline write path). The renderer supplies
+// ONLY the manual-fact fields; the server injects every authority / provenance
+// / review-lifecycle field (the full candidate lawyer-authored CaseBoxFact
+// shape — status "candidate", source_type "lawyer_authored", all source_* /
+// extractor_* / reviewer_* / review fields null). `purpose` (R-5) is optional;
+// `as_of_date` (R-5) is optional but date-only and required when purpose is
+// "timeline_event" — both enforced in the handler before the write.
+// ---------------------------------------------------------------------------
+
+export interface CreateFactDto {
+  readonly matterId: string;
+  readonly statement_text: string;
+  readonly purpose?: string;
+  readonly as_of_date?: string;
+}
+export const CREATE_FACT_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "statement_text",
+  "purpose",
+  "as_of_date",
+] as const);
+// Server-authority / server-injected / provenance / review-lifecycle fields
+// forbidden from the renderer create DTO (the server constructs them).
+export const CREATE_FACT_FORBIDDEN_FIELDS = Object.freeze([
+  "id",
+  "tenant_id",
+  "actor_user_id",
+  "matter_id",
+  "status",
+  "source_type",
+  "source_document_id",
+  "source_page_number",
+  "source_excerpt",
+  "source_ocr_job_id",
+  "extractor_name",
+  "extractor_version",
+  "extraction_confidence",
+  "reviewer_actor_user_id",
+  "reviewed_at",
+  "accepted_at",
+  "rejected_at",
+  "rejection_reason",
+  "supersedes_fact_id",
+  "created_at",
+] as const);
+
+// Dedicated WRITE-response allowlist for the created fact. Deliberately a
+// SEPARATE constant from LIST_FACTS_RESPONSE_FIELDS (list-row vs write-response
+// are distinct view contracts that may diverge), even though it currently
+// enumerates the same non-authority fact fields. STRIPS the authority identities
+// tenant_id / actor_user_id / reviewer_actor_user_id (same as the fact read
+// allowlist).
+export const CREATE_FACT_RESPONSE_FIELDS = Object.freeze([
+  "id",
+  "statement_text",
+  "status",
+  "source_type",
+  "source_document_id",
+  "source_page_number",
+  "source_excerpt",
+  "source_ocr_job_id",
+  "extractor_name",
+  "extractor_version",
+  "extraction_confidence",
+  "reviewed_at",
+  "accepted_at",
+  "rejected_at",
+  "rejection_reason",
+  "supersedes_fact_id",
+  "created_at",
+  "purpose",
+  "as_of_date",
+  "matter_id",
+] as const);
+
+export type RendererCreatedFactRow = Pick<
+  CaseBoxFact,
+  (typeof CREATE_FACT_RESPONSE_FIELDS)[number]
+>;
+export type CreateFactResult = IpcEnvelope<RendererCreatedFactRow>;
