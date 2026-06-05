@@ -8,6 +8,7 @@ import type {
   CaseBoxMatter,
   CaseBoxDocument,
   CaseBoxDeadline,
+  CaseBoxDocketEntry,
   CaseBoxFact,
 } from "case-box-contract";
 
@@ -429,3 +430,132 @@ export type GetDocumentResult = IpcEnvelope<RendererDocumentDetail | null>;
 export type RegisterDocumentResult = IpcEnvelope<CaseBoxDocument | null>;
 export type ListDeadlinesResult = IpcEnvelope<ListDeadlinesPage>;
 export type ListFactsResult = IpcEnvelope<ListFactsPage>;
+
+// ---------------------------------------------------------------------------
+// WI-601: docket-entry create + confirm (deadline write path). The renderer
+// supplies ONLY the manual-entry fields; the server injects every authority /
+// provenance / lifecycle field (the full D1-manual CaseBoxDocketEntry shape).
+// ---------------------------------------------------------------------------
+
+// Create (propose) a manual (D1) docket entry. Renderer-supplied fields only.
+export interface CreateDocketEntryDto {
+  readonly matterId: string;
+  readonly proposed_kind: string;
+  readonly proposed_due_at: string;
+  readonly proposed_due_at_timezone: string;
+  readonly proposed_owner_user_id?: string;
+}
+export const CREATE_DOCKET_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "proposed_kind",
+  "proposed_due_at",
+  "proposed_due_at_timezone",
+  "proposed_owner_user_id",
+] as const);
+// Server-authority / server-injected / provenance / lifecycle fields forbidden
+// from the renderer create DTO (the server constructs them).
+export const CREATE_DOCKET_FORBIDDEN_FIELDS = Object.freeze([
+  "id",
+  "tenant_id",
+  "actor_user_id",
+  "source_type",
+  "proposed_due_at_kind",
+  "source_rule_citation",
+  "extractor_name",
+  "extractor_version",
+  "extraction_confidence",
+  "source_document_id",
+  "source_page_number",
+  "source_excerpt",
+  "reminder_offsets",
+  "confirmation_state",
+  "proposed_at",
+  "confirmation_actor_user_id",
+  "confirmed_at",
+  "confirmed_deadline_id",
+  "dismissal_actor_user_id",
+  "dismissed_at",
+  "dismissal_reason",
+  "created_at",
+] as const);
+
+// Confirm a proposed docket entry (materializes the deadline). Renderer supplies
+// only the scope (matterId) + the entry to confirm; the server injects the
+// confirmation actor, timestamp, and new deadline id.
+export interface ConfirmDocketEntryDto {
+  readonly matterId: string;
+  readonly entryId: string;
+}
+export const CONFIRM_DOCKET_DTO_FIELDS = Object.freeze(["matterId", "entryId"] as const);
+export const CONFIRM_DOCKET_FORBIDDEN_FIELDS = Object.freeze([
+  "tenant_id",
+  "actor_user_id",
+  "confirmation_actor_user_id",
+  "confirmed_at",
+  "deadline_id",
+  "confirmed_deadline_id",
+] as const);
+
+// Renderer-safe docket-entry response allowlist — every CaseBoxDocketEntry field
+// EXCEPT the actor/tenant authority identities (tenant_id, actor_user_id,
+// confirmation_actor_user_id, dismissal_actor_user_id). Lifecycle markers
+// (confirmed_at / confirmed_deadline_id / dismissed_at / dismissal_reason) are
+// NOT actor identities and are retained.
+export const DOCKET_ENTRY_RESPONSE_FIELDS = Object.freeze([
+  "id",
+  "matter_id",
+  "source_type",
+  "proposed_kind",
+  "proposed_due_at",
+  "proposed_due_at_kind",
+  "proposed_due_at_timezone",
+  "proposed_owner_user_id",
+  "source_rule_citation",
+  "extractor_name",
+  "extractor_version",
+  "extraction_confidence",
+  "source_document_id",
+  "source_page_number",
+  "source_excerpt",
+  "reminder_offsets",
+  "confirmation_state",
+  "proposed_at",
+  "confirmed_at",
+  "confirmed_deadline_id",
+  "dismissed_at",
+  "dismissal_reason",
+  "created_at",
+] as const);
+
+// Dedicated WRITE-response allowlist for the materialized deadline returned by
+// confirm. Deliberately a SEPARATE constant from LIST_DEADLINES_RESPONSE_FIELDS
+// (list-row vs write-response are distinct contracts that may diverge), even
+// though it currently enumerates the same non-authority deadline fields.
+export const CONFIRM_DOCKET_DEADLINE_RESPONSE_FIELDS = Object.freeze([
+  "id",
+  "matter_id",
+  "kind",
+  "source_rule_citation",
+  "due_at",
+  "owner_user_id",
+  "status",
+  "met_at",
+  "previous_status",
+  "transition_reason",
+] as const);
+
+export type RendererDocketEntryRow = Pick<
+  CaseBoxDocketEntry,
+  (typeof DOCKET_ENTRY_RESPONSE_FIELDS)[number]
+>;
+export type RendererConfirmDeadlineRow = Pick<
+  CaseBoxDeadline,
+  (typeof CONFIRM_DOCKET_DEADLINE_RESPONSE_FIELDS)[number]
+>;
+// Confirm returns the projected proposed entry + the materialized deadline.
+export interface ConfirmDocketEntryValue {
+  readonly entry: RendererDocketEntryRow;
+  readonly deadline: RendererConfirmDeadlineRow;
+}
+export type CreateDocketEntryResult = IpcEnvelope<RendererDocketEntryRow>;
+export type ConfirmDocketEntryResult = IpcEnvelope<ConfirmDocketEntryValue>;
