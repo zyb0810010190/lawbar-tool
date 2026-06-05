@@ -1,7 +1,11 @@
-// Read-only Deadlines section for the matter view (B7 deadline read surface).
-// Lazily lists the matter's persisted deadlines. NO create / confirm / dismiss
-// / transition — display only. The renderer never imports the service; only the
-// human-rendered fields are read, and main is the authoritative validator.
+// Deadlines section for the matter view. Lazily lists the matter's persisted
+// deadlines (B7 read surface) and, since WI-702, lets a lawyer ADD a deadline via
+// a two-step propose -> confirm control (casebox:docket:create then
+// casebox:docket:confirm). NO dismiss / edit / transition. The renderer never
+// imports the service; only the human-rendered fields are read, the renderer
+// forwards narrow DTOs, and main is the authoritative validator (it injects all
+// authority/provenance/lifecycle fields and does the fail-closed scoped confirm
+// preflight).
 //
 // Urgency surfacing (brief §18 day-one must-have): each `pending` deadline is
 // classified overdue / due-soon (≤7 days) / none against an injected clock; a
@@ -13,6 +17,7 @@
 // pending overdue deadline behind older settled ones and undercount silently.
 
 import type { CaseBoxApi } from "../api.js";
+import type { ConfirmDocketEntryDto, CreateDocketEntryDto } from "../types.js";
 import { el, setText } from "../dom.js";
 import {
   classifyDeadlineUrgency,
@@ -21,6 +26,68 @@ import {
   ulidShort,
   type DeadlineUrgency,
 } from "../format.js";
+
+// --- Host-zone datetime resolution (WI-702) -------------------------------
+// A datetime-local input has no zone, and for this slice the timezone is
+// constrained to the host IANA zone. A host-local wall time can be NONEXISTENT
+// (spring-forward gap) or AMBIGUOUS (fall-back overlap), which JS Date silently
+// normalizes — so the forwarded instant could mismatch the displayed wall clock.
+// findUniqueInstant forwards an instant ONLY when the wall time is existent AND
+// unique. Detection is transition-size agnostic (a ±48h minute-granularity scan),
+// so sub-hour transitions (e.g. Australia/Lord_Howe's 30-minute shift) are caught.
+// It is a PURE function over injected zone adapters so it can be tested against
+// synthetic zones without depending on the test runner's TZ.
+export interface LocalComponents {
+  readonly y: number;
+  readonly mo: number; // 0-based, matching Date.getMonth()
+  readonly da: number;
+  readonly h: number;
+  readonly mi: number;
+}
+const SCAN_MINUTES = 48 * 60;
+function sameComponents(a: LocalComponents, b: LocalComponents): boolean {
+  return a.y === b.y && a.mo === b.mo && a.da === b.da && a.h === b.h && a.mi === b.mi;
+}
+export function findUniqueInstant(
+  input: LocalComponents,
+  toInstant: (c: LocalComponents) => number | null,
+  toComponents: (ms: number) => LocalComponents,
+): number | null {
+  const candidate = toInstant(input);
+  if (candidate === null || Number.isNaN(candidate)) return null;
+  // GAP: the candidate must re-derive to exactly the input wall time.
+  if (!sameComponents(toComponents(candidate), input)) return null;
+  // OVERLAP: reject if any OTHER nearby instant maps to the same wall time.
+  for (let dm = -SCAN_MINUTES; dm <= SCAN_MINUTES; dm++) {
+    if (dm === 0) continue;
+    if (sameComponents(toComponents(candidate + dm * 60000), input)) return null;
+  }
+  return candidate;
+}
+// datetime-local string ("YYYY-MM-DDTHH:MM" with optional ":SS", which is
+// ignored) -> components, or null. Fully anchored so trailing garbage is rejected
+// (the Date round-trip then rejects out-of-range components).
+function parseLocalComponents(value: string): LocalComponents | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2})?$/.exec(value);
+  if (m === null) return null;
+  return { y: +m[1], mo: +m[2] - 1, da: +m[3], h: +m[4], mi: +m[5] };
+}
+// Host-zone adapters: new Date(...components) builds in host-local time; the
+// Date get*-family reads back host-local components.
+function hostToInstant(c: LocalComponents): number {
+  return new Date(c.y, c.mo, c.da, c.h, c.mi, 0, 0).getTime();
+}
+function hostToComponents(ms: number): LocalComponents {
+  const d = new Date(ms);
+  return { y: d.getFullYear(), mo: d.getMonth(), da: d.getDate(), h: d.getHours(), mi: d.getMinutes() };
+}
+function hostTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
 
 // Display-only subset of CaseBoxDeadline.
 interface DeadlineRow {
@@ -47,10 +114,27 @@ export function renderDeadlinesDisclosure(
   // boundary must classify against the time the deadlines are actually loaded.
   nowMs?: number,
 ): HTMLElement {
+  // The list container is owned by loadDeadlines (cleared + refilled), so a
+  // confirmed deadline can refresh it in place. A generation token guards against
+  // a superseded in-flight load mutating the container after a refresh.
+  const listContainer = el(
+    "div",
+    { class: "view-deadlines-list-container", "data-test-id": "view-deadlines-list-container" },
+    [],
+    doc,
+  );
+  let loadGen = 0;
+  const runLoad = (): Promise<void> => {
+    const myGen = ++loadGen;
+    // nowMs resolves at LOAD time (fixed in tests; live re-reads Date.now() per load).
+    return loadDeadlines(listContainer, doc, api, matterId, nowMs ?? Date.now(), () => myGen === loadGen);
+  };
+  const addControl = renderAddDeadlineControl(doc, api, matterId, runLoad);
+
   const body = el(
     "div",
     { class: "view-deadlines-body", "data-test-id": "view-deadlines-body" },
-    [],
+    [addControl, listContainer],
     doc,
   );
   const summary = el(
@@ -70,9 +154,193 @@ export function renderDeadlinesDisclosure(
   summary.addEventListener("click", () => {
     if (loaded) return;
     loaded = true;
-    void loadDeadlines(body, doc, api, matterId, nowMs ?? Date.now());
+    void runLoad();
   });
   return details;
+}
+
+// Two-step "Add deadline" -> "Confirm deadline" control (WI-702). Propose creates
+// a PROPOSED docket entry (casebox:docket:create); the entry id is held in
+// ephemeral renderer state (no docket-read IPC) and Confirm materializes the
+// deadline (casebox:docket:confirm), which then joins the list on refresh. The
+// timezone is constrained to the host zone (read-only) for this slice; the
+// datetime is forwarded only when it is an existent + unique host-local wall time.
+function renderAddDeadlineControl(
+  doc: Document,
+  api: CaseBoxApi,
+  matterId: string,
+  refresh: () => Promise<void>,
+): HTMLElement {
+  const HOST_TZ = hostTimeZone();
+  let proposedEntryId: string | null = null;
+
+  const kindInput = el(
+    "input",
+    { type: "text", class: "view-deadlines-add-kind", "data-test-id": "view-deadlines-add-kind", "aria-label": "Deadline kind", placeholder: "filing" },
+    [],
+    doc,
+  );
+  const dueInput = el(
+    "input",
+    { type: "datetime-local", class: "view-deadlines-add-due", "data-test-id": "view-deadlines-add-due", "aria-label": "Due date and time" },
+    [],
+    doc,
+  );
+  // Timezone is the host zone and non-editable for this slice.
+  const tzField = el(
+    "input",
+    { type: "text", class: "view-deadlines-add-tz", "data-test-id": "view-deadlines-add-tz", "aria-label": "Timezone", value: HOST_TZ, readonly: "", disabled: "" },
+    [],
+    doc,
+  );
+  const addStatus = el(
+    "span",
+    { class: "view-deadlines-add-status", "data-test-id": "view-deadlines-add-status" },
+    [],
+    doc,
+  );
+  const proposeBtn = el(
+    "button",
+    { type: "button", class: "view-deadlines-add-btn", "data-test-id": "view-deadlines-add" },
+    ["Propose deadline"],
+    doc,
+  );
+
+  const confirmStatus = el(
+    "span",
+    { class: "view-deadlines-confirm-status", "data-test-id": "view-deadlines-confirm-status" },
+    [],
+    doc,
+  );
+  const confirmBtn = el(
+    "button",
+    { type: "button", class: "view-deadlines-confirm-btn", "data-test-id": "view-deadlines-confirm" },
+    ["Confirm deadline"],
+    doc,
+  );
+  const proposedRow = el(
+    "div",
+    { class: "view-deadlines-proposed-row", role: "status", "data-test-id": "view-deadlines-proposed-row" },
+    [],
+    doc,
+  );
+  const proposedArea = el(
+    "div",
+    { class: "view-deadlines-proposed", "data-test-id": "view-deadlines-proposed", hidden: "" },
+    [proposedRow, " ", confirmBtn, " ", confirmStatus],
+    doc,
+  );
+
+  const addError = (msg: string): void => {
+    addStatus.setAttribute("role", "alert");
+    addStatus.setAttribute("data-test-id", "view-deadlines-add-error");
+    setText(addStatus, msg);
+  };
+  const confirmError = (msg: string): void => {
+    confirmStatus.setAttribute("role", "alert");
+    confirmStatus.setAttribute("data-test-id", "view-deadlines-confirm-error");
+    setText(confirmStatus, msg);
+  };
+
+  proposeBtn.addEventListener("click", () => {
+    void (async () => {
+      const kind = ((kindInput as unknown as { value?: string }).value ?? "").trim();
+      const dueLocal = ((dueInput as unknown as { value?: string }).value ?? "").trim();
+      addStatus.removeAttribute("role");
+      addStatus.setAttribute("data-test-id", "view-deadlines-add-status");
+      if (kind.length === 0) {
+        addError("A deadline kind is required.");
+        return;
+      }
+      if (dueLocal.length === 0) {
+        addError("A due date and time is required.");
+        return;
+      }
+      const components = parseLocalComponents(dueLocal);
+      if (components === null) {
+        addError("The due date and time is not a valid date-time.");
+        return;
+      }
+      const instantMs = findUniqueInstant(components, hostToInstant, hostToComponents);
+      if (instantMs === null) {
+        addError("That local time does not exist or is ambiguous (a daylight-saving gap or overlap). Pick another time.");
+        return;
+      }
+      const proposed_due_at = new Date(instantMs).toISOString();
+      const dto: CreateDocketEntryDto = {
+        matterId,
+        proposed_kind: kind,
+        proposed_due_at,
+        proposed_due_at_timezone: HOST_TZ,
+      };
+      proposeBtn.setAttribute("disabled", "true");
+      setText(addStatus, "Proposing…");
+      try {
+        const env = await api.createDocketEntry(dto);
+        if (!env.ok) {
+          addError(env.error.message);
+          return;
+        }
+        const entry = env.value as { id?: string; proposed_kind?: string; proposed_due_at?: string };
+        if (typeof entry.id !== "string" || entry.id.length === 0) {
+          // Defensive: a successful create must carry the entry id (confirm needs
+          // it). A missing id means a backend/preload contract regression — surface
+          // it instead of showing an unconfirmable proposed row.
+          addError("The deadline was proposed but its id is missing; cannot confirm. Please retry.");
+          return;
+        }
+        proposedEntryId = entry.id;
+        setText(
+          proposedRow,
+          `Proposed (unconfirmed): ${entry.proposed_kind ?? kind} due ${formatLocalDateTime(entry.proposed_due_at ?? proposed_due_at)}`,
+        );
+        proposedArea.removeAttribute("hidden");
+        confirmStatus.removeAttribute("role");
+        confirmStatus.setAttribute("data-test-id", "view-deadlines-confirm-status");
+        setText(confirmStatus, "");
+        setText(addStatus, "Proposed — confirm to add it.");
+      } catch {
+        addError("Could not propose the deadline. Please try again.");
+      } finally {
+        proposeBtn.removeAttribute("disabled");
+      }
+    })();
+  });
+
+  confirmBtn.addEventListener("click", () => {
+    void (async () => {
+      if (proposedEntryId === null) return;
+      confirmStatus.removeAttribute("role");
+      confirmStatus.setAttribute("data-test-id", "view-deadlines-confirm-status");
+      const dto: ConfirmDocketEntryDto = { matterId, entryId: proposedEntryId };
+      confirmBtn.setAttribute("disabled", "true");
+      setText(confirmStatus, "Confirming…");
+      try {
+        const env = await api.confirmDocketEntry(dto);
+        if (!env.ok) {
+          // Fail-closed: keep the proposed row, do NOT refresh the deadline list.
+          confirmError(env.error.message);
+          return;
+        }
+        // Success: clear the proposed state and refresh the list in place.
+        proposedEntryId = null;
+        proposedArea.setAttribute("hidden", "");
+        setText(confirmStatus, "Confirmed.");
+        await refresh();
+      } catch {
+        confirmError("Could not confirm the deadline. Please try again.");
+      } finally {
+        confirmBtn.removeAttribute("disabled");
+      }
+    })();
+  });
+
+  return el(
+    "div",
+    { class: "view-deadlines-add", "data-test-id": "view-deadlines-add-control" },
+    [kindInput, " ", dueInput, " ", tzField, " ", proposeBtn, " ", addStatus, proposedArea],
+    doc,
+  );
 }
 
 function renderDeadlineRow(doc: Document, d: DeadlineRow, urgency: DeadlineUrgency): HTMLElement {
@@ -146,7 +414,13 @@ async function loadDeadlines(
   api: CaseBoxApi,
   matterId: string,
   nowMs: number,
+  // True only while this load is the newest one. Checked after every await so a
+  // superseded load (e.g. overtaken by a post-confirm refresh) cannot mutate the
+  // container the newer load already cleared + refilled.
+  isCurrent: () => boolean = () => true,
 ): Promise<void> {
+  // Clear any prior render so this can refresh in place after a confirm.
+  setText(parent, "");
   // Banner sits above the list and summarises urgent counts. Created hidden;
   // shown only once an overdue / due-soon deadline is seen.
   const banner = el(
@@ -210,6 +484,8 @@ async function loadDeadlines(
       matterId,
       ...(cursor !== null ? { cursor } : {}),
     });
+    // A newer load has taken over this container — drop this stale response.
+    if (!isCurrent()) return;
     if (!env.ok) {
       loading.remove();
       parent.appendChild(

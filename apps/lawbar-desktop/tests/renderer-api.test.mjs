@@ -32,6 +32,8 @@ function makeMockClient() {
       archiveMatter: mk("archiveMatter"),
       chainHead: mk("chainHead"),
       createFact: mk("createFact"),
+      createDocketEntry: mk("createDocketEntry"),
+      confirmDocketEntry: mk("confirmDocketEntry"),
     },
   };
 }
@@ -185,6 +187,44 @@ test("createCaseBoxApi: createFact drops a smuggled server-authority field", asy
     actor_user_id: "evil",
   });
   assert.deepEqual(m.calls[0].dto, { matterId: VALID_ULID, statement_text: "x" });
+});
+
+test("createCaseBoxApi: createDocketEntry forwards only the allowlisted fields", async () => {
+  const m = makeMockClient();
+  const api = createCaseBoxApi(m.client);
+  await api.createDocketEntry({
+    matterId: VALID_ULID,
+    proposed_kind: "filing",
+    proposed_due_at: "2026-06-15T17:00:00.000Z",
+    proposed_due_at_timezone: "America/New_York",
+    proposed_owner_user_id: "01jzowner000000000000000000",
+    // smuggled server-authority fields must be stripped:
+    tenant_id: "evil",
+    actor_user_id: "evil",
+    confirmation_state: "confirmed",
+  });
+  assert.equal(m.calls[0].name, "createDocketEntry");
+  assert.deepEqual(m.calls[0].dto, {
+    matterId: VALID_ULID,
+    proposed_kind: "filing",
+    proposed_due_at: "2026-06-15T17:00:00.000Z",
+    proposed_due_at_timezone: "America/New_York",
+    proposed_owner_user_id: "01jzowner000000000000000000",
+  });
+});
+
+test("createCaseBoxApi: confirmDocketEntry forwards only matterId + entryId", async () => {
+  const m = makeMockClient();
+  const api = createCaseBoxApi(m.client);
+  await api.confirmDocketEntry({
+    matterId: VALID_ULID,
+    entryId: "01jzentry000000000000000000",
+    // smuggled fields stripped:
+    confirmation_actor_user_id: "evil",
+    deadline_id: "evil",
+  });
+  assert.equal(m.calls[0].name, "confirmDocketEntry");
+  assert.deepEqual(m.calls[0].dto, { matterId: VALID_ULID, entryId: "01jzentry000000000000000000" });
 });
 
 // --- envelope passthrough ---
