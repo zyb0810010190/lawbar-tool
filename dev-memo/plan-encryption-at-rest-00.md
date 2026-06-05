@@ -374,7 +374,7 @@ If Tier 1 ships first (v1 day-one) and Tier 2 ships later (separately authorized
 |---|---|
 | FileVault ON → app launches silently | Unit: mock `fdesetup status` returning "FileVault is On"; assert app proceeds without dialog. |
 | FileVault OFF → app shows warning OR blocks (config) | Unit: mock "FileVault is Off"; assert warning dialog or block path per config. |
-| `fdesetup` execution error → fail-safe path | Unit: mock subprocess error; assert app proceeds with audit log (don't block on transient error). |
+| `fdesetup` execution error → fail-CLOSED (`unknown`) | Unit: mock subprocess error; assert the state classifies as `unknown` and `decideAction` maps it to **block-prod / warn-dev** (per §4.1; `unknown` → `off`/fail-closed semantics in the shipped Tier 1 impl `fileVaultProbe.ts`). A probe failure is treated as FileVault-unverified, not as a transient error to ignore. |
 | End-to-end: actual macOS Mac with FileVault toggled | Manual gate; document in WI commit message. |
 
 ### §6.2 Tier 2 tests (SQLCipher overlay)
