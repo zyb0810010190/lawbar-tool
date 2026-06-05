@@ -104,6 +104,72 @@ expect DENY  "BCG-7 EVERY=3#junk (no-ws # is literal)" "${C[4]}" "" 10 "3#junk"
 expect DENY  "BCG-7 EVERY=#junk (no-ws # is literal)"  "${C[4]}" "" 10 "#junk"
 expect ALLOW "BCG-7 EVERY=3 # note (ws comment ok)"    "${C[4]}" "" 10 "3 # note"
 
+# --- WI-302 / BCG-4 + BCG-5: atomic (consume-on-success) gated-token consumption ---
+# Permission-forced failure simulates rm/append failure; skipped (not failed) under root (perms bypassed).
+ROOT=0; [ "$(id -u 2>/dev/null)" = 0 ] && ROOT=1
+RUNDIR="$T/dev-memo/run"
+chk() { # chk <label> <expected> <got>
+  if [ "$3" = "$2" ]; then pass=$((pass+1)); else fail=$((fail+1)); failed="$failed\n  [$1 want '$2' got '$3']"; fi
+}
+
+# BCG-4: gated mode (MAX=1) human.ack — consume ONLY if removal succeeds.
+ack_run() { # ack_run <lockdir:yes|no> -> "DENY|ALLOW ack=present|absent"
+  printf 'AUTO_ADVANCE_MAX=1\nBATCH_AUDIT_EVERY=1\n' > "$RUNDIR/config"
+  rm -f "$RUNDIR/batch-start" "$RUNDIR/last-batch-audit"
+  : > "$RUNDIR/human.ack"
+  [ "$1" = yes ] && chmod 0555 "$RUNDIR"
+  local out; out=$(printf '{"tool_input":{"command":"git commit -m x"}}' | CLAUDE_PROJECT_DIR="$T" bash "$HOOK" 2>/dev/null)
+  [ "$1" = yes ] && chmod 0755 "$RUNDIR"
+  local d a; case "$out" in *'"permissionDecision":"deny"'*) d=DENY ;; *) d=ALLOW ;; esac
+  [ -f "$RUNDIR/human.ack" ] && a=present || a=absent
+  rm -f "$RUNDIR/human.ack" "$RUNDIR/config"
+  printf '%s ack=%s' "$d" "$a"
+}
+chk "BCG-4 ack happy (consumed once)" "ALLOW ack=absent" "$(ack_run no)"
+# (BCG-4 ack rm-fail runs in the consolidated root-skip block below, with BCG-5 rm-fail)
+# post-consume single-use: no ack present -> deny (not reusable)
+printf 'AUTO_ADVANCE_MAX=1\nBATCH_AUDIT_EVERY=1\n' > "$RUNDIR/config"; rm -f "$RUNDIR/human.ack"
+o=$(printf '{"tool_input":{"command":"git commit -m x"}}' | CLAUDE_PROJECT_DIR="$T" bash "$HOOK" 2>/dev/null)
+case "$o" in *'"permissionDecision":"deny"'*) chk "BCG-4 no-ack gated -> deny" DENY DENY ;; *) chk "BCG-4 no-ack gated -> deny" DENY ALLOW ;; esac
+rm -f "$RUNDIR/config"
+
+# BCG-5: batch mode (MAX=10) human.override — grant ONLY if reason non-empty AND removed AND logged.
+# Window bs=C0 -> count 4 >= EVERY 3 -> audit DUE, so WITHOUT a valid override the commit DENYs.
+ovr_run() { # ovr_run <mode: none|rmfail|appendfail|blankreason|unreadable> -> "DENY|ALLOW ovr=present|absent log=N"
+  printf 'AUTO_ADVANCE_MAX=10\nBATCH_AUDIT_EVERY=3\n' > "$RUNDIR/config"
+  printf '%s\n' "${C[0]}" > "$RUNDIR/batch-start"; rm -f "$RUNDIR/last-batch-audit"
+  : > "$RUNDIR/human.override"; : > "$RUNDIR/log.md"
+  case "$1" in
+    blankreason) printf '\nactual reason on line 2\n' > "$RUNDIR/override-reason.md" ;;
+    *)           printf 'deliberate override reason\n'  > "$RUNDIR/override-reason.md" ;;
+  esac
+  # Root-portable failure injection: a DIRECTORY at the target makes `head`/`>>` fail "is a directory"
+  # for ANY uid (incl root), unlike chmod which root bypasses. unreadable-reason + append-fail use it;
+  # only rm-fail still needs a chmod-unwritable dir (not enforceable for root -> root-skipped below).
+  [ "$1" = unreadable ] && { rm -f "$RUNDIR/override-reason.md"; mkdir "$RUNDIR/override-reason.md"; }
+  [ "$1" = appendfail ] && { rm -f "$RUNDIR/log.md"; mkdir "$RUNDIR/log.md"; }
+  [ "$1" = rmfail ]     && chmod 0555 "$RUNDIR"
+  local out; out=$(printf '{"tool_input":{"command":"git commit -m x"}}' | CLAUDE_PROJECT_DIR="$T" bash "$HOOK" 2>/dev/null)
+  [ "$1" = rmfail ]     && chmod 0755 "$RUNDIR"
+  local d o l; case "$out" in *'"permissionDecision":"deny"'*) d=DENY ;; *) d=ALLOW ;; esac
+  [ -f "$RUNDIR/human.override" ] && o=present || o=absent
+  l=$(grep -c 'override consumed' "$RUNDIR/log.md" 2>/dev/null); l=${l:-0}
+  rm -rf "$RUNDIR/human.override" "$RUNDIR/override-reason.md" "$RUNDIR/log.md" "$RUNDIR/batch-start" "$RUNDIR/config"
+  printf '%s ovr=%s log=%s' "$d" "$o" "$l"
+}
+# Root-portable cases (always run):
+chk "BCG-5 override happy (consume+log)"               "ALLOW ovr=absent log=1" "$(ovr_run none)"
+chk "BCG-5 blank-reason -> deny, not spent"            "DENY ovr=present log=0" "$(ovr_run blankreason)"
+chk "BCG-5 unreadable-reason (dir) -> deny, not spent" "DENY ovr=present log=0" "$(ovr_run unreadable)"
+chk "BCG-5 append-fail (log dir) -> deny, spent, no log" "DENY ovr=absent log=0" "$(ovr_run appendfail)"
+# chmod-unwritable rm-fail cases: not enforceable for root -> explicit SKIP (no silent green).
+if [ "$ROOT" -eq 0 ]; then
+  chk "BCG-4 ack rm-fail -> deny, token persists"        "DENY ack=present"       "$(ack_run yes)"
+  chk "BCG-5 rm-fail -> deny, token persists, no false log" "DENY ovr=present log=0" "$(ovr_run rmfail)"
+else
+  echo "  [SKIP under root: BCG-4 ack rm-fail + BCG-5 rm-fail — chmod-unwritable dir not enforceable for root; non-root runs cover these]"
+fi
+
 # --- PRC-4-FU: deny() must emit VALID JSON for control chars / quotes / backslashes ---
 # Extract deny() in isolation (depends only on $1, jq, sed, tr, printf) and assert the output
 # parses as JSON with permissionDecision=deny — for both the jq-present and jq-fallback branches.
