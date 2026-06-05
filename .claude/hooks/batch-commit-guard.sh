@@ -132,18 +132,35 @@ fi
 
 # --- Gated mode (MAX<=1): every commit needs a single-use human.ack. Nothing else applies. ---
 if [ "$MAX" -le 1 ]; then
-  if [ -f "$RUN/human.ack" ]; then rm -f "$RUN/human.ack" 2>/dev/null; exit 0; fi
+  # BCG-4: consume-on-success. Authorize ONLY if the single-use ack was actually removed; if removal
+  # fails (read-only dir / permission), the token PERSISTS, so allowing would make it reusable — deny.
+  if [ -f "$RUN/human.ack" ]; then
+    if rm -f "$RUN/human.ack" 2>/dev/null && [ ! -e "$RUN/human.ack" ]; then exit 0; fi
+    deny "Batch guard: gated-mode dev-memo/run/human.ack could not be consumed (removal failed); refusing to authorize on a token that still exists (fail-closed)."
+  fi
   deny "Batch guard: gated mode (AUTO_ADVANCE_MAX=$MAX) requires a single-use dev-memo/run/human.ack for every commit."
 fi
 
 # --- Batch mode (MAX>1). human.ack does NOT apply here (it's a gated-mode token). ---
 # The only batch-mode escape is a deliberate, logged human.override + non-empty reason file.
 # It still does NOT bypass the staging/secrets checks enforced by the other commit hooks.
+# BCG-5: grant the batch-mode override (which bypasses risk/governed/count) ONLY when it is fully
+# consumed. Authorization chain, left-to-right: (1) the override REASON (first line of
+# override-reason.md) is readable + non-empty — a bypass with no recorded reason is not authorized,
+# checked BEFORE removal so a blank/unreadable reason denies WITHOUT spending the token; (2) the token
+# is removed and confirmed gone; (3) only THEN is the "consumed" audit line appended. OVERRIDE=1 iff
+# all three succeed, so log.md never records a "consumed" override that is still present or had no
+# reason. Any failure -> deny (fail-closed; the token is single-use and is spent only if removal ran).
 OVERRIDE=0
 if [ -f "$RUN/human.override" ] && [ -s "$RUN/override-reason.md" ]; then
-  OVERRIDE=1
-  printf '%s override consumed: %s\n' "$(date -u +%FT%TZ)" "$(head -1 "$RUN/override-reason.md")" >> "$RUN/log.md" 2>/dev/null
-  rm -f "$RUN/human.override" 2>/dev/null   # single-use; reason file kept for the audit trail
+  ovreason=$(head -1 "$RUN/override-reason.md" 2>/dev/null)
+  if [ -n "$ovreason" ] \
+     && rm -f "$RUN/human.override" 2>/dev/null && [ ! -e "$RUN/human.override" ] \
+     && { printf '%s override consumed: %s\n' "$(date -u +%FT%TZ)" "$ovreason" >> "$RUN/log.md"; } 2>/dev/null; then
+    OVERRIDE=1
+  else
+    deny "Batch guard: dev-memo/run/human.override could not be atomically consumed+logged — the override reason (first line of dev-memo/run/override-reason.md) is empty/unreadable, or token removal / audit-log append failed. Refusing to authorize (the override is single-use; it is spent only if removal succeeded). Re-create dev-memo/run/human.override + a non-empty override-reason.md and ensure dev-memo/run/log.md is writable (fail-closed)."
+  fi
 fi
 
 if [ "$OVERRIDE" -eq 0 ]; then
