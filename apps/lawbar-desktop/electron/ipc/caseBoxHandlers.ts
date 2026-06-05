@@ -17,6 +17,13 @@ import {
   type ClockFn,
   type RegisterDocumentDeps,
 } from "../../src/caseBox/handlers.js";
+// WI-601 docket write handlers — imported DIRECTLY from the per-entity module
+// (not the handlers.js barrel) because handlers.ts is outside this WI's governed
+// Allowed-files; the barrel re-export is a follow-up reconciliation.
+import {
+  createDocketEntryHandler,
+  confirmDocketEntryHandler,
+} from "../../src/caseBox/docketHandlers.js";
 import { getCaseBoxRuntime } from "../../src/caseBox/caseBoxRuntime.js";
 import { newUlid } from "../../src/caseBox/ulid.js";
 
@@ -85,6 +92,12 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.deadlineList, async (_evt, payload: unknown) => {
     return listDeadlinesHandler(payload, provide);
+  });
+  ipcMain.handle(CHANNEL.docketCreate, async (_evt, payload: unknown) => {
+    return createDocketEntryHandler(payload, provide, nowFn, idFactory);
+  });
+  ipcMain.handle(CHANNEL.docketConfirm, async (_evt, payload: unknown) => {
+    return confirmDocketEntryHandler(payload, provide, nowFn, idFactory);
   });
   ipcMain.handle(CHANNEL.factList, async (_evt, payload: unknown) => {
     return listFactsHandler(payload, provide);

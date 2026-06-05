@@ -15,6 +15,12 @@ import {
   listFactsHandler,
   CHANNEL,
 } from "../dist/src/caseBox/handlers.js";
+// WI-601: docket write handlers imported directly from the per-entity module
+// (the handlers.js barrel is outside the WI's Allowed-files).
+import {
+  createDocketEntryHandler,
+  confirmDocketEntryHandler,
+} from "../dist/src/caseBox/docketHandlers.js";
 import { CaseBoxPersistenceError } from "case-box-persistence";
 
 const FIXED_NOW = new Date("2026-05-27T00:00:00.000Z");
@@ -1215,4 +1221,154 @@ test("listFacts tenant mismatch → tenant_mismatch; listFacts not called", asyn
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "tenant_mismatch");
   assert.equal(called, false);
+});
+
+// ===========================================================================
+// WI-601 — docket-entry create + confirm IPC (deadline write path)
+// ===========================================================================
+const ENTRY_ID = "01jz000000000000000000ent0";
+const DEADLINE_ID = "01jz0000000000000000000dl0";
+
+// A docket-aware provider. getMatter returns an active-tenant matter for FIXED_ID.
+// appendDocketEntry echoes the input as the stored row (+ extra authority field to
+// prove projection strips it). getDocketEntry is SCOPED: returns the proposed entry
+// only when tenant+matter+entry all match the seeded values; null otherwise.
+// confirmDocketEntry is a spy that records invocation.
+function makeDocketProvider(overrides = {}) {
+  const calls = { confirm: 0 };
+  const seeded = overrides.seededEntry; // { tenant_id, matter_id, entry_id } or undefined
+  const persistence = {
+    getMatter: async (id) =>
+      id === FIXED_ID ? { id: FIXED_ID, tenant_id: "default-tenant", status: "active" } : null,
+    appendDocketEntry: async (input) => ({
+      ...input,
+      // server-authority field present on the stored row — projection MUST strip it:
+      tenant_id: "default-tenant",
+      actor_user_id: "local-user",
+    }),
+    getDocketEntry: async (q) => {
+      if (
+        seeded &&
+        q.tenant_id === seeded.tenant_id &&
+        q.matter_id === seeded.matter_id &&
+        q.entry_id === seeded.entry_id
+      ) {
+        return { id: q.entry_id, matter_id: q.matter_id, confirmation_state: "proposed", tenant_id: q.tenant_id };
+      }
+      return null;
+    },
+    confirmDocketEntry: async (entryId, opts) => {
+      calls.confirm += 1;
+      return {
+        entry: { id: entryId, matter_id: FIXED_ID, confirmation_state: "confirmed", confirmed_deadline_id: opts.deadline_id, tenant_id: "default-tenant", actor_user_id: "local-user", confirmation_actor_user_id: opts.confirmation_actor_user_id },
+        deadline: { id: opts.deadline_id, matter_id: FIXED_ID, kind: "filing", due_at: "2026-06-15T17:00:00.000Z", owner_user_id: "local-user", status: "pending", tenant_id: "default-tenant", actor_user_id: "local-user" },
+        idempotent: false,
+      };
+    },
+    ...(overrides.persistence ?? {}),
+  };
+  return { provide: () => ({ persistence }), calls };
+}
+
+const validCreateDto = {
+  matterId: FIXED_ID,
+  proposed_kind: "filing",
+  proposed_due_at: "2026-06-15T17:00:00.000Z",
+  proposed_due_at_timezone: "America/New_York",
+};
+
+test("docketCreate: valid matter -> ok, projected PROPOSED entry, authority stripped", async () => {
+  const { provide } = makeDocketProvider();
+  const r = await createDocketEntryHandler(validCreateDto, provide, clock, idFactory);
+  assert.equal(r.ok, true);
+  assert.equal(r.value.confirmation_state, "proposed");
+  assert.equal(r.value.source_type, "manual");
+  assert.equal(r.value.extractor_name, null);
+  assert.equal(r.value.proposed_kind, "filing");
+  // server-authority fields must NOT cross the boundary
+  assert.equal("tenant_id" in r.value, false);
+  assert.equal("actor_user_id" in r.value, false);
+});
+
+test("docketCreate: unknown matter -> unknown_matter", async () => {
+  const { provide } = makeDocketProvider();
+  const r = await createDocketEntryHandler({ ...validCreateDto, matterId: "01jz0000000000000000000xxx" }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "unknown_matter");
+});
+
+test("docketCreate: wrong-tenant matter -> tenant_mismatch", async () => {
+  const { provide } = makeDocketProvider({
+    persistence: { getMatter: async () => ({ id: FIXED_ID, tenant_id: "other-tenant", status: "active" }) },
+  });
+  const r = await createDocketEntryHandler(validCreateDto, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "tenant_mismatch");
+});
+
+test("docketCreate: forbidden server-authority field -> invalid_payload", async () => {
+  const { provide } = makeDocketProvider();
+  const r = await createDocketEntryHandler({ ...validCreateDto, tenant_id: "x" }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+});
+
+test("docketCreate: missing proposed_kind -> invalid_payload", async () => {
+  const { provide } = makeDocketProvider();
+  const { proposed_kind, ...noKind } = validCreateDto;
+  const r = await createDocketEntryHandler(noKind, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+});
+
+test("docketConfirm: valid -> ok, materialized deadline projected (authority stripped)", async () => {
+  const { provide, calls } = makeDocketProvider({
+    seededEntry: { tenant_id: "default-tenant", matter_id: FIXED_ID, entry_id: ENTRY_ID },
+  });
+  const r = await confirmDocketEntryHandler({ matterId: FIXED_ID, entryId: ENTRY_ID }, provide, clock, idFactory);
+  assert.equal(r.ok, true);
+  assert.equal(calls.confirm, 1);
+  assert.equal(r.value.deadline.kind, "filing");
+  assert.equal("tenant_id" in r.value.deadline, false);
+  assert.equal("actor_user_id" in r.value.deadline, false);
+  assert.equal("tenant_id" in r.value.entry, false);
+  assert.equal("confirmation_actor_user_id" in r.value.entry, false);
+});
+
+test("docketConfirm: UNKNOWN entry_id -> invalid_payload, confirmDocketEntry NOT called", async () => {
+  const { provide, calls } = makeDocketProvider({ seededEntry: undefined }); // getDocketEntry always null
+  const r = await confirmDocketEntryHandler({ matterId: FIXED_ID, entryId: ENTRY_ID }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+  assert.equal(calls.confirm, 0);
+});
+
+test("docketConfirm: WRONG-MATTER entry_id -> invalid_payload, confirm NOT called", async () => {
+  // entry seeded under a DIFFERENT matter; confirm requested under FIXED_ID -> scoped miss
+  const { provide, calls } = makeDocketProvider({
+    seededEntry: { tenant_id: "default-tenant", matter_id: "01jz000000000000000000oth0", entry_id: ENTRY_ID },
+  });
+  const r = await confirmDocketEntryHandler({ matterId: FIXED_ID, entryId: ENTRY_ID }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+  assert.equal(calls.confirm, 0);
+});
+
+test("docketConfirm: WRONG-TENANT entry_id -> invalid_payload, confirm NOT called", async () => {
+  // entry seeded under a DIFFERENT tenant; active tenant is default-tenant -> scoped miss
+  const { provide, calls } = makeDocketProvider({
+    seededEntry: { tenant_id: "other-tenant", matter_id: FIXED_ID, entry_id: ENTRY_ID },
+  });
+  const r = await confirmDocketEntryHandler({ matterId: FIXED_ID, entryId: ENTRY_ID }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+  assert.equal(calls.confirm, 0);
+});
+
+test("docketConfirm: unknown matter -> unknown_matter (before entry preflight)", async () => {
+  const { provide, calls } = makeDocketProvider({ seededEntry: { tenant_id: "default-tenant", matter_id: FIXED_ID, entry_id: ENTRY_ID } });
+  const r = await confirmDocketEntryHandler({ matterId: "01jz0000000000000000000xxx", entryId: ENTRY_ID }, provide, clock, idFactory);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "unknown_matter");
+  assert.equal(calls.confirm, 0);
 });
