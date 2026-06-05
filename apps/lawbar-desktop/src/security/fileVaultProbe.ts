@@ -25,10 +25,14 @@ export interface FileVaultProbeResult {
 //   "FileVault is On."
 //   "FileVault is Off."
 // Anything else (e.g. "Decryption in Progress.", empty, garbage) → "unknown".
+// END-ANCHORED ($, no m flag) so the WHOLE trimmed string must be exactly the documented output:
+// an unexpected trailing suffix or extra line (e.g. "FileVault is On: weird", "FileVault is On.\n…")
+// classifies as "unknown" rather than being prefix-matched to on/off — a fail-OPEN this probe must
+// avoid (decideAction("unknown","production") === "block"; AT1-L1).
 export function parseFdesetupStatus(raw: string): "on" | "off" | "unknown" {
   const normalized = raw.trim();
-  if (/^FileVault is On\.?/i.test(normalized)) return "on";
-  if (/^FileVault is Off\.?/i.test(normalized)) return "off";
+  if (/^FileVault is On\.?$/i.test(normalized)) return "on";
+  if (/^FileVault is Off\.?$/i.test(normalized)) return "off";
   return "unknown";
 }
 
