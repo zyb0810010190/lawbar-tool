@@ -111,6 +111,27 @@ export interface ListFactsDto {
   readonly cursor?: string;
 }
 
+// R-5 fact purpose enum (case-box-fact.schema.json). Absent ⇒ server defaults to "other".
+export type FactPurpose =
+  | "claim"
+  | "defense"
+  | "counterclaim"
+  | "timeline_event"
+  | "work_order_result"
+  | "consultation_q"
+  | "consultation_a"
+  | "other";
+
+// Renderer-supplied fields for casebox:fact:create (WI-701). The server injects
+// every authority / status / provenance field; the renderer forwards only these.
+// `as_of_date` is date-only (YYYY-MM-DD) and only forwarded for timeline_event facts.
+export interface CreateFactDto {
+  readonly matterId: string;
+  readonly statement_text: string;
+  readonly purpose?: FactPurpose;
+  readonly as_of_date?: string;
+}
+
 export interface IpcErrorEnvelope {
   readonly kind: "case_box_persistence_error";
   readonly code: string;
@@ -189,4 +210,11 @@ export const RENDERER_LIST_FACTS_DTO_FIELDS = Object.freeze([
   "matterId",
   "limit",
   "cursor",
+] as const);
+
+export const RENDERER_CREATE_FACT_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "statement_text",
+  "purpose",
+  "as_of_date",
 ] as const);
