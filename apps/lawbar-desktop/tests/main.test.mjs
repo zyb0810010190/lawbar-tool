@@ -261,6 +261,17 @@ test("parseFdesetupStatus: unrecognized stdout → unknown", () => {
   assert.equal(parseFdesetupStatus("Encryption in Progress (45%)"), "unknown");
 });
 
+// AT1-L1 (WI-401): the parse must be END-ANCHORED so an unexpected trailing suffix or extra line is
+// NOT prefix-matched to on/off (a fail-OPEN for a FileVault-enforcement probe) but classified unknown
+// (fail-closed: decideAction(unknown, production) === "block").
+test("parseFdesetupStatus: unexpected trailing suffix → unknown (fail-closed, AT1-L1)", () => {
+  assert.equal(parseFdesetupStatus("FileVault is On: unexpected suffix"), "unknown");
+  assert.equal(parseFdesetupStatus("FileVault is Off: weird"), "unknown");
+  assert.equal(parseFdesetupStatus("FileVault is On then more text"), "unknown");
+  // multi-line valid-first-line + garbage second line: $ without the m flag means whole-string match.
+  assert.equal(parseFdesetupStatus("FileVault is On.\nDecryption queued"), "unknown");
+});
+
 test("resolveMode: LAWBAR_MODE=dev → dev", () => {
   assert.equal(resolveMode({ LAWBAR_MODE: "dev" }), "dev");
 });
