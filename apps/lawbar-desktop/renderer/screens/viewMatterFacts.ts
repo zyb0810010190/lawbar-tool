@@ -115,7 +115,13 @@ function renderAddFactControl(
   const purpose = el(
     "select",
     { class: "view-facts-add-purpose", "data-test-id": "view-facts-add-purpose", "aria-label": "Purpose" },
-    FACT_PURPOSES.map((p) => el("option", { value: p }, [p], doc)),
+    // Mark "other" the SELECTED default so an untouched select resolves to "other"
+    // in a real browser (a <select> with no selected option defaults to its FIRST
+    // option — here "claim" — which is NOT the intended default). The handler's
+    // `|| "other"` fallback remains as defense-in-depth, not the primary mechanism.
+    FACT_PURPOSES.map((p) =>
+      el("option", p === "other" ? { value: p, selected: "" } : { value: p }, [p], doc),
+    ),
     doc,
   );
   // as_of_date is hidden by default; revealed + required only for timeline_event.

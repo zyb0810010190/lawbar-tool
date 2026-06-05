@@ -1012,6 +1012,24 @@ test("add fact: control renders inside the Facts disclosure", async () => {
   assert.equal(findByTestId(root, "view-facts-add-asof").hasAttribute("hidden"), true);
 });
 
+test("add fact: purpose select browser default resolves to 'other', not the first option (WI-703)", async () => {
+  // Regression guard for CBW-UI-701-DEFAULT-PURPOSE. Encodes how a real browser
+  // resolves an untouched <select>: the option bearing `selected`, else the FIRST
+  // option. Pre-fix no option was selected, so the default would have been the
+  // first option ("claim"); post-fix "other" is marked selected.
+  const { root } = await mountFactsWithAdd(stubWithFact());
+  const options = findAll(findByTestId(root, "view-facts-add-purpose"), (n) => n.tagName === "OPTION");
+  // Exactly one option is the selected default, and it is "other".
+  const selected = options.filter((o) => o.hasAttribute("selected"));
+  assert.equal(selected.length, 1, "exactly one option marked selected");
+  assert.equal(selected[0].getAttribute("value"), "other");
+  // Browser default-resolution rule: selected option, else first.
+  const browserDefault = (options.find((o) => o.hasAttribute("selected")) ?? options[0]).getAttribute("value");
+  assert.equal(browserDefault, "other", "untouched purpose select must default to 'other'");
+  // The first listed option is "claim" — confirming the pre-fix default would have been wrong.
+  assert.equal(options[0].getAttribute("value"), "claim");
+});
+
 test("add fact: success forwards DTO and refreshes the list in place", async () => {
   let createDto;
   let listCalls = 0;
