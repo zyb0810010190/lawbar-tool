@@ -13,6 +13,7 @@ import {
 import {
   createDocketEntryHandler,
   confirmDocketEntryHandler,
+  listDocketEntriesHandler,
 } from "../dist/src/caseBox/docketHandlers.js";
 import { createFactHandler } from "../dist/src/caseBox/factHandlers.js";
 import { CHANNEL } from "../dist/src/caseBox/handlerShared.js";
@@ -53,6 +54,7 @@ function makeProvider(overrides) {
     registerDocument: async (_matterId, document) => document,
     listDeadlines: async (q) => ({ rows: [], next_cursor: null, query: q }),
     listFacts: async (q) => ({ rows: [], next_cursor: null, query: q }),
+    listDocketEntries: async (q) => ({ rows: [], next_cursor: null, query: q }),
     ...overrides,
   };
   return () => ({ persistence });
@@ -150,6 +152,168 @@ test("listDeadlines tenant mismatch → tenant_mismatch; listDeadlines not calle
     },
   });
   const result = await listDeadlinesHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "tenant_mismatch");
+  assert.equal(called, false);
+});
+
+// ---------- listDocketEntries (WI-D1) ----------
+
+const FULL_DOCKET_ROW = Object.freeze({
+  id: "01jzdk00000000000000000000",
+  // authority identities that MUST be stripped by projection:
+  tenant_id: "default-tenant",
+  actor_user_id: "local-user",
+  confirmation_actor_user_id: "local-user",
+  dismissal_actor_user_id: "local-user",
+  // renderer-safe fields that MUST survive:
+  matter_id: "01jz0000000000000000000000",
+  source_type: "manual",
+  proposed_kind: "filing",
+  proposed_due_at: "2026-06-30T00:00:00.000Z",
+  proposed_due_at_kind: "datetime",
+  proposed_due_at_timezone: "America/New_York",
+  confirmation_state: "proposed",
+  proposed_at: "2026-06-01T00:00:00.000Z",
+  created_at: "2026-06-01T00:00:00.000Z",
+});
+
+test("listDocketEntries happy path returns page + injects tenant_id and matter_id", async () => {
+  let received;
+  const provide = makeProvider({
+    listDocketEntries: async (q) => {
+      received = q;
+      return { rows: [FULL_DOCKET_ROW], next_cursor: null };
+    },
+  });
+  const result = await listDocketEntriesHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, true);
+  assert.equal(result.value.rows.length, 1);
+  assert.equal(received.tenant_id, "default-tenant");
+  assert.equal(received.matter_id, FIXED_ID);
+});
+
+test("listDocketEntries projects rows: authority identities are NOT leaked", async () => {
+  const provide = makeProvider({
+    listDocketEntries: async () => ({ rows: [FULL_DOCKET_ROW], next_cursor: null }),
+  });
+  const result = await listDocketEntriesHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, true);
+  const row = result.value.rows[0];
+  // authority identities stripped:
+  assert.equal("tenant_id" in row, false);
+  assert.equal("actor_user_id" in row, false);
+  assert.equal("confirmation_actor_user_id" in row, false);
+  assert.equal("dismissal_actor_user_id" in row, false);
+  // renderer-safe fields retained:
+  assert.equal(row.id, FULL_DOCKET_ROW.id);
+  assert.equal(row.confirmation_state, "proposed");
+  assert.equal(row.proposed_kind, "filing");
+});
+
+test("listDocketEntries proposed filter reaches persistence + returns the proposed entry", async () => {
+  let received;
+  const provide = makeProvider({
+    listDocketEntries: async (q) => {
+      received = q;
+      return { rows: [FULL_DOCKET_ROW], next_cursor: null };
+    },
+  });
+  const result = await listDocketEntriesHandler(
+    { matterId: FIXED_ID, confirmation_state: "proposed" },
+    provide,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(received.confirmation_state, "proposed");
+  assert.equal(result.value.rows[0].confirmation_state, "proposed");
+});
+
+test("listDocketEntries passes source_type + limit + cursor through; limit bounded", async () => {
+  let received;
+  const provide = makeProvider({
+    listDocketEntries: async (q) => {
+      received = q;
+      return { rows: [], next_cursor: "next" };
+    },
+  });
+  const result = await listDocketEntriesHandler(
+    { matterId: FIXED_ID, source_type: "manual", limit: 999, cursor: "c1" },
+    provide,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(received.source_type, "manual");
+  assert.equal(received.limit, 200); // bounded to MAX_LIST_LIMIT
+  assert.equal(received.cursor, "c1");
+  assert.equal(result.value.next_cursor, "next");
+});
+
+test("listDocketEntries empty matterId → invalid_payload", async () => {
+  const result = await listDocketEntriesHandler({ matterId: "" }, makeProvider());
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listDocketEntries forbidden field tenant_id → invalid_payload", async () => {
+  const result = await listDocketEntriesHandler(
+    { matterId: FIXED_ID, tenant_id: "evil" },
+    makeProvider(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.details?.schemaPath, "tenant_id");
+});
+
+test("listDocketEntries unknown field → invalid_payload", async () => {
+  const result = await listDocketEntriesHandler({ matterId: FIXED_ID, bogus: 1 }, makeProvider());
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+});
+
+test("listDocketEntries invalid confirmation_state → invalid_payload", async () => {
+  const result = await listDocketEntriesHandler(
+    { matterId: FIXED_ID, confirmation_state: "bogus" },
+    makeProvider(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.details?.schemaPath, "confirmation_state");
+});
+
+test("listDocketEntries invalid source_type → invalid_payload", async () => {
+  const result = await listDocketEntriesHandler(
+    { matterId: FIXED_ID, source_type: "bogus" },
+    makeProvider(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.details?.schemaPath, "source_type");
+});
+
+test("listDocketEntries absent matter → unknown_matter; listDocketEntries not called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getMatter: async () => null,
+    listDocketEntries: async () => {
+      called = true;
+      throw new Error("should not be called");
+    },
+  });
+  const result = await listDocketEntriesHandler(
+    { matterId: "01jz0000000000000000000099" },
+    provide,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "unknown_matter");
+  assert.equal(called, false);
+});
+
+test("listDocketEntries tenant mismatch → tenant_mismatch; listDocketEntries not called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getMatter: async () => ({ id: FIXED_ID, tenant_id: "other-tenant" }),
+    listDocketEntries: async () => {
+      called = true;
+      throw new Error("should not be called");
+    },
+  });
+  const result = await listDocketEntriesHandler({ matterId: FIXED_ID }, provide);
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "tenant_mismatch");
   assert.equal(called, false);

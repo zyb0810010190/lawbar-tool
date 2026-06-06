@@ -22,10 +22,18 @@ import {
   CONFIRM_DOCKET_FORBIDDEN_FIELDS,
   DOCKET_ENTRY_RESPONSE_FIELDS,
   CONFIRM_DOCKET_DEADLINE_RESPONSE_FIELDS,
+  LIST_DOCKET_DTO_FIELDS,
+  LIST_DOCKET_FORBIDDEN_FIELDS,
+  DOCKET_CONFIRMATION_STATES,
+  DOCKET_SOURCE_TYPES,
+  MAX_LIST_LIMIT,
+  MAX_CURSOR_LENGTH,
   type CreateDocketEntryDto,
   type CreateDocketEntryResult,
   type ConfirmDocketEntryDto,
   type ConfirmDocketEntryResult,
+  type ListDocketEntriesDto,
+  type ListDocketEntriesResult,
   type RendererDocketEntryRow,
   type RendererConfirmDeadlineRow,
 } from "./dto.js";
@@ -39,6 +47,7 @@ import {
   shapeGuardFailure,
   forbiddenFieldFailure,
   projectRow,
+  projectPage,
   type PersistenceProvider,
 } from "./handlerShared.js";
 
@@ -196,5 +205,98 @@ export async function confirmDocketEntryHandler(
     };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.docketConfirm }) };
+  }
+}
+
+// --- list docket entries (read) --------------------------------------------
+// WI-D1: surface durable docket entries (incl. confirmation_state="proposed"
+// proposals that are otherwise lost from view after reload). Mirrors the
+// read-list pattern (shape-guard -> forbidden-field guard -> unknown-field
+// guard -> field validation -> getMatter existence + active-tenant -> read ->
+// projectPage). Every row is projected through DOCKET_ENTRY_RESPONSE_FIELDS so
+// tenant_id / actor_user_id / confirmation_actor_user_id / dismissal_actor_user_id
+// never cross the IPC boundary. Read-only: no create/confirm/dismiss here.
+export async function listDocketEntriesHandler(
+  payload: unknown,
+  provide: PersistenceProvider,
+): Promise<ListDocketEntriesResult> {
+  if (!isPlainJsonObject(payload)) return shapeGuardFailure();
+  for (const f of LIST_DOCKET_FORBIDDEN_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(payload, f)) {
+      return forbiddenFieldFailure(f);
+    }
+  }
+  for (const key of Object.keys(payload)) {
+    if (!(LIST_DOCKET_DTO_FIELDS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        error: makeInvalidPayload("unknown field in ListDocketEntriesDto", { schemaPath: key }),
+      };
+    }
+  }
+  const dto = payload as unknown as ListDocketEntriesDto;
+  if (typeof dto.matterId !== "string" || dto.matterId.length === 0) {
+    return { ok: false, error: makeInvalidPayload("matterId must be a non-empty string") };
+  }
+  if (
+    dto.confirmation_state !== undefined &&
+    !(DOCKET_CONFIRMATION_STATES as readonly string[]).includes(dto.confirmation_state)
+  ) {
+    return {
+      ok: false,
+      error: makeInvalidPayload("confirmation_state must be one of proposed|confirmed|dismissed", {
+        schemaPath: "confirmation_state",
+      }),
+    };
+  }
+  if (
+    dto.source_type !== undefined &&
+    !(DOCKET_SOURCE_TYPES as readonly string[]).includes(dto.source_type)
+  ) {
+    return {
+      ok: false,
+      error: makeInvalidPayload(
+        "source_type must be one of manual|court_order_excerpt|llm_extraction|imported",
+        { schemaPath: "source_type" },
+      ),
+    };
+  }
+  let limit = dto.limit;
+  if (limit !== undefined) {
+    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1) {
+      return { ok: false, error: makeInvalidPayload("limit must be a positive integer") };
+    }
+    if (limit > MAX_LIST_LIMIT) limit = MAX_LIST_LIMIT;
+  }
+  if (dto.cursor !== undefined) {
+    if (typeof dto.cursor !== "string" || dto.cursor.length > MAX_CURSOR_LENGTH) {
+      return {
+        ok: false,
+        error: makeInvalidPayload(`cursor must be an opaque string <=${MAX_CURSOR_LENGTH} chars`),
+      };
+    }
+  }
+  try {
+    const { persistence } = provide();
+    const existing = await persistence.getMatter(dto.matterId);
+    if (existing === null) {
+      return { ok: false, error: makeBoundaryError("unknown_matter") };
+    }
+    if (existing.tenant_id !== getActiveTenantId()) {
+      return { ok: false, error: makeBoundaryError("tenant_mismatch") };
+    }
+    const page = await persistence.listDocketEntries({
+      tenant_id: getActiveTenantId(),
+      matter_id: dto.matterId,
+      ...(dto.confirmation_state !== undefined ? { confirmation_state: dto.confirmation_state } : {}),
+      ...(dto.source_type !== undefined ? { source_type: dto.source_type } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+      ...(dto.cursor !== undefined ? { cursor: dto.cursor } : {}),
+    });
+    // Project every row to the renderer-safe allowlist so server-authority
+    // identity fields never cross the IPC boundary. next_cursor preserved.
+    return { ok: true, value: projectPage<RendererDocketEntryRow>(page, DOCKET_ENTRY_RESPONSE_FIELDS) };
+  } catch (err) {
+    return { ok: false, error: mapThrownError(err, { channel: CHANNEL.docketList }) };
   }
 }
