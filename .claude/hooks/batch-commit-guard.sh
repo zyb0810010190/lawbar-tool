@@ -34,6 +34,21 @@ deny() {
   exit 0
 }
 
+# Portable sha256 of a file's bytes -> 64 lowercase hex, or empty string on any failure.
+# Resolution order matches scripts/workflow/govern-queue.sh's writer so the digests are comparable.
+# Used by the BCG-6 governance-content-binding check below.
+guard_sha256() {
+  local f=$1 h=""
+  if command -v shasum >/dev/null 2>&1; then
+    h=$(shasum -a 256 "$f" 2>/dev/null | awk '{print $1}')
+  elif command -v sha256sum >/dev/null 2>&1; then
+    h=$(sha256sum "$f" 2>/dev/null | awk '{print $1}')
+  elif command -v openssl >/dev/null 2>&1; then
+    h=$(openssl dgst -sha256 "$f" 2>/dev/null | awk '{print $NF}')
+  fi
+  printf '%s' "$h"
+}
+
 # Only act on git commit. If we can't read the command but it smells like a git commit, fail safe.
 if [ -z "$CMD" ]; then
   if printf '%s' "$INPUT" | grep -qE 'git' && printf '%s' "$INPUT" | grep -qE 'commit'; then
@@ -170,6 +185,31 @@ if [ "$OVERRIDE" -eq 0 ]; then
   # Queue must be GOVERNED. governed is written ONLY by govern-queue.sh, which requires BOTH
   # queue.linted (check-queue.sh) AND queue.reviewed (Codex /review-plan) — or human approval.
   [ -f "$RUN/queue.governed" ] || deny "Batch guard: queue is not governed. Need queue.linted + queue.reviewed (then govern-queue.sh), or explicit human approval. Lint alone is not sufficient."
+
+  # BCG-6 / GOVERNANCE-CHAIN-001: governance must be CONTENT-BOUND, not presence-only. The old
+  # gate above proved only THAT a governance ceremony happened, never that the queue being
+  # committed against is the queue that was linted + reviewed. govern-queue.sh records
+  # queue_sha256=sha256(queue.md) into queue.governed; here we recompute it and FAIL CLOSED (deny)
+  # when the recorded hash is absent, malformed (not 64 lowercase hex), the queue.md is unreadable
+  # / unhashable, or the digests MISMATCH (queue.md edited after governance). This block is
+  # STRICTLY ADDITIVE: it can only ADD a denial after the presence check, never authorize a commit
+  # the prior checks blocked.
+  # STRICT parse: require EXACTLY ONE queue_sha256 assignment line AND that it be the canonical
+  # form queue_sha256=<64-lowercase-hex>. A lax `tr -d '[:space:]'` extraction would have normalized
+  # embedded whitespace (`queue_sha256= <hash>`) into a "valid" digest, and counting ONLY canonical
+  # lines would still ALLOW a valid line accompanied by an EXTRA malformed `queue_sha256=` line.
+  # TOTAL counts every queue_sha256 assignment (any form); CANON counts only the canonical form.
+  # Require TOTAL==1 AND CANON==1 so any malformed/duplicate/whitespace companion line fails closed.
+  TOTAL=$(grep -cE '^[[:space:]]*queue_sha256[[:space:]]*=' "$RUN/queue.governed" 2>/dev/null)
+  CANON=$(grep -cE '^queue_sha256=[0-9a-f]{64}$' "$RUN/queue.governed" 2>/dev/null)
+  { [ "${TOTAL:-0}" -eq 1 ] && [ "${CANON:-0}" -eq 1 ]; } || deny "Batch guard: queue.governed must contain EXACTLY ONE canonical 'queue_sha256=<64-lowercase-hex>' line and no other queue_sha256 line (found total=${TOTAL:-0}, canonical=${CANON:-0}) — governance absent, legacy, malformed, whitespace-padded, or duplicated. Re-run scripts/workflow/govern-queue.sh on the reviewed queue. Fail-closed (BCG-6 / GOVERNANCE-CHAIN-001)."
+  RECORDED=$(grep -E '^queue_sha256=[0-9a-f]{64}$' "$RUN/queue.governed" | head -1 | sed 's/^queue_sha256=//')
+  [ -r "$RUN/queue.md" ] || deny "Batch guard: dev-memo/run/queue.md is missing/unreadable; cannot verify the governance content hash. Fail-closed (BCG-6)."
+  ACTUAL=$(guard_sha256 "$RUN/queue.md")
+  case "$ACTUAL" in
+    *[!0-9a-f]* | "" ) deny "Batch guard: could not compute sha256(queue.md) (no hash tool available or read error). Fail-closed (BCG-6)." ;;
+  esac
+  [ "$ACTUAL" = "$RECORDED" ] || deny "Batch guard: queue.md content hash ($ACTUAL) does not match the governed hash ($RECORDED) — queue.md changed after governance. Re-run scripts/workflow/govern-queue.sh on the reviewed queue before committing. Fail-closed (BCG-6 / GOVERNANCE-CHAIN-001)."
 
   # Closeout-in-progress (BATCH-CLOSEOUT-AUTO-00). The verified closeout
   # (scripts/workflow/batch-closeout.mjs) writes dev-memo/run/.closeout-pending BEFORE it mutates

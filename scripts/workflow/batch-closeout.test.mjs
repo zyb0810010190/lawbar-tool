@@ -41,11 +41,21 @@ function makeRepo() {
   mkdirSync(join(repo, "dev-memo/run"), { recursive: true });
   mkdirSync(join(repo, "dev-memo/study"), { recursive: true });
   writeFileSync(join(repo, "README.md"), "x\n");
-  // governed-by-default for the happy path; individual tests can remove it
-  writeFileSync(join(repo, "dev-memo/run/queue.governed"), "ok\n");
+  // governed-by-default for the happy path; individual tests can remove it.
+  // BCG-6: governance is CONTENT-BOUND — queue.governed must carry queue_sha256=sha256(queue.md),
+  // else batch-commit-guard.sh denies. Provide a queue.md + a matching hash so the guard's ALLOW
+  // paths (t18/t19) reach the sentinel/count logic instead of tripping the content-hash check.
+  // sha256() here is the same digest the guard's shasum computes over the identical file bytes.
+  // Setup-only; no guard assertion is weakened.
+  const queueBody = "closeout-spec governed queue body\n";
+  writeFileSync(join(repo, "dev-memo/run/queue.md"), queueBody);
+  writeFileSync(
+    join(repo, "dev-memo/run/queue.governed"),
+    `governed=lint+review t\nqueue_sha256=${sha256(queueBody)}\n`,
+  );
   // a TRACKED non-empty deferred-findings file so the L-disposition tracked check can pass
   writeFileSync(join(repo, "dev-memo/deferred-audit-findings.md"), "# findings\n- none\n");
-  sh(repo, ["add", "README.md", "dev-memo/run/queue.governed", "dev-memo/deferred-audit-findings.md"]);
+  sh(repo, ["add", "README.md", "dev-memo/run/queue.md", "dev-memo/run/queue.governed", "dev-memo/deferred-audit-findings.md"]);
   sh(repo, ["commit", "-q", "-m", "base"]);
   return repo;
 }
