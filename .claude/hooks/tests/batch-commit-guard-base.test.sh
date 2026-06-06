@@ -27,7 +27,20 @@ for i in 0 1 2 3 4; do
 done
 # Counts from HEAD=C4:  C4..C4=0  C3..C4=1  C2..C4=2  C1..C4=3  C0..C4=4
 mkdir -p "$T/dev-memo/run"
-: > "$T/dev-memo/run/queue.governed"   # batch mode requires a governed queue
+# Portable sha256 helper (mirrors the guard's resolution order) so the test's recorded hash and
+# the guard's recomputed hash agree regardless of which tool is installed.
+t_sha256() {
+  local f=$1 h=""
+  if command -v shasum >/dev/null 2>&1; then h=$(shasum -a 256 "$f" 2>/dev/null | awk '{print $1}')
+  elif command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum "$f" 2>/dev/null | awk '{print $1}')
+  elif command -v openssl >/dev/null 2>&1; then h=$(openssl dgst -sha256 "$f" 2>/dev/null | awk '{print $NF}')
+  fi
+  printf '%s' "$h"
+}
+# batch mode requires a governed queue; BCG-6 now also requires it to be CONTENT-BOUND, so every
+# count-based case below needs a queue.md plus a queue.governed carrying its matching hash.
+printf 'baseline governed queue body\n' > "$T/dev-memo/run/queue.md"
+printf 'governed=lint+review t\nqueue_sha256=%s\n' "$(t_sha256 "$T/dev-memo/run/queue.md")" > "$T/dev-memo/run/queue.governed"
 
 pass=0; fail=0; failed=""
 
@@ -198,6 +211,66 @@ for variant in "jq-present:$PATH" "jq-fallback:$FU_STUB:$PATH"; do
   fu_check "deny $vlabel normal"   "$FU_NORMAL" "$vpath"
 done
 rm -rf "$FU_STUB"
+
+# --- WI-G1 / BCG-6 / GOVERNANCE-CHAIN-001: governance must be content-bound to sha256(queue.md) ---
+# All cases run on a CLEAN window (batch-start=C4 -> count 0), so ONLY the queue.governed hash vs
+# the recomputed sha256(queue.md) decides ALLOW/DENY. Each case sets up queue.md + queue.governed.
+QM="$RUNDIR/queue.md"; QG="$RUNDIR/queue.governed"
+govrun() { # echoes DENY|ALLOW for a clean-window batch-mode commit (only the BCG-6 check varies)
+  printf 'AUTO_ADVANCE_MAX=10\nBATCH_AUDIT_EVERY=3\n' > "$RUNDIR/config"
+  printf '%s\n' "${C[4]}" > "$RUNDIR/batch-start"; rm -f "$RUNDIR/last-batch-audit"
+  local out; out=$(printf '{"tool_input":{"command":"git commit -m x"}}' | CLAUDE_PROJECT_DIR="$T" bash "$HOOK" 2>/dev/null)
+  rm -f "$RUNDIR/config" "$RUNDIR/batch-start"
+  case "$out" in *'"permissionDecision":"deny"'*) printf DENY ;; *) printf ALLOW ;; esac
+}
+govexpect() { # govexpect <want> <label>
+  local want=$1 label=$2 got; got=$(govrun)
+  if [ "$got" = "$want" ]; then pass=$((pass+1)); else fail=$((fail+1)); failed="$failed\n  [want $want got $got] $label"; fi
+}
+
+# 1. unchanged governed queue passes
+printf 'WI-X scope body\n' > "$QM"
+printf 'governed=lint+review t\nqueue_sha256=%s\n' "$(t_sha256 "$QM")" > "$QG"
+govexpect ALLOW "BCG-6 unchanged governed queue -> allow"
+# 2. post-governance queue.md edit fails closed
+printf 'WI-X scope body TAMPERED AFTER GOVERNANCE\n' >> "$QM"
+govexpect DENY  "BCG-6 queue.md edited after governance -> deny"
+# 3. missing queue_sha256 (legacy presence-only attestation) fails closed
+printf 'WI-X scope body\n' > "$QM"
+printf 'governed=lint+review t\n' > "$QG"
+govexpect DENY  "BCG-6 governed without queue_sha256 -> deny"
+# 4. malformed queue_sha256 fails closed: non-hex, 64-char non-hex, and short hex
+printf 'governed=lint+review t\nqueue_sha256=not-a-real-hash\n' > "$QG"
+govexpect DENY  "BCG-6 non-hex queue_sha256 -> deny"
+printf 'governed=lint+review t\nqueue_sha256=%s\n' "$(printf 'z%.0s' $(seq 1 64))" > "$QG"
+govexpect DENY  "BCG-6 64-char non-hex queue_sha256 -> deny"
+printf 'governed=lint+review t\nqueue_sha256=deadbeef\n' > "$QG"
+govexpect DENY  "BCG-6 short-hex queue_sha256 -> deny"
+# 5. unreadable/missing queue.md fails closed (valid hash recorded, but queue.md removed)
+printf 'WI-X scope body\n' > "$QM"
+printf 'governed=lint+review t\nqueue_sha256=%s\n' "$(t_sha256 "$QM")" > "$QG"
+rm -f "$QM"
+govexpect DENY  "BCG-6 missing queue.md -> deny"
+# 5b. (L1 hardening) embedded whitespace inside an otherwise-correct hash fails closed
+printf 'WI-X scope body\n' > "$QM"
+printf 'governed=lint+review t\nqueue_sha256= %s\n' "$(t_sha256 "$QM")" > "$QG"
+govexpect DENY  "BCG-6 whitespace-embedded queue_sha256 -> deny"
+# 5c. (L1 hardening) duplicate queue_sha256 lines (valid first) fail closed (not exactly one)
+{ printf 'governed=lint+review t\n'; printf 'queue_sha256=%s\n' "$(t_sha256 "$QM")"; printf 'queue_sha256=%s\n' "$(t_sha256 "$QM")"; } > "$QG"
+govexpect DENY  "BCG-6 duplicate queue_sha256 lines -> deny"
+# 5d. (L1 hardening) a valid canonical line PLUS an extra malformed queue_sha256 line fails closed
+{ printf 'governed=lint+review t\n'; printf 'queue_sha256=%s\n' "$(t_sha256 "$QM")"; printf 'queue_sha256= %s\n' "$(t_sha256 "$QM")"; } > "$QG"
+govexpect DENY  "BCG-6 canonical + extra malformed queue_sha256 line -> deny"
+# 6. current valid queue works after RE-governing via the real govern-queue.sh
+printf 'WI-Y scope body\n' > "$QM"
+: > "$RUNDIR/queue.linted"; : > "$RUNDIR/queue.reviewed"   # govern-queue.sh requires both
+CLAUDE_PROJECT_DIR="$T" bash "$HERE/../../../scripts/workflow/govern-queue.sh" >/dev/null 2>&1
+govexpect ALLOW "BCG-6 re-governed valid queue -> allow"
+# govern-queue.sh must itself fail closed when queue.md is missing (no governed file written)
+rm -f "$QM" "$QG"
+CLAUDE_PROJECT_DIR="$T" bash "$HERE/../../../scripts/workflow/govern-queue.sh" >/dev/null 2>&1
+if [ ! -f "$QG" ]; then pass=$((pass+1)); else fail=$((fail+1)); failed="$failed\n  [BCG-6 govern-queue with missing queue.md must NOT write queue.governed]"; fi
+rm -f "$RUNDIR/queue.linted" "$RUNDIR/queue.reviewed"
 
 printf 'batch-commit-guard-base: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then printf 'FAILED:%b\n' "$failed"; exit 1; fi

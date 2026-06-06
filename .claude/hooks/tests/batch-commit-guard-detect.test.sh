@@ -17,7 +17,20 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; HOOK="$HERE/../batch-commit-guard.sh"
 T=$(mktemp -d 2>/dev/null || mktemp -d -t bcgdet); trap 'rm -rf "$T"' EXIT
 git -C "$T" init -q; git -C "$T" config user.email t@t >/dev/null; git -C "$T" config user.name t >/dev/null
 declare -a C; for i in 0 1 2 3 4; do echo "$i">"$T/f$i"; git -C "$T" add "f$i"; git -C "$T" commit -qm "C$i"; C[$i]=$(git -C "$T" rev-parse HEAD); done
-mkdir -p "$T/dev-memo/run"; : > "$T/dev-memo/run/queue.governed"
+mkdir -p "$T/dev-memo/run"
+# BCG-6: a governed queue must be CONTENT-BOUND. Provide a queue.md + a queue.governed carrying its
+# matching sha256 so these DETECTION cases (about commit-counting, not governance binding) reach the
+# count logic instead of tripping the new content-hash check. Setup-only; no assertion changes.
+t_sha256() {
+  local f=$1 h=""
+  if command -v shasum >/dev/null 2>&1; then h=$(shasum -a 256 "$f" 2>/dev/null | awk '{print $1}')
+  elif command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum "$f" 2>/dev/null | awk '{print $1}')
+  elif command -v openssl >/dev/null 2>&1; then h=$(openssl dgst -sha256 "$f" 2>/dev/null | awk '{print $NF}')
+  fi
+  printf '%s' "$h"
+}
+printf 'detect-spec governed queue body\n' > "$T/dev-memo/run/queue.md"
+printf 'governed=lint+review t\nqueue_sha256=%s\n' "$(t_sha256 "$T/dev-memo/run/queue.md")" > "$T/dev-memo/run/queue.governed"
 pass=0; fail=0; failed=""
 
 # run <command> <batch-start> <max> <every>
