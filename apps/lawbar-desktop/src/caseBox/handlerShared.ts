@@ -24,6 +24,7 @@ export const CHANNEL = {
   docketConfirm: "casebox:docket:confirm",
   factList: "casebox:fact:list",
   factCreate: "casebox:fact:create",
+  factTransition: "casebox:fact:transition",
 } as const;
 
 export type PersistenceProvider = () => { readonly persistence: CaseBoxPersistence };

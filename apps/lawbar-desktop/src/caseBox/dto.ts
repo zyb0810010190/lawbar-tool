@@ -641,3 +641,77 @@ export type RendererCreatedFactRow = Pick<
   (typeof CREATE_FACT_RESPONSE_FIELDS)[number]
 >;
 export type CreateFactResult = IpcEnvelope<RendererCreatedFactRow>;
+
+// ---------------------------------------------------------------------------
+// WI-802: fact transition (review / accept / reject). The renderer supplies ONLY
+// the scope (matterId), the fact (factId), the target status, and — when
+// rejecting — a rejection_reason. The server injects reviewer_actor_user_id +
+// the `at` timestamp; persistence owns the state machine (candidate → reviewed →
+// accepted/rejected, plus candidate → rejected; candidate → accepted is illegal
+// and surfaces illegal_transition). reviewed_at/accepted_at/rejected_at/status
+// are computed by persistence, never renderer-supplied.
+// ---------------------------------------------------------------------------
+
+export type FactTransitionTarget = "reviewed" | "accepted" | "rejected";
+
+export interface TransitionFactDto {
+  readonly matterId: string;
+  readonly factId: string;
+  readonly to: FactTransitionTarget;
+  readonly rejection_reason?: string;
+}
+export const TRANSITION_FACT_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "factId",
+  "to",
+  "rejection_reason",
+] as const);
+// Server-authority / lifecycle / create-only fields forbidden from the renderer
+// transition DTO (the server injects the reviewer + timestamps; persistence
+// computes status / *_at). matter_id is forbidden (the renderer uses matterId).
+export const TRANSITION_FACT_FORBIDDEN_FIELDS = Object.freeze([
+  "id",
+  "tenant_id",
+  "actor_user_id",
+  "matter_id",
+  "reviewer_actor_user_id",
+  "at",
+  "status",
+  "reviewed_at",
+  "accepted_at",
+  "rejected_at",
+  "supersedes_fact_id",
+  "source_type",
+  "statement_text",
+] as const);
+// Dedicated transition-response allowlist (a SEPARATE constant from
+// CREATE_FACT_RESPONSE_FIELDS — write-response contracts may diverge — though it
+// currently enumerates the same non-authority fact fields). STRIPS the authority
+// identities tenant_id / actor_user_id / reviewer_actor_user_id.
+export const TRANSITION_FACT_RESPONSE_FIELDS = Object.freeze([
+  "id",
+  "statement_text",
+  "status",
+  "source_type",
+  "source_document_id",
+  "source_page_number",
+  "source_excerpt",
+  "source_ocr_job_id",
+  "extractor_name",
+  "extractor_version",
+  "extraction_confidence",
+  "reviewed_at",
+  "accepted_at",
+  "rejected_at",
+  "rejection_reason",
+  "supersedes_fact_id",
+  "created_at",
+  "purpose",
+  "as_of_date",
+  "matter_id",
+] as const);
+export type RendererTransitionedFactRow = Pick<
+  CaseBoxFact,
+  (typeof TRANSITION_FACT_RESPONSE_FIELDS)[number]
+>;
+export type TransitionFactResult = IpcEnvelope<RendererTransitionedFactRow>;

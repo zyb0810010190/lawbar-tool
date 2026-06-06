@@ -1,8 +1,10 @@
-// Fact IPC handlers. Read: listFactsHandler. Write (WI-602): createFactHandler
-// (manual lawyer-authored candidate fact). Mirrors the deadline/document list
-// handlers and the WI-601 docket write handler: matter existence + active-tenant
-// check before the read/write, server-side authority/provenance injection,
-// renderer-safe allowlisted projection. No edit / delete / review here.
+// Fact IPC handlers. Read: listFactsHandler. Write: createFactHandler (WI-602,
+// manual lawyer-authored candidate fact) + transitionFactHandler (WI-802, review /
+// accept / reject lifecycle). Mirrors the deadline/document handlers and the WI-601
+// docket write handler: matter existence + active-tenant check before the
+// read/write, server-side authority injection, renderer-safe allowlisted
+// projection. The fact state machine lives in persistence (illegal_transition is
+// surfaced, not re-implemented here).
 
 import {
   LIST_FACTS_DTO_FIELDS,
@@ -11,6 +13,9 @@ import {
   CREATE_FACT_DTO_FIELDS,
   CREATE_FACT_FORBIDDEN_FIELDS,
   CREATE_FACT_RESPONSE_FIELDS,
+  TRANSITION_FACT_DTO_FIELDS,
+  TRANSITION_FACT_FORBIDDEN_FIELDS,
+  TRANSITION_FACT_RESPONSE_FIELDS,
   MAX_LIST_LIMIT,
   MAX_CURSOR_LENGTH,
   type ListFactsDto,
@@ -19,6 +24,10 @@ import {
   type CreateFactDto,
   type CreateFactResult,
   type RendererCreatedFactRow,
+  type TransitionFactDto,
+  type TransitionFactResult,
+  type RendererTransitionedFactRow,
+  type FactTransitionTarget,
 } from "./dto.js";
 import { mapThrownError, makeInvalidPayload, makeBoundaryError } from "./errorMap.js";
 import { getActiveTenantId } from "../security/activeTenant.js";
@@ -49,6 +58,12 @@ const FACT_PURPOSES = Object.freeze([
 // Date-only (no time component). A FORMAT check, not a calendar-validity check;
 // persistence.appendFact applies the schema's semantic validation on top.
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Valid fact-transition targets (the renderer-facing `to`). The ALLOWED from->to
+// edges (candidate->reviewed/rejected, reviewed->accepted/rejected; candidate->
+// accepted is illegal per the no-auto-accept ADR) are enforced by persistence,
+// not here — the handler only validates the target value + carries the request.
+const FACT_TRANSITION_TARGETS: ReadonlyArray<FactTransitionTarget> = ["reviewed", "accepted", "rejected"];
 
 function nonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.length > 0;
@@ -210,5 +225,99 @@ export async function createFactHandler(
     };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.factCreate }) };
+  }
+}
+
+// --- transition a fact through the review lifecycle (review/accept/reject) ----
+// The renderer supplies only { matterId, factId, to, rejection_reason? }. The
+// server injects reviewer_actor_user_id + the `at` timestamp; persistence owns
+// the state machine. Security boundary: persistence.transitionFact(factId, opts)
+// is UNSCOPED (no tenant/matter), so the handler does a SCOPED getFact preflight
+// and rejects a null with invalid_payload WITHOUT calling transitionFact —
+// fail-closed against confirming a guessed foreign factId cross-matter/tenant
+// (mirrors the WI-601 docket-confirm preflight).
+export async function transitionFactHandler(
+  payload: unknown,
+  provide: PersistenceProvider,
+  now: ClockFn,
+): Promise<TransitionFactResult> {
+  if (!isPlainJsonObject(payload)) return shapeGuardFailure();
+  for (const f of TRANSITION_FACT_FORBIDDEN_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(payload, f)) return forbiddenFieldFailure(f);
+  }
+  for (const key of Object.keys(payload)) {
+    if (!(TRANSITION_FACT_DTO_FIELDS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        error: makeInvalidPayload("unknown field in TransitionFactDto", { schemaPath: key }),
+      };
+    }
+  }
+  const dto = payload as unknown as TransitionFactDto;
+  if (!nonEmptyString(dto.matterId)) {
+    return { ok: false, error: makeInvalidPayload("matterId must be a non-empty string") };
+  }
+  if (!nonEmptyString(dto.factId)) {
+    return { ok: false, error: makeInvalidPayload("factId must be a non-empty string") };
+  }
+  if (!(FACT_TRANSITION_TARGETS as readonly string[]).includes(dto.to)) {
+    return { ok: false, error: makeInvalidPayload("to must be one of reviewed | accepted | rejected") };
+  }
+  const isReject = dto.to === "rejected";
+  // rejection_reason is required + non-empty when rejecting, and FORBIDDEN (not
+  // silently dropped) otherwise.
+  if (isReject) {
+    if (!nonEmptyString(dto.rejection_reason)) {
+      return { ok: false, error: makeInvalidPayload('rejection_reason is required when to is "rejected"') };
+    }
+  } else if (dto.rejection_reason !== undefined) {
+    return {
+      ok: false,
+      error: makeInvalidPayload('rejection_reason is only allowed when to is "rejected"', {
+        schemaPath: "rejection_reason",
+      }),
+    };
+  }
+  try {
+    const { persistence } = provide();
+    // Capture the active tenant / actor / timestamp ONCE and reuse them.
+    const tenantId = getActiveTenantId();
+    const actorId = getActiveActorUserId();
+    const atIso = now().toISOString();
+    const matter = await persistence.getMatter(dto.matterId);
+    if (matter === null) return { ok: false, error: makeBoundaryError("unknown_matter") };
+    if (matter.tenant_id !== tenantId) {
+      return { ok: false, error: makeBoundaryError("tenant_mismatch") };
+    }
+    // SCOPED preflight: the fact must exist UNDER this matter + active tenant.
+    // transitionFact is unscoped, so a null here means unknown / wrong-matter /
+    // wrong-tenant fact_id -> reject WITHOUT transitioning (fail-closed).
+    const existing = await persistence.getFact({
+      tenant_id: tenantId,
+      matter_id: dto.matterId,
+      fact_id: dto.factId,
+    });
+    if (existing === null) {
+      return {
+        ok: false,
+        error: makeInvalidPayload("factId does not reference a fact in this matter"),
+      };
+    }
+    const fact = await persistence.transitionFact(dto.factId, {
+      to: dto.to,
+      reviewer_actor_user_id: actorId,
+      at: atIso,
+      ...(isReject ? { rejection_reason: dto.rejection_reason } : {}),
+    });
+    return {
+      ok: true,
+      value: projectRow<RendererTransitionedFactRow>(
+        fact as unknown as Record<string, unknown>,
+        TRANSITION_FACT_RESPONSE_FIELDS,
+      ),
+    };
+  } catch (err) {
+    // illegal_transition (e.g. candidate -> accepted) surfaces from persistence here.
+    return { ok: false, error: mapThrownError(err, { channel: CHANNEL.factTransition }) };
   }
 }
