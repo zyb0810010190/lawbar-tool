@@ -17,8 +17,13 @@ QUEUE_REVIEW_VERDICT=PASS
 # Non-blocking reviewer note (carried to the WI-G1 implementer; NOT a gate)
 - Reviewer suggested WI-G1 also add an explicit **"unreadable queue.md → deny"** test case to `batch-commit-guard-base.test.sh` (the acceptance text covers it as fail-closed behavior; a dedicated test would prove it). RECOMMENDED for the WI-G1 implementation to include. Not added to the queue now because the queue must not be edited after the review hash is taken (the very drift WI-G1 closes); the implementer adds the test within WI-G1's existing Allowed test file.
 
+# Amendment (2026-06-06) — WI-G1 Allowed-files +2 collateral harnesses
+- During WI-G1 implementation the new BCG-6 content-binding guard (which correctly DENIES a legacy hashless `queue.governed`) broke two OTHER guard-driving harnesses that build a hashless governed queue and expect ALLOW: `.claude/hooks/tests/batch-commit-guard-detect.test.sh` (3 cases) and `scripts/workflow/batch-closeout.test.mjs` (t18/t19). They were outside WI-G1's Allowed-files → hard-stop scope conflict. User authorized **Option A**: amend WI-G1 to add both files to Allowed-files and fix their fixtures MECHANICALLY (queue.md + matching `queue_sha256`), preserving intent and NOT weakening any stale/malformed/mismatch deny expectation.
+- Amendment re-review job: review-plan-mq1zfopj-e9lvdy (Path 1 runner v0.2.18, gpt-5.5, effort high, read-only) → **PASS, no C/H/M**: the harness updates are intrinsic collateral maintenance (not scope creep); WI-G1 stays bounded WORKFLOW/SCAFFOLD; the residual is audit/verify-level (ensure the fixture edits do not silently flip DENY→ALLOW, delete negative cases, or share a self-healing helper) — honored in implementation. WI-G2 unchanged.
+- The single QUEUE_REVIEW_VERDICT=PASS at the top of this file now covers the amended queue.
+
 # Confirmations
-- Queue-lint (check-queue.sh) PASSED on the live queue (2 WIs: WI-G1, WI-G2).
+- Queue-lint (check-queue.sh) PASSED on the amended live queue (2 WIs: WI-G1 amended, WI-G2 unchanged).
 - Both WIs Type WORKFLOW (not UI) → no Design-artifact gate.
 - Allowed files do not intersect `dev-memo/run/forbidden-paths.txt` (secrets/infra/migrations only).
 - No product/renderer/contract/persistence/`settings.json` change; no new runtime dependency; no migrations.
