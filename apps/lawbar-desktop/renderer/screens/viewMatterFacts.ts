@@ -6,7 +6,7 @@
 // and main is the authoritative validator (it injects identity/status/provenance).
 
 import type { CaseBoxApi } from "../api.js";
-import type { CreateFactDto, FactPurpose } from "../types.js";
+import type { CreateFactDto, FactPurpose, FactTransitionTarget, TransitionFactDto } from "../types.js";
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime } from "../format.js";
 
@@ -32,6 +32,12 @@ interface FactRow {
   readonly created_at: string;
   readonly as_of_date?: string;
   readonly extraction_confidence?: number | null;
+  // Review-lifecycle fields (already in LIST_FACTS_RESPONSE_FIELDS; widened here so
+  // the row can render review state — WI-804).
+  readonly reviewed_at?: string | null;
+  readonly accepted_at?: string | null;
+  readonly rejected_at?: string | null;
+  readonly rejection_reason?: string | null;
 }
 
 interface ListFactsPage {
@@ -59,7 +65,9 @@ export function renderFactsDisclosure(
   let loadGen = 0;
   const runLoad = (): Promise<void> => {
     const myGen = ++loadGen;
-    return loadFacts(listContainer, doc, api, matterId, () => myGen === loadGen);
+    // Pass runLoad itself as the per-row refresh (a successful transition reloads
+    // the list in place; the generation guard drops any superseded load).
+    return loadFacts(listContainer, doc, api, matterId, runLoad, () => myGen === loadGen);
   };
   const addControl = renderAddFactControl(doc, api, matterId, runLoad);
 
@@ -218,7 +226,33 @@ function renderAddFactControl(
   );
 }
 
-function renderFactRow(doc: Document, f: FactRow): HTMLElement {
+// The legal transition actions offered from a given status (WI-804). Terminal
+// states (accepted / rejected) offer none. There is deliberately NO candidate ->
+// accepted action (the no-auto-accept ADR); persistence is the final authority and
+// any illegal attempt surfaces as an inline error.
+function reviewActionsFor(status: string): ReadonlyArray<{ label: string; to: FactTransitionTarget }> {
+  if (status === "candidate") {
+    return [
+      { label: "Review", to: "reviewed" },
+      { label: "Reject", to: "rejected" },
+    ];
+  }
+  if (status === "reviewed") {
+    return [
+      { label: "Accept", to: "accepted" },
+      { label: "Reject", to: "rejected" },
+    ];
+  }
+  return [];
+}
+
+function renderFactRow(
+  doc: Document,
+  f: FactRow,
+  api: CaseBoxApi,
+  matterId: string,
+  refresh: () => Promise<void>,
+): HTMLElement {
   const statement = el(
     "div",
     { class: "view-facts-statement", "data-test-id": "view-facts-statement" },
@@ -228,7 +262,9 @@ function renderFactRow(doc: Document, f: FactRow): HTMLElement {
   const metaChildren: Array<HTMLElement | string> = [
     el(
       "span",
-      { class: "view-facts-status", "data-test-id": "view-facts-status" },
+      // status carries a data-status attribute for testability; the visible text
+      // label is the a11y substance (status is NOT conveyed by color alone).
+      { class: "view-facts-status", "data-test-id": "view-facts-status", "data-status": f.status },
       [`${f.status} · ${f.source_type}`],
       doc,
     ),
@@ -252,10 +288,143 @@ function renderFactRow(doc: Document, f: FactRow): HTMLElement {
     );
   }
   const meta = el("div", { class: "view-facts-row-meta" }, metaChildren, doc);
+  const children: Array<HTMLElement> = [statement, meta];
+  // A rejected fact shows its reason as visible text.
+  if (f.status === "rejected" && f.rejection_reason !== undefined && f.rejection_reason !== null && f.rejection_reason.length > 0) {
+    children.push(
+      el(
+        "div",
+        { class: "view-facts-rejection-reason", "data-test-id": "view-facts-rejection-reason" },
+        [`Rejection reason: ${f.rejection_reason}`],
+        doc,
+      ),
+    );
+  }
+  const controls = renderReviewControls(doc, f, api, matterId, refresh);
+  if (controls !== null) children.push(controls);
   return el(
     "li",
-    { class: "view-facts-row", "data-test-id": "view-facts-row" },
-    [statement, meta],
+    { class: "view-facts-row", "data-test-id": "view-facts-row", "data-status": f.status },
+    children,
+    doc,
+  );
+}
+
+// Per-row Review / Accept / Reject controls — only the legal edges for the current
+// status. Returns null for terminal facts (accepted / rejected). The renderer
+// forwards only { matterId, factId, to, rejection_reason? }; the server injects the
+// reviewer + timestamp and owns the state machine.
+function renderReviewControls(
+  doc: Document,
+  f: FactRow,
+  api: CaseBoxApi,
+  matterId: string,
+  refresh: () => Promise<void>,
+): HTMLElement | null {
+  const actions = reviewActionsFor(f.status);
+  if (actions.length === 0) return null;
+
+  const status = el(
+    "span",
+    { class: "view-facts-review-status", "data-test-id": "view-facts-review-status" },
+    [],
+    doc,
+  );
+  const buttons: HTMLElement[] = [];
+  const setDisabled = (disabled: boolean): void => {
+    for (const b of buttons) {
+      if (disabled) b.setAttribute("disabled", "true");
+      else b.removeAttribute("disabled");
+    }
+  };
+  const showError = (msg: string): void => {
+    status.setAttribute("role", "alert");
+    status.setAttribute("data-test-id", "view-facts-review-error");
+    setText(status, msg);
+  };
+  const runTransition = (to: FactTransitionTarget, rejectionReason?: string): void => {
+    void (async () => {
+      status.removeAttribute("role");
+      status.setAttribute("data-test-id", "view-facts-review-status");
+      // Build the DTO off the action — rejection_reason is sent ONLY for reject.
+      const dto: TransitionFactDto =
+        to === "rejected" && rejectionReason !== undefined
+          ? { matterId, factId: f.id, to, rejection_reason: rejectionReason }
+          : { matterId, factId: f.id, to };
+      setDisabled(true);
+      setText(status, "Saving…");
+      try {
+        const env = await api.transitionFact(dto);
+        if (!env.ok) {
+          showError(env.error.message);
+          return;
+        }
+        setText(status, "Saved.");
+        await refresh();
+      } catch {
+        showError("Could not update the fact. Please try again.");
+      } finally {
+        setDisabled(false);
+      }
+    })();
+  };
+
+  // Reject reveals a required reason input + a Confirm-reject button.
+  const reasonInput = el(
+    "input",
+    {
+      type: "text",
+      class: "view-facts-reject-reason",
+      "data-test-id": "view-facts-reject-reason",
+      "aria-label": "Rejection reason",
+      placeholder: "Reason for rejection",
+      hidden: "",
+    },
+    [],
+    doc,
+  );
+  const confirmReject = el(
+    "button",
+    { type: "button", class: "view-facts-reject-confirm", "data-test-id": "view-facts-reject-confirm", hidden: "" },
+    ["Confirm reject"],
+    doc,
+  );
+  const revealReject = (): void => {
+    reasonInput.removeAttribute("hidden");
+    reasonInput.setAttribute("aria-required", "true");
+    confirmReject.removeAttribute("hidden");
+  };
+  confirmReject.addEventListener("click", () => {
+    const reason = ((reasonInput as unknown as { value?: string }).value ?? "").trim();
+    if (reason.length === 0) {
+      showError("A rejection reason is required.");
+      return;
+    }
+    runTransition("rejected", reason);
+  });
+
+  const actionEls: Array<HTMLElement | string> = [];
+  for (const action of actions) {
+    const btn = el(
+      "button",
+      { type: "button", class: `view-facts-review-${action.to}`, "data-test-id": `view-facts-review-${action.to}` },
+      [action.label],
+      doc,
+    );
+    if (action.to === "rejected") {
+      btn.addEventListener("click", () => revealReject());
+    } else {
+      btn.addEventListener("click", () => runTransition(action.to));
+    }
+    buttons.push(btn);
+    actionEls.push(btn, " ");
+  }
+  buttons.push(confirmReject);
+
+  return el(
+    "div",
+    { class: "view-facts-review", "data-test-id": "view-facts-review-control" },
+    [...actionEls, reasonInput, " ", confirmReject, " ", status],
     doc,
   );
 }
@@ -265,6 +434,8 @@ async function loadFacts(
   doc: Document,
   api: CaseBoxApi,
   matterId: string,
+  // Reload the list in place after a successful per-row transition (WI-804).
+  refresh: () => Promise<void>,
   // True only while this load is the newest one. Checked after every await so a
   // superseded load (e.g. a slow "Show more" overtaken by a post-add refresh)
   // cannot mutate the container the newer load already cleared + refilled.
@@ -307,7 +478,7 @@ async function loadFacts(
     }
     const page = env.value as ListFactsPage;
     for (const row of page.rows) {
-      list.appendChild(renderFactRow(doc, row));
+      list.appendChild(renderFactRow(doc, row, api, matterId, refresh));
       total += 1;
     }
     if (total === 0) {

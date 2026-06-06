@@ -795,6 +795,19 @@ body {
   display: none;
 }
 
+/* WI-804 per-fact review controls (layout only; colors inherit from tokens). */
+.view-facts-review {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.view-facts-reject-reason[hidden],
+.view-facts-reject-confirm[hidden] {
+  display: none;
+}
+
 /* WI-702 Add/Confirm-deadline control (layout only; colors inherit from tokens). */
 .view-deadlines-add {
   display: flex;
