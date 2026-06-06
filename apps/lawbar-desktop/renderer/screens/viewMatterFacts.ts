@@ -1,8 +1,9 @@
 // Facts section for the matter view. Lazily lists the matter's persisted facts
-// (B6 read surface) and, since WI-701, lets a lawyer ADD a manual fact via the
-// in-section "Add fact" control (consuming casebox:fact:create). NO edit / delete
-// / review / evidence linking. The renderer never imports the service; only the
-// human-rendered fields are read, the renderer forwards a narrow CreateFactDto,
+// (B6 read surface), lets a lawyer ADD a manual fact via the in-section "Add fact"
+// control (consuming casebox:fact:create, since WI-701), and REVIEW / ACCEPT /
+// REJECT a fact via per-fact controls (consuming casebox:fact:transition, since
+// WI-804). NO edit / delete / evidence linking. The renderer never imports the
+// service; only human-rendered fields are read, the renderer forwards narrow DTOs,
 // and main is the authoritative validator (it injects identity/status/provenance).
 
 import type { CaseBoxApi } from "../api.js";
