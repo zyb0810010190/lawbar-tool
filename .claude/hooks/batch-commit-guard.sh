@@ -67,9 +67,42 @@ fi
 # Out of scope (deferred to a later WI): command-substitution / variable-indirected forms
 # such as `git $(echo commit)` or `c=commit; git $c` — see dev-memo/deferred-audit-findings.md.
 count_git_commits() {
-  # Split on ;  &&  ||  |  & into one statement per line. awk handles the newline replacement
-  # and trailing newline portably (BSD sed drops an unterminated final line -> miscount).
+  # BCG-9: QUOTE-AWARE statement splitting. The split below treats ;  &&  ||  |  & as statement
+  # separators, but those characters are ALSO ordinary text inside a quoted `-m` commit message.
+  # A blind global split mis-counted `git commit -m "revert; git commit"` as TWO commits (the
+  # in-message `git commit` became a second statement) and over-DENIED a legitimate single commit.
+  # The neutralize pass below walks each line with a 3-state quote machine (unquoted / single /
+  # double, honoring backslash escapes OUTSIDE single quotes per POSIX) and replaces any
+  # ;  |  & that occurs INSIDE a quoted span with `_`, so the subsequent split only breaks on
+  # OUT-OF-QUOTE separators. If a line's quotes are UNBALANCED (state != unquoted at EOL) the pass
+  # falls back to the ORIGINAL line, preserving the old over-deny behavior — it must never turn a
+  # genuine multi-command shell into a single counted statement (over-deny is safe; under-count is
+  # a security regression). This is bounded quote handling, NOT a full shell parser; a separator
+  # inside a quoted message that SPANS multiple physical lines is out of scope (per-line, like the
+  # split itself) and falls back to over-deny.
   printf '%s\n' "$1" \
+    | awk '{
+        s=$0; out=""; st=0   # st: 0=unquoted 1=single 2=double
+        for (i=1;i<=length(s);i++) {
+          c=substr(s,i,1)
+          if (st==0) {
+            if (c=="\\") { out=out c; if(i<length(s)){i++; out=out substr(s,i,1)} continue }
+            if (c=="'\''") { st=1; out=out c; continue }
+            if (c=="\"") { st=2; out=out c; continue }
+            out=out c
+          } else if (st==1) {                 # single quotes: literal, only '\'' closes (no escapes)
+            if (c=="'\''") { st=0; out=out c; continue }
+            if (c==";"||c=="|"||c=="&") { out=out "_"; continue }
+            out=out c
+          } else {                            # double quotes: backslash escapes next char
+            if (c=="\\") { out=out c; if(i<length(s)){i++; out=out substr(s,i,1)} continue }
+            if (c=="\"") { st=0; out=out c; continue }
+            if (c==";"||c=="|"||c=="&") { out=out "_"; continue }
+            out=out c
+          }
+        }
+        if (st!=0) print s; else print out    # unbalanced -> fall back to original (over-deny)
+      }' \
     | awk '{gsub(/&&|\|\||[;|&]/, "\n"); print}' \
     | while IFS= read -r stmt; do
         set -f; set -- $stmt; set +f

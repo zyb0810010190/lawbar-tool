@@ -81,6 +81,21 @@ expect DENY  "path + global on 2nd commit"       "git commit -m a && /usr/bin/gi
 expect ALLOW "single commit, clean window"       "git commit -m x"            "$BS4" 10 3
 expect ALLOW "&& inside quoted message = 1"      'git commit -m "a && b"'     "$BS4" 10 3
 
+# --- BCG-9: quote-aware counting. A separator + the literal text "git commit" INSIDE a quoted
+# message must NOT be counted as a second commit (the old global split over-DENIED these). ---
+expect ALLOW "; + 'git commit' in dquote msg = 1" 'git commit -m "revert; git commit was wrong"' "$BS4" 10 3
+expect ALLOW "| + 'git commit' in dquote msg = 1" 'git commit -m "use | not && ; git commit"'    "$BS4" 10 3
+expect ALLOW "& + 'git commit' in dquote msg = 1" 'git commit -m "fix & also git commit later"'  "$BS4" 10 3
+expect ALLOW "; in single-quoted message = 1"     "git commit -m 'revert; git commit was wrong'"  "$BS4" 10 3
+expect ALLOW "| in single-quoted message = 1"     "git commit -m 'a | b ; git commit'"            "$BS4" 10 3
+expect ALLOW "separators-only quoted msg = 1"     'git commit -m "a; b | c & d"'                  "$BS4" 10 3
+# real chained commands OUTSIDE quotes still DENY (separators not inside any quote)
+expect DENY  "chained after quoted msg still 2"   'git commit -m "msg" && git commit -m "msg2"'   "$BS4" 10 3
+expect DENY  "quoted msg then ; real commit = 2"  'git commit -m "a; b" ; git commit -m "c"'      "$BS4" 10 3
+expect DENY  "quoted msg then | real commit = 2"  'git commit -m "a | b" | git commit -m "c"'     "$BS4" 10 3
+# unbalanced quote -> fall back to over-deny (never under-count a real chain)
+expect DENY  "unbalanced quote + real && = 2"     'git commit -m "oops && git commit -m x'        "$BS4" 10 3
+
 # --- divergent batch-start/last-batch-audit: selection path executes coherently (finding #4) ---
 # Defensive branch, not reached in linear history. The rev-list-FAILURE deny inside it cannot be
 # unit-forced with valid refs (same as the final-count deny) -> covered by code inspection +
