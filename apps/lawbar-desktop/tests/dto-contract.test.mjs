@@ -15,6 +15,9 @@ import {
   GET_MATTER_FORBIDDEN_FIELDS,
   CHAIN_HEAD_DTO_FIELDS,
   CHAIN_HEAD_FORBIDDEN_FIELDS,
+  TRANSITION_FACT_DTO_FIELDS,
+  TRANSITION_FACT_FORBIDDEN_FIELDS,
+  TRANSITION_FACT_RESPONSE_FIELDS,
   MAX_LIST_LIMIT,
   MAX_CURSOR_LENGTH,
 } from "../dist/src/caseBox/dto.js";
@@ -178,4 +181,32 @@ test("GetMatter / ChainHead forbidden lists include tenant_id + actor_user_id", 
   assert.ok(GET_MATTER_FORBIDDEN_FIELDS.includes("actor_user_id"));
   assert.ok(CHAIN_HEAD_FORBIDDEN_FIELDS.includes("tenant_id"));
   assert.ok(CHAIN_HEAD_FORBIDDEN_FIELDS.includes("actor_user_id"));
+});
+
+// WI-802: fact transition DTO contract.
+test("TransitionFactDto fields are exactly matterId/factId/to/rejection_reason", () => {
+  assert.deepEqual([...TRANSITION_FACT_DTO_FIELDS].sort(), ["factId", "matterId", "rejection_reason", "to"]);
+});
+
+test("TransitionFact DTO and forbidden lists are disjoint", () => {
+  const dto = new Set(TRANSITION_FACT_DTO_FIELDS);
+  for (const f of TRANSITION_FACT_FORBIDDEN_FIELDS) {
+    assert.equal(dto.has(f), false, `forbidden field ${f} must not also be a DTO field`);
+  }
+});
+
+test("TransitionFact forbidden list blocks the server-authority + lifecycle fields", () => {
+  for (const f of ["reviewer_actor_user_id", "at", "status", "reviewed_at", "accepted_at", "rejected_at", "tenant_id", "actor_user_id", "matter_id"]) {
+    assert.ok(TRANSITION_FACT_FORBIDDEN_FIELDS.includes(f), `expected ${f} in TRANSITION_FACT_FORBIDDEN_FIELDS`);
+  }
+});
+
+test("TransitionFact response allowlist strips authority identities", () => {
+  for (const f of ["tenant_id", "actor_user_id", "reviewer_actor_user_id"]) {
+    assert.equal(TRANSITION_FACT_RESPONSE_FIELDS.includes(f), false, `${f} must not be in TRANSITION_FACT_RESPONSE_FIELDS`);
+  }
+  // but the review-state fields the renderer needs ARE present:
+  for (const f of ["status", "reviewed_at", "accepted_at", "rejected_at", "rejection_reason"]) {
+    assert.ok(TRANSITION_FACT_RESPONSE_FIELDS.includes(f));
+  }
 });
