@@ -19,6 +19,7 @@ import type {
   CreateFactDto,
   CreateDocketEntryDto,
   ConfirmDocketEntryDto,
+  TransitionFactDto,
   CreateMatterResult,
   GetMatterResult,
   ListMattersResult,
@@ -33,6 +34,7 @@ import type {
   CreateFactResult,
   CreateDocketEntryResult,
   ConfirmDocketEntryResult,
+  TransitionFactResult,
 } from "../src/caseBox/dto.js";
 
 export interface ThemeApi {
@@ -58,6 +60,7 @@ export interface CaseBoxApi {
   createFact(dto: CreateFactDto): Promise<CreateFactResult>;
   createDocketEntry(dto: CreateDocketEntryDto): Promise<CreateDocketEntryResult>;
   confirmDocketEntry(dto: ConfirmDocketEntryDto): Promise<ConfirmDocketEntryResult>;
+  transitionFact(dto: TransitionFactDto): Promise<TransitionFactResult>;
 }
 
 const themeApi: ThemeApi = {
@@ -88,6 +91,7 @@ const caseBoxApi: CaseBoxApi = {
   createFact: (dto) => ipcRenderer.invoke("casebox:fact:create", dto),
   createDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:create", dto),
   confirmDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:confirm", dto),
+  transitionFact: (dto) => ipcRenderer.invoke("casebox:fact:transition", dto),
 };
 
 contextBridge.exposeInMainWorld("lawbar", { theme: themeApi, caseBox: caseBoxApi });

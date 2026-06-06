@@ -34,6 +34,7 @@ function makeMockClient() {
       createFact: mk("createFact"),
       createDocketEntry: mk("createDocketEntry"),
       confirmDocketEntry: mk("confirmDocketEntry"),
+      transitionFact: mk("transitionFact"),
     },
   };
 }
@@ -225,6 +226,29 @@ test("createCaseBoxApi: confirmDocketEntry forwards only matterId + entryId", as
   });
   assert.equal(m.calls[0].name, "confirmDocketEntry");
   assert.deepEqual(m.calls[0].dto, { matterId: VALID_ULID, entryId: "01jzentry000000000000000000" });
+});
+
+test("createCaseBoxApi: transitionFact forwards only matterId/factId/to/rejection_reason", async () => {
+  const m = makeMockClient();
+  const api = createCaseBoxApi(m.client);
+  await api.transitionFact({
+    matterId: VALID_ULID,
+    factId: "01jzfact00000000000000000a",
+    to: "rejected",
+    rejection_reason: "out of scope",
+    // smuggled server-authority / lifecycle fields must be stripped:
+    reviewer_actor_user_id: "evil",
+    at: "2026-01-01T00:00:00Z",
+    status: "accepted",
+    tenant_id: "evil",
+  });
+  assert.equal(m.calls[0].name, "transitionFact");
+  assert.deepEqual(m.calls[0].dto, {
+    matterId: VALID_ULID,
+    factId: "01jzfact00000000000000000a",
+    to: "rejected",
+    rejection_reason: "out of scope",
+  });
 });
 
 // --- envelope passthrough ---

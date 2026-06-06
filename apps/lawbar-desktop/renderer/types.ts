@@ -131,6 +131,20 @@ export interface ConfirmDocketEntryDto {
   readonly entryId: string;
 }
 
+// Fact-transition targets (WI-804). The renderer offers only the legal edges for a
+// fact's current status; persistence owns the state machine.
+export type FactTransitionTarget = "reviewed" | "accepted" | "rejected";
+
+// Renderer-supplied fields for casebox:fact:transition (WI-804). The server injects
+// reviewer_actor_user_id + the timestamp and computes the lifecycle fields; the
+// renderer forwards only these. rejection_reason is sent ONLY when to === "rejected".
+export interface TransitionFactDto {
+  readonly matterId: string;
+  readonly factId: string;
+  readonly to: FactTransitionTarget;
+  readonly rejection_reason?: string;
+}
+
 // R-5 fact purpose enum (case-box-fact.schema.json). Absent ⇒ server defaults to "other".
 export type FactPurpose =
   | "claim"
@@ -250,4 +264,11 @@ export const RENDERER_CREATE_DOCKET_DTO_FIELDS = Object.freeze([
 export const RENDERER_CONFIRM_DOCKET_DTO_FIELDS = Object.freeze([
   "matterId",
   "entryId",
+] as const);
+
+export const RENDERER_TRANSITION_FACT_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "factId",
+  "to",
+  "rejection_reason",
 ] as const);
