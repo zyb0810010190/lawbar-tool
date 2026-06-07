@@ -23,6 +23,6 @@ export {
   type RegisterDocumentDeps,
 } from "./documentHandlers.js";
 
-export { listDeadlinesHandler } from "./deadlineHandlers.js";
+export { listDeadlinesHandler, transitionDeadlineHandler } from "./deadlineHandlers.js";
 
 export { listFactsHandler } from "./factHandlers.js";

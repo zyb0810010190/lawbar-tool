@@ -12,6 +12,7 @@ import {
   getDocumentHandler,
   registerDocumentHandler,
   listDeadlinesHandler,
+  transitionDeadlineHandler,
   listFactsHandler,
   type PersistenceProvider,
   type ClockFn,
@@ -98,6 +99,9 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.deadlineList, async (_evt, payload: unknown) => {
     return listDeadlinesHandler(payload, provide);
+  });
+  ipcMain.handle(CHANNEL.deadlineTransition, async (_evt, payload: unknown) => {
+    return transitionDeadlineHandler(payload, provide, nowFn);
   });
   ipcMain.handle(CHANNEL.docketCreate, async (_evt, payload: unknown) => {
     return createDocketEntryHandler(payload, provide, nowFn, idFactory);
