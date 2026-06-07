@@ -19,6 +19,8 @@ import type {
   CreateFactDto,
   CreateDocketEntryDto,
   ConfirmDocketEntryDto,
+  ListDocketEntriesDto,
+  DismissDocketEntryDto,
   TransitionFactDto,
   CreateMatterResult,
   GetMatterResult,
@@ -34,6 +36,8 @@ import type {
   CreateFactResult,
   CreateDocketEntryResult,
   ConfirmDocketEntryResult,
+  ListDocketEntriesResult,
+  DismissDocketEntryResult,
   TransitionFactResult,
 } from "../src/caseBox/dto.js";
 
@@ -61,6 +65,8 @@ export interface CaseBoxApi {
   createDocketEntry(dto: CreateDocketEntryDto): Promise<CreateDocketEntryResult>;
   confirmDocketEntry(dto: ConfirmDocketEntryDto): Promise<ConfirmDocketEntryResult>;
   transitionFact(dto: TransitionFactDto): Promise<TransitionFactResult>;
+  listDocketEntries(dto: ListDocketEntriesDto): Promise<ListDocketEntriesResult>;
+  dismissDocketEntry(dto: DismissDocketEntryDto): Promise<DismissDocketEntryResult>;
 }
 
 const themeApi: ThemeApi = {
@@ -92,6 +98,8 @@ const caseBoxApi: CaseBoxApi = {
   createDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:create", dto),
   confirmDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:confirm", dto),
   transitionFact: (dto) => ipcRenderer.invoke("casebox:fact:transition", dto),
+  listDocketEntries: (dto) => ipcRenderer.invoke("casebox:docket:list", dto),
+  dismissDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:dismiss", dto),
 };
 
 contextBridge.exposeInMainWorld("lawbar", { theme: themeApi, caseBox: caseBoxApi });
