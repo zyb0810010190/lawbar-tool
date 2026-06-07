@@ -239,3 +239,157 @@ test("deadlines: a repeated (non-advancing) cursor aborts the eager-load with an
   assert.equal(err.getAttribute("role"), "alert");
   assert.ok(call <= 3, `eager-load should abort quickly on a stuck cursor, got ${call} calls`);
 });
+
+// --- DOM: deadline status transitions (WI-DT3, per the WI-DT2 design artifact) ---
+// pending -> met/missed/withdrawn (single-click); missed -> met (two-step required
+// reason). Errors keep the row + inline alert + no refresh; success refreshes.
+
+const TX_FUTURE = "2026-12-31T00:00:00.000Z"; // far future → no urgency pill noise
+const TX_DL = "01jzdl00000000000000000abc";
+
+async function mountTransition(rows, apiOverrides = {}) {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    listDeadlines: async () => ({ ok: true, value: { rows, next_cursor: null } }),
+    ...apiOverrides,
+  });
+  root.appendChild(renderDeadlinesDisclosure(doc, api, VALID_ULID, URGENCY_NOW));
+  findByTestId(root, "view-deadlines-summary").dispatchEvent({ type: "click" });
+  await flush();
+  return root;
+}
+
+test("transition: pending row offers met / missed / withdrawn", async () => {
+  const root = await mountTransition([deadlineRow({ id: TX_DL, status: "pending", due_at: TX_FUTURE })]);
+  assert.ok(findByTestId(root, "view-deadlines-transition-met") !== null);
+  assert.ok(findByTestId(root, "view-deadlines-transition-missed") !== null);
+  assert.ok(findByTestId(root, "view-deadlines-transition-withdrawn") !== null);
+});
+
+test("transition: missed row offers only Mark met, reason hidden until clicked", async () => {
+  const root = await mountTransition([deadlineRow({ id: TX_DL, status: "missed", due_at: TX_FUTURE })]);
+  assert.ok(findByTestId(root, "view-deadlines-transition-met") !== null);
+  assert.equal(findByTestId(root, "view-deadlines-transition-missed"), null);
+  assert.equal(findByTestId(root, "view-deadlines-transition-withdrawn"), null);
+  assert.equal(findByTestId(root, "view-deadlines-transition-reason").hasAttribute("hidden"), true);
+});
+
+test("transition: met / withdrawn rows have no transition controls", async () => {
+  const metRoot = await mountTransition([deadlineRow({ id: TX_DL, status: "met", due_at: TX_FUTURE })]);
+  assert.equal(findByTestId(metRoot, "view-deadlines-transition"), null);
+  const wdRoot = await mountTransition([deadlineRow({ id: TX_DL, status: "withdrawn", due_at: TX_FUTURE })]);
+  assert.equal(findByTestId(wdRoot, "view-deadlines-transition"), null);
+});
+
+test("transition: pending → met single-click forwards {to:met} (no reason) and refreshes", async () => {
+  let captured = null;
+  let listCalls = 0;
+  const row = deadlineRow({ id: TX_DL, status: "pending", due_at: TX_FUTURE });
+  const root = await mountTransition([row], {
+    listDeadlines: async () => {
+      listCalls += 1;
+      return { ok: true, value: { rows: [row], next_cursor: null } };
+    },
+    transitionDeadline: async (dto) => {
+      captured = dto;
+      return { ok: true, value: { id: TX_DL, status: "met" } };
+    },
+  });
+  assert.equal(listCalls, 1);
+  findByTestId(root, "view-deadlines-transition-met").dispatchEvent({ type: "click" });
+  await flush();
+  assert.deepEqual(captured, { matterId: VALID_ULID, deadlineId: TX_DL, to: "met" });
+  assert.equal("transition_reason" in captured, false);
+  assert.equal(listCalls, 2); // success refreshed the list
+});
+
+test("transition: error keeps the row + inline alert, does NOT refresh", async () => {
+  let listCalls = 0;
+  const row = deadlineRow({ id: TX_DL, status: "pending", due_at: TX_FUTURE });
+  const root = await mountTransition([row], {
+    listDeadlines: async () => {
+      listCalls += 1;
+      return { ok: true, value: { rows: [row], next_cursor: null } };
+    },
+    transitionDeadline: async () => ({
+      ok: false,
+      error: { kind: "case_box_persistence_error", code: "illegal_transition", message: "nope" },
+    }),
+  });
+  const missedBtn = findByTestId(root, "view-deadlines-transition-missed");
+  missedBtn.dispatchEvent({ type: "click" });
+  await flush();
+  const err = findByTestId(root, "view-deadlines-transition-error");
+  assert.ok(err !== null);
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err), "nope");
+  assert.ok(findByTestId(root, "view-deadlines-row") !== null); // row kept
+  assert.equal(listCalls, 1); // NOT refreshed (no wipe)
+  assert.equal(missedBtn.hasAttribute("disabled"), false); // re-enabled for retry
+});
+
+test("transition: missed → met Cancel discards the typed reason (no stale reason on reopen)", async () => {
+  let captured = null;
+  const root = await mountTransition([deadlineRow({ id: TX_DL, status: "missed", due_at: TX_FUTURE })], {
+    transitionDeadline: async (dto) => {
+      captured = dto;
+      return { ok: true, value: { id: TX_DL, status: "met" } };
+    },
+  });
+  findByTestId(root, "view-deadlines-transition-met").dispatchEvent({ type: "click" });
+  await flush();
+  const reason = findByTestId(root, "view-deadlines-transition-reason");
+  reason.value = "stale reason"; // typed then abandoned
+  findByTestId(root, "view-deadlines-transition-cancel").dispatchEvent({ type: "click" });
+  await flush();
+  // Reopen the capture — the previously typed reason must be gone.
+  findByTestId(root, "view-deadlines-transition-met").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findByTestId(root, "view-deadlines-transition-reason").value ?? "", "");
+  assert.equal(captured, null); // nothing submitted
+});
+
+test("transition: missed → met refuses empty reason, then forwards transition_reason", async () => {
+  let captured = null;
+  let calls = 0;
+  const root = await mountTransition([deadlineRow({ id: TX_DL, status: "missed", due_at: TX_FUTURE })], {
+    transitionDeadline: async (dto) => {
+      captured = dto;
+      calls += 1;
+      return { ok: true, value: { id: TX_DL, status: "met" } };
+    },
+  });
+  // Open the two-step capture.
+  findByTestId(root, "view-deadlines-transition-met").dispatchEvent({ type: "click" });
+  await flush();
+  const reason = findByTestId(root, "view-deadlines-transition-reason");
+  assert.equal(reason.hasAttribute("hidden"), false);
+  // Confirm with an empty reason → refused, no API call.
+  findByTestId(root, "view-deadlines-transition-confirm").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(calls, 0);
+  assert.equal(findByTestId(root, "view-deadlines-transition-error").getAttribute("role"), "alert");
+  // Provide a reason → forwarded.
+  reason.value = "clerk error; filed on time";
+  findByTestId(root, "view-deadlines-transition-confirm").dispatchEvent({ type: "click" });
+  await flush();
+  assert.deepEqual(captured, {
+    matterId: VALID_ULID,
+    deadlineId: TX_DL,
+    to: "met",
+    transition_reason: "clerk error; filed on time",
+  });
+  assert.equal(calls, 1);
+});
+
+test("transition: missed → met Cancel collapses back to Mark met", async () => {
+  const root = await mountTransition([deadlineRow({ id: TX_DL, status: "missed", due_at: TX_FUTURE })]);
+  findByTestId(root, "view-deadlines-transition-met").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findByTestId(root, "view-deadlines-transition-reason").hasAttribute("hidden"), false);
+  findByTestId(root, "view-deadlines-transition-cancel").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findByTestId(root, "view-deadlines-transition-reason").hasAttribute("hidden"), true);
+  assert.equal(findByTestId(root, "view-deadlines-transition-met").hasAttribute("hidden"), false);
+});

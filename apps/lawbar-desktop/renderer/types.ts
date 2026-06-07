@@ -165,6 +165,19 @@ export interface TransitionFactDto {
   readonly rejection_reason?: string;
 }
 
+// casebox:deadline:transition target (WI-DT3). Mirrors the main-process IPC DTO;
+// persistence owns the edge set (pending→met/missed/withdrawn, missed→met). The
+// server injects actor + timestamp; the renderer forwards only the fields below.
+// transition_reason is sent ONLY for the missed→met edge (required there).
+export type DeadlineTransitionTarget = "met" | "missed" | "withdrawn";
+
+export interface TransitionDeadlineDto {
+  readonly matterId: string;
+  readonly deadlineId: string;
+  readonly to: DeadlineTransitionTarget;
+  readonly transition_reason?: string;
+}
+
 // R-5 fact purpose enum (case-box-fact.schema.json). Absent ⇒ server defaults to "other".
 export type FactPurpose =
   | "claim"
@@ -305,4 +318,11 @@ export const RENDERER_TRANSITION_FACT_DTO_FIELDS = Object.freeze([
   "factId",
   "to",
   "rejection_reason",
+] as const);
+
+export const RENDERER_TRANSITION_DEADLINE_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "deadlineId",
+  "to",
+  "transition_reason",
 ] as const);

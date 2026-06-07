@@ -176,6 +176,13 @@ export function makeStubApi(impl = {}) {
     registerDocument: impl.registerDocument ?? (async () => ({ ok: true, value: null })),
     listDeadlines:
       impl.listDeadlines ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
+    // WI-DT3: the Deadlines disclosure renders per-row status-transition controls
+    // (pending → met/missed/withdrawn; missed → met). Rendering does not call this,
+    // but clicking a control does, so every consumer of the shared stub needs it.
+    // Defaults to success; WI-DT3's transition tests override it to assert the
+    // forwarded payload and to exercise the error path.
+    transitionDeadline:
+      impl.transitionDeadline ?? (async () => ({ ok: true, value: { id: "stub", status: "met" } })),
     listFacts:
       impl.listFacts ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
     // WI-D4: the Deadlines disclosure now loads pending docket proposals on open,
