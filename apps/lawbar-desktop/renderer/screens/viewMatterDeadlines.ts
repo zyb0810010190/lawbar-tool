@@ -20,7 +20,12 @@
 // pending overdue deadline behind older settled ones and undercount silently.
 
 import type { CaseBoxApi } from "../api.js";
-import type { ConfirmDocketEntryDto, CreateDocketEntryDto } from "../types.js";
+import type {
+  ConfirmDocketEntryDto,
+  CreateDocketEntryDto,
+  DeadlineTransitionTarget,
+  TransitionDeadlineDto,
+} from "../types.js";
 import { el, setText } from "../dom.js";
 import { renderDocketProposalsSection } from "./viewMatterDocketProposals.js";
 import {
@@ -131,7 +136,17 @@ export function renderDeadlinesDisclosure(
   const runLoad = (): Promise<void> => {
     const myGen = ++loadGen;
     // nowMs resolves at LOAD time (fixed in tests; live re-reads Date.now() per load).
-    return loadDeadlines(listContainer, doc, api, matterId, nowMs ?? Date.now(), () => myGen === loadGen);
+    // runLoad is forwarded as the per-row transition refresh: a successful deadline
+    // transition re-runs the load (new generation) so the row re-renders in its new state.
+    return loadDeadlines(
+      listContainer,
+      doc,
+      api,
+      matterId,
+      nowMs ?? Date.now(),
+      () => myGen === loadGen,
+      runLoad,
+    );
   };
   const addControl = renderAddDeadlineControl(doc, api, matterId, runLoad);
 
@@ -354,7 +369,14 @@ function renderAddDeadlineControl(
   );
 }
 
-function renderDeadlineRow(doc: Document, d: DeadlineRow, urgency: DeadlineUrgency): HTMLElement {
+function renderDeadlineRow(
+  doc: Document,
+  d: DeadlineRow,
+  urgency: DeadlineUrgency,
+  api: CaseBoxApi,
+  matterId: string,
+  refresh: () => Promise<void>,
+): HTMLElement {
   const metaChildren: Array<HTMLElement | string> = [
     el(
       "span",
@@ -411,9 +433,187 @@ function renderDeadlineRow(doc: Document, d: DeadlineRow, urgency: DeadlineUrgen
   if (detailChildren.length > 0) {
     children.push(el("div", { class: "view-deadlines-row-detail" }, detailChildren, doc));
   }
+  const transition = renderDeadlineTransitionControls(doc, d, api, matterId, refresh);
+  if (transition !== null) children.push(transition);
   return el(
     "li",
     { class: "view-deadlines-row", "data-test-id": "view-deadlines-row" },
+    children,
+    doc,
+  );
+}
+
+// Per-status deadline status-transition controls (WI-DT3, per the WI-DT2 design
+// artifact). Renders nothing for terminal statuses (met / withdrawn). pending ->
+// met / missed / withdrawn are single-click (no reason); missed -> met opens a
+// two-step required-reason capture (the reason IS the confirmation, mirroring the
+// docket-dismiss + fact-reject precedent). The renderer forwards only the narrow
+// TransitionDeadlineDto; main injects authority + enforces the edge/reason rules.
+// On error: inline role="alert", KEEP the row, re-enable, NO refresh (the WI-D4
+// dismiss-error lesson). On success: refresh so the row re-renders in its new state.
+function renderDeadlineTransitionControls(
+  doc: Document,
+  d: DeadlineRow,
+  api: CaseBoxApi,
+  matterId: string,
+  refresh: () => Promise<void>,
+): HTMLElement | null {
+  if (d.status !== "pending" && d.status !== "missed") return null;
+
+  const error = el(
+    "span",
+    {
+      class: "view-deadlines-transition-error",
+      "data-test-id": "view-deadlines-transition-error",
+      hidden: "",
+    },
+    [],
+    doc,
+  );
+  const showError = (msg: string): void => {
+    error.setAttribute("role", "alert");
+    error.removeAttribute("hidden");
+    setText(error, msg);
+  };
+  const clearError = (): void => {
+    error.removeAttribute("role");
+    error.setAttribute("hidden", "");
+    setText(error, "");
+  };
+
+  const mkBtn = (label: string, testId: string): HTMLElement =>
+    el("button", { type: "button", class: "view-deadlines-transition-btn", "data-test-id": testId }, [label], doc);
+
+  // Shared submit: forward the narrow dto, surface a transition error inline (keep
+  // the row, re-enable via `reEnable`, NO refresh — the WI-D4 lesson), and on
+  // success refresh exactly once. A post-success refresh failure is NON-FATAL: the
+  // mutation already landed, so it must NOT surface as a transition error or
+  // re-enable the now-stale controls (audit L1). The caller disables its controls
+  // before calling; on success they stay disabled because the row is replaced.
+  const submit = async (dto: TransitionDeadlineDto, reEnable: () => void): Promise<void> => {
+    clearError();
+    let env: Awaited<ReturnType<typeof api.transitionDeadline>>;
+    try {
+      env = await api.transitionDeadline(dto);
+    } catch {
+      showError("Could not update the deadline. Please try again.");
+      reEnable();
+      return;
+    }
+    if (!env.ok) {
+      showError(env.error.message);
+      reEnable();
+      return;
+    }
+    try {
+      await refresh();
+    } catch {
+      /* mutation succeeded; a failed reload is non-fatal and must not read as a transition error */
+    }
+  };
+
+  // No-reason transition (pending -> met/missed/withdrawn). `busy` are the buttons
+  // to disable while the call is in flight (re-entrancy guard).
+  const runSimple = (to: DeadlineTransitionTarget, busy: HTMLElement[]): Promise<void> => {
+    for (const b of busy) b.setAttribute("disabled", "true");
+    return submit({ matterId, deadlineId: d.id, to }, () => {
+      for (const b of busy) b.removeAttribute("disabled");
+    });
+  };
+
+  const children: Array<HTMLElement | string> = [];
+
+  if (d.status === "pending") {
+    const metBtn = mkBtn("Mark met", "view-deadlines-transition-met");
+    const missedBtn = mkBtn("Mark missed", "view-deadlines-transition-missed");
+    const withdrawBtn = mkBtn("Withdraw", "view-deadlines-transition-withdrawn");
+    const all = [metBtn, missedBtn, withdrawBtn];
+    metBtn.addEventListener("click", () => void runSimple("met", all));
+    missedBtn.addEventListener("click", () => void runSimple("missed", all));
+    withdrawBtn.addEventListener("click", () => void runSimple("withdrawn", all));
+    children.push(metBtn, " ", missedBtn, " ", withdrawBtn, " ", error);
+  } else {
+    // status === "missed": only missed -> met, with a required reason (two-step).
+    const metBtn = mkBtn("Mark met", "view-deadlines-transition-met");
+    const reasonInput = el(
+      "input",
+      {
+        type: "text",
+        class: "view-deadlines-transition-reason",
+        "data-test-id": "view-deadlines-transition-reason",
+        "aria-label": "Reason met after missed",
+        hidden: "",
+      },
+      [],
+      doc,
+    );
+    const confirmBtn = el(
+      "button",
+      { type: "button", class: "view-deadlines-transition-confirm", "data-test-id": "view-deadlines-transition-confirm", hidden: "" },
+      ["Confirm"],
+      doc,
+    );
+    const cancelBtn = el(
+      "button",
+      { type: "button", class: "view-deadlines-transition-cancel", "data-test-id": "view-deadlines-transition-cancel", hidden: "" },
+      ["Cancel"],
+      doc,
+    );
+    const reveal = (): void => {
+      reasonInput.removeAttribute("hidden");
+      reasonInput.setAttribute("aria-required", "true");
+      confirmBtn.removeAttribute("hidden");
+      cancelBtn.removeAttribute("hidden");
+      metBtn.setAttribute("hidden", "");
+      if (typeof (reasonInput as unknown as { focus?: () => void }).focus === "function") {
+        (reasonInput as unknown as { focus: () => void }).focus();
+      }
+    };
+    const collapse = (): void => {
+      // Discard any typed reason so reopening the capture cannot submit a stale
+      // audit reason (audit M1). The reason is re-entered each time intentionally.
+      (reasonInput as unknown as { value: string }).value = "";
+      reasonInput.setAttribute("hidden", "");
+      confirmBtn.setAttribute("hidden", "");
+      cancelBtn.setAttribute("hidden", "");
+      metBtn.removeAttribute("hidden");
+      if (typeof (metBtn as unknown as { focus?: () => void }).focus === "function") {
+        (metBtn as unknown as { focus: () => void }).focus();
+      }
+    };
+    const setBusy = (busy: boolean): void => {
+      for (const b of [confirmBtn, cancelBtn]) {
+        if (busy) b.setAttribute("disabled", "true");
+        else b.removeAttribute("disabled");
+      }
+    };
+    metBtn.addEventListener("click", () => {
+      clearError();
+      reveal();
+    });
+    cancelBtn.addEventListener("click", () => {
+      clearError();
+      collapse();
+    });
+    confirmBtn.addEventListener("click", () => {
+      const reason = ((reasonInput as unknown as { value?: string }).value ?? "").trim();
+      if (reason.length === 0) {
+        clearError();
+        showError("A reason is required to mark a missed deadline as met.");
+        return;
+      }
+      setBusy(true);
+      void submit(
+        { matterId, deadlineId: d.id, to: "met", transition_reason: reason },
+        () => setBusy(false),
+      );
+    });
+    children.push(metBtn, " ", reasonInput, " ", confirmBtn, " ", cancelBtn, " ", error);
+  }
+
+  return el(
+    "div",
+    { class: "view-deadlines-transition", "data-test-id": "view-deadlines-transition" },
     children,
     doc,
   );
@@ -429,6 +629,9 @@ async function loadDeadlines(
   // superseded load (e.g. overtaken by a post-confirm refresh) cannot mutate the
   // container the newer load already cleared + refilled.
   isCurrent: () => boolean = () => true,
+  // Re-run the load after a successful per-row transition so the row re-renders in
+  // its new status. Defaults to a no-op for callers that don't transition.
+  refresh: () => Promise<void> = async () => {},
 ): Promise<void> {
   // Clear any prior render so this can refresh in place after a confirm.
   setText(parent, "");
@@ -509,7 +712,7 @@ async function loadDeadlines(
       const urgency = classifyDeadlineUrgency(row.due_at, row.status, nowMs);
       if (urgency === "overdue") overdue += 1;
       else if (urgency === "due-soon") dueSoon += 1;
-      list.appendChild(renderDeadlineRow(doc, row, urgency));
+      list.appendChild(renderDeadlineRow(doc, row, urgency, api, matterId, refresh));
       total += 1;
     }
     cursor = page.next_cursor;

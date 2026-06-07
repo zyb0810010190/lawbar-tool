@@ -25,6 +25,7 @@ import type {
   ListMattersDto,
   RegisterDocumentDto,
   TransitionFactDto,
+  TransitionDeadlineDto,
 } from "./types.js";
 
 import {
@@ -36,6 +37,7 @@ import {
   RENDERER_DISMISS_DOCKET_DTO_FIELDS,
   RENDERER_LIST_DOCKET_DTO_FIELDS,
   RENDERER_TRANSITION_FACT_DTO_FIELDS,
+  RENDERER_TRANSITION_DEADLINE_DTO_FIELDS,
   RENDERER_CREATE_MATTER_DTO_FIELDS,
   RENDERER_GET_DOCUMENT_DTO_FIELDS,
   RENDERER_GET_MATTER_DTO_FIELDS,
@@ -59,6 +61,7 @@ export interface CaseBoxClient {
   getDocument(dto: GetDocumentDto): Promise<IpcEnvelope<unknown>>;
   registerDocument(dto: RegisterDocumentDto): Promise<IpcEnvelope<unknown>>;
   listDeadlines(dto: ListDeadlinesDto): Promise<IpcEnvelope<unknown>>;
+  transitionDeadline(dto: TransitionDeadlineDto): Promise<IpcEnvelope<unknown>>;
   listFacts(dto: ListFactsDto): Promise<IpcEnvelope<unknown>>;
   createFact(dto: CreateFactDto): Promise<IpcEnvelope<unknown>>;
   createDocketEntry(dto: CreateDocketEntryDto): Promise<IpcEnvelope<unknown>>;
@@ -79,6 +82,7 @@ export interface CaseBoxApi {
   getDocument(dto: GetDocumentDto): Promise<IpcEnvelope<unknown>>;
   registerDocument(dto: RegisterDocumentDto): Promise<IpcEnvelope<unknown>>;
   listDeadlines(dto: ListDeadlinesDto): Promise<IpcEnvelope<unknown>>;
+  transitionDeadline(dto: TransitionDeadlineDto): Promise<IpcEnvelope<unknown>>;
   listFacts(dto: ListFactsDto): Promise<IpcEnvelope<unknown>>;
   createFact(dto: CreateFactDto): Promise<IpcEnvelope<unknown>>;
   createDocketEntry(dto: CreateDocketEntryDto): Promise<IpcEnvelope<unknown>>;
@@ -132,6 +136,8 @@ export function createCaseBoxApi(client: CaseBoxClient): CaseBoxApi {
       client.registerDocument(stripDtoFields(dto, RENDERER_REGISTER_DOCUMENT_DTO_FIELDS)),
     listDeadlines: (dto) =>
       client.listDeadlines(stripDtoFields(dto, RENDERER_LIST_DEADLINES_DTO_FIELDS)),
+    transitionDeadline: (dto) =>
+      client.transitionDeadline(stripDtoFields(dto, RENDERER_TRANSITION_DEADLINE_DTO_FIELDS)),
     listFacts: (dto) =>
       client.listFacts(stripDtoFields(dto, RENDERER_LIST_FACTS_DTO_FIELDS)),
     createFact: (dto) =>

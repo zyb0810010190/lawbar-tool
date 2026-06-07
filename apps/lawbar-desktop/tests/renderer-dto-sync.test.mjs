@@ -75,6 +75,7 @@ const PAIRS = [
   ["RENDERER_LIST_DOCKET_DTO_FIELDS", "LIST_DOCKET_DTO_FIELDS"],
   ["RENDERER_DISMISS_DOCKET_DTO_FIELDS", "DISMISS_DOCKET_DTO_FIELDS"],
   ["RENDERER_TRANSITION_FACT_DTO_FIELDS", "TRANSITION_FACT_DTO_FIELDS"],
+  ["RENDERER_TRANSITION_DEADLINE_DTO_FIELDS", "TRANSITION_DEADLINE_DTO_FIELDS"],
 ];
 
 test("DTO sync: parser extracts all renderer arrays", () => {
@@ -129,6 +130,8 @@ const RESPONSE_ALLOWLISTS = [
   ["LIST_DEADLINES_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
   // GET-AUD-1: the get-document channel uses its own allowlist; same exclusions.
   ["GET_DOCUMENT_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "custody_chain"]],
+  // WI-DT1: the deadline transition response allowlist excludes the same authority fields.
+  ["TRANSITION_DEADLINE_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
 ];
 
 test("response projection: canonical *_RESPONSE_FIELDS allowlists exist and are non-empty", () => {
