@@ -26,6 +26,8 @@ import {
   LIST_DOCKET_FORBIDDEN_FIELDS,
   DOCKET_CONFIRMATION_STATES,
   DOCKET_SOURCE_TYPES,
+  DISMISS_DOCKET_DTO_FIELDS,
+  DISMISS_DOCKET_FORBIDDEN_FIELDS,
   MAX_LIST_LIMIT,
   MAX_CURSOR_LENGTH,
   type CreateDocketEntryDto,
@@ -34,6 +36,8 @@ import {
   type ConfirmDocketEntryResult,
   type ListDocketEntriesDto,
   type ListDocketEntriesResult,
+  type DismissDocketEntryDto,
+  type DismissDocketEntryResult,
   type RendererDocketEntryRow,
   type RendererConfirmDeadlineRow,
 } from "./dto.js";
@@ -298,5 +302,92 @@ export async function listDocketEntriesHandler(
     return { ok: true, value: projectPage<RendererDocketEntryRow>(page, DOCKET_ENTRY_RESPONSE_FIELDS) };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.docketList }) };
+  }
+}
+
+// --- dismiss a PROPOSED docket entry (cancel a proposal) -------------------
+// WI-D2: cancel a pending proposal. PROPOSED-ONLY by design: dismissing a
+// CONFIRMED entry would orphan its materialized deadline, so the handler asserts
+// confirmation_state === "proposed" AFTER the scoped preflight and BEFORE the
+// persistence dismiss (even though persistence can dismiss proposed|confirmed).
+// Mirrors confirmDocketEntryHandler's fail-closed scoped getDocketEntry preflight
+// and the transition handlers' authority discipline: the renderer supplies only
+// { matterId, entryId, dismissal_reason }; the server injects the dismissal actor
+// + timestamp, and the success path projects through DOCKET_ENTRY_RESPONSE_FIELDS.
+export async function dismissDocketEntryHandler(
+  payload: unknown,
+  provide: PersistenceProvider,
+  now: ClockFn,
+): Promise<DismissDocketEntryResult> {
+  if (!isPlainJsonObject(payload)) return shapeGuardFailure();
+  for (const f of DISMISS_DOCKET_FORBIDDEN_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(payload, f)) return forbiddenFieldFailure(f);
+  }
+  for (const key of Object.keys(payload)) {
+    if (!(DISMISS_DOCKET_DTO_FIELDS as readonly string[]).includes(key)) {
+      return { ok: false, error: makeInvalidPayload("unknown field in DismissDocketEntryDto", { schemaPath: key }) };
+    }
+  }
+  const dto = payload as unknown as DismissDocketEntryDto;
+  if (!nonEmptyString(dto.matterId)) {
+    return { ok: false, error: makeInvalidPayload("matterId must be a non-empty string") };
+  }
+  if (!nonEmptyString(dto.entryId)) {
+    return { ok: false, error: makeInvalidPayload("entryId must be a non-empty string") };
+  }
+  if (!nonEmptyString(dto.dismissal_reason)) {
+    return {
+      ok: false,
+      error: makeInvalidPayload("dismissal_reason must be a non-empty string", {
+        schemaPath: "dismissal_reason",
+      }),
+    };
+  }
+  try {
+    const { persistence } = provide();
+    const matter = await persistence.getMatter(dto.matterId);
+    if (matter === null) return { ok: false, error: makeBoundaryError("unknown_matter") };
+    if (matter.tenant_id !== getActiveTenantId()) {
+      return { ok: false, error: makeBoundaryError("tenant_mismatch") };
+    }
+    // SCOPED preflight: the entry must exist UNDER this matter + active tenant.
+    // dismissDocketEntry is unscoped, so a null here means unknown / wrong-matter /
+    // wrong-tenant entry_id -> reject WITHOUT dismissing (fail-closed).
+    const existing = await persistence.getDocketEntry({
+      tenant_id: getActiveTenantId(),
+      matter_id: dto.matterId,
+      entry_id: dto.entryId,
+    });
+    if (existing === null) {
+      return {
+        ok: false,
+        error: makeInvalidPayload("entryId does not reference a dismissible docket entry in this matter"),
+      };
+    }
+    // PROPOSED-ONLY: confirmed (deadline already materialized) and already-dismissed
+    // entries are out of scope for WI-D2 -> reject fail-closed BEFORE persistence.
+    if ((existing as { confirmation_state?: string }).confirmation_state !== "proposed") {
+      return {
+        ok: false,
+        error: makeInvalidPayload(
+          "only a proposed docket entry can be dismissed (confirmed/already-dismissed entries are out of scope)",
+          { schemaPath: "confirmation_state" },
+        ),
+      };
+    }
+    const entry = await persistence.dismissDocketEntry(dto.entryId, {
+      dismissal_actor_user_id: getActiveActorUserId(),
+      dismissed_at: now().toISOString(),
+      dismissal_reason: dto.dismissal_reason,
+    });
+    return {
+      ok: true,
+      value: projectRow<RendererDocketEntryRow>(
+        entry as unknown as Record<string, unknown>,
+        DOCKET_ENTRY_RESPONSE_FIELDS,
+      ),
+    };
+  } catch (err) {
+    return { ok: false, error: mapThrownError(err, { channel: CHANNEL.docketDismiss }) };
   }
 }
