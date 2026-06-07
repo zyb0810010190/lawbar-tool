@@ -8,6 +8,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   listDeadlinesHandler,
+  transitionDeadlineHandler,
   listFactsHandler,
 } from "../dist/src/caseBox/handlers.js";
 import {
@@ -18,6 +19,7 @@ import {
 } from "../dist/src/caseBox/docketHandlers.js";
 import { createFactHandler } from "../dist/src/caseBox/factHandlers.js";
 import { CHANNEL } from "../dist/src/caseBox/handlerShared.js";
+import { CaseBoxPersistenceError } from "case-box-persistence";
 
 // Local copy of the shared IPC test harness (the host's harness is inline, not a
 // shared module; WI-805 duplicates only the helpers the moved tests use — validDto
@@ -54,6 +56,8 @@ function makeProvider(overrides) {
     getDocument: async () => null,
     registerDocument: async (_matterId, document) => document,
     listDeadlines: async (q) => ({ rows: [], next_cursor: null, query: q }),
+    getDeadline: async () => null,
+    transitionDeadline: async (id, opts) => ({ id, status: opts.to, ...opts }),
     listFacts: async (q) => ({ rows: [], next_cursor: null, query: q }),
     listDocketEntries: async (q) => ({ rows: [], next_cursor: null, query: q }),
     getDocketEntry: async () => null,
@@ -918,4 +922,213 @@ test("factCreate: unknown field -> invalid_payload", async () => {
   const r = await createFactHandler({ ...validFactDto, bogus: 1 }, provide, clock, idFactory);
   assert.equal(r.ok, false);
   assert.equal(r.error.code, "invalid_payload");
+});
+
+
+// ---------- transitionDeadline (WI-DT1) ----------
+// (DEADLINE_ID is already declared above for the docket/fact tests; reuse it.)
+
+// A persistence row carrying server-authority fields the response MUST strip.
+function existingDeadline(status) {
+  return {
+    id: DEADLINE_ID,
+    tenant_id: "default-tenant",
+    matter_id: FIXED_ID,
+    actor_user_id: "should-not-leak",
+    kind: "filing",
+    source_rule_citation: "FRCP 12",
+    due_at: "2026-06-30T00:00:00.000Z",
+    owner_user_id: "local-user",
+    status,
+    met_at: null,
+    previous_status: null,
+    transition_reason: null,
+  };
+}
+
+function makeDeadlineProvider(status, overrides = {}) {
+  return makeProvider({
+    getDeadline: async () => existingDeadline(status),
+    ...overrides,
+  });
+}
+
+test("transitionDeadline pending->met: ok, server-injects actor+at, no authority leak", async () => {
+  let opts;
+  const provide = makeDeadlineProvider("pending", {
+    transitionDeadline: async (id, o) => {
+      opts = o;
+      assert.equal(id, DEADLINE_ID);
+      return { ...existingDeadline("met"), status: "met", met_at: FIXED_NOW.toISOString() };
+    },
+  });
+  const r = await transitionDeadlineHandler({ matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met" }, provide, clock);
+  assert.equal(r.ok, true);
+  assert.equal(r.value.status, "met");
+  // server-injected authority
+  assert.equal(opts.to, "met");
+  assert.ok(typeof opts.actor_user_id === "string" && opts.actor_user_id.length > 0);
+  assert.equal(opts.at, FIXED_NOW.toISOString());
+  // non-missed->met carries NO transition_reason
+  assert.equal("transition_reason" in opts, false);
+  // response projection strips authority identities
+  assert.equal("tenant_id" in r.value, false);
+  assert.equal("actor_user_id" in r.value, false);
+});
+
+test("transitionDeadline pending->withdrawn: ok", async () => {
+  const provide = makeDeadlineProvider("pending", {
+    transitionDeadline: async (id, o) => ({ ...existingDeadline("withdrawn"), status: "withdrawn", _o: o }),
+  });
+  const r = await transitionDeadlineHandler({ matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "withdrawn" }, provide, clock);
+  assert.equal(r.ok, true);
+  assert.equal(r.value.status, "withdrawn");
+});
+
+test("transitionDeadline missed->met WITHOUT reason -> invalid_payload, persistence not called", async () => {
+  let called = false;
+  const provide = makeDeadlineProvider("missed", {
+    transitionDeadline: async () => {
+      called = true;
+      return existingDeadline("met");
+    },
+  });
+  const r = await transitionDeadlineHandler({ matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met" }, provide, clock);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+  assert.equal(called, false);
+});
+
+test("transitionDeadline missed->met WITH reason -> ok, reason passed to persistence", async () => {
+  let opts;
+  const provide = makeDeadlineProvider("missed", {
+    transitionDeadline: async (_id, o) => {
+      opts = o;
+      return { ...existingDeadline("met"), status: "met", previous_status: "missed", transition_reason: o.transition_reason };
+    },
+  });
+  const r = await transitionDeadlineHandler(
+    { matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met", transition_reason: "clerk error; filed on time" },
+    provide,
+    clock,
+  );
+  assert.equal(r.ok, true);
+  assert.equal(opts.transition_reason, "clerk error; filed on time");
+  assert.equal(r.value.transition_reason, "clerk error; filed on time");
+});
+
+test("transitionDeadline missed->met with EMPTY reason -> invalid_payload", async () => {
+  const provide = makeDeadlineProvider("missed");
+  const r = await transitionDeadlineHandler(
+    { matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met", transition_reason: "" },
+    provide,
+    clock,
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+});
+
+test("transitionDeadline reason on non-missed->met edges -> invalid_payload (forbidden, not dropped)", async () => {
+  // Both the pending->withdrawn case AND the common pending->met case must reject a
+  // client-supplied transition_reason (the reason edge is missed->met ONLY).
+  const withdrawn = await transitionDeadlineHandler(
+    { matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "withdrawn", transition_reason: "nope" },
+    makeDeadlineProvider("pending"),
+    clock,
+  );
+  assert.equal(withdrawn.ok, false);
+  assert.equal(withdrawn.error.details?.schemaPath, "transition_reason");
+  const pendingToMet = await transitionDeadlineHandler(
+    { matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met", transition_reason: "nope" },
+    makeDeadlineProvider("pending"),
+    clock,
+  );
+  assert.equal(pendingToMet.ok, false);
+  assert.equal(pendingToMet.error.details?.schemaPath, "transition_reason");
+});
+
+test("transitionDeadline forbidden field actor_user_id -> invalid_payload", async () => {
+  const r = await transitionDeadlineHandler(
+    { matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met", actor_user_id: "evil" },
+    makeDeadlineProvider("pending"),
+    clock,
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.error.details?.schemaPath, "actor_user_id");
+});
+
+test("transitionDeadline forbidden field status -> invalid_payload", async () => {
+  const r = await transitionDeadlineHandler(
+    { matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met", status: "met" },
+    makeDeadlineProvider("pending"),
+    clock,
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.error.details?.schemaPath, "status");
+});
+
+test("transitionDeadline unknown field -> invalid_payload", async () => {
+  const r = await transitionDeadlineHandler(
+    { matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met", bogus: 1 },
+    makeDeadlineProvider("pending"),
+    clock,
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+});
+
+test("transitionDeadline empty matterId / deadlineId / bad target -> invalid_payload", async () => {
+  const p = makeDeadlineProvider("pending");
+  const a = await transitionDeadlineHandler({ matterId: "", deadlineId: DEADLINE_ID, to: "met" }, p, clock);
+  const b = await transitionDeadlineHandler({ matterId: FIXED_ID, deadlineId: "", to: "met" }, p, clock);
+  const c = await transitionDeadlineHandler({ matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "bogus" }, p, clock);
+  for (const r of [a, b, c]) {
+    assert.equal(r.ok, false);
+    assert.equal(r.error.code, "invalid_payload");
+  }
+});
+
+test("transitionDeadline unknown matter -> unknown_matter", async () => {
+  const provide = makeDeadlineProvider("pending", { getMatter: async () => null });
+  const r = await transitionDeadlineHandler({ matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met" }, provide, clock);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "unknown_matter");
+});
+
+test("transitionDeadline tenant mismatch -> tenant_mismatch", async () => {
+  const provide = makeDeadlineProvider("pending", {
+    getMatter: async () => ({ id: FIXED_ID, tenant_id: "other-tenant", status: "active" }),
+  });
+  const r = await transitionDeadlineHandler({ matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met" }, provide, clock);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "tenant_mismatch");
+});
+
+test("transitionDeadline cross-matter/tenant deadline (preflight null) -> fail-closed, persistence not called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getDeadline: async () => null,
+    transitionDeadline: async () => {
+      called = true;
+      return existingDeadline("met");
+    },
+  });
+  const r = await transitionDeadlineHandler({ matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met" }, provide, clock);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "invalid_payload");
+  assert.equal(called, false);
+});
+
+test("transitionDeadline persistence illegal_transition surfaces (code preserved, not re-implemented)", async () => {
+  // The handler does not block edges itself; persistence throws a real
+  // CaseBoxPersistenceError, whose code mapThrownError preserves (a plain Error
+  // would map to not_implemented, so this asserts the real class + code).
+  const provide = makeDeadlineProvider("pending", {
+    transitionDeadline: async () => {
+      throw new CaseBoxPersistenceError("illegal_transition", "withdrawn cannot transition to met");
+    },
+  });
+  const r = await transitionDeadlineHandler({ matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met" }, provide, clock);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "illegal_transition");
 });

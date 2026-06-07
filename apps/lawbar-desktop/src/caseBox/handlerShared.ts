@@ -20,6 +20,7 @@ export const CHANNEL = {
   documentGet: "casebox:document:get",
   documentRegister: "casebox:document:register",
   deadlineList: "casebox:deadline:list",
+  deadlineTransition: "casebox:deadline:transition",
   docketCreate: "casebox:docket:create",
   docketConfirm: "casebox:docket:confirm",
   docketList: "casebox:docket:list",

@@ -22,6 +22,7 @@ import type {
   ListDocketEntriesDto,
   DismissDocketEntryDto,
   TransitionFactDto,
+  TransitionDeadlineDto,
   CreateMatterResult,
   GetMatterResult,
   ListMattersResult,
@@ -39,6 +40,7 @@ import type {
   ListDocketEntriesResult,
   DismissDocketEntryResult,
   TransitionFactResult,
+  TransitionDeadlineResult,
 } from "../src/caseBox/dto.js";
 
 export interface ThemeApi {
@@ -60,6 +62,11 @@ export interface CaseBoxApi {
   getDocument(dto: GetDocumentDto): Promise<GetDocumentResult>;
   registerDocument(dto: RegisterDocumentDto): Promise<RegisterDocumentResult>;
   listDeadlines(dto: ListDeadlinesDto): Promise<ListDeadlinesResult>;
+  // WI-DT1: the preload exposure of the transition write IS part of this WI (preload
+  // lives under electron/, not renderer/). Only the renderer-side bridge
+  // (renderer/api.ts + renderer/types.ts) is deferred to WI-DT3. The write surface is
+  // guarded server-side (tenant/matter/scoped-preflight + forbidden-field rejection).
+  transitionDeadline(dto: TransitionDeadlineDto): Promise<TransitionDeadlineResult>;
   listFacts(dto: ListFactsDto): Promise<ListFactsResult>;
   createFact(dto: CreateFactDto): Promise<CreateFactResult>;
   createDocketEntry(dto: CreateDocketEntryDto): Promise<CreateDocketEntryResult>;
@@ -93,6 +100,7 @@ const caseBoxApi: CaseBoxApi = {
   getDocument: (dto) => ipcRenderer.invoke("casebox:document:get", dto),
   registerDocument: (dto) => ipcRenderer.invoke("casebox:document:register", dto),
   listDeadlines: (dto) => ipcRenderer.invoke("casebox:deadline:list", dto),
+  transitionDeadline: (dto) => ipcRenderer.invoke("casebox:deadline:transition", dto),
   listFacts: (dto) => ipcRenderer.invoke("casebox:fact:list", dto),
   createFact: (dto) => ipcRenderer.invoke("casebox:fact:create", dto),
   createDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:create", dto),
