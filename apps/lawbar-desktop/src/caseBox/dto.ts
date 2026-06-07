@@ -560,6 +560,53 @@ export interface ConfirmDocketEntryValue {
 export type CreateDocketEntryResult = IpcEnvelope<RendererDocketEntryRow>;
 export type ConfirmDocketEntryResult = IpcEnvelope<ConfirmDocketEntryValue>;
 
+// WI-D1 (BATCH-CASEBOX-DOCKET-LIFECYCLE-00): docket-entry LIST (read). Surfaces
+// durably-persisted docket entries — especially confirmation_state="proposed"
+// proposals that are otherwise invisible after reload (the renderer lists only
+// confirmed deadlines). Wraps persistence.listDocketEntries and projects every
+// row through DOCKET_ENTRY_RESPONSE_FIELDS so authority identities never cross
+// the IPC boundary. Renderer supplies scope + optional filters only.
+export interface ListDocketEntriesDto {
+  readonly matterId: string;
+  readonly confirmation_state?: "proposed" | "confirmed" | "dismissed";
+  readonly source_type?: "manual" | "court_order_excerpt" | "llm_extraction" | "imported";
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+export const LIST_DOCKET_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "confirmation_state",
+  "source_type",
+  "limit",
+  "cursor",
+] as const);
+export const LIST_DOCKET_FORBIDDEN_FIELDS = Object.freeze([
+  "tenant_id",
+  "actor_user_id",
+] as const);
+// Allowed enum values for the optional filters (mirrors the persistence
+// ListDocketEntriesQuery union). The handler validates against these so a
+// malformed filter fails closed with invalid_payload rather than silently
+// reaching persistence.
+export const DOCKET_CONFIRMATION_STATES = Object.freeze([
+  "proposed",
+  "confirmed",
+  "dismissed",
+] as const);
+export const DOCKET_SOURCE_TYPES = Object.freeze([
+  "manual",
+  "court_order_excerpt",
+  "llm_extraction",
+  "imported",
+] as const);
+// Renderer-safe page: same { rows, next_cursor } shape as persistence, but each
+// row is the projected RendererDocketEntryRow (authority identities stripped).
+export interface ListDocketEntriesPage {
+  readonly rows: ReadonlyArray<RendererDocketEntryRow>;
+  readonly next_cursor: string | null;
+}
+export type ListDocketEntriesResult = IpcEnvelope<ListDocketEntriesPage>;
+
 // ---------------------------------------------------------------------------
 // WI-602: fact create (claims / timeline write path). The renderer supplies
 // ONLY the manual-fact fields; the server injects every authority / provenance
