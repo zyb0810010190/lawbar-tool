@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,7 +17,26 @@ const __dirname = path.dirname(__filename);
 const APP_ROOT = path.resolve(__dirname, "..");
 
 const RENDERER_TYPES = path.join(APP_ROOT, "renderer", "types.ts");
-const CANONICAL_DTO = path.join(APP_ROOT, "src", "caseBox", "dto.ts");
+// WI-DTO1: the canonical DTO definitions were split from a single dto.ts into
+// per-entity modules under src/caseBox/dto/ behind a barrel. dto.ts is now a pure
+// re-export barrel (no Object.freeze blocks), so the canonical field arrays are
+// read+merged from the dto/*.ts modules. extractCanonical() asserts at least one
+// module is found so a moved/renamed directory can never silently yield an empty
+// extraction that false-passes the set-equality / authority-exclusion checks.
+const CANONICAL_DTO_DIR = path.join(APP_ROOT, "src", "caseBox", "dto");
+function extractCanonical() {
+  const files = readdirSync(CANONICAL_DTO_DIR)
+    .filter((f) => f.endsWith(".ts"))
+    .sort();
+  assert.ok(files.length > 0, `no canonical DTO modules found under ${CANONICAL_DTO_DIR}`);
+  const merged = new Map();
+  for (const f of files) {
+    for (const [k, v] of extractFieldArrays(path.join(CANONICAL_DTO_DIR, f))) {
+      merged.set(k, v);
+    }
+  }
+  return merged;
+}
 
 // Match: export const NAME = Object.freeze([ "x", "y", ... ] as const);
 // Captures the array body. Tolerant of whitespace/newlines.
@@ -67,7 +86,7 @@ test("DTO sync: parser extracts all renderer arrays", () => {
 });
 
 test("DTO sync: parser extracts all canonical arrays", () => {
-  const canonical = extractFieldArrays(CANONICAL_DTO);
+  const canonical = extractCanonical();
   for (const [, canonicalName] of PAIRS) {
     assert.ok(canonical.has(canonicalName), `src/caseBox/dto.ts missing ${canonicalName}`);
     assert.ok((canonical.get(canonicalName) ?? []).length > 0, `${canonicalName} extracted empty`);
@@ -77,7 +96,7 @@ test("DTO sync: parser extracts all canonical arrays", () => {
 for (const [rendererName, canonicalName] of PAIRS) {
   test(`DTO sync: ${rendererName} ↔ ${canonicalName} field sets are equal`, () => {
     const renderer = extractFieldArrays(RENDERER_TYPES);
-    const canonical = extractFieldArrays(CANONICAL_DTO);
+    const canonical = extractCanonical();
     const rSet = new Set(renderer.get(rendererName));
     const cSet = new Set(canonical.get(canonicalName));
     const rOnly = [...rSet].filter((x) => !cSet.has(x));
@@ -113,7 +132,7 @@ const RESPONSE_ALLOWLISTS = [
 ];
 
 test("response projection: canonical *_RESPONSE_FIELDS allowlists exist and are non-empty", () => {
-  const canonical = extractFieldArrays(CANONICAL_DTO);
+  const canonical = extractCanonical();
   for (const [name] of RESPONSE_ALLOWLISTS) {
     assert.ok(canonical.has(name), `src/caseBox/dto.ts missing ${name}`);
     assert.ok((canonical.get(name) ?? []).length > 0, `${name} extracted empty`);
@@ -122,7 +141,7 @@ test("response projection: canonical *_RESPONSE_FIELDS allowlists exist and are 
 
 for (const [name, authorityFields] of RESPONSE_ALLOWLISTS) {
   test(`response projection: ${name} excludes every authority field`, () => {
-    const canonical = extractFieldArrays(CANONICAL_DTO);
+    const canonical = extractCanonical();
     const allow = new Set(canonical.get(name));
     const leaked = authorityFields.filter((f) => allow.has(f));
     assert.deepEqual(
