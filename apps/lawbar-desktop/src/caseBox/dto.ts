@@ -607,6 +607,39 @@ export interface ListDocketEntriesPage {
 }
 export type ListDocketEntriesResult = IpcEnvelope<ListDocketEntriesPage>;
 
+// WI-D2 (BATCH-CASEBOX-DOCKET-LIFECYCLE-00): docket-entry DISMISS (cancel a
+// PROPOSED proposal). Renderer supplies only the scope (matterId), the entry,
+// and the required human reason; the server injects the dismissal actor +
+// timestamp and the handler enforces proposed-only + fail-closed scoping.
+// Confirmed-entry dismissal is OUT of scope (it would orphan a materialized
+// deadline) — the handler rejects any non-proposed entry.
+export interface DismissDocketEntryDto {
+  readonly matterId: string;
+  readonly entryId: string;
+  readonly dismissal_reason: string;
+}
+export const DISMISS_DOCKET_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "entryId",
+  "dismissal_reason",
+] as const);
+// Server-authority / server-injected / lifecycle fields forbidden from the
+// renderer dismiss DTO (the server constructs/derives them). The unknown-field
+// guard already rejects any non-DTO key; this list gives a precise schemaPath
+// for the named authority/timestamp/state fields.
+export const DISMISS_DOCKET_FORBIDDEN_FIELDS = Object.freeze([
+  "tenant_id",
+  "actor_user_id",
+  "dismissal_actor_user_id",
+  "dismissed_at",
+  "confirmation_state",
+  "confirmation_actor_user_id",
+  "confirmed_at",
+  "confirmed_deadline_id",
+] as const);
+// Dismiss returns the projected (now-dismissed) docket entry.
+export type DismissDocketEntryResult = IpcEnvelope<RendererDocketEntryRow>;
+
 // ---------------------------------------------------------------------------
 // WI-602: fact create (claims / timeline write path). The renderer supplies
 // ONLY the manual-fact fields; the server injects every authority / provenance

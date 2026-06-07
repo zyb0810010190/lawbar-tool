@@ -14,6 +14,7 @@ import {
   createDocketEntryHandler,
   confirmDocketEntryHandler,
   listDocketEntriesHandler,
+  dismissDocketEntryHandler,
 } from "../dist/src/caseBox/docketHandlers.js";
 import { createFactHandler } from "../dist/src/caseBox/factHandlers.js";
 import { CHANNEL } from "../dist/src/caseBox/handlerShared.js";
@@ -55,6 +56,8 @@ function makeProvider(overrides) {
     listDeadlines: async (q) => ({ rows: [], next_cursor: null, query: q }),
     listFacts: async (q) => ({ rows: [], next_cursor: null, query: q }),
     listDocketEntries: async (q) => ({ rows: [], next_cursor: null, query: q }),
+    getDocketEntry: async () => null,
+    dismissDocketEntry: async (id, opts) => ({ id, confirmation_state: "dismissed", ...opts }),
     ...overrides,
   };
   return () => ({ persistence });
@@ -317,6 +320,201 @@ test("listDocketEntries tenant mismatch → tenant_mismatch; listDocketEntries n
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "tenant_mismatch");
   assert.equal(called, false);
+});
+
+// ---------- dismissDocketEntry (WI-D2) ----------
+
+const PROPOSED_ENTRY = Object.freeze({ ...FULL_DOCKET_ROW, confirmation_state: "proposed" });
+const VALID_DISMISS_DTO = Object.freeze({
+  matterId: FIXED_ID,
+  entryId: PROPOSED_ENTRY.id,
+  dismissal_reason: "duplicate of an existing deadline",
+});
+
+test("dismissDocketEntry happy path: proposed entry dismissed; server injects actor + timestamp", async () => {
+  let opts;
+  const provide = makeProvider({
+    getDocketEntry: async () => PROPOSED_ENTRY,
+    dismissDocketEntry: async (id, o) => {
+      opts = { id, ...o };
+      return { ...PROPOSED_ENTRY, confirmation_state: "dismissed", dismissed_at: o.dismissed_at, dismissal_reason: o.dismissal_reason };
+    },
+  });
+  const result = await dismissDocketEntryHandler({ ...VALID_DISMISS_DTO }, provide, clock);
+  assert.equal(result.ok, true);
+  assert.equal(result.value.confirmation_state, "dismissed");
+  // server-injected: timestamp from the clock, reason passed through
+  assert.equal(opts.dismissed_at, FIXED_NOW.toISOString());
+  assert.equal(opts.dismissal_reason, "duplicate of an existing deadline");
+  assert.equal(typeof opts.dismissal_actor_user_id, "string");
+  assert.ok(opts.dismissal_actor_user_id.length > 0);
+});
+
+test("dismissDocketEntry projects result: authority identities are NOT leaked", async () => {
+  const provide = makeProvider({
+    getDocketEntry: async () => PROPOSED_ENTRY,
+    dismissDocketEntry: async () => ({
+      ...FULL_DOCKET_ROW,
+      confirmation_state: "dismissed",
+      // persistence row carries authority identities that MUST be stripped:
+      tenant_id: "default-tenant",
+      actor_user_id: "local-user",
+      confirmation_actor_user_id: "local-user",
+      dismissal_actor_user_id: "local-user",
+    }),
+  });
+  const result = await dismissDocketEntryHandler({ ...VALID_DISMISS_DTO }, provide, clock);
+  assert.equal(result.ok, true);
+  const row = result.value;
+  assert.equal("tenant_id" in row, false);
+  assert.equal("actor_user_id" in row, false);
+  assert.equal("confirmation_actor_user_id" in row, false);
+  assert.equal("dismissal_actor_user_id" in row, false);
+  assert.equal(row.confirmation_state, "dismissed");
+});
+
+test("dismissDocketEntry CONFIRMED entry cannot be dismissed; dismiss not called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getDocketEntry: async () => ({ ...FULL_DOCKET_ROW, confirmation_state: "confirmed" }),
+    dismissDocketEntry: async () => {
+      called = true;
+      throw new Error("should not be called");
+    },
+  });
+  const result = await dismissDocketEntryHandler({ ...VALID_DISMISS_DTO }, provide, clock);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+  assert.equal(result.error.details?.schemaPath, "confirmation_state");
+  assert.equal(called, false);
+});
+
+test("dismissDocketEntry ALREADY-DISMISSED entry cannot be dismissed; dismiss not called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getDocketEntry: async () => ({ ...FULL_DOCKET_ROW, confirmation_state: "dismissed" }),
+    dismissDocketEntry: async () => {
+      called = true;
+      throw new Error("should not be called");
+    },
+  });
+  const result = await dismissDocketEntryHandler({ ...VALID_DISMISS_DTO }, provide, clock);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+  assert.equal(called, false);
+});
+
+test("dismissDocketEntry cross-matter/tenant entry → fail closed; dismiss not called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getDocketEntry: async () => null, // scoped preflight finds nothing under this matter/tenant
+    dismissDocketEntry: async () => {
+      called = true;
+      throw new Error("should not be called");
+    },
+  });
+  const result = await dismissDocketEntryHandler({ ...VALID_DISMISS_DTO }, provide, clock);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
+  assert.equal(called, false);
+});
+
+test("dismissDocketEntry unknown matter → unknown_matter; getDocketEntry not called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getMatter: async () => null,
+    getDocketEntry: async () => {
+      called = true;
+      throw new Error("should not be called");
+    },
+  });
+  const result = await dismissDocketEntryHandler(
+    { ...VALID_DISMISS_DTO, matterId: "01jz0000000000000000000099" },
+    provide,
+    clock,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "unknown_matter");
+  assert.equal(called, false);
+});
+
+test("dismissDocketEntry tenant mismatch → tenant_mismatch; getDocketEntry not called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getMatter: async () => ({ id: FIXED_ID, tenant_id: "other-tenant" }),
+    getDocketEntry: async () => {
+      called = true;
+      throw new Error("should not be called");
+    },
+  });
+  const result = await dismissDocketEntryHandler({ ...VALID_DISMISS_DTO }, provide, clock);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "tenant_mismatch");
+  assert.equal(called, false);
+});
+
+// Provider whose persistence WRITE (and the scoped read) THROW if reached — used
+// to prove validation/authority rejections never touch persistence.
+function neverCalledProvider() {
+  return makeProvider({
+    getDocketEntry: async () => {
+      throw new Error("getDocketEntry should not be called on a validation reject");
+    },
+    dismissDocketEntry: async () => {
+      throw new Error("dismissDocketEntry should not be called on a validation reject");
+    },
+  });
+}
+
+test("dismissDocketEntry empty dismissal_reason → invalid_payload; persistence not called", async () => {
+  const result = await dismissDocketEntryHandler(
+    { matterId: FIXED_ID, entryId: PROPOSED_ENTRY.id, dismissal_reason: "" },
+    neverCalledProvider(),
+    clock,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.details?.schemaPath, "dismissal_reason");
+});
+
+test("dismissDocketEntry missing dismissal_reason → invalid_payload; persistence not called", async () => {
+  const result = await dismissDocketEntryHandler(
+    { matterId: FIXED_ID, entryId: PROPOSED_ENTRY.id },
+    neverCalledProvider(),
+    clock,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.details?.schemaPath, "dismissal_reason");
+});
+
+test("dismissDocketEntry rejects client-supplied authority/timestamp/state fields; persistence not called", async () => {
+  for (const f of [
+    "tenant_id",
+    "actor_user_id",
+    "dismissal_actor_user_id",
+    "dismissed_at",
+    "confirmation_state",
+    "confirmation_actor_user_id",
+    "confirmed_at",
+    "confirmed_deadline_id",
+  ]) {
+    const result = await dismissDocketEntryHandler(
+      { ...VALID_DISMISS_DTO, [f]: "evil" },
+      neverCalledProvider(),
+      clock,
+    );
+    assert.equal(result.ok, false, `${f} should be rejected`);
+    assert.equal(result.error.details?.schemaPath, f, `${f} schemaPath`);
+  }
+});
+
+test("dismissDocketEntry unknown field → invalid_payload; persistence not called", async () => {
+  const result = await dismissDocketEntryHandler(
+    { ...VALID_DISMISS_DTO, bogus: 1 },
+    neverCalledProvider(),
+    clock,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "invalid_payload");
 });
 
 // ---------- listFacts ----------
