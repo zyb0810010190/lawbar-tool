@@ -35,9 +35,22 @@ queue_sha256() {
   printf '%s' "$h"
 }
 
+# Absolute path to queue.governed (for verbose success output). $RUN may be relative when
+# CLAUDE_PROJECT_DIR is unset (defaults to "."), so resolve against $(pwd) in that case.
+gov_abspath() {
+  case "$GOV" in
+    /*) printf '%s' "$GOV" ;;
+    *)  printf '%s/%s' "$(pwd)" "${GOV#./}" ;;
+  esac
+}
+
 # Write queue.governed with the content hash, or fail closed if queue.md cannot be hashed.
+# Hardened (WI-GQ1): ATOMIC write (temp-in-$RUN + mv) so a reader never sees a partial file,
+# then POST-WRITE SELF-VERIFY (re-read the written file, recompute sha256(queue.md), fail loud
+# + rm on absent/mismatch) so a future silent-stale queue.governed becomes a loud writer
+# failure rather than a guard-only catch. On success, sets GOVERNED_HASH for verbose output.
 write_governed() {
-  local kind=$1 h
+  local kind=$1 h tmp recorded recomputed
   if [ ! -r "$QUEUE" ]; then
     rm -f "$GOV"
     echo "NOT governed: dev-memo/run/queue.md is missing or unreadable; cannot content-bind governance (fail-closed)."
@@ -50,16 +63,54 @@ write_governed() {
   if [ "${#h}" -ne 64 ]; then
     rm -f "$GOV"; echo "NOT governed: sha256(queue.md) is not 64 hex chars; fail-closed."; exit 1
   fi
-  if ! { date -u +"governed=$kind %Y-%m-%dT%H:%M:%SZ"; printf 'queue_sha256=%s\n' "$h"; } > "$GOV"; then
+  # Build the content with `date` guarded explicitly: a date failure must NOT yield a file that
+  # carries the hash line but is missing the `governed=` line yet still self-verifies on the hash.
+  local ts content canon_count
+  if ! ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ"); then
+    rm -f "$GOV"; echo "NOT governed: failed to read the current time; fail-closed."; exit 1
+  fi
+  content=$(printf 'governed=%s %s\nqueue_sha256=%s' "$kind" "$ts" "$h")
+  # ATOMIC WRITE: write to a govern-queue-private dotfile temp in the SAME directory ($RUN) so the
+  # mv is atomic on one filesystem; the temp name is NOT a protected run-control name. The trap
+  # removes a leftover temp on interruption (signal between create and mv).
+  tmp="$RUN/.queue.governed.tmp.$$"
+  trap 'rm -f "$tmp"' EXIT HUP INT TERM
+  if ! printf '%s\n' "$content" > "$tmp"; then
     rm -f "$GOV"
-    echo "NOT governed: failed to write queue.governed (disk/permission); fail-closed."
+    echo "NOT governed: failed to write the governed temp file (disk/permission); fail-closed."
     exit 1
   fi
+  if ! mv -f "$tmp" "$GOV"; then
+    rm -f "$GOV"
+    echo "NOT governed: failed to move the governed temp into place; fail-closed."
+    exit 1
+  fi
+  # POST-WRITE SELF-VERIFY: re-read what we just wrote and require EXACTLY the shape
+  # batch-commit-guard.sh enforces — exactly one canonical `^queue_sha256=[0-9a-f]{64}$` line
+  # plus a `governed=` line — then confirm the recorded hash equals a fresh recompute. Fail loud
+  # (rm + exit 1) on any deviation, so the writer never claims success on a file the guard rejects.
+  canon_count=$(grep -cE '^queue_sha256=[0-9a-f]{64}$' "$GOV" 2>/dev/null)
+  recorded=$(sed -n 's/^queue_sha256=\([0-9a-f]\{64\}\)$/\1/p' "$GOV" | head -n1)
+  recomputed=$(queue_sha256 "$QUEUE")
+  if [ "$canon_count" != "1" ] || [ -z "$recorded" ] || ! grep -qE '^governed=' "$GOV"; then
+    rm -f "$GOV"
+    echo "NOT governed: self-verify expected exactly one canonical queue_sha256 line + a governed= line in queue.governed (found hash-lines=${canon_count:-0}); fail-closed."
+    exit 1
+  fi
+  if [ "$recorded" != "$recomputed" ]; then
+    rm -f "$GOV"
+    echo "NOT governed: self-verify hash mismatch (recorded=$recorded recomputed=$recomputed); fail-closed."
+    exit 1
+  fi
+  trap - EXIT HUP INT TERM
+  GOVERNED_HASH=$recorded
 }
 
 if [ "${1:-}" = "--human-approved" ]; then
   write_governed "human-approved"
   echo "Queue governed by explicit human approval (content-bound to queue.md)."
+  echo "  queue_sha256=$GOVERNED_HASH"
+  echo "  queue.governed=$(gov_abspath)"
   exit 0
 fi
 
@@ -75,4 +126,6 @@ fi
 
 write_governed "lint+review"
 echo "Queue governed: lint + Codex review both present (content-bound to queue.md)."
+echo "  queue_sha256=$GOVERNED_HASH"
+echo "  queue.governed=$(gov_abspath)"
 exit 0
