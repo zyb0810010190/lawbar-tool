@@ -13,11 +13,13 @@ import type {
   CreateDocketEntryDto,
   CreateFactDto,
   CreateMatterDto,
+  DismissDocketEntryDto,
   GetDocumentDto,
   GetMatterDto,
   IpcEnvelope,
   ListAuditEventsDto,
   ListDeadlinesDto,
+  ListDocketEntriesDto,
   ListDocumentsDto,
   ListFactsDto,
   ListMattersDto,
@@ -31,6 +33,8 @@ import {
   RENDERER_CONFIRM_DOCKET_DTO_FIELDS,
   RENDERER_CREATE_DOCKET_DTO_FIELDS,
   RENDERER_CREATE_FACT_DTO_FIELDS,
+  RENDERER_DISMISS_DOCKET_DTO_FIELDS,
+  RENDERER_LIST_DOCKET_DTO_FIELDS,
   RENDERER_TRANSITION_FACT_DTO_FIELDS,
   RENDERER_CREATE_MATTER_DTO_FIELDS,
   RENDERER_GET_DOCUMENT_DTO_FIELDS,
@@ -60,6 +64,8 @@ export interface CaseBoxClient {
   createDocketEntry(dto: CreateDocketEntryDto): Promise<IpcEnvelope<unknown>>;
   confirmDocketEntry(dto: ConfirmDocketEntryDto): Promise<IpcEnvelope<unknown>>;
   transitionFact(dto: TransitionFactDto): Promise<IpcEnvelope<unknown>>;
+  listDocketEntries(dto: ListDocketEntriesDto): Promise<IpcEnvelope<unknown>>;
+  dismissDocketEntry(dto: DismissDocketEntryDto): Promise<IpcEnvelope<unknown>>;
 }
 
 export interface CaseBoxApi {
@@ -78,6 +84,8 @@ export interface CaseBoxApi {
   createDocketEntry(dto: CreateDocketEntryDto): Promise<IpcEnvelope<unknown>>;
   confirmDocketEntry(dto: ConfirmDocketEntryDto): Promise<IpcEnvelope<unknown>>;
   transitionFact(dto: TransitionFactDto): Promise<IpcEnvelope<unknown>>;
+  listDocketEntries(dto: ListDocketEntriesDto): Promise<IpcEnvelope<unknown>>;
+  dismissDocketEntry(dto: DismissDocketEntryDto): Promise<IpcEnvelope<unknown>>;
 }
 
 // Strip any DTO key not in the renderer-side allowlist. Drops with a
@@ -134,6 +142,10 @@ export function createCaseBoxApi(client: CaseBoxClient): CaseBoxApi {
       client.confirmDocketEntry(stripDtoFields(dto, RENDERER_CONFIRM_DOCKET_DTO_FIELDS)),
     transitionFact: (dto) =>
       client.transitionFact(stripDtoFields(dto, RENDERER_TRANSITION_FACT_DTO_FIELDS)),
+    listDocketEntries: (dto) =>
+      client.listDocketEntries(stripDtoFields(dto, RENDERER_LIST_DOCKET_DTO_FIELDS)),
+    dismissDocketEntry: (dto) =>
+      client.dismissDocketEntry(stripDtoFields(dto, RENDERER_DISMISS_DOCKET_DTO_FIELDS)),
   };
 }
 

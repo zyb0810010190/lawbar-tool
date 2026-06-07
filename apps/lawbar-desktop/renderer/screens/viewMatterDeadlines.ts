@@ -1,11 +1,14 @@
 // Deadlines section for the matter view. Lazily lists the matter's persisted
-// deadlines (B7 read surface) and, since WI-702, lets a lawyer ADD a deadline via
-// a two-step propose -> confirm control (casebox:docket:create then
-// casebox:docket:confirm). NO dismiss / edit / transition. The renderer never
-// imports the service; only the human-rendered fields are read, the renderer
-// forwards narrow DTOs, and main is the authoritative validator (it injects all
-// authority/provenance/lifecycle fields and does the fail-closed scoped confirm
-// preflight).
+// deadlines (B7 read surface); since WI-702 a lawyer can ADD a deadline via a
+// two-step propose -> confirm control (casebox:docket:create then
+// casebox:docket:confirm); and since WI-D4 the section also surfaces durable
+// PENDING docket proposals (casebox:docket:list, proposed filter) with a
+// per-proposal DISMISS control (casebox:docket:dismiss) — see
+// viewMatterDocketProposals.ts. NO edit / deadline-status transition. The
+// renderer never imports the service; only the human-rendered fields are read,
+// the renderer forwards narrow DTOs, and main is the authoritative validator (it
+// injects all authority/provenance/lifecycle fields and does the fail-closed
+// scoped confirm/dismiss preflights).
 //
 // Urgency surfacing (brief §18 day-one must-have): each `pending` deadline is
 // classified overdue / due-soon (≤7 days) / none against an injected clock; a
@@ -19,6 +22,7 @@
 import type { CaseBoxApi } from "../api.js";
 import type { ConfirmDocketEntryDto, CreateDocketEntryDto } from "../types.js";
 import { el, setText } from "../dom.js";
+import { renderDocketProposalsSection } from "./viewMatterDocketProposals.js";
 import {
   classifyDeadlineUrgency,
   deadlineUrgencyLabel,
@@ -131,10 +135,16 @@ export function renderDeadlinesDisclosure(
   };
   const addControl = renderAddDeadlineControl(doc, api, matterId, runLoad);
 
+  // WI-D4: durable pending docket proposals (confirmation_state="proposed") + a
+  // per-proposal dismiss control, surfaced above the confirmed-deadline list.
+  // Loaded on disclosure open (alongside the deadlines load) so a proposal that
+  // outlived a reload is recoverable/dismissible instead of orphaned.
+  const proposals = renderDocketProposalsSection(doc, api, matterId);
+
   const body = el(
     "div",
     { class: "view-deadlines-body", "data-test-id": "view-deadlines-body" },
-    [addControl, listContainer],
+    [addControl, proposals.element, listContainer],
     doc,
   );
   const summary = el(
@@ -155,6 +165,7 @@ export function renderDeadlinesDisclosure(
     if (loaded) return;
     loaded = true;
     void runLoad();
+    void proposals.load();
   });
   return details;
 }

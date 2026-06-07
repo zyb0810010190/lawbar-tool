@@ -178,6 +178,16 @@ export function makeStubApi(impl = {}) {
       impl.listDeadlines ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
     listFacts:
       impl.listFacts ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
+    // WI-D4: the Deadlines disclosure now loads pending docket proposals on open,
+    // so every consumer of this shared stub needs listDocketEntries. Default to an
+    // empty page (proposals group stays hidden). dismissDocketEntry follows the
+    // success-default convention used by the other mutating methods above; WI-D4's
+    // own dismiss tests override it and assert the forwarded payload.
+    listDocketEntries:
+      impl.listDocketEntries ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
+    dismissDocketEntry:
+      impl.dismissDocketEntry ??
+      (async () => ({ ok: true, value: { id: "stub", confirmation_state: "dismissed" } })),
   };
 }
 

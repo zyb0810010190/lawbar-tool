@@ -131,6 +131,26 @@ export interface ConfirmDocketEntryDto {
   readonly entryId: string;
 }
 
+// Renderer-supplied fields for casebox:docket:list (WI-D4): the scope (matterId)
+// + optional filters/pagination. The renderer surfaces pending proposals with
+// confirmation_state="proposed". The server injects tenant_id and projects rows.
+export interface ListDocketEntriesDto {
+  readonly matterId: string;
+  readonly confirmation_state?: "proposed" | "confirmed" | "dismissed";
+  readonly source_type?: "manual" | "court_order_excerpt" | "llm_extraction" | "imported";
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+// Renderer-supplied fields for casebox:docket:dismiss (WI-D4): the scope, the entry
+// to dismiss, and the required human reason. The server injects the dismissal actor
+// + timestamp and enforces proposed-only + fail-closed scoping.
+export interface DismissDocketEntryDto {
+  readonly matterId: string;
+  readonly entryId: string;
+  readonly dismissal_reason: string;
+}
+
 // Fact-transition targets (WI-804). The renderer offers only the legal edges for a
 // fact's current status; persistence owns the state machine.
 export type FactTransitionTarget = "reviewed" | "accepted" | "rejected";
@@ -264,6 +284,20 @@ export const RENDERER_CREATE_DOCKET_DTO_FIELDS = Object.freeze([
 export const RENDERER_CONFIRM_DOCKET_DTO_FIELDS = Object.freeze([
   "matterId",
   "entryId",
+] as const);
+
+export const RENDERER_LIST_DOCKET_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "confirmation_state",
+  "source_type",
+  "limit",
+  "cursor",
+] as const);
+
+export const RENDERER_DISMISS_DOCKET_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "entryId",
+  "dismissal_reason",
 ] as const);
 
 export const RENDERER_TRANSITION_FACT_DTO_FIELDS = Object.freeze([

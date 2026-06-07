@@ -20,9 +20,28 @@ import {
 } from "./_view-matter-dom.mjs";
 
 const PROPOSED_ID = "01jz000000000000000000ent0";
+const PROPOSAL_ENTRY_ID = "01jz0000000000000000prop00";
+
+// A projected pending docket-entry row (DOCKET_ENTRY_RESPONSE_FIELDS subset) as
+// returned by casebox:docket:list (WI-D1) — authority identities already stripped.
+function proposalRow(over = {}) {
+  return {
+    id: PROPOSAL_ENTRY_ID,
+    proposed_kind: "filing",
+    proposed_due_at: "2026-06-20T16:00:00.000Z",
+    proposed_due_at_timezone: "America/New_York",
+    proposed_at: "2026-06-01T00:00:00.000Z",
+    source_type: "manual",
+    confirmation_state: "proposed",
+    ...over,
+  };
+}
 
 // makeStubApi (shared harness) predates the docket channels; wrap it here to add
-// createDocketEntry / confirmDocketEntry without editing the shared harness.
+// createDocketEntry / confirmDocketEntry (WI-702) + listDocketEntries /
+// dismissDocketEntry (WI-D1/D2/D4) without editing the shared harness. The
+// pending-proposals group loads on disclosure, so listDocketEntries must exist
+// even for the deadline-write tests (default = empty -> the group stays hidden).
 function stubWithDocket(impl = {}) {
   return {
     ...makeStubApi(impl),
@@ -32,6 +51,12 @@ function stubWithDocket(impl = {}) {
     confirmDocketEntry:
       impl.confirmDocketEntry ??
       (async () => ({ ok: true, value: { entry: { id: PROPOSED_ID }, deadline: deadlineRow() } })),
+    listDocketEntries:
+      impl.listDocketEntries ??
+      (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
+    dismissDocketEntry:
+      impl.dismissDocketEntry ??
+      (async () => ({ ok: true, value: { id: PROPOSAL_ENTRY_ID, confirmation_state: "dismissed" } })),
   };
 }
 
@@ -249,4 +274,154 @@ test("deadline: a superseded (stale) load cannot mutate the refreshed list", asy
   pending[0]({ ok: true, value: { rows: [deadlineRow({ kind: "STALE" }), deadlineRow({ id: "01jzdl00000000000000000099", kind: "STALE2" })], next_cursor: null } });
   await flush();
   assert.equal(findAllByTestId(root, "view-deadlines-row").length, 1, "stale load dropped by the generation guard");
+});
+
+// --- WI-D4: pending docket proposals (durable read) + dismiss --------------
+
+test("docket proposals: a durable proposed entry renders after disclosure (reload visibility)", async () => {
+  const api = stubWithDocket({
+    listDocketEntries: async () => ({ ok: true, value: { rows: [proposalRow()], next_cursor: null } }),
+  });
+  const { root } = await mountDeadlinesWithAdd(api);
+  assert.equal(findByTestId(root, "view-docket-proposals").hasAttribute("hidden"), false);
+  assert.equal(findAllByTestId(root, "view-docket-proposal-row").length, 1);
+  assert.ok(collectText(findByTestId(root, "view-docket-proposals-heading")).includes("Pending proposals (1)"));
+});
+
+test("docket proposals: empty -> group hidden, no rows", async () => {
+  const api = stubWithDocket({
+    listDocketEntries: async () => ({ ok: true, value: { rows: [], next_cursor: null } }),
+  });
+  const { root } = await mountDeadlinesWithAdd(api);
+  assert.equal(findByTestId(root, "view-docket-proposals").hasAttribute("hidden"), true);
+  assert.equal(findAllByTestId(root, "view-docket-proposal-row").length, 0);
+});
+
+test("docket proposals: list is filtered to confirmation_state=proposed for this matter", async () => {
+  let dto;
+  const api = stubWithDocket({
+    listDocketEntries: async (d) => { dto = d; return { ok: true, value: { rows: [], next_cursor: null } }; },
+  });
+  await mountDeadlinesWithAdd(api);
+  assert.equal(dto.matterId, VALID_ULID);
+  assert.equal(dto.confirmation_state, "proposed");
+});
+
+test("docket proposals: list error renders inline role=alert", async () => {
+  const api = stubWithDocket({
+    listDocketEntries: async () => ({ ok: false, error: { kind: "case_box_persistence_error", code: "unknown_matter", message: "no such matter" } }),
+  });
+  const { root } = await mountDeadlinesWithAdd(api);
+  const err = findByTestId(root, "view-docket-proposals-error");
+  assert.ok(err !== null);
+  assert.equal(err.getAttribute("role"), "alert");
+});
+
+test("docket dismiss: empty reason -> inline error, dismissDocketEntry NOT called", async () => {
+  let called = false;
+  const api = stubWithDocket({
+    listDocketEntries: async () => ({ ok: true, value: { rows: [proposalRow()], next_cursor: null } }),
+    dismissDocketEntry: async () => { called = true; return { ok: true, value: {} }; },
+  });
+  const { root } = await mountDeadlinesWithAdd(api);
+  findByTestId(root, "view-docket-dismiss").dispatchEvent({ type: "click" }); // reveal reason input
+  findByTestId(root, "view-docket-dismiss-confirm").dispatchEvent({ type: "click" }); // confirm with empty reason
+  await flush();
+  assert.equal(called, false);
+  assert.equal(findByTestId(root, "view-docket-dismiss-error").getAttribute("role"), "alert");
+});
+
+test("docket dismiss: forwards exactly {matterId, entryId, dismissal_reason}; row refreshes away on success", async () => {
+  let dismissDto;
+  let listCalls = 0;
+  const api = stubWithDocket({
+    listDocketEntries: async () => {
+      listCalls += 1;
+      return { ok: true, value: { rows: listCalls <= 1 ? [proposalRow()] : [], next_cursor: null } };
+    },
+    dismissDocketEntry: async (d) => { dismissDto = d; return { ok: true, value: { id: d.entryId, confirmation_state: "dismissed" } }; },
+  });
+  const { root } = await mountDeadlinesWithAdd(api);
+  assert.equal(findAllByTestId(root, "view-docket-proposal-row").length, 1);
+  findByTestId(root, "view-docket-dismiss").dispatchEvent({ type: "click" });
+  findByTestId(root, "view-docket-dismiss-reason").value = "duplicate of an existing deadline";
+  findByTestId(root, "view-docket-dismiss-confirm").dispatchEvent({ type: "click" });
+  await flush();
+  assert.deepEqual(dismissDto, {
+    matterId: VALID_ULID,
+    entryId: PROPOSAL_ENTRY_ID,
+    dismissal_reason: "duplicate of an existing deadline",
+  });
+  // success refresh -> the entry left "proposed" -> second list returns empty -> row gone + group hidden
+  assert.equal(findAllByTestId(root, "view-docket-proposal-row").length, 0);
+  assert.equal(findByTestId(root, "view-docket-proposals").hasAttribute("hidden"), true);
+});
+
+test("docket dismiss: server error renders inline role=alert (row kept)", async () => {
+  const api = stubWithDocket({
+    listDocketEntries: async () => ({ ok: true, value: { rows: [proposalRow()], next_cursor: null } }),
+    dismissDocketEntry: async () => ({ ok: false, error: { kind: "case_box_persistence_error", code: "invalid_payload", message: "only a proposed docket entry can be dismissed" } }),
+  });
+  const { root } = await mountDeadlinesWithAdd(api);
+  findByTestId(root, "view-docket-dismiss").dispatchEvent({ type: "click" });
+  findByTestId(root, "view-docket-dismiss-reason").value = "x";
+  findByTestId(root, "view-docket-dismiss-confirm").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findByTestId(root, "view-docket-dismiss-error").getAttribute("role"), "alert");
+});
+
+test("docket dismiss: cancel collapses the reason input without calling dismissDocketEntry", async () => {
+  let called = false;
+  const api = stubWithDocket({
+    listDocketEntries: async () => ({ ok: true, value: { rows: [proposalRow()], next_cursor: null } }),
+    dismissDocketEntry: async () => { called = true; return { ok: true, value: {} }; },
+  });
+  const { root } = await mountDeadlinesWithAdd(api);
+  findByTestId(root, "view-docket-dismiss").dispatchEvent({ type: "click" });
+  assert.equal(findByTestId(root, "view-docket-dismiss-reason").hasAttribute("hidden"), false);
+  findByTestId(root, "view-docket-dismiss-cancel").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(called, false);
+  assert.equal(findByTestId(root, "view-docket-dismiss-reason").hasAttribute("hidden"), true);
+});
+
+test("docket proposals: Show more appends the next page (proposals beyond page one reachable)", async () => {
+  const api = stubWithDocket({
+    listDocketEntries: async (d) => {
+      if (d.cursor === undefined) {
+        return { ok: true, value: { rows: [proposalRow({ id: "01jz0000000000000000prop01" })], next_cursor: "CURSOR1" } };
+      }
+      return { ok: true, value: { rows: [proposalRow({ id: "01jz0000000000000000prop02" })], next_cursor: null } };
+    },
+  });
+  const { root } = await mountDeadlinesWithAdd(api);
+  assert.equal(findAllByTestId(root, "view-docket-proposal-row").length, 1);
+  const more = findByTestId(root, "view-docket-proposals-more");
+  assert.ok(more !== null, "Show more rendered when next_cursor is non-null");
+  more.dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-docket-proposal-row").length, 2, "second page appended");
+  assert.equal(findByTestId(root, "view-docket-proposals-more"), null, "Show more gone after the last page");
+});
+
+test("docket proposals: rapid double-click on Show more does not append the page twice", async () => {
+  const resolvers = [];
+  const api = stubWithDocket({
+    listDocketEntries: async (d) => {
+      if (d.cursor === undefined) {
+        return { ok: true, value: { rows: [proposalRow({ id: "01jz0000000000000000prop01" })], next_cursor: "C1" } };
+      }
+      // page 2 hangs so a second click can fire before it resolves.
+      return new Promise((res) => { resolvers.push(res); });
+    },
+  });
+  const { root } = await mountDeadlinesWithAdd(api);
+  const more = findByTestId(root, "view-docket-proposals-more");
+  more.dispatchEvent({ type: "click" }); // starts page-2 fetch (hangs)
+  more.dispatchEvent({ type: "click" }); // concurrent click — must be dropped by the in-flight guard
+  await flush();
+  assert.equal(resolvers.length, 1, "only one page-2 request issued (concurrent click dropped)");
+  resolvers[0]({ ok: true, value: { rows: [proposalRow({ id: "01jz0000000000000000prop02" })], next_cursor: null } });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-docket-proposal-row").length, 2, "page 2 appended exactly once (no duplicate rows)");
 });
