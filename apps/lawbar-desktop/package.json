@@ -39,6 +39,7 @@
     "bootstrap": "npm --prefix ../../docs/contracts/case-box-contract run build && npm --prefix ../../services/case-box-persistence run build && npm run pack:internal && npm install",
     "dev": "npm run build && electron .",
     "dist": "npm run build && electron-builder",
+    "postdist": "electron-builder install-app-deps",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
