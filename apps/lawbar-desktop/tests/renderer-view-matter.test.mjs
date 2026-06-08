@@ -971,3 +971,131 @@ test("facts: next_cursor → Show more appends then disappears", async () => {
   assert.equal(findAllByTestId(root, "view-facts-row").length, 2);
   assert.equal(findByTestId(root, "view-facts-more"), null);
 });
+
+// --- WI-AP2: pagination re-entrancy guards + accessibility ---
+
+test("documents: rapid double-click on Show more does not double-fetch or double-append", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let call = 0;
+  const api = makeStubApi({
+    listDocuments: async () => {
+      call++;
+      if (call === 1) return { ok: true, value: { rows: [docRow({ filename: "p1.pdf" })], next_cursor: "cur-2" } };
+      return { ok: true, value: { rows: [docRow({ id: "01jzdoc0000000000000000003", filename: "p2.pdf" })], next_cursor: null } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const more = findByTestId(root, "view-docs-more");
+  more.dispatchEvent({ type: "click" });
+  more.dispatchEvent({ type: "click" }); // concurrent — guard must drop this
+  await flush();
+  assert.equal(call, 2, "exactly one extra fetch despite the double-click");
+  assert.equal(findAllByTestId(root, "view-docs-item").length, 2, "second page appended exactly once");
+});
+
+test("facts: rapid double-click on Show more does not double-fetch or double-append", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let call = 0;
+  const api = makeStubApi({
+    listFacts: async () => {
+      call++;
+      if (call === 1) return { ok: true, value: { rows: [factRow()], next_cursor: "cur-2" } };
+      return { ok: true, value: { rows: [factRow({ id: "01jzfact00000000000000000d" })], next_cursor: null } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-facts-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const more = findByTestId(root, "view-facts-more");
+  more.dispatchEvent({ type: "click" });
+  more.dispatchEvent({ type: "click" }); // concurrent — guard must drop this
+  await flush();
+  assert.equal(call, 2, "exactly one extra fetch despite the double-click");
+  assert.equal(findAllByTestId(root, "view-facts-row").length, 2, "second page appended exactly once");
+});
+
+test("audit: rapid double-click on Show more does not double-fetch or double-append", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let call = 0;
+  const api = makeStubApi({
+    chainHead: async () => ({ ok: true, value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 3 } }),
+    listAuditEvents: async () => {
+      call++;
+      if (call === 1) return { ok: true, value: { rows: [auditEvent({ action: "ev.one" })], next_cursor: "cur-2" } };
+      return { ok: true, value: { rows: [auditEvent({ action: "ev.two" })], next_cursor: null } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const more = findByTestId(root, "view-audit-more");
+  more.dispatchEvent({ type: "click" });
+  more.dispatchEvent({ type: "click" }); // concurrent — guard must drop this
+  await flush();
+  assert.equal(call, 2, "exactly one extra fetch despite the double-click");
+  assert.equal(findAllByTestId(root, "view-audit-event").length, 2, "second page appended exactly once");
+});
+
+test("audit: Show more is disabled while a page load is in flight", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let call = 0;
+  let releaseSecond;
+  const api = makeStubApi({
+    chainHead: async () => ({ ok: true, value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 3 } }),
+    listAuditEvents: async () => {
+      call++;
+      if (call === 1) return { ok: true, value: { rows: [auditEvent({ action: "ev.one" })], next_cursor: "cur-2" } };
+      return new Promise((resolve) => {
+        releaseSecond = () => resolve({ ok: true, value: { rows: [auditEvent({ action: "ev.two" })], next_cursor: null } });
+      });
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const more = findByTestId(root, "view-audit-more");
+  more.dispatchEvent({ type: "click" }); // starts page-2 load; promise stays pending
+  assert.equal(more.hasAttribute("disabled"), true, "Show more disabled while the page load is in flight");
+  releaseSecond();
+  await flush();
+  assert.equal(findByTestId(root, "view-audit-more"), null, "cursor exhausted → Show more removed");
+  assert.equal(findAllByTestId(root, "view-audit-event").length, 2, "second page appended exactly once");
+});
+
+test("a11y: document, audit, and copy controls expose aria-labels", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({ ok: true, value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 3 } }),
+    listAuditEvents: async () => ({ ok: true, value: { rows: [auditEvent()], next_cursor: "cur-2" } }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findByTestId(root, "view-docs-add-type").getAttribute("aria-label"), "Document type");
+  assert.equal(findByTestId(root, "view-docs-add").getAttribute("aria-label"), "Add document");
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findByTestId(root, "view-chain-summary").getAttribute("aria-label"), "Audit chain head details");
+  assert.equal(findByTestId(root, "view-audit-more").getAttribute("aria-label"), "Show more audit events");
+  assert.equal(findByTestId(root, "view-chain-copy").getAttribute("aria-label"), "Copy chain-head hash");
+});
+
+test("audit events list is an aria-live polite region", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({ ok: true, value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 1 } }),
+    listAuditEvents: async () => ({ ok: true, value: { rows: [auditEvent()], next_cursor: null } }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findByTestId(root, "view-audit-list").getAttribute("aria-live"), "polite");
+});

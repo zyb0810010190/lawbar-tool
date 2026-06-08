@@ -50,7 +50,7 @@ export function renderChainHeadDisclosure(
   );
   const summary = el(
     "summary",
-    { "data-test-id": "view-chain-summary" },
+    { "data-test-id": "view-chain-summary", "aria-label": "Audit chain head details" },
     ["Show audit chain head"],
     doc,
   );
@@ -115,6 +115,7 @@ async function loadChainHead(
       type: "button",
       class: "view-chain-copy",
       "data-test-id": "view-chain-copy",
+      "aria-label": "Copy chain-head hash",
       ...(copyAvail
         ? {}
         : {
@@ -286,7 +287,7 @@ async function loadAuditEvents(
   );
   const list = el(
     "ol",
-    { class: "view-audit-list", "data-test-id": "view-audit-list" },
+    { class: "view-audit-list", "data-test-id": "view-audit-list", "aria-live": "polite" },
     [],
     doc,
   );
@@ -301,12 +302,26 @@ async function loadAuditEvents(
 
   let cursor: string | null = null;
   let moreBtn: HTMLElement | null = null;
+  let pageLoading = false; // re-entrancy guard: a fast double-click on "Show more" must not fetch/append a page twice
 
   async function loadPage(): Promise<void> {
-    const env = await api.listAuditEvents({
-      matterId,
-      ...(cursor !== null ? { cursor } : {}),
-    });
+    if (pageLoading) return; // a page fetch is already in flight — drop the concurrent call
+    pageLoading = true;
+    // Visibly suppress the in-flight Show-more (the guard already drops the concurrent call).
+    if (moreBtn !== null) moreBtn.setAttribute("disabled", "");
+    let env: Awaited<ReturnType<typeof api.listAuditEvents>>;
+    try {
+      env = await api.listAuditEvents({
+        matterId,
+        ...(cursor !== null ? { cursor } : {}),
+      });
+    } finally {
+      pageLoading = false;
+      // Re-enable the in-flight Show-more even if the fetch rejected out-of-contract,
+      // so a transport-level throw cannot leave pagination permanently wedged (a normal
+      // failure returns { ok: false } and is handled below; this guards the throw path).
+      if (moreBtn !== null) moreBtn.removeAttribute("disabled");
+    }
     loading.remove();
     if (moreBtn !== null) {
       moreBtn.remove();
@@ -335,6 +350,7 @@ async function loadAuditEvents(
           type: "button",
           class: "view-audit-more",
           "data-test-id": "view-audit-more",
+          "aria-label": "Show more audit events",
         },
         ["Show more"],
         doc,

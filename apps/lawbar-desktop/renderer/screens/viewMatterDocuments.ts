@@ -97,7 +97,7 @@ function renderAddControl(
 ): HTMLElement {
   const select = el(
     "select",
-    { class: "view-docs-add-type", "data-test-id": "view-docs-add-type" },
+    { class: "view-docs-add-type", "data-test-id": "view-docs-add-type", "aria-label": "Document type" },
     DOC_TYPES.map((t) => el("option", { value: t }, [t], doc)),
     doc,
   );
@@ -109,7 +109,7 @@ function renderAddControl(
   );
   const btn = el(
     "button",
-    { type: "button", class: "view-docs-add-btn", "data-test-id": "view-docs-add" },
+    { type: "button", class: "view-docs-add-btn", "data-test-id": "view-docs-add", "aria-label": "Add document" },
     ["Add document"],
     doc,
   );
@@ -260,12 +260,20 @@ async function loadDocuments(
   let cursor: string | null = null;
   let moreBtn: HTMLElement | null = null;
   let total = 0;
+  let pageLoading = false; // re-entrancy guard: a fast double-click on "Show more" must not fetch/append a page twice
 
   async function loadPage(): Promise<void> {
-    const env = await api.listDocuments({
-      matterId,
-      ...(cursor !== null ? { cursor } : {}),
-    });
+    if (pageLoading) return; // a page fetch is already in flight — drop the concurrent call
+    pageLoading = true;
+    let env: Awaited<ReturnType<typeof api.listDocuments>>;
+    try {
+      env = await api.listDocuments({
+        matterId,
+        ...(cursor !== null ? { cursor } : {}),
+      });
+    } finally {
+      pageLoading = false;
+    }
     loading.remove();
     if (moreBtn !== null) {
       moreBtn.remove();

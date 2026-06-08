@@ -645,6 +645,7 @@ async function loadDeadlines(
     {
       class: "view-deadlines-banner",
       role: "status",
+      "aria-live": "polite",
       "data-test-id": "view-deadlines-banner",
       hidden: "",
     },
