@@ -55,7 +55,7 @@ export type CaseBoxAuditEvent = {
    */
   reason?: string;
   /**
-   * v2 normalized audit-event kind (ADR audit-event-kind-preservation) — a CASE_BOX_AUDIT_EVENT_KINDS key. Present iff audit_schema_version is present (v2 events); absent on legacy v1 events. Hashed in the v2 canonicalization. The TS validator additionally enforces that the kind's declared {action, entity_type, reasonRequired} matches the event.
+   * v2 normalized audit-event kind (ADR audit-event-kind-preservation) — a CASE_BOX_AUDIT_EVENT_KINDS key. Present iff audit_schema_version is present (v2 events); absent on legacy v1 events. Hashed in the v2 canonicalization. The chain verifier (verifyAuditChain) additionally enforces that the kind's declared {action, entity_type, reasonRequired} matches the event.
    */
   event_kind?:
     | "MATTER_REGISTERED"
