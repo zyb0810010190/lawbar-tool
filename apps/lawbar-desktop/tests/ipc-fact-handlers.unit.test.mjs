@@ -7,6 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { transitionFactHandler } from "../dist/src/caseBox/factHandlers.js";
 import { CHANNEL } from "../dist/src/caseBox/handlerShared.js";
+import { TRANSITION_FACT_FORBIDDEN_FIELDS } from "../dist/src/caseBox/dto.js";
 import { CaseBoxPersistenceError } from "case-box-persistence";
 
 const FIXED_NOW = new Date("2026-05-27T00:00:00.000Z");
@@ -187,29 +188,19 @@ test("transition: illegal domain transition surfaces illegal_transition (not re-
   assert.equal(r.error.code, "illegal_transition");
 });
 
-test("transition: forbidden server-authority field (reviewer_actor_user_id) -> invalid_payload", async () => {
-  const { provide, calls } = makeFactProvider();
-  const r = await transitionFactHandler(
-    { matterId: MATTER_ID, factId: FACT_ID, to: "reviewed", reviewer_actor_user_id: "evil" },
-    provide,
-    clock,
-  );
-  assert.equal(r.ok, false);
-  assert.equal(r.error.code, "invalid_payload");
-  assert.equal(r.error.details?.schemaPath, "reviewer_actor_user_id");
-  assert.equal(calls.transition, 0);
-});
-
-test("transition: forbidden lifecycle field (status) -> invalid_payload", async () => {
-  const { provide } = makeFactProvider();
-  const r = await transitionFactHandler(
-    { matterId: MATTER_ID, factId: FACT_ID, to: "reviewed", status: "accepted" },
-    provide,
-    clock,
-  );
-  assert.equal(r.ok, false);
-  assert.equal(r.error.code, "invalid_payload");
-  assert.equal(r.error.details?.schemaPath, "status");
+test("transition: rejects EVERY forbidden server-authority/lifecycle field (table-driven)", async () => {
+  for (const f of TRANSITION_FACT_FORBIDDEN_FIELDS) {
+    const { provide, calls } = makeFactProvider();
+    const r = await transitionFactHandler(
+      { matterId: MATTER_ID, factId: FACT_ID, to: "reviewed", [f]: "x" },
+      provide,
+      clock,
+    );
+    assert.equal(r.ok, false, `${f} should be rejected`);
+    assert.equal(r.error.code, "invalid_payload", `${f} -> invalid_payload`);
+    assert.equal(r.error.details?.schemaPath, f, `${f} schemaPath`);
+    assert.equal(calls.transition, 0, `${f} must not reach persistence`);
+  }
 });
 
 test("transition: unknown field -> invalid_payload", async () => {
