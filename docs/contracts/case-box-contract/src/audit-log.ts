@@ -175,6 +175,54 @@ export type EventHashFn = (event: CaseBoxAuditEvent) => AuditEventHash;
  * The order below MUST stay alphabetical; pinned-exact-output test guards.
  */
 export function canonicalAuditEventHashInput(event: CaseBoxAuditEvent): string {
+  // Versioned canonicalization (ADR audit-event-kind-preservation). The function — called directly by
+  // eventHashFn / verifyAuditChain — accepts ONLY a valid v1 event (NEITHER audit_schema_version NOR
+  // event_kind present) or a valid v2 event (audit_schema_version === 2 AND a known event_kind), and
+  // THROWS on anything else (partial pair / unsupported version / unknown kind). This defensive
+  // validation at the canonicalizer is a security-boundary requirement, not merely defensive.
+  const hasVer = event.audit_schema_version !== undefined && event.audit_schema_version !== null;
+  const hasKind = event.event_kind !== undefined && event.event_kind !== null;
+  if (hasVer || hasKind) {
+    if (!(hasVer && hasKind)) {
+      throw new Error(
+        "canonicalAuditEventHashInput: partial v2 pair — audit_schema_version and event_kind must be both present or both absent",
+      );
+    }
+    if (event.audit_schema_version !== 2) {
+      throw new Error(
+        `canonicalAuditEventHashInput: unsupported audit_schema_version ${JSON.stringify(event.audit_schema_version)}`,
+      );
+    }
+    if (!Object.prototype.hasOwnProperty.call(CASE_BOX_AUDIT_EVENT_KINDS, event.event_kind as string)) {
+      throw new Error(
+        `canonicalAuditEventHashInput: unknown event_kind ${JSON.stringify(event.event_kind)}`,
+      );
+    }
+    // v2: existing 12 fields PLUS audit_schema_version + event_kind, in alphabetical (canonical) order.
+    const canonical = {
+      action: event.action,
+      actor_user_id: event.actor_user_id,
+      after_state_hash: event.after_state_hash,
+      audit_schema_version: event.audit_schema_version,
+      before_state_hash: event.before_state_hash,
+      entity_id: event.entity_id,
+      entity_type: event.entity_type,
+      event_kind: event.event_kind,
+      id: event.id,
+      matter_id: event.matter_id,
+      prev_event_hash: event.prev_event_hash,
+      reason: event.reason ?? null,
+      tenant_id: event.tenant_id,
+      timestamp: event.timestamp,
+    };
+    for (const [k, v] of Object.entries(canonical)) {
+      if (v === undefined) {
+        throw new Error(`canonicalAuditEventHashInput: required field "${k}" is undefined`);
+      }
+    }
+    return JSON.stringify(canonical);
+  }
+  // v1 (legacy): the exact 12-field canonical string, byte-identical to the pre-v2 contract.
   const canonical = {
     action: event.action,
     actor_user_id: event.actor_user_id,
@@ -258,6 +306,12 @@ export function buildCaseBoxAuditEvent(
     after_state_hash: input.after_state_hash,
     prev_event_hash: input.prev_event_hash,
     timestamp: input.timestamp,
+    // v2 (ADR audit-event-kind-preservation): preserve the kind + version on every new event so the
+    // distinction (e.g. DEADLINE_MET vs DEADLINE_MISSED, which share action/entity_type) is durable
+    // and tamper-evident (both fields are hashed in the v2 canonicalization). action/entity_type stay
+    // derived from meta, so the event is always kind↔{action,entity_type,reasonRequired}-consistent.
+    audit_schema_version: 2,
+    event_kind: input.kind,
   };
   if (input.reason !== undefined) candidate.reason = input.reason;
   return validateAuditEvent(candidate);
@@ -273,6 +327,7 @@ export type ChainVerifyErrorReason =
   | "before_state_hash_not_null_on_create"
   | "missing_after_state_hash"
   | "event_schema_invalid"
+  | "event_kind_inconsistent"
   | "tenant_id_mismatch"
   | "matter_id_mismatch";
 
@@ -369,6 +424,30 @@ export function verifyAuditChain(
         errorReason: "before_state_hash_not_null_on_create",
         detail: `create-action event[${i}] must have before_state_hash === null (got ${JSON.stringify(e.before_state_hash)})`,
       };
+    }
+    // v2 event_kind consistency (ADR §4): a present event_kind's declared
+    // {action, entity_type, reasonRequired} metadata must match this event. Enforced HERE at the
+    // verification (security) boundary — not builder-only — so a raw/imported/tampered v2 payload whose
+    // event_kind disagrees with its action/entity_type, or whose reasonRequired kind omits a reason, is
+    // rejected. (Schema already restricts event_kind to a known key, so kindMeta is defined; the guard
+    // is defensive.) The kind→{action,entity_type} map is many-to-one, so this checks declared-equals,
+    // not uniqueness.
+    if (e.event_kind !== undefined && e.event_kind !== null) {
+      const kindMeta: AuditKindMeta | undefined =
+        CASE_BOX_AUDIT_EVENT_KINDS[e.event_kind as CaseBoxAuditEventKind];
+      if (
+        kindMeta === undefined ||
+        kindMeta.action !== e.action ||
+        kindMeta.entity_type !== e.entity_type ||
+        (kindMeta.reasonRequired && (typeof e.reason !== "string" || e.reason.length === 0))
+      ) {
+        return {
+          ok: false,
+          errorIndex: i,
+          errorReason: "event_kind_inconsistent",
+          detail: `event[${i}].event_kind (${JSON.stringify(e.event_kind)}) is inconsistent with its declared {action, entity_type, reasonRequired} metadata vs the event (action=${JSON.stringify(e.action)}, entity_type=${JSON.stringify(e.entity_type)}, reason_present=${typeof e.reason === "string" && e.reason.length > 0})`,
+        };
+      }
     }
     priorHash = options.eventHashFn(e);
   }
