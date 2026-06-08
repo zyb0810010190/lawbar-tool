@@ -15,3 +15,6 @@ Completes the CaseBox IPC response-projection sweep. 5 channels still return raw
 - Allowed/forbidden coherent; renderer/electron/services/contracts forbidden in both; BS1 forbids other handlers + handlerShared/handlers barrel.
 - loc pre-scan: 0 over limit (matter dto 94, document dto 125, matterHandlers 222, documentHandlers 244 pure; ipc-casebox test 985/1200 — BS2 watch).
 - Security boundary → cc-suite audit + verify REQUIRED at BS1 impl; BS2 test-only (self-review permissible). Long cc-suite calls via runner native --background + state-file polling.
+
+## AMENDMENT-1 re-review (2026-06-07)
+Added `apps/lawbar-desktop/tests/ipc-handlers.unit.test.mjs` to WI-BS1 Allowed-files (user-approved) because BS1's getMatter projection broke the pre-existing assertion `ipc-handlers.unit.test.mjs:209` (`result.value.tenant_id === "default-tenant"`) which was asserting the PRE-FIX leak; the 1-line update (tenant_id present -> absent; id present) must live in BS1 to keep its gate green. Re-review `review-plan-mq4ms19w-3qmlxh` returned PASS (no C/H/M): minimal correct amendment; the assertion update strengthens (not weakens) the test; scope language tight (one getMatter assertion only); internally consistent (file now Allowed, not Forbidden). Re-lint PASSED; re-governed content-bound.
