@@ -187,6 +187,18 @@ issues for a decision unless the WI authorizes the fix. Verify every named thing
 API, version, command, generated file, tool behavior) against the real artifact before
 relying on it.
 
+### Contract-doc integrity (never markdown-autofix the always-loaded contracts)
+
+`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and `.claude/rules/*.md` are always-loaded contract docs
+(`CLAUDE.md` and `GEMINI.md` import `AGENTS.md` verbatim). Do NOT run markdown autofix, editor
+format-on-save, remark, or markdownlint autofix on them: such formatters silently corrupt the
+contract — encoding line breaks as numeric HTML character entities, backslash-escaping punctuation,
+and emitting stray emphasis runs — which then changes the rules every agent loads. A commit-boundary
+guard (`.claude/hooks/block-contract-corruption.sh`) denies a `git add` / `git commit` that would
+stage a corrupted contract doc, and `scripts/workflow/check-contract-integrity.sh` runs the same
+check standalone (use it as a pre-push / CI gate). Disable editor format-on-save — or add an ignore
+rule — for these paths.
+
 ## Self-improvement bounds
 
 Improve scaffold/workflow only through a SCAFFOLD, WORKFLOW, or MEMORY WI. Allowed: refine
