@@ -54,6 +54,63 @@ export type CaseBoxAuditEvent = {
    * Required when action is "privilege-waive". Optional otherwise.
    */
   reason?: string;
+  /**
+   * v2 normalized audit-event kind (ADR audit-event-kind-preservation) — a CASE_BOX_AUDIT_EVENT_KINDS key. Present iff audit_schema_version is present (v2 events); absent on legacy v1 events. Hashed in the v2 canonicalization. The TS validator additionally enforces that the kind's declared {action, entity_type, reasonRequired} matches the event.
+   */
+  event_kind?:
+    | "MATTER_REGISTERED"
+    | "MATTER_ARCHIVED"
+    | "MATTER_UNARCHIVED"
+    | "DOCUMENT_REGISTERED"
+    | "DOCUMENT_OCR_SUBMITTED"
+    | "DOCUMENT_OCR_COMPLETE"
+    | "DOCUMENT_OCR_FAILED"
+    | "DOCUMENT_TRIAGED"
+    | "DOCUMENT_TAGGED"
+    | "DOCUMENT_REVIEWED"
+    | "DOCUMENT_SOFT_DELETED"
+    | "OCR_LINK_SNAPSHOTTED"
+    | "OCR_LINK_REFRESHED"
+    | "DEADLINE_REGISTERED"
+    | "DEADLINE_MET"
+    | "DEADLINE_MISSED"
+    | "DEADLINE_WITHDRAWN"
+    | "DEADLINE_MISSED_TO_MET"
+    | "EVIDENCE_PROPOSED"
+    | "EVIDENCE_ACCEPTED"
+    | "EVIDENCE_REJECTED"
+    | "EVIDENCE_SUPERSEDED"
+    | "FACT_PROPOSED"
+    | "FACT_REVIEWED"
+    | "FACT_ACCEPTED"
+    | "FACT_REJECTED"
+    | "FACT_REPLACEMENT_ACCEPTED"
+    | "PRIVILEGE_MARKER_PROPOSED"
+    | "PRIVILEGE_MARKER_CONFIRMED"
+    | "PRIVILEGE_MARKER_DISMISSED"
+    | "PRIVILEGE_MARKER_WAIVED"
+    | "EXTERNAL_OCR_AUTHORIZED"
+    | "EXTERNAL_OCR_REVOKED"
+    | "SYNC_GRANT_GRANTED"
+    | "SYNC_GRANT_REVOKED"
+    | "LLM_EXTRACTION_OPT_IN"
+    | "LLM_EXTRACTION_OPT_OUT"
+    | "PRIVILEGE_LOG_EXPORTED"
+    | "CASE_DATA_EXPORTED"
+    | "DOCUMENT_ACCESSED"
+    | "DOCUMENT_PRINTED"
+    | "DOCUMENT_SHARED"
+    | "CLASSIFICATION_SET"
+    | "CLASSIFICATION_UPGRADED"
+    | "CLASSIFICATION_DOWNGRADED"
+    | "CLASSIFICATION_RESET_TO_UNCLASSIFIED"
+    | "DOCKET_ENTRY_PROPOSED"
+    | "DOCKET_ENTRY_CONFIRMED"
+    | "DOCKET_ENTRY_DISMISSED";
+  /**
+   * Audit-event canonicalization version. v2 events set this to 2 (the value is hashed in the v2 canonicalization); absent on legacy v1 events. Present iff event_kind is present.
+   */
+  audit_schema_version?: 2;
 };
 /**
  * This interface was referenced by `undefined`'s JSON-Schema

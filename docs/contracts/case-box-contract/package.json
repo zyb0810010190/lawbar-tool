@@ -23,7 +23,7 @@
     "gen:types": "node scripts/gen-types.mjs",
     "build": "tsc -p tsconfig.json",
     "prebuild": "npm run gen:types",
-    "test": "npm run build && node --test tests/contract.test.mjs tests/validators.test.mjs tests/state-machine.test.mjs tests/invariants.test.mjs tests/exports.test.mjs"
+    "test": "npm run build && node --test tests/contract.test.mjs tests/validators.test.mjs tests/state-machine.test.mjs tests/invariants.test.mjs tests/exports.test.mjs tests/audit-event-kind-v2.test.mjs"
   },
   "engines": {
     "//": "src/loadSchemas.ts uses JSON import attributes (`with { type: \"json\" }`), which require Node >= 22. Matches ocr-worker-contract.",
