@@ -8,6 +8,7 @@
 import type { CaseBoxApi } from "../api.js";
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime, hashTruncate, ulidShort } from "../format.js";
+import { auditEventLabel } from "./auditEventLabels.js";
 
 interface AuditChainHead {
   readonly headHash: string | null;
@@ -21,6 +22,8 @@ interface AuditEventRow {
   readonly entity_type: string;
   readonly entity_id: string;
   readonly reason?: string;
+  // v2 (WI-U1 projection): the normalized kind the panel humanizes; absent on legacy v1 rows.
+  readonly event_kind?: string;
 }
 
 interface ListAuditEventsPage {
@@ -242,7 +245,10 @@ function renderAuditEventRow(doc: Document, ev: AuditEventRow): HTMLElement {
       el(
         "span",
         { class: "view-audit-action", "data-test-id": "view-audit-action" },
-        [ev.action],
+        // Humanized label for a known event_kind; raw action (with the entity detail's "· entity_type")
+        // for legacy / null / unknown kinds. Plain text → part of the accessible row name; the audit
+        // list's aria-live="polite" announces it.
+        [auditEventLabel(ev)],
         doc,
       ),
     ],
