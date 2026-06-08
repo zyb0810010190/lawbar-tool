@@ -12,6 +12,7 @@ import {
   ARCHIVE_MATTER_FORBIDDEN_FIELDS,
   GET_MATTER_DTO_FIELDS,
   GET_MATTER_FORBIDDEN_FIELDS,
+  MATTER_RESPONSE_FIELDS,
   MAX_LIST_LIMIT,
   MAX_CURSOR_LENGTH,
   type CreateMatterDto,
@@ -22,6 +23,7 @@ import {
   type GetMatterResult,
   type ListMattersResult,
   type ArchiveMatterResult,
+  type RendererMatter,
 } from "./dto.js";
 import { mapThrownError, makeInvalidPayload, makeBoundaryError } from "./errorMap.js";
 import { getActiveTenantId } from "../security/activeTenant.js";
@@ -31,6 +33,8 @@ import {
   isPlainJsonObject,
   shapeGuardFailure,
   forbiddenFieldFailure,
+  projectRow,
+  projectPage,
   type PersistenceProvider,
   type ClockFn,
 } from "./handlerShared.js";
@@ -78,7 +82,12 @@ export async function createMatterHandler(
   try {
     const { persistence } = provide();
     const created = await persistence.createMatter(validation.value);
-    return { ok: true, value: created };
+    // MATTER-AUD-1: project to the renderer-safe allowlist (strip tenant_id /
+    // actor_user_id / open-index extras before crossing the IPC boundary).
+    return {
+      ok: true,
+      value: projectRow<RendererMatter>(created as unknown as Record<string, unknown>, MATTER_RESPONSE_FIELDS),
+    };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.matterCreate }) };
   }
@@ -119,7 +128,11 @@ export async function getMatterHandler(
       // lookup so future multi-tenant runtime state cannot leak by id.
       return { ok: false, error: makeBoundaryError("tenant_mismatch") };
     }
-    return { ok: true, value };
+    // MATTER-AUD-1: project AFTER the null + tenant-scope checks.
+    return {
+      ok: true,
+      value: projectRow<RendererMatter>(value as unknown as Record<string, unknown>, MATTER_RESPONSE_FIELDS),
+    };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.matterGet }) };
   }
@@ -176,7 +189,8 @@ export async function listMattersHandler(
       ...(limit !== undefined ? { limit } : {}),
       ...(dto.cursor !== undefined ? { cursor: dto.cursor } : {}),
     });
-    return { ok: true, value: page };
+    // MATTER-AUD-1: project every row to the renderer-safe allowlist; next_cursor preserved.
+    return { ok: true, value: projectPage<RendererMatter>(page, MATTER_RESPONSE_FIELDS) };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.matterList }) };
   }
@@ -226,7 +240,11 @@ export async function archiveMatterHandler(
       actor_user_id: getActiveActorUserId(),
       reason: dto.reason,
     });
-    return { ok: true, value: matter };
+    // MATTER-AUD-1: project to the renderer-safe allowlist.
+    return {
+      ok: true,
+      value: projectRow<RendererMatter>(matter as unknown as Record<string, unknown>, MATTER_RESPONSE_FIELDS),
+    };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.matterArchive }) };
   }

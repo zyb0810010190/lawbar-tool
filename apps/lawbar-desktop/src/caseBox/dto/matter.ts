@@ -1,5 +1,4 @@
 // Matter IPC DTOs / allowlists / result types (WI-DTO1 split from dto.ts).
-import type { ListMattersPage } from "case-box-persistence";
 import type { CaseBoxMatter } from "case-box-contract";
 import type { IpcEnvelope } from "./shared.js";
 
@@ -115,10 +114,47 @@ export const GET_MATTER_FORBIDDEN_FIELDS = Object.freeze([
 ] as const);
 
 
-export type CreateMatterResult = IpcEnvelope<CaseBoxMatter>;
+// MATTER-AUD-1 / REGDOC-AUD-1 sweep: response projection for the matter channels
+// (create / get / list / archive), mirroring the FACTS-AUD-3 list-channel projection.
+// Raw CaseBoxMatter carries server-authority fields (tenant_id, actor_user_id) and an
+// open `[k: string]: unknown` index; the main process MUST project every returned
+// matter through this allowlist BEFORE returning. ONE shared allowlist covers all four
+// channels (each renderer screen reads a subset; the union is the viewMatter detail
+// set). It is exactly the renderer-consumed display fields — `id` is REQUIRED (routing /
+// data-matter-id / nested API calls; a stable identifier, not authority) — and NOTHING
+// else (projectRow copies only allowlisted keys, so the open index cannot leak extras).
+// EXCLUDES tenant_id / actor_user_id and the non-consumed opt-in/successor flags.
+export const MATTER_RESPONSE_FIELDS = Object.freeze([
+  "id",
+  "name",
+  "matter_type",
+  "jurisdiction",
+  "parties",
+  "confidentiality_class",
+  "status",
+  "created_at",
+  "archived_at",
+  "retainer_scope",
+  "case_type_text",
+  "case_progress_text",
+  "court_contact_text",
+  "contention_summary_text",
+] as const);
 
-export type GetMatterResult = IpcEnvelope<CaseBoxMatter | null>;
+export type RendererMatter = Pick<
+  CaseBoxMatter,
+  (typeof MATTER_RESPONSE_FIELDS)[number]
+>;
 
-export type ListMattersResult = IpcEnvelope<ListMattersPage>;
+export interface RendererMattersPage {
+  readonly rows: ReadonlyArray<RendererMatter>;
+  readonly next_cursor: string | null;
+}
 
-export type ArchiveMatterResult = IpcEnvelope<CaseBoxMatter>;
+export type CreateMatterResult = IpcEnvelope<RendererMatter>;
+
+export type GetMatterResult = IpcEnvelope<RendererMatter | null>;
+
+export type ListMattersResult = IpcEnvelope<RendererMattersPage>;
+
+export type ArchiveMatterResult = IpcEnvelope<RendererMatter>;

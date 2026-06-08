@@ -16,9 +16,17 @@ import {
   listDeadlinesHandler,
   listFactsHandler,
   listAuditEventsHandler,
+  createMatterHandler,
+  getMatterHandler,
+  listMattersHandler,
+  archiveMatterHandler,
+  registerDocumentHandler,
 } from "../dist/src/caseBox/handlers.js";
 
 const FIXED_ID = "01jz0000000000000000000000";
+const FIXED_NOW = new Date("2026-05-27T00:00:00.000Z");
+const clock = () => FIXED_NOW;
+const idFactory = () => FIXED_ID;
 
 function makeProvider(overrides) {
   const persistence = {
@@ -26,7 +34,12 @@ function makeProvider(overrides) {
       id === FIXED_ID
         ? { id: FIXED_ID, tenant_id: "default-tenant", status: "active" }
         : null,
+    createMatter: async (m) => m,
+    listMatters: async (q) => ({ rows: [], next_cursor: null, query: q }),
+    archiveMatter: async (id, opts) => ({ id, tenant_id: "default-tenant", status: "archived", opts }),
     listDocuments: async (q) => ({ rows: [], next_cursor: null, query: q }),
+    getDocument: async () => null,
+    registerDocument: async (_matterId, document) => document,
     listDeadlines: async (q) => ({ rows: [], next_cursor: null, query: q }),
     listFacts: async (q) => ({ rows: [], next_cursor: null, query: q }),
     listAuditEvents: async (q) => ({ rows: [], next_cursor: null, query: q }),
@@ -314,6 +327,127 @@ test("listAuditEvents: IPC response omits authority + open-index fields on EVERY
     }
   }
   assert.equal(result.value.next_cursor, "aud-cur");
+});
+
+// ---------- matter create / get / list / archive (MATTER-AUD-1) ----------
+
+const MATTER_AUTHORITY = ["tenant_id", "actor_user_id"];
+const MATTER_CONSUMED = ["id", "name", "matter_type", "status", "created_at", "jurisdiction", "parties"];
+
+function validMatterDto() {
+  return {
+    name: "PoC synthetic matter",
+    matter_type: "litigation",
+    jurisdiction: { value: "us-fed", locked: false },
+    parties: [{ role: "client", display_name: "Acme Demonstration LLC", party_kind: "organization" }],
+    confidentiality_class: "normal",
+  };
+}
+
+// A raw persistence matter carrying authority + an open-index extra that must be stripped.
+function rawMatterRow(id = FIXED_ID) {
+  return {
+    id,
+    tenant_id: "default-tenant",
+    actor_user_id: "local-user",
+    name: "PoC synthetic matter",
+    matter_type: "litigation",
+    jurisdiction: { value: "us-fed", locked: false },
+    parties: [{ role: "client", display_name: "Acme", party_kind: "organization" }],
+    confidentiality_class: "normal",
+    status: "active",
+    created_at: FIXED_NOW.toISOString(),
+    secret_extra: "should-not-cross-the-ipc-boundary",
+  };
+}
+
+function assertMatterProjected(value) {
+  for (const f of [...MATTER_AUTHORITY, "secret_extra"]) {
+    assert.equal(Object.prototype.hasOwnProperty.call(value, f), false, `matter authority/open-index field ${f} leaked`);
+  }
+  for (const f of MATTER_CONSUMED) {
+    assert.ok(Object.prototype.hasOwnProperty.call(value, f), `matter consumed field ${f} dropped`);
+  }
+}
+
+test("createMatter: IPC response omits authority + open-index fields, keeps consumed", async () => {
+  const provide = makeProvider({ createMatter: async (m) => ({ ...m, secret_extra: "x" }) });
+  const result = await createMatterHandler(validMatterDto(), provide, clock, idFactory);
+  assert.equal(result.ok, true);
+  assertMatterProjected(result.value);
+});
+
+test("getMatter: raw row has authority; IPC response omits them, keeps consumed", async () => {
+  const raw = rawMatterRow();
+  assert.ok(Object.prototype.hasOwnProperty.call(raw, "tenant_id"));
+  const provide = makeProvider({ getMatter: async () => raw });
+  const result = await getMatterHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, true);
+  assertMatterProjected(result.value);
+});
+
+test("getMatter: null (absent) path preserved (value:null, not projected)", async () => {
+  const provide = makeProvider({ getMatter: async () => null });
+  const result = await getMatterHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, true);
+  assert.equal(result.value, null);
+});
+
+test("listMatters: every row omits authority + open-index, keeps consumed, cursor preserved", async () => {
+  const provide = makeProvider({
+    listMatters: async () => ({
+      rows: [rawMatterRow("01jz0000000000000000000001"), rawMatterRow("01jz0000000000000000000002")],
+      next_cursor: "m-cur",
+    }),
+  });
+  const result = await listMattersHandler({}, provide);
+  assert.equal(result.ok, true);
+  assert.equal(result.value.rows.length, 2);
+  for (const row of result.value.rows) assertMatterProjected(row);
+  assert.equal(result.value.next_cursor, "m-cur");
+});
+
+test("archiveMatter: IPC response omits authority + open-index, keeps consumed", async () => {
+  const provide = makeProvider({
+    archiveMatter: async () => rawMatterRow(),
+  });
+  const result = await archiveMatterHandler({ matterId: FIXED_ID, reason: "duplicate filing" }, provide);
+  assert.equal(result.ok, true);
+  assertMatterProjected(result.value);
+});
+
+// ---------- document register (REGDOC-AUD-1) ----------
+
+const REGDOC_AUTHORITY = ["tenant_id", "actor_user_id", "custody_chain"];
+const REGDOC_CONSUMED = ["id", "filename", "doc_type", "status", "matter_id"];
+
+function makeRegisterDeps() {
+  return {
+    chooseFile: async () => ({ sourcePath: "/tmp/fake/complaint.pdf", filename: "complaint.pdf" }),
+    storeFile: async ({ documentId, filename }) => ({
+      content_hash: "a".repeat(64),
+      storage_uri: "file:///app/case-box-documents/" + documentId + "/" + filename,
+      byte_size: 123,
+      stored_filename: filename,
+    }),
+    now: () => FIXED_NOW,
+    idFactory: () => "01jzaaaaaaaaaaaaaaaaaaaaaa",
+  };
+}
+
+test("registerDocument: IPC response omits authority (incl. custody_chain) + open-index, keeps consumed", async () => {
+  const provide = makeProvider({
+    // echo the handler-built document (it injects tenant_id/actor_user_id/custody_chain) + an open-index extra
+    registerDocument: async (_matterId, document) => ({ ...document, custody_chain: [{ actor: "x" }], secret_extra: "x" }),
+  });
+  const result = await registerDocumentHandler({ matterId: FIXED_ID, doc_type: "pleading" }, provide, makeRegisterDeps());
+  assert.equal(result.ok, true);
+  for (const f of [...REGDOC_AUTHORITY, "secret_extra"]) {
+    assert.equal(Object.prototype.hasOwnProperty.call(result.value, f), false, `register authority/open-index field ${f} leaked`);
+  }
+  for (const f of REGDOC_CONSUMED) {
+    assert.ok(Object.prototype.hasOwnProperty.call(result.value, f), `register consumed field ${f} dropped`);
+  }
 });
 
 // ---------- cross-cutting: empty page projects to empty rows, cursor preserved ----------

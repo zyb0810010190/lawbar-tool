@@ -13,6 +13,7 @@ import {
   GET_DOCUMENT_RESPONSE_FIELDS,
   REGISTER_DOCUMENT_DTO_FIELDS,
   REGISTER_DOCUMENT_FORBIDDEN_FIELDS,
+  REGISTER_DOCUMENT_RESPONSE_FIELDS,
   MAX_LIST_LIMIT,
   MAX_CURSOR_LENGTH,
   type ListDocumentsDto,
@@ -24,6 +25,7 @@ import {
   type RegisterDocumentResult,
   type RendererDocumentRow,
   type RendererDocumentDetail,
+  type RendererRegisteredDocument,
 } from "./dto.js";
 import { mapThrownError, makeInvalidPayload, makeBoundaryError } from "./errorMap.js";
 import { getActiveTenantId } from "../security/activeTenant.js";
@@ -265,7 +267,15 @@ export async function registerDocumentHandler(
       };
     }
     const registered = await persistence.registerDocument(dto.matterId, validation.value);
-    return { ok: true, value: registered };
+    // REGDOC-AUD-1: project to the renderer-safe allowlist (strip tenant_id /
+    // actor_user_id / custody_chain / open-index extras before crossing IPC).
+    return {
+      ok: true,
+      value: projectRow<RendererRegisteredDocument>(
+        registered as unknown as Record<string, unknown>,
+        REGISTER_DOCUMENT_RESPONSE_FIELDS,
+      ),
+    };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.documentRegister }) };
   }
