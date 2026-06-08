@@ -3,6 +3,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { canonicalAuditEventHashInput } from "case-box-contract";
 
 import {
   DEFAULT_MATTER_ID,
@@ -11,6 +13,10 @@ import {
   makeMatterInput,
   openSqliteCaseBoxPersistence,
 } from "./hardening-common.mjs";
+
+// sha256-hex of an event's canonical input (mirrors persistence eventHashFn; for constructing legacy
+// v1 / mixed rows directly in the DB to prove the contract's v1/v2 verification flows through SQLite).
+const hashHex = (e) => createHash("sha256").update(canonicalAuditEventHashInput(e)).digest("hex");
 
 test("Sqlite-B1: audit-chain-head invariant after createMatter (event_count == COUNT(*) == MAX(sequence))", async () => {
   const { persistence, db } = openSqliteCaseBoxPersistence({
@@ -178,5 +184,127 @@ test("Sqlite-B3: event_count invariant after createMatter + registerDocument + a
   assert.equal(head.event_count, 4);
   assert.equal(count.c, 4);
   assert.equal(maxSeq.m, 4);
+  db.close();
+});
+
+// ---------------------------------------------------------------------------
+// v2 audit-event-kind conformance (ADR audit-event-kind-preservation, WI-V2).
+// TESTS ONLY — no persistence source / SQL migration / indexed column. The contract change flows
+// through persistence via the live case-box-contract link (buildCaseBoxAuditEvent emits v2;
+// verifyAuditChainForMatter reuses the contract verifier), so these prove the round-trip + verify.
+// ---------------------------------------------------------------------------
+
+test("Sqlite-v2: new audit events carry event_kind + audit_schema_version in event_json (NO SQL column)", async () => {
+  const { persistence, db } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("v2rt"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  const e = JSON.parse(
+    db.prepare("SELECT event_json FROM case_box_audit_events WHERE matter_id = ? ORDER BY sequence ASC LIMIT 1")
+      .get(DEFAULT_MATTER_ID).event_json,
+  );
+  assert.equal(e.event_kind, "MATTER_REGISTERED");
+  assert.equal(e.audit_schema_version, 2);
+  // The two fields ride event_json ONLY — no dedicated column was added (i.e. no migration).
+  const cols = db.prepare("PRAGMA table_info(case_box_audit_events)").all().map((c) => c.name);
+  assert.equal(cols.includes("event_kind"), false);
+  assert.equal(cols.includes("audit_schema_version"), false);
+  // round-trips through the read API too.
+  const page = await persistence.listAuditEvents({ tenant_id: e.tenant_id, matter_id: DEFAULT_MATTER_ID });
+  assert.equal(page.rows[0].event_kind, "MATTER_REGISTERED");
+  assert.equal(page.rows[0].audit_schema_version, 2);
+  db.close();
+});
+
+test("Sqlite-v2: a v2 audit chain (createMatter + archiveMatter) verifies", async () => {
+  const { persistence, db } = await buildChainWithTwoEvents("v2ok");
+  const v = await persistence.verifyAuditChainForMatter(DEFAULT_MATTER_ID);
+  assert.equal(v.ok, true);
+  assert.equal(v.verifiedCount, 2);
+  db.close();
+});
+
+test("Sqlite-v2: tampering event_kind on a persisted v2 row breaks verifyAuditChainForMatter", async () => {
+  const { persistence, db } = await buildChainWithTwoEvents("v2tamp");
+  const firstRow = db
+    .prepare("SELECT event_id, event_json FROM case_box_audit_events WHERE matter_id = ? ORDER BY sequence ASC LIMIT 1")
+    .get(DEFAULT_MATTER_ID);
+  const e = JSON.parse(firstRow.event_json); // v2 MATTER_REGISTERED (create/matter)
+  e.event_kind = "DEADLINE_MET"; // declares {update, deadline} — inconsistent with this event
+  db.prepare("UPDATE case_box_audit_events SET event_json = ? WHERE event_id = ?").run(JSON.stringify(e), firstRow.event_id);
+  const v = await persistence.verifyAuditChainForMatter(DEFAULT_MATTER_ID);
+  assert.equal(v.ok, false);
+  assert.equal(v.errorReason, "event_kind_inconsistent");
+  assert.equal(v.errorIndex, 0);
+  db.close();
+});
+
+test("Sqlite-v2: a SAME-class event_kind tamper (hashed) is caught via prev_event_hash_mismatch", async () => {
+  // The load-bearing property through persistence: event_kind is HASHED, so a mutation WITHIN one
+  // {action, entity_type, reasonRequired} class (which passes the consistency check) still breaks the
+  // chain. MATTER_ARCHIVED and MATTER_UNARCHIVED are both {update, matter, reasonRequired:false}.
+  const { persistence, db } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("v2hash"),
+  });
+  await persistence.createMatter(makeMatterInput()); // seq1 MATTER_REGISTERED
+  await persistence.archiveMatter(DEFAULT_MATTER_ID, { actor_user_id: "lawyer", reason: "test" }); // seq2 MATTER_ARCHIVED
+  await persistence.unarchiveMatter(DEFAULT_MATTER_ID, { actor_user_id: "lawyer", reason: "test" }); // seq3 MATTER_UNARCHIVED
+  const mid = db
+    .prepare("SELECT event_id, event_json FROM case_box_audit_events WHERE matter_id = ? ORDER BY sequence ASC LIMIT 1 OFFSET 1")
+    .get(DEFAULT_MATTER_ID);
+  const e = JSON.parse(mid.event_json);
+  assert.equal(e.event_kind, "MATTER_ARCHIVED");
+  e.event_kind = "MATTER_UNARCHIVED"; // same {update, matter} → consistency passes; but event_kind is hashed
+  db.prepare("UPDATE case_box_audit_events SET event_json = ? WHERE event_id = ?").run(JSON.stringify(e), mid.event_id);
+  const v = await persistence.verifyAuditChainForMatter(DEFAULT_MATTER_ID);
+  assert.equal(v.ok, false);
+  assert.equal(v.errorReason, "prev_event_hash_mismatch"); // hashed event_kind change breaks the link to seq3
+  assert.equal(v.errorIndex, 2);
+  db.close();
+});
+
+test("Sqlite-v2: a legacy v1 audit row (no event_kind/version) still verifies", async () => {
+  const { persistence, db } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("v1legacy"),
+  });
+  await persistence.createMatter(makeMatterInput()); // 1 v2 event
+  const row = db
+    .prepare("SELECT event_id, event_json FROM case_box_audit_events WHERE matter_id = ? ORDER BY sequence ASC LIMIT 1")
+    .get(DEFAULT_MATTER_ID);
+  const e = JSON.parse(row.event_json);
+  delete e.event_kind; // downgrade to a legacy v1 row (the only/last event)
+  delete e.audit_schema_version;
+  const h = hashHex(e); // v1 canonicalization
+  db.prepare("UPDATE case_box_audit_events SET event_json = ?, event_hash = ? WHERE event_id = ?").run(JSON.stringify(e), h, row.event_id);
+  db.prepare("UPDATE case_box_audit_chain_heads SET head_hash = ? WHERE matter_id = ?").run(h, DEFAULT_MATTER_ID);
+  const v = await persistence.verifyAuditChainForMatter(DEFAULT_MATTER_ID);
+  assert.equal(v.ok, true);
+  assert.equal(v.verifiedCount, 1);
+  db.close();
+});
+
+test("Sqlite-v2: a mixed v1->v2 chain verifies end-to-end through persistence", async () => {
+  const { persistence, db } = await buildChainWithTwoEvents("v1v2mix");
+  const rows = db
+    .prepare("SELECT event_id, event_json FROM case_box_audit_events WHERE matter_id = ? ORDER BY sequence ASC")
+    .all(DEFAULT_MATTER_ID);
+  // event[0]: downgrade to legacy v1.
+  const e1 = JSON.parse(rows[0].event_json);
+  delete e1.event_kind;
+  delete e1.audit_schema_version;
+  const h1 = hashHex(e1);
+  db.prepare("UPDATE case_box_audit_events SET event_json = ?, event_hash = ? WHERE event_id = ?").run(JSON.stringify(e1), h1, rows[0].event_id);
+  // event[1]: stays v2; re-link prev_event_hash to the new v1 head and recompute its hash.
+  const e2 = JSON.parse(rows[1].event_json);
+  e2.prev_event_hash = h1;
+  const h2 = hashHex(e2);
+  db.prepare("UPDATE case_box_audit_events SET event_json = ?, event_hash = ? WHERE event_id = ?").run(JSON.stringify(e2), h2, rows[1].event_id);
+  db.prepare("UPDATE case_box_audit_chain_heads SET head_hash = ?, last_event_id = ? WHERE matter_id = ?").run(h2, e2.id, DEFAULT_MATTER_ID);
+  const v = await persistence.verifyAuditChainForMatter(DEFAULT_MATTER_ID);
+  assert.equal(v.ok, true);
+  assert.equal(v.verifiedCount, 2);
   db.close();
 });
