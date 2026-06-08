@@ -201,12 +201,14 @@ test("createMatter unknown throw → opaque not_implemented; main-side log calle
 
 // ---------- getMatter ----------
 
-test("getMatter happy path returns value", async () => {
+test("getMatter happy path returns value (projected: id present, authority stripped)", async () => {
   const provide = makeProvider();
   const result = await getMatterHandler({ matterId: FIXED_ID }, provide);
   assert.equal(result.ok, true);
   assert.equal(result.value.id, FIXED_ID);
-  assert.equal(result.value.tenant_id, "default-tenant");
+  // MATTER-AUD-1: tenant_id must NOT cross the IPC boundary (the prior assertion
+  // `result.value.tenant_id === "default-tenant"` was asserting the pre-fix leak).
+  assert.equal(Object.prototype.hasOwnProperty.call(result.value, "tenant_id"), false);
 });
 
 test("getMatter empty matterId → invalid_payload", async () => {

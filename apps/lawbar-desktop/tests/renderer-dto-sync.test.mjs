@@ -134,6 +134,10 @@ const RESPONSE_ALLOWLISTS = [
   ["TRANSITION_DEADLINE_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
   // AUDIT-AUD-1: the audit-list response allowlist excludes the same authority fields.
   ["LIST_AUDIT_EVENTS_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
+  // MATTER-AUD-1: the shared matter response allowlist (create/get/list/archive) excludes authority.
+  ["MATTER_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
+  // REGDOC-AUD-1: the document-register response allowlist excludes authority incl. custody_chain.
+  ["REGISTER_DOCUMENT_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "custody_chain"]],
 ];
 
 test("response projection: canonical *_RESPONSE_FIELDS allowlists exist and are non-empty", () => {

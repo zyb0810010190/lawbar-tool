@@ -158,11 +158,24 @@ test("case-box IPC packaged renderer→main round-trip persists across restart i
       }),
     );
     assert.equal(createRes.ok, true, JSON.stringify(createRes));
-    assert.equal(createRes.value.tenant_id, "default-tenant");
-    assert.equal(createRes.value.actor_user_id, "local-user");
-    assert.equal(createRes.value.external_ocr_authorized, false);
-    assert.equal(createRes.value.sync_grant_present, false);
-    assert.equal(createRes.value.llm_extraction_opt_in, false);
+    // MATTER-AUD-1: the createMatter IPC response is now projected to a
+    // renderer-safe DTO. Authority/internal fields MUST NOT cross the boundary
+    // (the prior assertions checking these PRESENT were asserting the pre-fix leak).
+    // A renderer-safe display field (name) + the stable id remain present.
+    assert.equal(createRes.value.name, "PoC synthetic matter");
+    for (const f of [
+      "tenant_id",
+      "actor_user_id",
+      "external_ocr_authorized",
+      "sync_grant_present",
+      "llm_extraction_opt_in",
+    ]) {
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(createRes.value, f),
+        false,
+        `authority/internal field ${f} leaked to renderer`,
+      );
+    }
     createdMatterId = createRes.value.id;
     assert.match(createdMatterId, /^[0-9a-z]{26}$/);
 

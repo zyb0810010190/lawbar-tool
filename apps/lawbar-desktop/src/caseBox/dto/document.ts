@@ -164,6 +164,45 @@ export type RendererDocumentDetail = Pick<
   (typeof GET_DOCUMENT_RESPONSE_FIELDS)[number]
 >;
 
+// REGDOC-AUD-1: response projection for the document:register write channel. A
+// SEPARATE constant from GET_DOCUMENT_RESPONSE_FIELDS (write- vs detail-view
+// contracts may diverge) though it currently enumerates the same renderer-safe
+// document fields. Excludes the authority/internal fields tenant_id /
+// actor_user_id / custody_chain (+ the open index, via the projectRow allowlist).
+// The renderer only null-checks the register result, so a minimal mirror suffices.
+export const REGISTER_DOCUMENT_RESPONSE_FIELDS = Object.freeze([
+  "id",
+  "filename",
+  "doc_type",
+  "status",
+  "received_at",
+  "content_hash",
+  "storage_uri",
+  "page_count",
+  "language",
+  "mime_type",
+  "byte_size",
+  "matter_id",
+  "source",
+  "ocr_job_id",
+  "submission_hash",
+  "purpose",
+  "work_order_status",
+  "supersedes_document_id",
+  "letter_date",
+  "service_status",
+  "client_authorization_summary",
+  "preliminary_evidence_summary",
+  "review_date",
+  "final_version_marker",
+  "manual_extracted_text",
+] as const);
+
+export type RendererRegisteredDocument = Pick<
+  CaseBoxDocument,
+  (typeof REGISTER_DOCUMENT_RESPONSE_FIELDS)[number]
+>;
+
 export interface ListDocumentsPage {
   readonly rows: ReadonlyArray<RendererDocumentRow>;
   readonly next_cursor: string | null;
@@ -175,4 +214,4 @@ export type ListDocumentsResult = IpcEnvelope<ListDocumentsPage>;
 export type GetDocumentResult = IpcEnvelope<RendererDocumentDetail | null>;
 
 // value === null signals the user cancelled the file-chooser dialog.
-export type RegisterDocumentResult = IpcEnvelope<CaseBoxDocument | null>;
+export type RegisterDocumentResult = IpcEnvelope<RendererRegisteredDocument | null>;
