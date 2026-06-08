@@ -240,6 +240,23 @@ npm --prefix services/ocr-review test
 The desktop UI gate is `npm --prefix apps/lawbar-desktop test`, run by
 `scripts/workflow/check-gates.sh`.
 
+### Test-environment & governance-sequencing notes
+
+- **Native-module arch after packaging.** `npm --prefix apps/lawbar-desktop run dist`
+  rebuilds `better-sqlite3` for the electron-builder `mac.target` arches (`arm64` and
+  `x64`), which can leave the host `node_modules` binding on the wrong arch (e.g. x86_64
+  on an arm64 host). The dev-Electron tests (`tests/smoke.electron.test.mjs`,
+  `tests/main.test.mjs`, `test:ipc-packaged`) then fail with ~30s launch timeouts. A
+  `postdist` script restores the host binding automatically via
+  `electron-builder install-app-deps`; the manual restore is the same command. `npm test`
+  is unaffected (no native rebuild in `pretest`).
+- **Never bundle govern with its commit.** Do NOT run `mark-queue-reviewed.sh` /
+  `govern-queue.sh` in the SAME Bash tool call as the dependent `git commit`.
+  `batch-commit-guard.sh` is a PreToolUse Bash hook: it checks the PRE-refresh governance
+  state and denies the WHOLE call before `govern-queue.sh` runs, so `queue.governed` never
+  refreshes. Correct order: run mark-reviewed + govern **standalone**, verify the
+  content-bound hash, then `git commit` in a **separate** Bash call.
+
 ### Project layout
 
 - `.claude/` — skills, agents, rules, hooks, commands. `.agents/skills/` → symlink to
