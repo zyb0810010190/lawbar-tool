@@ -458,12 +458,20 @@ async function loadFacts(
   let cursor: string | null = null;
   let moreBtn: HTMLElement | null = null;
   let total = 0;
+  let pageLoading = false; // re-entrancy guard: a fast double-click on "Show more" must not fetch/append a page twice
 
   async function loadPage(): Promise<void> {
-    const env = await api.listFacts({
-      matterId,
-      ...(cursor !== null ? { cursor } : {}),
-    });
+    if (pageLoading) return; // a page fetch is already in flight — drop the concurrent call
+    pageLoading = true;
+    let env: Awaited<ReturnType<typeof api.listFacts>>;
+    try {
+      env = await api.listFacts({
+        matterId,
+        ...(cursor !== null ? { cursor } : {}),
+      });
+    } finally {
+      pageLoading = false;
+    }
     // A newer load has taken over this container — drop this stale response.
     if (!isCurrent()) return;
     loading.remove();

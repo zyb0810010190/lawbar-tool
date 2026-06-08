@@ -191,6 +191,7 @@ test("deadline urgency: banner summarises overdue + due-soon counts with overdue
   assert.equal(collectText(banner), "1 overdue · 1 due within 7 days");
   assert.ok(banner.getAttribute("class").includes("view-deadlines-banner--overdue"));
   assert.equal(banner.getAttribute("role"), "status");
+  assert.equal(banner.getAttribute("aria-live"), "polite");
 });
 
 test("deadline urgency: due-soon only → warning banner without the overdue modifier", async () => {
