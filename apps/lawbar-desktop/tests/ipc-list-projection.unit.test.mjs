@@ -273,7 +273,9 @@ test("listDeadlines: IPC response omits every authority field on EVERY row, keep
 // authority/internal fields that MUST be stripped from the audit response row.
 const AUDIT_AUTHORITY = ["tenant_id", "actor_user_id", "id", "matter_id"];
 // fields the renderer audit panel actually reads (viewMatterAudit.ts renderAuditEventRow).
-const AUDIT_CONSUMED = ["timestamp", "action", "entity_type", "entity_id", "reason"];
+// event_kind (v2, ADR audit-event-kind-preservation) is the humanized-label source — display
+// metadata that MUST cross the boundary. audit_schema_version is internal and must NOT be projected.
+const AUDIT_CONSUMED = ["timestamp", "action", "entity_type", "entity_id", "reason", "event_kind"];
 
 function rawAuditRow() {
   return {
@@ -289,6 +291,9 @@ function rawAuditRow() {
     prev_event_hash: null,
     timestamp: "2026-06-07T10:30:00.000Z",
     reason: "missed -> met: clerk error",
+    // v2 fields: event_kind is projected (display); audit_schema_version is internal (must NOT leak).
+    event_kind: "DEADLINE_MET",
+    audit_schema_version: 2,
     // open-index extra (CaseBoxAuditEvent has `[k: string]: unknown`) — must NOT leak.
     secret_extra: "should-not-cross-the-ipc-boundary",
   };
@@ -312,11 +317,12 @@ test("listAuditEvents: IPC response omits authority + open-index fields on EVERY
   assert.equal(result.ok, true);
   assert.equal(result.value.rows.length, 2);
   for (const row of result.value.rows) {
-    for (const f of [...AUDIT_AUTHORITY, "secret_extra"]) {
+    // authority/open-index fields + the INTERNAL audit_schema_version must all be stripped.
+    for (const f of [...AUDIT_AUTHORITY, "secret_extra", "audit_schema_version"]) {
       assert.equal(
         Object.prototype.hasOwnProperty.call(row, f),
         false,
-        `authority/open-index field ${f} leaked to renderer`,
+        `authority/open-index/internal field ${f} leaked to renderer`,
       );
     }
     for (const f of AUDIT_CONSUMED) {
@@ -325,6 +331,8 @@ test("listAuditEvents: IPC response omits authority + open-index fields on EVERY
         `renderer-consumed field ${f} dropped`,
       );
     }
+    // the projected event_kind value crosses intact.
+    assert.equal(row.event_kind, "DEADLINE_MET");
   }
   assert.equal(result.value.next_cursor, "aud-cur");
 });

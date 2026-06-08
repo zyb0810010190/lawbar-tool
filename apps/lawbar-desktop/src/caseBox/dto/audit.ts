@@ -60,6 +60,10 @@ export const LIST_AUDIT_EVENTS_RESPONSE_FIELDS = Object.freeze([
   "before_state_hash",
   "after_state_hash",
   "prev_event_hash",
+  // v2 (ADR audit-event-kind-preservation): the normalized, emitter-chosen kind the audit panel maps
+  // to a humanized label. Display metadata, NOT a server-authority field — safe to project. The v2
+  // audit_schema_version stays INTERNAL (hash-format selector) and is deliberately NOT projected.
+  "event_kind",
 ] as const);
 
 export type RendererAuditEventRow = Pick<
