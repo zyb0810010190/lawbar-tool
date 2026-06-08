@@ -1047,24 +1047,30 @@ test("transitionDeadline reason on non-missed->met edges -> invalid_payload (for
   assert.equal(pendingToMet.error.details?.schemaPath, "transition_reason");
 });
 
-test("transitionDeadline forbidden field actor_user_id -> invalid_payload", async () => {
-  const r = await transitionDeadlineHandler(
-    { matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met", actor_user_id: "evil" },
-    makeDeadlineProvider("pending"),
-    clock,
-  );
-  assert.equal(r.ok, false);
-  assert.equal(r.error.details?.schemaPath, "actor_user_id");
-});
-
-test("transitionDeadline forbidden field status -> invalid_payload", async () => {
-  const r = await transitionDeadlineHandler(
-    { matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met", status: "met" },
-    makeDeadlineProvider("pending"),
-    clock,
-  );
-  assert.equal(r.ok, false);
-  assert.equal(r.error.details?.schemaPath, "status");
+test("transitionDeadline rejects every forbidden server-authority field (table-driven)", async () => {
+  // DT-BATCH72-L1: cover EVERY TRANSITION_DEADLINE_FORBIDDEN_FIELDS member, not just a
+  // sample. The handler iterates the full array and forbiddenFieldFailure() sets
+  // details.schemaPath to the offending field; assert that for each one.
+  const FORBIDDEN = [
+    "id",
+    "tenant_id",
+    "actor_user_id",
+    "matter_id",
+    "at",
+    "status",
+    "met_at",
+    "previous_status",
+  ];
+  for (const field of FORBIDDEN) {
+    const r = await transitionDeadlineHandler(
+      { matterId: FIXED_ID, deadlineId: DEADLINE_ID, to: "met", [field]: "x" },
+      makeDeadlineProvider("pending"),
+      clock,
+    );
+    assert.equal(r.ok, false, `${field} should be rejected`);
+    assert.equal(r.error.code, "invalid_payload", `${field} -> invalid_payload`);
+    assert.equal(r.error.details?.schemaPath, field, `${field} schemaPath`);
+  }
 });
 
 test("transitionDeadline unknown field -> invalid_payload", async () => {
