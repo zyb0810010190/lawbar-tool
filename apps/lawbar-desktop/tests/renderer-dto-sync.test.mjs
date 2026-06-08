@@ -132,6 +132,8 @@ const RESPONSE_ALLOWLISTS = [
   ["GET_DOCUMENT_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "custody_chain"]],
   // WI-DT1: the deadline transition response allowlist excludes the same authority fields.
   ["TRANSITION_DEADLINE_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
+  // AUDIT-AUD-1: the audit-list response allowlist excludes the same authority fields.
+  ["LIST_AUDIT_EVENTS_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
 ];
 
 test("response projection: canonical *_RESPONSE_FIELDS allowlists exist and are non-empty", () => {

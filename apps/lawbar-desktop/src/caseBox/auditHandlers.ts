@@ -6,12 +6,14 @@ import {
   CHAIN_HEAD_FORBIDDEN_FIELDS,
   LIST_AUDIT_EVENTS_DTO_FIELDS,
   LIST_AUDIT_EVENTS_FORBIDDEN_FIELDS,
+  LIST_AUDIT_EVENTS_RESPONSE_FIELDS,
   MAX_LIST_LIMIT,
   MAX_CURSOR_LENGTH,
   type ChainHeadDto,
   type ListAuditEventsDto,
   type ChainHeadResult,
   type ListAuditEventsResult,
+  type RendererAuditEventRow,
 } from "./dto.js";
 import { mapThrownError, makeInvalidPayload, makeBoundaryError } from "./errorMap.js";
 import { getActiveTenantId } from "../security/activeTenant.js";
@@ -20,6 +22,7 @@ import {
   isPlainJsonObject,
   shapeGuardFailure,
   forbiddenFieldFailure,
+  projectPage,
   type PersistenceProvider,
 } from "./handlerShared.js";
 
@@ -122,7 +125,10 @@ export async function listAuditEventsHandler(
       ...(limit !== undefined ? { limit } : {}),
       ...(dto.cursor !== undefined ? { cursor: dto.cursor } : {}),
     });
-    return { ok: true, value: page };
+    // AUDIT-AUD-1: project every row through the renderer-safe allowlist so
+    // server-authority fields (tenant_id / actor_user_id / matter_id / id) + any
+    // open-index extras never cross the IPC boundary. next_cursor passes through.
+    return { ok: true, value: projectPage<RendererAuditEventRow>(page, LIST_AUDIT_EVENTS_RESPONSE_FIELDS) };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.auditListEvents }) };
   }

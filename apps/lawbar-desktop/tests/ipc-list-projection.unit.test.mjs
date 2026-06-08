@@ -15,6 +15,7 @@ import {
   listDocumentsHandler,
   listDeadlinesHandler,
   listFactsHandler,
+  listAuditEventsHandler,
 } from "../dist/src/caseBox/handlers.js";
 
 const FIXED_ID = "01jz0000000000000000000000";
@@ -28,6 +29,7 @@ function makeProvider(overrides) {
     listDocuments: async (q) => ({ rows: [], next_cursor: null, query: q }),
     listDeadlines: async (q) => ({ rows: [], next_cursor: null, query: q }),
     listFacts: async (q) => ({ rows: [], next_cursor: null, query: q }),
+    listAuditEvents: async (q) => ({ rows: [], next_cursor: null, query: q }),
     ...overrides,
   };
   return () => ({ persistence });
@@ -251,6 +253,67 @@ test("listDeadlines: IPC response omits every authority field on EVERY row, keep
     }
   }
   assert.equal(result.value.next_cursor, "dl-cur");
+});
+
+// ---------- audit events (AUDIT-AUD-1) ----------
+
+// authority/internal fields that MUST be stripped from the audit response row.
+const AUDIT_AUTHORITY = ["tenant_id", "actor_user_id", "id", "matter_id"];
+// fields the renderer audit panel actually reads (viewMatterAudit.ts renderAuditEventRow).
+const AUDIT_CONSUMED = ["timestamp", "action", "entity_type", "entity_id", "reason"];
+
+function rawAuditRow() {
+  return {
+    id: "01jzaud00000000000000000a",
+    tenant_id: "default-tenant",
+    actor_user_id: "local-user",
+    matter_id: FIXED_ID,
+    action: "update",
+    entity_type: "deadline",
+    entity_id: "01jzdl00000000000000000000",
+    before_state_hash: null,
+    after_state_hash: "sha256:abc",
+    prev_event_hash: null,
+    timestamp: "2026-06-07T10:30:00.000Z",
+    reason: "missed -> met: clerk error",
+    // open-index extra (CaseBoxAuditEvent has `[k: string]: unknown`) — must NOT leak.
+    secret_extra: "should-not-cross-the-ipc-boundary",
+  };
+}
+
+test("listAuditEvents: raw persistence row includes authority + open-index fields", () => {
+  const raw = rawAuditRow();
+  for (const f of [...AUDIT_AUTHORITY, "secret_extra"]) {
+    assert.ok(Object.prototype.hasOwnProperty.call(raw, f), `raw row missing ${f}`);
+  }
+});
+
+test("listAuditEvents: IPC response omits authority + open-index fields on EVERY row, keeps consumed + cursor", async () => {
+  const provide = makeProvider({
+    listAuditEvents: async () => ({
+      rows: [rawAuditRow(), { ...rawAuditRow(), id: "01jzaud00000000000000000b" }],
+      next_cursor: "aud-cur",
+    }),
+  });
+  const result = await listAuditEventsHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, true);
+  assert.equal(result.value.rows.length, 2);
+  for (const row of result.value.rows) {
+    for (const f of [...AUDIT_AUTHORITY, "secret_extra"]) {
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(row, f),
+        false,
+        `authority/open-index field ${f} leaked to renderer`,
+      );
+    }
+    for (const f of AUDIT_CONSUMED) {
+      assert.ok(
+        Object.prototype.hasOwnProperty.call(row, f),
+        `renderer-consumed field ${f} dropped`,
+      );
+    }
+  }
+  assert.equal(result.value.next_cursor, "aud-cur");
 });
 
 // ---------- cross-cutting: empty page projects to empty rows, cursor preserved ----------
