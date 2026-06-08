@@ -4,11 +4,14 @@
 // casebox:docket:confirm); and since WI-D4 the section also surfaces durable
 // PENDING docket proposals (casebox:docket:list, proposed filter) with a
 // per-proposal DISMISS control (casebox:docket:dismiss) — see
-// viewMatterDocketProposals.ts. NO edit / deadline-status transition. The
+// viewMatterDocketProposals.ts; and since WI-DT3 each non-terminal deadline carries
+// per-row status-transition controls (casebox:deadline:transition) — pending ->
+// met / missed / withdrawn, and missed -> met with a required reason (met and
+// withdrawn are terminal). NO deadline-FIELD edit (due_at / kind / owner). The
 // renderer never imports the service; only the human-rendered fields are read,
 // the renderer forwards narrow DTOs, and main is the authoritative validator (it
 // injects all authority/provenance/lifecycle fields and does the fail-closed
-// scoped confirm/dismiss preflights).
+// scoped confirm/dismiss/transition preflights).
 //
 // Urgency surfacing (brief §18 day-one must-have): each `pending` deadline is
 // classified overdue / due-soon (≤7 days) / none against an injected clock; a
