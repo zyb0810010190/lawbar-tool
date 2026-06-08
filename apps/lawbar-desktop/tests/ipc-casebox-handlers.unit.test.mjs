@@ -19,6 +19,11 @@ import {
 } from "../dist/src/caseBox/docketHandlers.js";
 import { createFactHandler } from "../dist/src/caseBox/factHandlers.js";
 import { CHANNEL } from "../dist/src/caseBox/handlerShared.js";
+import {
+  CREATE_DOCKET_FORBIDDEN_FIELDS,
+  CONFIRM_DOCKET_FORBIDDEN_FIELDS,
+  CREATE_FACT_FORBIDDEN_FIELDS,
+} from "../dist/src/caseBox/dto.js";
 import { CaseBoxPersistenceError } from "case-box-persistence";
 
 // Local copy of the shared IPC test harness (the host's harness is inline, not a
@@ -700,11 +705,14 @@ test("docketCreate: wrong-tenant matter -> tenant_mismatch", async () => {
   assert.equal(r.error.code, "tenant_mismatch");
 });
 
-test("docketCreate: forbidden server-authority field -> invalid_payload", async () => {
-  const { provide } = makeDocketProvider();
-  const r = await createDocketEntryHandler({ ...validCreateDto, tenant_id: "x" }, provide, clock, idFactory);
-  assert.equal(r.ok, false);
-  assert.equal(r.error.code, "invalid_payload");
+test("docketCreate: rejects EVERY forbidden server-authority field (table-driven)", async () => {
+  for (const f of CREATE_DOCKET_FORBIDDEN_FIELDS) {
+    const { provide } = makeDocketProvider();
+    const r = await createDocketEntryHandler({ ...validCreateDto, [f]: "x" }, provide, clock, idFactory);
+    assert.equal(r.ok, false, `${f} should be rejected`);
+    assert.equal(r.error.code, "invalid_payload", `${f} -> invalid_payload`);
+    assert.equal(r.error.details?.schemaPath, f, `${f} schemaPath`);
+  }
 });
 
 test("docketCreate: missing proposed_kind -> invalid_payload", async () => {
@@ -727,6 +735,23 @@ test("docketConfirm: valid -> ok, materialized deadline projected (authority str
   assert.equal("actor_user_id" in r.value.deadline, false);
   assert.equal("tenant_id" in r.value.entry, false);
   assert.equal("confirmation_actor_user_id" in r.value.entry, false);
+});
+
+test("docketConfirm: rejects EVERY forbidden server-authority field (table-driven)", async () => {
+  // Forbidden fields are rejected at DTO validation, BEFORE the scoped preflight/write,
+  // so the default provider (no seeded entry) suffices.
+  for (const f of CONFIRM_DOCKET_FORBIDDEN_FIELDS) {
+    const { provide } = makeDocketProvider();
+    const r = await confirmDocketEntryHandler(
+      { matterId: FIXED_ID, entryId: ENTRY_ID, [f]: "x" },
+      provide,
+      clock,
+      idFactory,
+    );
+    assert.equal(r.ok, false, `${f} should be rejected`);
+    assert.equal(r.error.code, "invalid_payload", `${f} -> invalid_payload`);
+    assert.equal(r.error.details?.schemaPath, f, `${f} schemaPath`);
+  }
 });
 
 test("docketConfirm: UNKNOWN entry_id -> invalid_payload, confirmDocketEntry NOT called", async () => {
@@ -901,13 +926,15 @@ test("factCreate: wrong-tenant matter -> tenant_mismatch; appendFact NOT called"
   assert.equal(calls.append, 0);
 });
 
-test("factCreate: forbidden server-authority field (actor_user_id) -> invalid_payload", async () => {
-  const { provide, calls } = makeFactProvider();
-  const r = await createFactHandler({ ...validFactDto, actor_user_id: "evil" }, provide, clock, idFactory);
-  assert.equal(r.ok, false);
-  assert.equal(r.error.code, "invalid_payload");
-  assert.equal(r.error.details?.schemaPath, "actor_user_id");
-  assert.equal(calls.append, 0);
+test("factCreate: rejects EVERY forbidden server-authority field (table-driven, closes CBW-602)", async () => {
+  for (const f of CREATE_FACT_FORBIDDEN_FIELDS) {
+    const { provide, calls } = makeFactProvider();
+    const r = await createFactHandler({ ...validFactDto, [f]: "x" }, provide, clock, idFactory);
+    assert.equal(r.ok, false, `${f} should be rejected`);
+    assert.equal(r.error.code, "invalid_payload", `${f} -> invalid_payload`);
+    assert.equal(r.error.details?.schemaPath, f, `${f} schemaPath`);
+    assert.equal(calls.append, 0, `${f} must not reach persistence`);
+  }
 });
 
 test("factCreate: missing statement_text -> invalid_payload", async () => {

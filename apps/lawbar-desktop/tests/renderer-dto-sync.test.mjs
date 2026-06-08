@@ -138,6 +138,12 @@ const RESPONSE_ALLOWLISTS = [
   ["MATTER_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
   // REGDOC-AUD-1: the document-register response allowlist excludes authority incl. custody_chain.
   ["REGISTER_DOCUMENT_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "custody_chain"]],
+  // WI-FF1: the write-channel response allowlists exclude the same authority fields.
+  ["CREATE_FACT_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "reviewer_actor_user_id"]],
+  ["TRANSITION_FACT_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "reviewer_actor_user_id"]],
+  // DOCKET_ENTRY carries proposer + lifecycle actor identities; all must stay out of the allowlist.
+  ["DOCKET_ENTRY_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "confirmation_actor_user_id", "dismissal_actor_user_id"]],
+  ["CONFIRM_DOCKET_DEADLINE_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
 ];
 
 test("response projection: canonical *_RESPONSE_FIELDS allowlists exist and are non-empty", () => {
