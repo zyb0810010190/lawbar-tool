@@ -18,12 +18,14 @@
 
 import {
   assertValidDocketEntryConfirmation,
+  assertValidDocketEntryEdit,
   assertValidDocketEntryTransition,
   assertValidIanaTimezone,
   assertValidNewDocketEntry,
   buildCaseBoxAuditEvent,
   DocketEntryConfirmationError,
   DocketEntryCreationError,
+  DocketEntryEditError,
   IllegalTransitionError,
   InvalidIanaTimezoneError,
   validateDeadline,
@@ -34,6 +36,7 @@ import {
 } from "case-box-contract";
 
 import { CaseBoxPersistenceError } from "./errors.js";
+import type { EditDocketEntryOpts } from "./types.js";
 import {
   computeFiltersHash,
   decodeCursor,
@@ -581,4 +584,148 @@ export function applyAppendDocketEntry(
   stored.push(prepared.audit);
   repo.auditByMatter.set(prepared.matterId, stored);
   return structuredClone(prepared.row) as CaseBoxDocketEntry;
+}
+
+// ---------------------------------------------------------------------------
+// WI-DPE3 — editDocketEntry (in-place edit of a proposed entry)
+// ---------------------------------------------------------------------------
+
+interface PrepareEditResult {
+  next: CaseBoxDocketEntry;
+  audit: StoredAuditEvent;
+  matterId: string;
+}
+
+/**
+ * Pure prepare for editDocketEntry. Resolves + scope-checks the prior entry,
+ * applies ONLY the six editable content fields via a strict allow-list (caller-
+ * supplied non-editable fields are never read), derives revised_at from the
+ * persistence clock (one sample reused for revised_at + the audit timestamp),
+ * enforces the DPE2 contract invariant, validates IANA tz, and builds ONE
+ * DOCKET_ENTRY_REVISED event. Matter existence + matter-tenant (unknown_matter)
+ * are checked by the caller (applyEditDocketEntry / SQLite requireMatterTenant).
+ */
+export function prepareEditDocketEntry(
+  state: DocketState,
+  opts: EditDocketEntryOpts,
+  deps: ConfirmDeps,
+): PrepareEditResult {
+  for (const [k, v] of [
+    ["tenant_id", opts?.tenant_id],
+    ["matter_id", opts?.matter_id],
+    ["entry_id", opts?.entry_id],
+    ["editor_actor_user_id", opts?.editor_actor_user_id],
+  ] as const) {
+    if (typeof v !== "string" || v.length === 0) {
+      throw new CaseBoxPersistenceError("invalid_argument", `${k} must be a non-empty string`);
+    }
+  }
+  const prior = state.docketById.get(opts.entry_id);
+  // Tenant-scope the entry resolution FIRST: an entry that does not belong to the
+  // caller's tenant is reported as simply "unknown" — never matter_id_mismatch with a
+  // foreign matter_id (which would disclose a cross-tenant entry's existence + matter).
+  // Only after the entry is confirmed to belong to the caller's tenant do we compare the
+  // requested matter (now a same-tenant comparison, safe to name).
+  if (prior === undefined || prior.tenant_id !== opts.tenant_id) {
+    throw new CaseBoxPersistenceError("invalid_argument", `unknown docket entry: ${opts.entry_id}`);
+  }
+  if (prior.matter_id !== opts.matter_id) {
+    throw new CaseBoxPersistenceError(
+      "matter_id_mismatch",
+      `docket entry ${opts.entry_id} belongs to matter ${prior.matter_id}, not ${opts.matter_id}`,
+    );
+  }
+
+  const stamp = deps.nowIso();
+  // Strict allow-list apply: ONLY the six editable content fields are read from
+  // opts. Caller-supplied non-editable/internal fields (revised_at, confirmed_*,
+  // id, …) are never read → cannot affect the persisted entry or audit.
+  const next = structuredClone(prior) as CaseBoxDocketEntry;
+  (next as Record<string, unknown>).proposed_kind = opts.proposed_kind;
+  (next as Record<string, unknown>).proposed_due_at = opts.proposed_due_at;
+  (next as Record<string, unknown>).proposed_due_at_kind = opts.proposed_due_at_kind;
+  (next as Record<string, unknown>).proposed_due_at_timezone = opts.proposed_due_at_timezone;
+  (next as Record<string, unknown>).proposed_owner_user_id = opts.proposed_owner_user_id;
+  (next as Record<string, unknown>).reminder_offsets =
+    opts.reminder_offsets === null ? null : structuredClone(opts.reminder_offsets);
+  (next as Record<string, unknown>).revised_at = stamp;
+
+  // Contract invariant (DPE2): proposed-only (→ illegal_transition) +
+  // provenance/lifecycle immutable + revised schema-valid (→ invalid_payload).
+  try {
+    assertValidDocketEntryEdit(prior, next);
+  } catch (e) {
+    if (e instanceof IllegalTransitionError) {
+      throw new CaseBoxPersistenceError("illegal_transition", e.message);
+    }
+    if (e instanceof DocketEntryEditError) {
+      throw new CaseBoxPersistenceError("invalid_payload", e.message);
+    }
+    throw e;
+  }
+
+  // Semantic IANA validation when a timezone is present (mirrors append).
+  if (next.proposed_due_at_timezone !== null) {
+    try {
+      assertValidIanaTimezone(next.proposed_due_at_timezone);
+    } catch (e) {
+      if (e instanceof InvalidIanaTimezoneError) {
+        throw new CaseBoxPersistenceError("invalid_payload", e.message);
+      }
+      throw e;
+    }
+  }
+
+  const matterId = prior.matter_id;
+  const stored = deps.storedAuditEventsForMatter(matterId);
+  const prevHash = priorHeadOf(stored);
+  const built = buildCaseBoxAuditEvent({
+    kind: "DOCKET_ENTRY_REVISED" as CaseBoxAuditEventKind,
+    id: deps.generateId(),
+    tenant_id: next.tenant_id,
+    actor_user_id: opts.editor_actor_user_id,
+    matter_id: matterId,
+    entity_id: next.id,
+    before_state_hash: entityStateHash(prior),
+    after_state_hash: entityStateHash(next),
+    prev_event_hash: prevHash,
+    timestamp: stamp,
+  });
+  if (!built.ok) {
+    throw new CaseBoxPersistenceError("invalid_payload", `audit-event builder rejected (revised): ${built.summary}`);
+  }
+  return { next, audit: { sequence: stored.length + 1, event: built.value }, matterId };
+}
+
+export function applyEditDocketEntry(
+  state: DocketState,
+  repo: DocketRepoView,
+  deps: DocketCDeps,
+  opts: EditDocketEntryOpts,
+): CaseBoxDocketEntry {
+  // Matter existence + matter-tenant isolation FIRST (mirror getDocketEntry/applyAppend).
+  const matter = repo.matters.get(opts.matter_id);
+  if (matter === undefined) {
+    throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${opts.matter_id}`);
+  }
+  if (matter.tenant_id !== opts.tenant_id) {
+    throw new CaseBoxPersistenceError(
+      "tenant_mismatch",
+      `opts.tenant_id (${opts.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+    );
+  }
+  const prepared = prepareEditDocketEntry(state, opts, {
+    generateId: deps.generateId,
+    nowIso: deps.nowIso,
+    storedAuditEventsForMatter: (matterId) => repo.auditByMatter.get(matterId) ?? [],
+  });
+  const arr = state.entriesByMatter.get(prepared.matterId) ?? [];
+  const idx = arr.findIndex((e) => e.id === opts.entry_id);
+  if (idx >= 0) arr[idx] = prepared.next;
+  state.entriesByMatter.set(prepared.matterId, arr);
+  state.docketById.set(opts.entry_id, prepared.next);
+  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
+  stored.push(prepared.audit);
+  repo.auditByMatter.set(prepared.matterId, stored);
+  return structuredClone(prepared.next) as CaseBoxDocketEntry;
 }

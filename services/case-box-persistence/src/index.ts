@@ -51,6 +51,7 @@ export type {
   ConfirmDocketEntryOpts,
   ConfirmDocketEntryResult,
   DismissDocketEntryOpts,
+  EditDocketEntryOpts,
   GetDocketEntryQuery,
   ListDocketEntriesQuery,
   ListDocketEntriesPage,

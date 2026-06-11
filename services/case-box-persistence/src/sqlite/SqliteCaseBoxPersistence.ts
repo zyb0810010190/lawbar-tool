@@ -62,6 +62,7 @@ import {
   applyAppendDocketEntrySqlite,
   applyConfirmDocketEntrySqlite,
   applyDismissDocketEntrySqlite,
+  applyEditDocketEntrySqlite,
   getDocketEntrySqlite,
   listDocketEntriesSqlite,
 } from "./docketRepoQueries.js";
@@ -113,6 +114,7 @@ import type {
   DeadlineCalendarQuery,
   DeadlineTransitionOpts,
   DismissDocketEntryOpts,
+  EditDocketEntryOpts,
   DocumentDetail,
   EffectiveClassificationResult,
   EvidenceTransitionOpts,
@@ -489,6 +491,10 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   }
   async dismissDocketEntry(entryId: string, opts: DismissDocketEntryOpts): Promise<CaseBoxDocketEntry> {
     const row = this.#runImmediateWrite((db, deps) => applyDismissDocketEntrySqlite(db, entryId, opts, deps));
+    return structuredClone(row) as CaseBoxDocketEntry;
+  }
+  async editDocketEntry(opts: EditDocketEntryOpts): Promise<CaseBoxDocketEntry> {
+    const row = this.#runImmediateWrite((db, deps) => applyEditDocketEntrySqlite(db, opts, deps));
     return structuredClone(row) as CaseBoxDocketEntry;
   }
   async getDocketEntry(query: GetDocketEntryQuery): Promise<CaseBoxDocketEntry | null> {

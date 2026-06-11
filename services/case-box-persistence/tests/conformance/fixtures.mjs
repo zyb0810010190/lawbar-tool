@@ -151,6 +151,25 @@ export function makeDocketEntryInput(overrides = {}) {
   };
 }
 
+/** WI-DPE3: a full editDocketEntry opts (scope + actor + six editable content fields).
+ * Defaults change proposed_kind ("filing" → "hearing") and keep the other five content
+ * fields equal to makeDocketEntryInput so only proposed_kind changes by default. */
+export function makeEditDocketEntryOpts(overrides = {}) {
+  return {
+    tenant_id: VALID_TENANT_ID,
+    matter_id: VALID_MATTER_ID,
+    entry_id: DEFAULT_DOCKET_ENTRY_ID,
+    editor_actor_user_id: "local-user",
+    proposed_kind: "hearing",
+    proposed_due_at: "2026-06-15T17:00:00.000Z",
+    proposed_due_at_kind: "datetime",
+    proposed_due_at_timezone: "America/New_York",
+    proposed_owner_user_id: "local-user",
+    reminder_offsets: [],
+    ...overrides,
+  };
+}
+
 export function makeFactInput(overrides = {}) {
   return {
     id: DEFAULT_FACT_ID,

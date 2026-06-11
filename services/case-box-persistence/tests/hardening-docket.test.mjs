@@ -216,3 +216,69 @@ test("Sqlite-B7: Mode B confirmDocketEntry cross-matter duplicate deadline_id â†
   assert.ok(err instanceof CaseBoxPersistenceError);
   assert.equal(err.code, "duplicate_id");
 });
+
+// ---------------------------------------------------------------------------
+// WI-DPE3 â€” editDocketEntry persistence invariants
+// ---------------------------------------------------------------------------
+
+test("Sqlite-DPE3: editDocketEntry audit chain event_count == 3 == COUNT == MAX(sequence)", async () => {
+  const { makeDocketEntryInput, makeEditDocketEntryOpts } = await import("./conformance/fixtures.mjs");
+  const { persistence, db } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("e1"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  await persistence.appendDocketEntry(makeDocketEntryInput());
+  await persistence.editDocketEntry(makeEditDocketEntryOpts());
+  const head = db.prepare("SELECT event_count FROM case_box_audit_chain_heads WHERE matter_id = ?").get(DEFAULT_MATTER_ID);
+  assert.equal(head.event_count, 3); // MATTER_REGISTERED + DOCKET_ENTRY_PROPOSED + DOCKET_ENTRY_REVISED
+  const agg = db.prepare("SELECT COUNT(*) c, MAX(sequence) m FROM case_box_audit_events WHERE matter_id = ?").get(DEFAULT_MATTER_ID);
+  assert.equal(agg.c, 3);
+  assert.equal(agg.m, 3);
+  const last = db.prepare("SELECT event_json FROM case_box_audit_events WHERE matter_id = ? ORDER BY sequence DESC LIMIT 1").get(DEFAULT_MATTER_ID);
+  const lastEvent = JSON.parse(last.event_json);
+  assert.equal(lastEvent.event_kind, "DOCKET_ENTRY_REVISED");
+  assert.equal(lastEvent.action, "update");
+  assert.equal(lastEvent.entity_type, "docket_entry");
+  const ver = await persistence.verifyAuditChainForMatter(DEFAULT_MATTER_ID);
+  assert.equal(ver.ok, true);
+});
+
+test("Sqlite-DPE3: edit keeps lifted proposed_kind === payload_json.proposed_kind; state stays proposed", async () => {
+  const { makeDocketEntryInput, makeEditDocketEntryOpts, DEFAULT_DOCKET_ENTRY_ID } = await import("./conformance/fixtures.mjs");
+  const { persistence, db } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("e2"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  await persistence.appendDocketEntry(makeDocketEntryInput());
+  await persistence.editDocketEntry(makeEditDocketEntryOpts({ proposed_kind: "hearing" }));
+  const row = db.prepare(
+    "SELECT proposed_kind, confirmation_state, payload_json FROM case_box_docket_entries WHERE id = ?",
+  ).get(DEFAULT_DOCKET_ENTRY_ID);
+  const payload = JSON.parse(row.payload_json);
+  assert.equal(row.proposed_kind, "hearing");
+  assert.equal(payload.proposed_kind, "hearing");
+  assert.equal(row.proposed_kind, payload.proposed_kind); // lifted column tracks payload
+  assert.equal(row.confirmation_state, "proposed");
+  assert.equal(typeof payload.revised_at, "string");
+});
+
+test("Sqlite-DPE3: edit ignores adversarial caller revised_at (server-derived; absent from entry + audit)", async () => {
+  const { makeDocketEntryInput, makeEditDocketEntryOpts, DEFAULT_DOCKET_ENTRY_ID } = await import("./conformance/fixtures.mjs");
+  const { persistence, db } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-05-22T09:00:00.000Z"),
+    generateId: makeIdGenerator("e3"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  await persistence.appendDocketEntry(makeDocketEntryInput());
+  const FORGED = "1999-01-01T00:00:00.000Z";
+  const edited = await persistence.editDocketEntry(makeEditDocketEntryOpts({ revised_at: FORGED }));
+  assert.notEqual(edited.revised_at, FORGED);
+  const row = db.prepare("SELECT payload_json FROM case_box_docket_entries WHERE id = ?").get(DEFAULT_DOCKET_ENTRY_ID);
+  assert.ok(!row.payload_json.includes(FORGED));
+  const ev = db.prepare("SELECT event_json FROM case_box_audit_events WHERE matter_id = ? ORDER BY sequence DESC LIMIT 1").get(DEFAULT_MATTER_ID);
+  assert.ok(!ev.event_json.includes(FORGED));
+  const parsed = JSON.parse(ev.event_json);
+  assert.equal(parsed.timestamp, edited.revised_at); // one timestamp sample
+});
