@@ -76,6 +76,7 @@ const expectedFns = [
   "isDocketEntryProposalOnly",
   "docketEntryWasMachineExtracted",
   "requiresHumanConfirmation",
+  "assertValidDocketEntryEdit",
   // WI-brief-matter-type (R-5)
   "assertValidDocumentSupersession",
   "assertValidMatterSuccessor",
@@ -141,6 +142,7 @@ const expectedErrorCtors = [
   "ConfidentialityCreationError",
   "DocketEntryCreationError",
   "DocketEntryConfirmationError",
+  "DocketEntryEditError",
   "InvalidIanaTimezoneError",
   // WI-brief-matter-type (R-5)
   "DocumentSupersessionInvariantError",

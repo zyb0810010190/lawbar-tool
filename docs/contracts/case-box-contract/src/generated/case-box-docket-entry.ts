@@ -69,6 +69,10 @@ export type CaseBoxDocketEntry = {
   dismissed_at: null | string;
   dismissal_reason: null | string;
   created_at: string;
+  /**
+   * WI-DPE2 (docs/adr/docket-proposal-edit.md §6). Optional, nullable timestamp of the last proposal edit. Absent on never-edited entries; existing entries stay valid. Authority (server-side derivation, ignoring client-supplied values) is owned by DPE3/DPE4, NOT this schema.
+   */
+  revised_at?: string | null;
 };
 /**
  * This interface was referenced by `undefined`'s JSON-Schema

@@ -1,6 +1,6 @@
 # ADR — Docket proposal edit (content-only edit of a pending docket entry)
 
-- **Status**: Proposed (pending cc-suite review-plan).
+- **Status**: Accepted (cc-suite review-plan READY). Implementation authorized only via the downstream governed WIs DPE2..DPE5 (see §9); the contract layer ships in WI-DPE2.
 - **Date**: 2026-06-08.
 - **Deciders**: lawbar-tool maintainer.
 - **Batch**: `BATCH-CASEBOX-DOCKET-PROPOSAL-EDIT-ADR-00`, WI-DPE1 (ADR-only; authorizes no implementation).

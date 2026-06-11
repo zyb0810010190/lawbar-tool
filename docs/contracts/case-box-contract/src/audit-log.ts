@@ -115,6 +115,7 @@ export const CASE_BOX_AUDIT_EVENT_KINDS = Object.freeze({
   DOCKET_ENTRY_PROPOSED:               { action: "create", entity_type: "docket_entry", reasonRequired: false },
   DOCKET_ENTRY_CONFIRMED:              { action: "update", entity_type: "docket_entry", reasonRequired: false },
   DOCKET_ENTRY_DISMISSED:              { action: "update", entity_type: "docket_entry", reasonRequired: true  },
+  DOCKET_ENTRY_REVISED:                { action: "update", entity_type: "docket_entry", reasonRequired: false },
 } as const satisfies Record<string, AuditKindMeta>);
 
 export type CaseBoxAuditEventKind = keyof typeof CASE_BOX_AUDIT_EVENT_KINDS;

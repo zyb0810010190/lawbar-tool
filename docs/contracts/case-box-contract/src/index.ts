@@ -134,6 +134,7 @@ export {
 export {
   assertValidNewDocketEntry,
   assertValidDocketEntryConfirmation,
+  assertValidDocketEntryEdit,
   assertValidIanaTimezone,
   interpretDocketEntryDueAt,
   isDocketEntryProposalOnly,
@@ -141,6 +142,7 @@ export {
   requiresHumanConfirmation,
   DocketEntryCreationError,
   DocketEntryConfirmationError,
+  DocketEntryEditError,
   InvalidIanaTimezoneError,
   type DocketEntryDueAtInterpretation,
 } from "./docket-invariants.js";

@@ -17,12 +17,14 @@
 //    A DEPRECATED_TZ_DENYLIST is checked FIRST so America/Buenos_Aires is
 //    always rejected even if a future Node ICU adds it.
 
+import { isDeepStrictEqual } from "node:util";
 import type { CaseBoxDocketEntry } from "./generated/case-box-docket-entry.js";
 import { IllegalTransitionError } from "./transitions.js";
 import {
   isAllowedDocketEntryTransition,
   TERMINAL_DOCKET_ENTRY_STATES,
 } from "./transitions.js";
+import { validateDocketEntry } from "./validateDocketEntry.js";
 
 export class DocketEntryCreationError extends Error {
   readonly violation: string;
@@ -48,6 +50,15 @@ export class InvalidIanaTimezoneError extends Error {
     super(`not a valid IANA timezone (v1 strict): ${JSON.stringify(value)}`);
     this.name = "InvalidIanaTimezoneError";
     this.value = value;
+  }
+}
+
+export class DocketEntryEditError extends Error {
+  readonly violation: string;
+  constructor(violation: string) {
+    super(violation);
+    this.name = "DocketEntryEditError";
+    this.violation = violation;
   }
 }
 
@@ -210,6 +221,82 @@ export function assertValidDocketEntryConfirmation(
   if (entry.proposed_due_at_kind === "date_only") {
     throw new DocketEntryConfirmationError(
       `confirming a date_only docket entry is forbidden in v1 (no jurisdiction/timezone resolver). Upgrade to datetime + supply an IANA timezone before confirming.`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Edit rule — proposed-only, content-only, provenance/lifecycle immutable
+// ---------------------------------------------------------------------------
+
+/**
+ * The fields a docket-proposal edit MAY change (docs/adr/docket-proposal-edit.md
+ * §3 + the §6 revised_at marker). Every other field is immutable by construction.
+ */
+const EDITABLE_DOCKET_ENTRY_FIELDS: ReadonlySet<string> = new Set([
+  "proposed_kind",
+  "proposed_due_at",
+  "proposed_due_at_kind",
+  "proposed_due_at_timezone",
+  "proposed_owner_user_id",
+  "reminder_offsets",
+  "revised_at",
+]);
+
+/**
+ * Content-integrity invariant for editing a docket-entry proposal (ADR §2/§3/§4).
+ * NOT an authority-boundary sanitizer: revised_at is editable here, so a caller-
+ * supplied timestamp is not rejected — DPE3/DPE4 derive revised_at server-side and
+ * ignore client-supplied values (ADR §6 + the DPE2 plan Medium resolution).
+ *
+ * Enforcement, in order:
+ *  (a) Only a "proposed" entry may be edited. A confirmed/dismissed prior throws
+ *      IllegalTransitionError (the terminal-state rejection mirrors confirm/dismiss),
+ *      NOT DocketEntryEditError.
+ *  (b) Every key outside EDITABLE must be structurally equal across prior/revised
+ *      (node:util.isDeepStrictEqual — not a JSON-string compare). This keeps ALL
+ *      provenance/identity/lifecycle/confirmation+dismissal fields immutable by
+ *      construction, including future-added schema fields; a key present on only one
+ *      side outside EDITABLE is a violation.
+ *  (c) The revised entry must itself be schema-valid (ADR §4) via validateDocketEntry.
+ */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+export function assertValidDocketEntryEdit(
+  prior: CaseBoxDocketEntry,
+  revised: CaseBoxDocketEntry,
+): void {
+  // Both sides must be plain own-property records. A prototype-backed object (e.g.
+  // Object.create(prior)) would otherwise read inherited values through the
+  // immutable check and validateDocketEntry while JSON.stringify persisted only its
+  // own keys — a self-inconsistent "edit". Reject it up front.
+  if (!isPlainRecord(prior) || !isPlainRecord(revised)) {
+    throw new DocketEntryEditError(
+      "docket entry edit requires plain prior/revised objects (own properties only)",
+    );
+  }
+  if (prior.confirmation_state !== "proposed") {
+    throw new IllegalTransitionError(prior.confirmation_state, "proposed", "edit");
+  }
+  const priorRec = prior as Record<string, unknown>;
+  const revisedRec = revised as Record<string, unknown>;
+  const keys = new Set([...Object.keys(priorRec), ...Object.keys(revisedRec)]);
+  for (const key of keys) {
+    if (EDITABLE_DOCKET_ENTRY_FIELDS.has(key)) continue;
+    if (!isDeepStrictEqual(priorRec[key], revisedRec[key])) {
+      throw new DocketEntryEditError(
+        `docket entry edit may not change immutable field ${JSON.stringify(key)}`,
+      );
+    }
+  }
+  const result = validateDocketEntry(revised);
+  if (!result.ok) {
+    throw new DocketEntryEditError(
+      `revised docket entry is not schema-valid: ${result.summary}`,
     );
   }
 }

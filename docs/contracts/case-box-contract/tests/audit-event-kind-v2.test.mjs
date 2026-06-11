@@ -203,3 +203,26 @@ test("v2: an unsupported audit_schema_version is rejected by verifyAuditChain (s
   assert.equal(r.ok, false);
   assert.equal(r.errorReason, "event_schema_invalid");
 });
+
+// --- 10. WI-DPE2: DOCKET_ENTRY_REVISED is a first-class kind that auto-participates ---
+
+test("DOCKET_ENTRY_REVISED is a known kind declaring {update, docket_entry, reasonRequired:false}", () => {
+  const meta = CASE_BOX_AUDIT_EVENT_KINDS.DOCKET_ENTRY_REVISED;
+  assert.ok(meta, "DOCKET_ENTRY_REVISED must be in CASE_BOX_AUDIT_EVENT_KINDS");
+  assert.equal(meta.action, "update");
+  assert.equal(meta.entity_type, "docket_entry");
+  assert.equal(meta.reasonRequired, false);
+});
+
+test("v2: a DOCKET_ENTRY_REVISED event canonicalizes deterministically and verifies", () => {
+  const ev = v2Event({
+    action: "update", entity_type: "docket_entry", event_kind: "DOCKET_ENTRY_REVISED",
+    before_state_hash: "sha256:prev",
+  });
+  // Auto-participates: the canonicalizer accepts it via the hasOwnProperty kind gate (no code change).
+  const canonical = canonicalAuditEventHashInput(ev);
+  assert.equal(canonical, canonicalAuditEventHashInput(ev)); // deterministic
+  assert.match(canonical, /"event_kind":"DOCKET_ENTRY_REVISED"/);
+  const r = verifyAuditChain([ev], { eventHashFn });
+  assert.equal(r.ok, true);
+});
