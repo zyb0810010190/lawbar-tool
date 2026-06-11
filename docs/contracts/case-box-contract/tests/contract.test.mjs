@@ -530,6 +530,31 @@ test("invalid: docket-entry-reminder-extra-property is rejected (additionalPrope
   assert.equal(validateDocketEntry(readJson(join(invalidDir, "docket-entry-reminder-extra-property.json"))), false);
 });
 
+// WI-DPE2 — optional nullable revised_at (docs/adr/docket-proposal-edit.md §6).
+// Additive + optional: existing entries (no revised_at) still validate; an entry
+// with a date-time revised_at or null validates; a non-date-time revised_at is rejected.
+
+test("valid: docket entry WITHOUT revised_at still passes (optional, additive)", () => {
+  const base = readJson(join(validDir, "docket-entry-proposed-manual.valid.json"));
+  assert.equal("revised_at" in base, false);
+  assert.equal(validateDocketEntry(base), true, errs(validateDocketEntry));
+});
+
+test("valid: docket entry WITH a date-time revised_at passes", () => {
+  const base = readJson(join(validDir, "docket-entry-proposed-manual.valid.json"));
+  assert.equal(validateDocketEntry({ ...base, revised_at: "2026-06-01T00:00:00.000Z" }), true, errs(validateDocketEntry));
+});
+
+test("valid: docket entry WITH revised_at = null passes (nullable)", () => {
+  const base = readJson(join(validDir, "docket-entry-proposed-manual.valid.json"));
+  assert.equal(validateDocketEntry({ ...base, revised_at: null }), true, errs(validateDocketEntry));
+});
+
+test("invalid: docket entry with a non-date-time revised_at is rejected", () => {
+  const base = readJson(join(validDir, "docket-entry-proposed-manual.valid.json"));
+  assert.equal(validateDocketEntry({ ...base, revised_at: "not-a-date-time" }), false);
+});
+
 // ---------------------------------------------------------------------------
 // WI-brief-matter-type — R-5 (a)..(j) additive contract surface
 // See dev-memo/plan-brief-matter-type.md.

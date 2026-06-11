@@ -160,7 +160,12 @@
         { "type": "string", "minLength": 1 }
       ]
     },
-    "created_at": { "type": "string", "format": "date-time" }
+    "created_at": { "type": "string", "format": "date-time" },
+    "revised_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "WI-DPE2 (docs/adr/docket-proposal-edit.md §6). Optional, nullable timestamp of the last proposal edit. Absent on never-edited entries; existing entries stay valid. Authority (server-side derivation, ignoring client-supplied values) is owned by DPE3/DPE4, NOT this schema."
+    }
   },
   "allOf": [
     {

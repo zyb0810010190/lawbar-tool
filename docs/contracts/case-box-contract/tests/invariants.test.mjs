@@ -26,6 +26,9 @@ import {
   assertValidMatterSuccessor,
   DocumentSupersessionInvariantError,
   MatterSuccessorInvariantError,
+  assertValidDocketEntryEdit,
+  DocketEntryEditError,
+  IllegalTransitionError,
 } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -317,4 +320,104 @@ test("assertValidMatterSuccessor: passes when successor tenant matches and matte
     original: { id: "01jrcasebox0000000000000m4", tenant_id: "t1", matter_type: "advisory", successor_matter_id: "01jrcasebox0000000000000m5" },
     successor: { id: "01jrcasebox0000000000000m5", tenant_id: "t1", matter_type: "litigation" },
   }));
+});
+
+// ---------------------------------------------------------------------------
+// WI-DPE2 — assertValidDocketEntryEdit (docket proposal edit contract).
+// See docs/adr/docket-proposal-edit.md §2 (proposed-only), §3 (editable fields),
+// §4 (immutable provenance/lifecycle + revised-entry schema validity).
+// ---------------------------------------------------------------------------
+
+const proposedDocketEntry = () => readJson(join(validDir, "docket-entry-proposed-manual.valid.json"));
+const confirmedDocketEntry = () => readJson(join(validDir, "docket-entry-confirmed.valid.json"));
+
+// The 7 editable fields (ADR §3 + the §6 revised_at marker) — the helper accepts
+// a content-only change to each of these.
+test("assertValidDocketEntryEdit: accepts a content-only edit to each editable field", () => {
+  // All 7 editable fields, each changed in isolation to a schema-valid value.
+  // (prior is a datetime entry with a non-null timezone; switching kind to
+  // date_only keeps the existing timezone string, which the schema allows.)
+  const edits = {
+    proposed_kind: "filing",
+    proposed_due_at: "2026-07-01T12:00:00.000Z",
+    proposed_due_at_kind: "date_only",
+    proposed_due_at_timezone: "UTC",
+    proposed_owner_user_id: "owner-2",
+    reminder_offsets: [{ offset_days: 3, kind: "advance_notice" }],
+    revised_at: "2026-06-01T00:00:00.000Z",
+  };
+  for (const [field, value] of Object.entries(edits)) {
+    const prior = proposedDocketEntry();
+    const revised = { ...prior, [field]: value };
+    assert.doesNotThrow(
+      () => assertValidDocketEntryEdit(prior, revised),
+      `editing ${field} should be allowed`,
+    );
+  }
+});
+
+test("assertValidDocketEntryEdit: accepts a date_only → datetime+timezone upgrade", () => {
+  const prior = { ...proposedDocketEntry(), proposed_due_at_kind: "date_only", proposed_due_at_timezone: null };
+  const revised = { ...prior, proposed_due_at_kind: "datetime", proposed_due_at_timezone: "America/New_York" };
+  assert.doesNotThrow(() => assertValidDocketEntryEdit(prior, revised));
+});
+
+test("assertValidDocketEntryEdit: setting revised_at on an entry without it is allowed", () => {
+  const prior = proposedDocketEntry();
+  const revised = { ...prior, revised_at: "2026-06-02T09:30:00.000Z" };
+  assert.doesNotThrow(() => assertValidDocketEntryEdit(prior, revised));
+});
+
+// Every field NOT in EDITABLE is immutable (enumeration-free, via isDeepStrictEqual).
+const IMMUTABLE_DOCKET_ENTRY_FIELDS = [
+  "id", "tenant_id", "actor_user_id", "matter_id", "source_type",
+  "source_rule_citation", "extractor_name", "extractor_version", "extraction_confidence",
+  "source_document_id", "source_page_number", "source_excerpt",
+  "confirmation_state", "proposed_at", "confirmation_actor_user_id", "confirmed_at",
+  "confirmed_deadline_id", "dismissal_actor_user_id", "dismissed_at", "dismissal_reason", "created_at",
+];
+
+for (const field of IMMUTABLE_DOCKET_ENTRY_FIELDS) {
+  test(`assertValidDocketEntryEdit: rejects an edit to immutable field ${field}`, () => {
+    const prior = proposedDocketEntry();
+    // Force structural inequality: null → marker string; otherwise → null.
+    const changed = prior[field] === null ? "01jrcasebox00000000000chg1" : null;
+    const revised = { ...prior, [field]: changed };
+    assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+  });
+}
+
+test("assertValidDocketEntryEdit: rejects a non-proposed prior with IllegalTransitionError", () => {
+  const prior = confirmedDocketEntry();
+  assert.equal(prior.confirmation_state, "confirmed");
+  const revised = { ...prior, proposed_kind: "filing" };
+  assert.throws(() => assertValidDocketEntryEdit(prior, revised), IllegalTransitionError);
+});
+
+test("assertValidDocketEntryEdit: rejects adding a key outside EDITABLE", () => {
+  const prior = proposedDocketEntry();
+  const revised = { ...prior, bogus_field: "x" };
+  assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+});
+
+test("assertValidDocketEntryEdit: rejects removing a key outside EDITABLE", () => {
+  const prior = proposedDocketEntry();
+  const revised = { ...prior };
+  delete revised.created_at;
+  assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+});
+
+test("assertValidDocketEntryEdit: rejects a schema-invalid revised entry (editable field made invalid)", () => {
+  const prior = proposedDocketEntry();
+  const revised = { ...prior, proposed_due_at: "not-a-date-time" };
+  assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+});
+
+test("assertValidDocketEntryEdit: rejects a prototype-backed revised object (own properties only)", () => {
+  const prior = proposedDocketEntry();
+  // Object.create(prior): only proposed_kind is an OWN key; every immutable field is
+  // inherited, so the own-key diff + JSON.stringify would disagree. Must be rejected.
+  const revised = Object.create(prior);
+  revised.proposed_kind = "filing";
+  assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
 });

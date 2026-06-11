@@ -106,7 +106,8 @@ export type CaseBoxAuditEvent = {
     | "CLASSIFICATION_RESET_TO_UNCLASSIFIED"
     | "DOCKET_ENTRY_PROPOSED"
     | "DOCKET_ENTRY_CONFIRMED"
-    | "DOCKET_ENTRY_DISMISSED";
+    | "DOCKET_ENTRY_DISMISSED"
+    | "DOCKET_ENTRY_REVISED";
   /**
    * Audit-event canonicalization version. v2 events set this to 2 (the value is hashed in the v2 canonicalization); absent on legacy v1 events. Present iff event_kind is present.
    */
