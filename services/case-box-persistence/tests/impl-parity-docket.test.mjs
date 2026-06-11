@@ -148,3 +148,35 @@ test("impl-parity B7.8: rejection parity (cross-tenant docket; unknown deadlineI
   try { await sqlite.transitionDeadline("01jcasedlinemockid000nope0", unknownOpts); } catch (e) { sqErr = e; }
   assert.equal(sqErr.code, imErr.code);
 });
+
+// ---------------------------------------------------------------------------
+// WI-DPE3 — editDocketEntry parity
+// ---------------------------------------------------------------------------
+
+test("impl-parity DPE3.1: editDocketEntry identical (in-memory ≡ SQLite, fixed clock)", async () => {
+  const { makeEditDocketEntryOpts } = await import("./conformance/fixtures.mjs");
+  const { inMem, sqlite } = await buildPairForDocket();
+  await inMem.appendDocketEntry(makeDocketEntryInput());
+  await sqlite.appendDocketEntry(makeDocketEntryInput());
+  const opts = makeEditDocketEntryOpts();
+  const im = await inMem.editDocketEntry(opts);
+  const sq = await sqlite.editDocketEntry(opts);
+  assert.deepEqual(sq, im);
+  assert.equal(sq.proposed_kind, "hearing");
+  assert.equal(typeof sq.revised_at, "string");
+  assert.equal(sq.confirmation_state, "proposed");
+});
+
+test("impl-parity DPE3.2: editDocketEntry ignores adversarial caller revised_at identically", async () => {
+  const { makeEditDocketEntryOpts } = await import("./conformance/fixtures.mjs");
+  const { inMem, sqlite } = await buildPairForDocket();
+  await inMem.appendDocketEntry(makeDocketEntryInput());
+  await sqlite.appendDocketEntry(makeDocketEntryInput());
+  const FORGED = "1999-01-01T00:00:00.000Z";
+  const opts = makeEditDocketEntryOpts({ revised_at: FORGED });
+  const im = await inMem.editDocketEntry(opts);
+  const sq = await sqlite.editDocketEntry(opts);
+  assert.deepEqual(sq, im);
+  assert.notEqual(sq.revised_at, FORGED);
+  assert.ok(!JSON.stringify(sq).includes(FORGED));
+});

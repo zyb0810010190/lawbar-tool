@@ -34,6 +34,7 @@ import type {
   ConfirmDocketEntryResult,
   DeadlineTransitionOpts,
   DismissDocketEntryOpts,
+  EditDocketEntryOpts,
   EffectiveClassificationResult,
   EvidenceTransitionOpts,
   FactTransitionOpts,
@@ -110,6 +111,7 @@ import {
 } from "./inMemoryFact.js";
 import {
   applyAppendDocketEntry,
+  applyEditDocketEntry,
   createDocketState,
   listDocketEntries as listDocketEntriesImpl,
   prepareConfirmDocketEntry,
@@ -554,6 +556,11 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     stored.push(prepared.audit);
     state.auditByMatter.set(prepared.matterId, stored);
     return structuredClone(prepared.next) as CaseBoxDocketEntry;
+  }
+
+  async editDocketEntry(opts: EditDocketEntryOpts): Promise<CaseBoxDocketEntry> {
+    const state = stateOf(this);
+    return applyEditDocketEntry(state.docket, state, this.#commonAppendDeps(), opts);
   }
 
   async getDocketEntry(query: GetDocketEntryQuery): Promise<CaseBoxDocketEntry | null> {

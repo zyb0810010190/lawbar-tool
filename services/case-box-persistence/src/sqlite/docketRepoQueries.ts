@@ -40,10 +40,12 @@ import {
   prepareAppendDocketEntry,
   prepareConfirmDocketEntry,
   prepareDismissDocketEntry,
+  prepareEditDocketEntry,
   type ConfirmDocketEntryOpts,
   type DismissDocketEntryOpts,
   type DocketState,
 } from "../inMemoryDocket.js";
+import type { EditDocketEntryOpts } from "../types.js";
 import type {
   GetDocketEntryQuery,
   ListDocketEntriesPage,
@@ -190,6 +192,25 @@ export function updateDocketEntryRow(db: Database, e: CaseBoxDocketEntry): void 
   ).run(
     e.confirmation_state,
     e.confirmed_deadline_id ?? null,
+    JSON.stringify(e),
+    e.id,
+  );
+}
+
+/**
+ * WI-DPE3 — dedicated edit-specific UPDATE. Patches ONLY the lifted editable
+ * column `proposed_kind` + `payload_json` (which carries `revised_at` + the rest of
+ * the editable content). `confirmation_state` stays `proposed` and is intentionally
+ * NOT in the SET list. Deliberately separate from the generic `updateDocketEntryRow`
+ * (confirm/dismiss) so neither path can touch the other's column set.
+ */
+export function updateDocketEntryEditRow(db: Database, e: CaseBoxDocketEntry): void {
+  db.prepare(
+    `UPDATE case_box_docket_entries
+       SET proposed_kind = ?, payload_json = ?
+     WHERE id = ?`,
+  ).run(
+    (e as { proposed_kind: string }).proposed_kind,
     JSON.stringify(e),
     e.id,
   );
@@ -357,6 +378,33 @@ export function applyDismissDocketEntrySqlite(
     storedAuditEventsForMatter: (matterId) => deps.storedAuditEventsForMatter(matterId),
   });
   updateDocketEntryRow(db, prepared.next);
+  deps.writeAuditEventAndUpdateHead(prepared.audit, eventHashFn(prepared.audit.event));
+  return prepared.next;
+}
+
+// ---------------------------------------------------------------------------
+// applyEditDocketEntrySqlite — WI-DPE3 (caller-transaction-wrapped)
+//
+// Matter existence + matter-tenant isolation FIRST (requireMatterTenant), then
+// resolve the prior entry via the matter-scoped shadow state, prepare (scope +
+// contract + server-derived revised_at + one DOCKET_ENTRY_REVISED event), run the
+// dedicated edit UPDATE (lifted proposed_kind + payload_json), write the event.
+// Runs inside the caller's #runImmediateWrite transaction.
+// ---------------------------------------------------------------------------
+
+export function applyEditDocketEntrySqlite(
+  db: Database,
+  opts: EditDocketEntryOpts,
+  deps: WriteDeps,
+): CaseBoxDocketEntry {
+  requireMatterTenant(db, opts.matter_id, opts.tenant_id);
+  const { docket } = buildShadowConfirmStates(db, opts.entry_id);
+  const prepared = prepareEditDocketEntry(docket, opts, {
+    generateId: deps.generateId,
+    nowIso: deps.nowIso,
+    storedAuditEventsForMatter: (matterId) => deps.storedAuditEventsForMatter(matterId),
+  });
+  updateDocketEntryEditRow(db, prepared.next);
   deps.writeAuditEventAndUpdateHead(prepared.audit, eventHashFn(prepared.audit.event));
   return prepared.next;
 }

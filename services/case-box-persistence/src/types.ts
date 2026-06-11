@@ -168,6 +168,7 @@ export interface CaseBoxPersistence {
   appendDocketEntry(input: unknown): Promise<CaseBoxDocketEntry>;
   confirmDocketEntry(entryId: string, opts: ConfirmDocketEntryOpts): Promise<ConfirmDocketEntryResult>;
   dismissDocketEntry(entryId: string, opts: DismissDocketEntryOpts): Promise<CaseBoxDocketEntry>;
+  editDocketEntry(opts: EditDocketEntryOpts): Promise<CaseBoxDocketEntry>;
   getDocketEntry(query: GetDocketEntryQuery): Promise<CaseBoxDocketEntry | null>;
   listDocketEntries(query: ListDocketEntriesQuery): Promise<ListDocketEntriesPage>;
   transitionDeadline(deadlineId: string, opts: DeadlineTransitionOpts): Promise<CaseBoxDeadline>;
@@ -347,6 +348,28 @@ export interface DismissDocketEntryOpts {
   readonly dismissal_actor_user_id: string;
   readonly dismissed_at: string;
   readonly dismissal_reason: string;
+}
+
+/**
+ * WI-DPE3 — a docket-proposal edit (in-place content edit of a `proposed` entry).
+ * Single scoped argument: `tenant_id`/`matter_id`/`entry_id` mirror `GetDocketEntryQuery`
+ * (deliberately MORE scoped than confirm/dismiss so a mutating op can verify caller-claimed
+ * isolation), plus the editing actor and the SIX editable content fields. It carries NO
+ * `revised_at` — that is server-derived; any caller-supplied `revised_at` is ignored.
+ */
+export interface EditDocketEntryOpts {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly entry_id: string;
+  readonly editor_actor_user_id: string;
+  readonly proposed_kind: string;
+  readonly proposed_due_at: string;
+  readonly proposed_due_at_kind: "datetime" | "date_only";
+  readonly proposed_due_at_timezone: string | null;
+  readonly proposed_owner_user_id: string;
+  readonly reminder_offsets:
+    | null
+    | ReadonlyArray<{ readonly offset_days: number; readonly kind: "advance_notice" | "final_notice" }>;
 }
 
 export interface GetDocketEntryQuery {

@@ -17,6 +17,7 @@ import {
   makeClassificationInput,
   makeClock,
   makeDocketEntryInput,
+  makeEditDocketEntryOpts,
   makeDocumentInput,
   makeEvidenceItemInput,
   makeFactInput,
@@ -2148,6 +2149,181 @@ export function runConformance(label, factory) {
     assert.equal(row.status, "missed");
     // Confirm contract: no missed_at field exists in the deadline schema.
     assert.ok(!Object.prototype.hasOwnProperty.call(row, "missed_at"));
+  });
+
+  // -------------------------------------------------------------------------
+  // WI-DPE3 — editDocketEntry (docket proposal edit)
+  // -------------------------------------------------------------------------
+
+  const seedProposedDocket = async () => {
+    const p = await seedMatterDoc();
+    await p.appendDocketEntry(makeDocketEntryInput());
+    return p;
+  };
+
+  test(`${label}: 6.A5.E1 editDocketEntry content-only edit persists + one DOCKET_ENTRY_REVISED`, async () => {
+    const p = await seedProposedDocket();
+    const edited = await p.editDocketEntry(makeEditDocketEntryOpts());
+    assert.equal(edited.proposed_kind, "hearing");
+    assert.equal(edited.confirmation_state, "proposed");
+    assert.equal(typeof edited.revised_at, "string");
+    assert.match(edited.revised_at, /^\d{4}-\d{2}-\d{2}T/);
+    // identity + provenance unchanged
+    assert.equal(edited.id, DEFAULT_DOCKET_ENTRY_ID);
+    assert.equal(edited.tenant_id, DEFAULT_TENANT_ID);
+    assert.equal(edited.matter_id, DEFAULT_MATTER_ID);
+    assert.equal(edited.source_type, "manual");
+    const round = await p.getDocketEntry({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, entry_id: DEFAULT_DOCKET_ENTRY_ID,
+    });
+    assert.equal(round.proposed_kind, "hearing");
+    assert.equal(round.revised_at, edited.revised_at);
+    const page = await p.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+    const revisedEvents = page.rows.filter((e) => e.event_kind === "DOCKET_ENTRY_REVISED");
+    assert.equal(revisedEvents.length, 1);
+    assert.equal(revisedEvents[0].action, "update");
+    assert.equal(revisedEvents[0].entity_type, "docket_entry");
+    assert.equal(revisedEvents[0].actor_user_id, "local-user");
+    // one server timestamp sample drives both revised_at and the audit timestamp
+    assert.equal(revisedEvents[0].timestamp, edited.revised_at);
+    const ver = await p.verifyAuditChainForMatter(DEFAULT_MATTER_ID);
+    assert.equal(ver.ok, true);
+  });
+
+  test(`${label}: 6.A5.E2 editDocketEntry server-derives revised_at, ignoring adversarial caller value`, async () => {
+    const p = await seedProposedDocket();
+    const FORGED = "1999-01-01T00:00:00.000Z";
+    const FUTURE = "2099-12-31T23:59:59.000Z";
+    for (const forged of [FORGED, FUTURE, "not-a-real-timestamp"]) {
+      const p2 = await seedProposedDocket();
+      const edited = await p2.editDocketEntry(makeEditDocketEntryOpts({ revised_at: forged }));
+      assert.notEqual(edited.revised_at, forged);
+      assert.match(edited.revised_at, /^\d{4}-\d{2}-\d{2}T/);
+      // caller value must appear nowhere in the persisted entry...
+      const round = await p2.getDocketEntry({
+        tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, entry_id: DEFAULT_DOCKET_ENTRY_ID,
+      });
+      assert.ok(!JSON.stringify(round).includes(forged), `forged ${forged} leaked into persisted entry`);
+      // ...nor in the DOCKET_ENTRY_REVISED audit event payload
+      const page = await p2.listAuditEvents({ tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID });
+      const rev = page.rows.filter((e) => e.event_kind === "DOCKET_ENTRY_REVISED");
+      assert.equal(rev.length, 1);
+      assert.ok(!JSON.stringify(rev[0]).includes(forged), `forged ${forged} leaked into audit payload`);
+      assert.equal(rev[0].timestamp, edited.revised_at);
+    }
+    void p;
+  });
+
+  test(`${label}: 6.A5.E3 editDocketEntry on a confirmed entry → illegal_transition`, async () => {
+    const p = await seedProposedDocket();
+    await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    await assertRejectsCode(() => p.editDocketEntry(makeEditDocketEntryOpts()), "illegal_transition");
+  });
+
+  test(`${label}: 6.A5.E4 editDocketEntry allow-list ignores caller-supplied internal/provenance fields`, async () => {
+    const p = await seedProposedDocket();
+    const edited = await p.editDocketEntry(makeEditDocketEntryOpts({
+      // none of these are editable; the allow-list must never read them
+      source_type: "llm_extraction",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      confirmation_actor_user_id: "evil",
+      id: "01jcaseEVILid0000000000001",
+      created_at: "1999-01-01T00:00:00.000Z",
+    }));
+    assert.equal(edited.source_type, "manual");
+    assert.equal(edited.confirmed_at, null);
+    assert.equal(edited.confirmation_actor_user_id, null);
+    assert.equal(edited.id, DEFAULT_DOCKET_ENTRY_ID);
+    assert.equal(edited.created_at, "2026-05-21T20:00:00.000Z");
+    assert.equal(edited.proposed_kind, "hearing"); // the one editable change still applied
+  });
+
+  test(`${label}: 6.A5.E5 editDocketEntry unknown entry → invalid_argument`, async () => {
+    const p = await seedProposedDocket();
+    await assertRejectsCode(
+      () => p.editDocketEntry(makeEditDocketEntryOpts({ entry_id: "01jcasenosuchdock00000001" })),
+      "invalid_argument",
+    );
+  });
+
+  test(`${label}: 6.A5.E6 editDocketEntry unknown matter → unknown_matter`, async () => {
+    const p = await seedProposedDocket();
+    await assertRejectsCode(
+      () => p.editDocketEntry(makeEditDocketEntryOpts({ matter_id: "01nonexistmatter00000000xx" })),
+      "unknown_matter",
+    );
+  });
+
+  test(`${label}: 6.A5.E7 editDocketEntry tenant mismatch → tenant_mismatch`, async () => {
+    const p = await seedProposedDocket();
+    await assertRejectsCode(
+      () => p.editDocketEntry(makeEditDocketEntryOpts({ tenant_id: "other-tenant" })),
+      "tenant_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A5.E8 editDocketEntry entry-not-in-requested-matter → matter_id_mismatch`, async () => {
+    const p = await seedProposedDocket();
+    const OTHER_MATTER = "01jcasemattermockid0000002";
+    await p.createMatter(makeMatterInput({ id: OTHER_MATTER }));
+    await assertRejectsCode(
+      () => p.editDocketEntry(makeEditDocketEntryOpts({ matter_id: OTHER_MATTER })),
+      "matter_id_mismatch",
+    );
+  });
+
+  test(`${label}: 6.A5.E9 editDocketEntry rejects invalid IANA timezone`, async () => {
+    const p = await seedProposedDocket();
+    await assertRejectsCode(
+      () => p.editDocketEntry(makeEditDocketEntryOpts({ proposed_due_at_timezone: "NotARealZone/Foo" })),
+      "invalid_payload",
+    );
+  });
+
+  test(`${label}: 6.A5.E10 list/read has no stale-row regression after edit`, async () => {
+    const p = await seedProposedDocket();
+    await p.editDocketEntry(makeEditDocketEntryOpts());
+    const page = await p.listDocketEntries({
+      tenant_id: DEFAULT_TENANT_ID, matter_id: DEFAULT_MATTER_ID, confirmation_state: "proposed",
+    });
+    assert.equal(page.rows.length, 1);
+    assert.equal(page.rows[0].id, DEFAULT_DOCKET_ENTRY_ID);
+    assert.equal(page.rows[0].proposed_kind, "hearing");
+  });
+
+  test(`${label}: 6.A5.E11 edit-then-confirm materializes the EDITED proposal`, async () => {
+    const p = await seedProposedDocket();
+    await p.editDocketEntry(makeEditDocketEntryOpts({ proposed_kind: "hearing" }));
+    const { deadline } = await p.confirmDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+      confirmation_actor_user_id: "lawyer-01",
+      confirmed_at: "2026-05-21T21:00:00.000Z",
+      deadline_id: DEFAULT_DEADLINE_ID,
+    });
+    assert.equal(deadline.kind, "hearing"); // edited content, not the original "filing"
+  });
+
+  test(`${label}: 6.A5.E12 editDocketEntry cross-tenant entry_id (same-tenant requested matter) → invalid_argument, no disclosure`, async () => {
+    const p = await seedProposedDocket(); // matter+entry in DEFAULT_TENANT
+    // A matter + entry in a DIFFERENT tenant.
+    const OTHER_TENANT = "tenant-b";
+    const OTHER_MATTER = "01jcasemattermockid0000003";
+    const OTHER_ENTRY = "01jcasedockmockid000000002";
+    await p.createMatter(makeMatterInput({ id: OTHER_MATTER, tenant_id: OTHER_TENANT }));
+    await p.appendDocketEntry(makeDocketEntryInput({ id: OTHER_ENTRY, tenant_id: OTHER_TENANT, matter_id: OTHER_MATTER }));
+    // Caller is DEFAULT_TENANT with their OWN valid matter, but supplies the foreign entry id.
+    // Must be reported as unknown (invalid_argument), NOT matter_id_mismatch (which would leak the
+    // foreign entry's matter_id across the tenant boundary).
+    let caught;
+    try {
+      await p.editDocketEntry(makeEditDocketEntryOpts({ entry_id: OTHER_ENTRY }));
+    } catch (e) { caught = e; }
+    assert.ok(caught, "expected rejection");
+    assert.equal(caught.code, "invalid_argument");
+    assert.ok(!String(caught.message).includes(OTHER_MATTER), "must not disclose the foreign matter_id");
   });
 
   test(`${label}: 6.A5.28 transitionDeadline pending → withdrawn`, async () => {
