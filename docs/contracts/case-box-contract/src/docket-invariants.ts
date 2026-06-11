@@ -233,7 +233,7 @@ export function assertValidDocketEntryConfirmation(
  * The fields a docket-proposal edit MAY change (docs/adr/docket-proposal-edit.md
  * §3 + the §6 revised_at marker). Every other field is immutable by construction.
  */
-const EDITABLE_DOCKET_ENTRY_FIELDS: ReadonlySet<string> = new Set([
+const EDITABLE_DOCKET_ENTRY_FIELDS: readonly string[] = [
   "proposed_kind",
   "proposed_due_at",
   "proposed_due_at_kind",
@@ -241,7 +241,76 @@ const EDITABLE_DOCKET_ENTRY_FIELDS: ReadonlySet<string> = new Set([
   "proposed_owner_user_id",
   "reminder_offsets",
   "revised_at",
-]);
+];
+
+// Intrinsics captured at module load so later reassignment of these globals or
+// prototype pollution (Object/Array/Set/Number) cannot subvert the persisted-shape
+// normalizer below (WI-DPE2-FIX1, Class-A prototype-pollution hardening).
+const objectKeys = Object.keys;
+const objectCreate = Object.create;
+const objectHasOwn = Object.hasOwn;
+const objectGetPrototypeOf = Object.getPrototypeOf;
+const objectProto = Object.prototype;
+const arrayIsArray = Array.isArray;
+const numberIsFinite = Number.isFinite;
+
+// Null-prototype editable-field lookup, built once at module load (Array.prototype is
+// pristine here, before any caller runs). Membership is tested at call time with the
+// captured objectHasOwn — a direct intrinsic invocation with NO `.call`/`.has` method
+// lookup, so Function.prototype.call / Set.prototype.has pollution cannot subvert it
+// (WI-DPE2-FIX1 audit High).
+const EDITABLE_DOCKET_ENTRY_FIELD_LOOKUP: Record<string, true> = objectCreate(null);
+for (const field of EDITABLE_DOCKET_ENTRY_FIELDS) {
+  EDITABLE_DOCKET_ENTRY_FIELD_LOOKUP[field] = true;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  const proto = objectGetPrototypeOf(value);
+  return proto === objectProto || proto === null;
+}
+
+/**
+ * Reduce a value to the shape JSON persistence (payload_json) would store: own-
+ * enumerable JSON-primitive data, recursively, using ONLY captured intrinsics — it
+ * never invokes toJSON, an instance `.map`, the Array iterator, or the `__proto__`
+ * setter. Inherited, non-enumerable, and non-JSON values are dropped at every level
+ * (top-level fields AND nested reminder_offsets items alike). Normalized records use
+ * a null prototype so an own "__proto__" data key cannot trigger the legacy setter.
+ * (WI-DPE2-FIX1 — see the assertValidDocketEntryEdit precondition for the threat-model
+ * boundary: this defends prototype pollution on JSON-origin data, not live getters /
+ * Proxies, which are a caller-contract violation.)
+ */
+function persistedShape(value: unknown): unknown {
+  if (value === null) return null;
+  const t = typeof value;
+  if (t === "string" || t === "boolean") return value;
+  if (t === "number") return numberIsFinite(value) ? value : undefined;
+  if (arrayIsArray(value)) {
+    const arr = value as unknown[];
+    const out: unknown[] = [];
+    const len = arr.length;
+    for (let i = 0; i < len; i += 1) {
+      // JSON array semantics: a hole or a non-JSON element serializes as null.
+      const pv = objectHasOwn(arr, i) ? persistedShape(arr[i]) : null;
+      out[i] = pv === undefined ? null : pv;
+    }
+    return out;
+  }
+  if (t === "object") {
+    if (!isPlainRecord(value)) return undefined;
+    const src = value;
+    const out: Record<string, unknown> = objectCreate(null);
+    const keys = objectKeys(src);
+    for (let i = 0; i < keys.length; i += 1) {
+      const key = keys[i] as string;
+      const nv = persistedShape(src[key]);
+      if (nv !== undefined) out[key] = nv;
+    }
+    return out;
+  }
+  return undefined;
+}
 
 /**
  * Content-integrity invariant for editing a docket-entry proposal (ADR §2/§3/§4).
@@ -249,51 +318,80 @@ const EDITABLE_DOCKET_ENTRY_FIELDS: ReadonlySet<string> = new Set([
  * supplied timestamp is not rejected — DPE3/DPE4 derive revised_at server-side and
  * ignore client-supplied values (ADR §6 + the DPE2 plan Medium resolution).
  *
+ * PRECONDITION: `prior` and `revised` MUST be plain JSON-origin data — e.g. the output
+ * of JSON.parse or a structured clone: plain objects/arrays of strings, finite numbers,
+ * booleans, and null. Live accessors (getters), custom prototypes, and Proxies are a
+ * CALLER-CONTRACT VIOLATION and are NOT defended here: this is a content-integrity
+ * invariant, not a hostile-object membrane. DPE3/DPE4 MUST pass deserialized/plain DTO
+ * records (and derive revised_at server-side). The hardening below defends against
+ * prototype pollution of Object/Array/Set on such JSON-origin data (WI-DPE2-FIX1);
+ * fully closing live-getter TOCTOU / Proxy concerns would require a different API
+ * (returning the validated snapshot) and is deferred to a separate WI.
+ *
  * Enforcement, in order:
  *  (a) Only a "proposed" entry may be edited. A confirmed/dismissed prior throws
  *      IllegalTransitionError (the terminal-state rejection mirrors confirm/dismiss),
  *      NOT DocketEntryEditError.
- *  (b) Every key outside EDITABLE must be structurally equal across prior/revised
- *      (node:util.isDeepStrictEqual — not a JSON-string compare). This keeps ALL
- *      provenance/identity/lifecycle/confirmation+dismissal fields immutable by
- *      construction, including future-added schema fields; a key present on only one
- *      side outside EDITABLE is a violation.
- *  (c) The revised entry must itself be schema-valid (ADR §4) via validateDocketEntry.
+ *  (b) Both sides are reduced to their persisted (own-enumerable JSON) shape via
+ *      persistedShape; every key outside EDITABLE must be deeply equal across those
+ *      shapes (node:util.isDeepStrictEqual). This keeps ALL provenance/identity/
+ *      lifecycle/confirmation+dismissal fields immutable by construction, including
+ *      future-added schema fields; a key present on only one side outside EDITABLE is
+ *      a violation. Reducing to the persisted shape first means an inherited, non-
+ *      enumerable, or non-JSON value cannot mask a missing required field.
+ *  (c) The revised persisted shape must itself be schema-valid (ADR §4).
  */
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== "object") return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
 export function assertValidDocketEntryEdit(
   prior: CaseBoxDocketEntry,
   revised: CaseBoxDocketEntry,
 ): void {
-  // Both sides must be plain own-property records. A prototype-backed object (e.g.
-  // Object.create(prior)) would otherwise read inherited values through the
-  // immutable check and validateDocketEntry while JSON.stringify persisted only its
-  // own keys — a self-inconsistent "edit". Reject it up front.
   if (!isPlainRecord(prior) || !isPlainRecord(revised)) {
     throw new DocketEntryEditError(
       "docket entry edit requires plain prior/revised objects (own properties only)",
     );
   }
+  // (a) proposed-only — read the RAW prior so a non-proposed prior throws FIRST.
   if (prior.confirmation_state !== "proposed") {
     throw new IllegalTransitionError(prior.confirmation_state, "proposed", "edit");
   }
-  const priorRec = prior as Record<string, unknown>;
-  const revisedRec = revised as Record<string, unknown>;
-  const keys = new Set([...Object.keys(priorRec), ...Object.keys(revisedRec)]);
-  for (const key of keys) {
-    if (EDITABLE_DOCKET_ENTRY_FIELDS.has(key)) continue;
-    if (!isDeepStrictEqual(priorRec[key], revisedRec[key])) {
+  // Reduce both sides to the persisted own-enumerable JSON shape (intrinsics-only).
+  let priorOwn: unknown;
+  let revisedOwn: unknown;
+  try {
+    priorOwn = persistedShape(prior);
+    revisedOwn = persistedShape(revised);
+  } catch {
+    throw new DocketEntryEditError(
+      "docket entry edit: prior/revised is not a normalizable JSON shape",
+    );
+  }
+  if (!isPlainRecord(priorOwn) || !isPlainRecord(revisedOwn)) {
+    throw new DocketEntryEditError(
+      "docket entry edit: prior/revised did not normalize to a plain record",
+    );
+  }
+  const pOwn = priorOwn;
+  const rOwn = revisedOwn;
+  // (b) Every key outside EDITABLE must be deeply equal across the persisted shapes.
+  // Iterate the union with index loops + captured intrinsics (no Set/Array iterator,
+  // no Set.prototype.has lookup) so prototype pollution cannot subvert membership.
+  const checked: Record<string, true> = objectCreate(null);
+  const checkKey = (key: string): void => {
+    if (objectHasOwn(checked, key)) return;
+    checked[key] = true;
+    if (objectHasOwn(EDITABLE_DOCKET_ENTRY_FIELD_LOOKUP, key)) return;
+    if (!isDeepStrictEqual(pOwn[key], rOwn[key])) {
       throw new DocketEntryEditError(
         `docket entry edit may not change immutable field ${JSON.stringify(key)}`,
       );
     }
-  }
-  const result = validateDocketEntry(revised);
+  };
+  const priorKeys = objectKeys(pOwn);
+  for (let i = 0; i < priorKeys.length; i += 1) checkKey(priorKeys[i] as string);
+  const revisedKeys = objectKeys(rOwn);
+  for (let i = 0; i < revisedKeys.length; i += 1) checkKey(revisedKeys[i] as string);
+  // (c) The revised persisted shape must itself be schema-valid (ADR §4).
+  const result = validateDocketEntry(rOwn);
   if (!result.ok) {
     throw new DocketEntryEditError(
       `revised docket entry is not schema-valid: ${result.summary}`,
