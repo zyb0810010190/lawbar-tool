@@ -193,3 +193,4 @@ Next: NONE. Per user: do not push until reviewed.
 - Attempted GitHub rulesets and classic branch protection for required status checks on `main`.
 - GitHub UI indicated enforcement is unavailable for this private repository under the current account state.
 - Decision: keep repo private; do not make legal/case-box repository public for merge gating. Treat the check as advisory until account/repo enforcement changes.
+2026-06-11T06:03:18Z override consumed: WI-DPE2-FIX1 single-use override: break batch-guard deadlock (marker b35168c is 3 commits behind main; post-merge Layer-B closeout blocked by the Medium FIX1 fixes); FIX1 verified ALL CLOSED (audit-mq92m9az High+Low fixed; verify-mq92s2mj ALL CLOSED); marker stays b35168c; fix head 52e5b1b; ONE combined commit; post-merge closeout must audit b35168c..fix-head; no push/merge/marker-mutation.
