@@ -421,3 +421,138 @@ test("assertValidDocketEntryEdit: rejects a prototype-backed revised object (own
   revised.proposed_kind = "filing";
   assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
 });
+
+// ---------------------------------------------------------------------------
+// WI-DPE2-FIX1 — prototype-pollution / persisted-shape hardening. The edit
+// invariant must reject any "edit" whose validated shape diverges from the
+// own-enumerable JSON shape that persistence (payload_json) would store, even
+// under Object/Array prototype pollution. See the persistedShape normalizer.
+// ---------------------------------------------------------------------------
+
+test("assertValidDocketEntryEdit: an inherited IMMUTABLE field cannot mask a deleted own key", () => {
+  const prior = proposedDocketEntry();
+  const revised = { ...prior };
+  delete revised.tenant_id; // immutable provenance/identity field
+  // Pollute Object.prototype with a NON-enumerable matching value: the old bracket-read
+  // immutable check would see prior.tenant_id === (inherited) revised.tenant_id and pass,
+  // while JSON.stringify(revised) omits tenant_id. persistedShape must drop the inherited value.
+  Object.defineProperty(Object.prototype, "tenant_id", {
+    value: prior.tenant_id, configurable: true, enumerable: false, writable: true,
+  });
+  try {
+    assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+  } finally {
+    delete Object.prototype.tenant_id;
+  }
+});
+
+test("assertValidDocketEntryEdit: an inherited required EDITABLE field cannot mask a deleted own key", () => {
+  const prior = proposedDocketEntry();
+  const revised = { ...prior };
+  delete revised.proposed_due_at; // required, but editable → skipped by the immutable loop
+  Object.defineProperty(Object.prototype, "proposed_due_at", {
+    value: prior.proposed_due_at, configurable: true, enumerable: false, writable: true,
+  });
+  try {
+    // Old code: editable key skipped in immutable check; validateDocketEntry(revised) reads the
+    // inherited value and passes. New code validates the persisted shape (own-enumerable) → missing.
+    assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+  } finally {
+    delete Object.prototype.proposed_due_at;
+  }
+});
+
+test("assertValidDocketEntryEdit: an own NON-enumerable substitute for a deleted required field is rejected", () => {
+  const prior = proposedDocketEntry();
+  const revised = { ...prior };
+  delete revised.proposed_due_at;
+  Object.defineProperty(revised, "proposed_due_at", {
+    value: prior.proposed_due_at, enumerable: false, configurable: true, writable: true,
+  });
+  // Own but non-enumerable → JSON would omit it; persistedShape uses Object.keys (enumerable only).
+  assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+});
+
+test("assertValidDocketEntryEdit: a reminder_offsets item with INHERITED required fields is rejected", () => {
+  const prior = proposedDocketEntry();
+  const inherited = Object.create(null);
+  Object.defineProperty(inherited, "offset_days", { value: 3, enumerable: true });
+  Object.defineProperty(inherited, "kind", { value: "advance_notice", enumerable: true });
+  const item = Object.create(inherited); // required fields are inherited, not own
+  const revised = { ...prior, reminder_offsets: [item] };
+  // JSON.stringify([item]) → "[{}]"; persistedShape rejects the prototype-backed item (→ null).
+  assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+});
+
+test("assertValidDocketEntryEdit: a reminder_offsets item with own NON-enumerable required fields is rejected", () => {
+  const prior = proposedDocketEntry();
+  const item = {};
+  Object.defineProperty(item, "offset_days", { value: 3, enumerable: false });
+  Object.defineProperty(item, "kind", { value: "advance_notice", enumerable: false });
+  const revised = { ...prior, reminder_offsets: [item] };
+  assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+});
+
+test("assertValidDocketEntryEdit: a polluted Object.prototype.toJSON cannot synthesize a deleted field", () => {
+  const prior = proposedDocketEntry();
+  const revised = { ...prior };
+  delete revised.proposed_due_at;
+  // A hostile toJSON would let JSON.stringify-based normalization re-add the field; persistedShape
+  // never invokes toJSON, so the deleted required field stays missing and validation rejects.
+  Object.defineProperty(Object.prototype, "toJSON", {
+    value() { return { ...this, proposed_due_at: prior.proposed_due_at }; },
+    configurable: true, enumerable: false, writable: true,
+  });
+  try {
+    assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+  } finally {
+    delete Object.prototype.toJSON;
+  }
+});
+
+test("assertValidDocketEntryEdit: an own reminder_offsets.map synthesizer cannot bypass", () => {
+  const prior = proposedDocketEntry();
+  const arr = [1, 2]; // not valid reminder items
+  arr.map = () => [{ offset_days: 3, kind: "advance_notice" }]; // own .map liar
+  const revised = { ...prior, reminder_offsets: arr };
+  // persistedShape uses an index loop, never arr.map → normalizes to [1,2] → schema rejects.
+  assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+});
+
+test("assertValidDocketEntryEdit: a polluted Array.prototype.map cannot bypass", () => {
+  const prior = proposedDocketEntry();
+  const origMap = Array.prototype.map;
+  Array.prototype.map = function () { return [{ offset_days: 3, kind: "advance_notice" }]; };
+  try {
+    const revised = { ...prior, reminder_offsets: [1, 2] };
+    assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+  } finally {
+    Array.prototype.map = origMap;
+  }
+});
+
+test("assertValidDocketEntryEdit: a polluted Set.prototype.has cannot mark immutable fields editable", () => {
+  const prior = proposedDocketEntry();
+  // A schema-valid change to an IMMUTABLE field. The membership check must NOT depend on
+  // Set.prototype.has (the old setHasRef.call source): even if has() returns true for every
+  // key (which would skip all immutable checks), the edit must still be rejected.
+  const revised = { ...prior, tenant_id: "tenant-evil" };
+  const origHas = Set.prototype.has;
+  Set.prototype.has = function () { return true; };
+  try {
+    assert.throws(() => assertValidDocketEntryEdit(prior, revised), DocketEntryEditError);
+  } finally {
+    Set.prototype.has = origHas;
+  }
+});
+
+test("assertValidDocketEntryEdit: legitimate JSON-origin edits still pass (structuredClone, valid reminder_offsets, revised_at null)", () => {
+  const prior = structuredClone(proposedDocketEntry());
+  const revised = {
+    ...structuredClone(prior),
+    proposed_kind: "filing",
+    reminder_offsets: [{ offset_days: 7, kind: "advance_notice" }, { offset_days: 1, kind: "final_notice" }],
+    revised_at: null,
+  };
+  assert.doesNotThrow(() => assertValidDocketEntryEdit(prior, revised));
+});
