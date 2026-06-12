@@ -15,16 +15,29 @@
 // proposals beyond page one are never silently hidden.
 
 import type { CaseBoxApi } from "../api.js";
-import type { DismissDocketEntryDto, ListDocketEntriesDto } from "../types.js";
+import type { DismissDocketEntryDto, EditDocketEntryDto, ListDocketEntriesDto } from "../types.js";
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime } from "../format.js";
 
-// Display-only subset of the projected CaseBoxDocketEntry (DOCKET_ENTRY_RESPONSE_FIELDS).
+// A reminder offset on the projected row (renderer-safe; passthrough in DPE5).
+interface ReminderOffset {
+  readonly offset_days: number;
+  readonly kind: "advance_notice" | "final_notice";
+}
+
+// Display + edit-prefill subset of the projected CaseBoxDocketEntry
+// (DOCKET_ENTRY_RESPONSE_FIELDS). WI-DPE5 widened this so the in-row edit form can
+// prefill the six editable content fields and show the "(edited)" badge. reminder_offsets
+// is read-only/passthrough; revised_at is display-only (never an input).
 interface ProposalRow {
   readonly id: string;
   readonly proposed_kind: string;
   readonly proposed_due_at: string;
-  readonly proposed_due_at_timezone?: string;
+  readonly proposed_due_at_kind?: "datetime" | "date_only";
+  readonly proposed_due_at_timezone?: string | null;
+  readonly proposed_owner_user_id?: string;
+  readonly reminder_offsets?: ReadonlyArray<ReminderOffset> | null;
+  readonly revised_at?: string | null;
   readonly proposed_at?: string;
   readonly source_type?: string;
 }
@@ -208,14 +221,63 @@ function renderProposalRow(
       ),
     );
   }
+  // WI-DPE5: a row that has been edited (revised_at present) shows an "(edited)" badge.
+  // Display-only — derived from the projected row; revised_at is never an input. The badge
+  // (not the timestamp) is the primary signal; the localized time rides the title attribute.
+  if (typeof p.revised_at === "string" && p.revised_at.length > 0) {
+    metaChildren.push(" ");
+    metaChildren.push(
+      el(
+        "span",
+        {
+          class: "view-docket-proposal-edited",
+          "data-test-id": "view-docket-proposal-edited",
+          "aria-label": "edited",
+          title: `edited ${formatLocalDateTime(p.revised_at)}`,
+        },
+        ["(edited)"],
+        doc,
+      ),
+    );
+  }
   const meta = el("div", { class: "view-docket-proposal-meta" }, metaChildren, doc);
-  const controls = renderDismissControl(doc, p, api, matterId, refresh);
+
+  // Two in-row controls that are mutually exclusive: revealing one hides the other's
+  // trigger (only one mode per row at a time). Edit and Dismiss stay DISTINCT actions —
+  // a saved edit keeps the entry proposed (no edit-then-confirm shortcut; ADR §3).
+  const editHooks: { setTriggerHidden?: (h: boolean) => void } = {};
+  const dismissHooks: { setTriggerHidden?: (h: boolean) => void } = {};
+  const dismiss = renderDismissControl(doc, p, api, matterId, refresh, {
+    onEnter: () => editHooks.setTriggerHidden?.(true),
+    onExit: () => editHooks.setTriggerHidden?.(false),
+  });
+  dismissHooks.setTriggerHidden = dismiss.setTriggerHidden;
+  const edit = renderEditControl(doc, p, api, matterId, refresh, {
+    onEnter: () => dismissHooks.setTriggerHidden?.(true),
+    onExit: () => dismissHooks.setTriggerHidden?.(false),
+  });
+  editHooks.setTriggerHidden = edit.setTriggerHidden;
+
   return el(
     "li",
     { class: "view-docket-proposal-row", "data-test-id": "view-docket-proposal-row", "data-entry-id": p.id },
-    [meta, controls],
+    [meta, edit.element, " ", dismiss.element],
     doc,
   );
+}
+
+// An in-row control: its element + a setter to hide/show its trigger button so the
+// sibling control can enforce one-mode-per-row.
+interface InRowControl {
+  readonly element: HTMLElement;
+  readonly setTriggerHidden: (hidden: boolean) => void;
+}
+
+// Hooks fired when a control enters / leaves its active (revealed) mode, so the
+// sibling control's trigger can be hidden/restored.
+interface ControlHooks {
+  readonly onEnter?: () => void;
+  readonly onExit?: () => void;
 }
 
 // Two-step in-row dismiss: Dismiss -> required reason input + Confirm dismiss /
@@ -228,7 +290,8 @@ function renderDismissControl(
   api: CaseBoxApi,
   matterId: string,
   refresh: () => Promise<void>,
-): HTMLElement {
+  hooks: ControlHooks = {},
+): InRowControl {
   const status = el(
     "span",
     { class: "view-docket-dismiss-status", "data-test-id": "view-docket-dismiss-status" },
@@ -288,12 +351,14 @@ function renderDismissControl(
     confirmBtn.removeAttribute("hidden");
     cancelBtn.removeAttribute("hidden");
     dismissBtn.setAttribute("hidden", "");
+    hooks.onEnter?.();
   };
   const collapse = (): void => {
     reasonInput.setAttribute("hidden", "");
     confirmBtn.setAttribute("hidden", "");
     cancelBtn.setAttribute("hidden", "");
     dismissBtn.removeAttribute("hidden");
+    hooks.onExit?.();
   };
 
   dismissBtn.addEventListener("click", () => {
@@ -335,10 +400,245 @@ function renderDismissControl(
     })();
   });
 
-  return el(
+  const element = el(
     "div",
     { class: "view-docket-dismiss-control", "data-test-id": "view-docket-dismiss-control" },
     [dismissBtn, " ", reasonInput, " ", confirmBtn, " ", cancelBtn, " ", status],
     doc,
   );
+  const setTriggerHidden = (hidden: boolean): void => {
+    if (hidden) dismissBtn.setAttribute("hidden", "");
+    else dismissBtn.removeAttribute("hidden");
+  };
+  return { element, setTriggerHidden };
+}
+
+// Two-step in-row EDIT (WI-DPE5): Edit -> inline form prefilled with the five editable
+// scalar fields (reminder_offsets is read-only/passthrough) -> Save changes / Cancel.
+// Mirrors the dismiss reveal. Forwards ONLY { matterId, entryId, + six content fields };
+// the server derives tenant/matter/entry/editor authority and persistence derives
+// revised_at. A saved edit keeps the entry PROPOSED (no edit-then-confirm; ADR §3): on
+// success the section refreshes in place; on error the form stays open with a no-leak
+// inline alert; Cancel makes no api call. DPE3 persistence remains the final authority —
+// this client validation is UX-only defense-in-depth.
+function renderEditControl(
+  doc: Document,
+  p: ProposalRow,
+  api: CaseBoxApi,
+  matterId: string,
+  refresh: () => Promise<void>,
+  hooks: ControlHooks = {},
+): InRowControl {
+  // reminder_offsets is preserved verbatim and sent unchanged on save (passthrough).
+  const retainedReminders: EditDocketEntryDto["reminder_offsets"] = p.reminder_offsets ?? null;
+  // Re-entrancy guard: true while an editDocketEntry call is in flight. Blocks a second
+  // Save and makes Cancel/Escape no-ops so the form cannot collapse mid-save (which would
+  // re-enable controls and write a later error into a hidden form).
+  let saving = false;
+
+  const editBtn = el(
+    "button",
+    { type: "button", class: "view-docket-edit-btn", "data-test-id": "view-docket-edit" },
+    ["Edit"],
+    doc,
+  );
+  const mkField = (testId: string, label: string, value: string): HTMLElement => {
+    const input = el(
+      "input",
+      { type: "text", class: "view-docket-edit-input", "data-test-id": testId, "aria-label": label },
+      [],
+      doc,
+    );
+    (input as unknown as { value: string }).value = value;
+    return input;
+  };
+  const kindInput = mkField("view-docket-edit-kind", "Kind", p.proposed_kind);
+  const dueInput = mkField("view-docket-edit-due", "Due (ISO-8601)", p.proposed_due_at);
+  const dueKindSelect = el(
+    "select",
+    { class: "view-docket-edit-input", "data-test-id": "view-docket-edit-due-kind", "aria-label": "Due kind" },
+    [
+      el("option", { value: "datetime" }, ["datetime"], doc),
+      el("option", { value: "date_only" }, ["date_only"], doc),
+    ],
+    doc,
+  );
+  (dueKindSelect as unknown as { value: string }).value = p.proposed_due_at_kind ?? "datetime";
+  const tzInput = mkField(
+    "view-docket-edit-tz",
+    "Timezone (host zone)",
+    typeof p.proposed_due_at_timezone === "string" ? p.proposed_due_at_timezone : "",
+  );
+  const ownerInput = mkField(
+    "view-docket-edit-owner",
+    "Owner",
+    typeof p.proposed_owner_user_id === "string" ? p.proposed_owner_user_id : "",
+  );
+  const reminders = el(
+    "span",
+    { class: "view-docket-edit-reminders", "data-test-id": "view-docket-edit-reminders" },
+    [`reminders: ${formatReminders(retainedReminders)} (read-only)`],
+    doc,
+  );
+  const saveBtn = el(
+    "button",
+    { type: "button", class: "view-docket-edit-save", "data-test-id": "view-docket-edit-save" },
+    ["Save changes"],
+    doc,
+  );
+  const cancelBtn = el(
+    "button",
+    { type: "button", class: "view-docket-edit-cancel", "data-test-id": "view-docket-edit-cancel" },
+    ["Cancel"],
+    doc,
+  );
+  const status = el(
+    "span",
+    { class: "view-docket-edit-status", "data-test-id": "view-docket-edit-status" },
+    [],
+    doc,
+  );
+  const form = el(
+    "div",
+    { class: "view-docket-edit-form", "data-test-id": "view-docket-edit-form", hidden: "" },
+    [
+      kindInput, " ", dueInput, " ", dueKindSelect, " ", tzInput, " ", ownerInput, " ",
+      reminders, " ", saveBtn, " ", cancelBtn, " ", status,
+    ],
+    doc,
+  );
+
+  const showError = (msg: string): void => {
+    status.setAttribute("role", "alert");
+    status.setAttribute("data-test-id", "view-docket-edit-error");
+    setText(status, msg);
+  };
+  const clearStatus = (): void => {
+    status.removeAttribute("role");
+    status.setAttribute("data-test-id", "view-docket-edit-status");
+    setText(status, "");
+  };
+  const setDisabled = (disabled: boolean): void => {
+    for (const b of [saveBtn, cancelBtn]) {
+      if (disabled) b.setAttribute("disabled", "true");
+      else b.removeAttribute("disabled");
+    }
+  };
+  const reveal = (): void => {
+    form.removeAttribute("hidden");
+    editBtn.setAttribute("hidden", "");
+    hooks.onEnter?.();
+    (kindInput as unknown as { focus?: () => void }).focus?.();
+  };
+  const collapse = (): void => {
+    form.setAttribute("hidden", "");
+    editBtn.removeAttribute("hidden");
+    clearStatus();
+    setDisabled(false);
+    hooks.onExit?.();
+    (editBtn as unknown as { focus?: () => void }).focus?.();
+  };
+
+  const readVal = (input: HTMLElement): string =>
+    ((input as unknown as { value?: string }).value ?? "").trim();
+
+  editBtn.addEventListener("click", () => {
+    clearStatus();
+    reveal();
+  });
+  cancelBtn.addEventListener("click", () => {
+    if (saving) return;
+    collapse();
+  });
+  form.addEventListener("keydown", (event: Event) => {
+    if (saving) return;
+    if ((event as unknown as { key?: string }).key === "Escape") collapse();
+  });
+  saveBtn.addEventListener("click", () => {
+    void (async () => {
+      if (saving) return;
+      clearStatus();
+      const proposed_kind = readVal(kindInput);
+      const proposed_due_at = readVal(dueInput);
+      const proposed_due_at_kind = readVal(dueKindSelect) as "datetime" | "date_only";
+      const tz = readVal(tzInput);
+      const proposed_owner_user_id = readVal(ownerInput);
+      if (proposed_kind.length === 0) {
+        showError("Kind is required.");
+        return;
+      }
+      if (proposed_due_at.length === 0 || Number.isNaN(Date.parse(proposed_due_at))) {
+        showError("A valid due date/time is required.");
+        return;
+      }
+      if (proposed_due_at_kind !== "datetime" && proposed_due_at_kind !== "date_only") {
+        showError("Invalid due kind.");
+        return;
+      }
+      if (proposed_due_at_kind === "datetime" && tz.length === 0) {
+        showError("A timezone is required for a datetime due.");
+        return;
+      }
+      if (proposed_owner_user_id.length === 0) {
+        showError("Owner is required.");
+        return;
+      }
+      const dto: EditDocketEntryDto = {
+        matterId,
+        entryId: p.id,
+        proposed_kind,
+        proposed_due_at,
+        proposed_due_at_kind,
+        proposed_due_at_timezone: proposed_due_at_kind === "date_only" && tz.length === 0 ? null : tz,
+        proposed_owner_user_id,
+        reminder_offsets: retainedReminders,
+      };
+      saving = true;
+      setDisabled(true);
+      setText(status, "Saving…");
+      try {
+        const env = await api.editDocketEntry(dto);
+        if (!env.ok) {
+          // Fail-closed: keep the form + values, surface the no-leak error inline, and
+          // re-enable so the lawyer can retry/cancel. Do NOT refresh (a reload would wipe
+          // the inline alert — mirrors the dismiss + confirm-deadline error paths).
+          saving = false;
+          showError(env.error.message);
+          setDisabled(false);
+          return;
+        }
+        // Success: the entry stays "proposed" with revised content -> refresh rebuilds the
+        // section in place (the row reappears with new values + the "(edited)" badge). The
+        // control is discarded by the rebuild, so `saving` is intentionally left true.
+        await refresh();
+      } catch {
+        saving = false;
+        showError("Could not save changes. Please try again.");
+        setDisabled(false);
+      }
+    })();
+  });
+
+  const element = el(
+    "div",
+    { class: "view-docket-edit-control", "data-test-id": "view-docket-edit-control" },
+    [editBtn, " ", form],
+    doc,
+  );
+  const setTriggerHidden = (hidden: boolean): void => {
+    if (hidden) editBtn.setAttribute("hidden", "");
+    else editBtn.removeAttribute("hidden");
+  };
+  return { element, setTriggerHidden };
+}
+
+// Read-only formatting of the passthrough reminder_offsets for display. Never edited in
+// DPE5; sent unchanged on save.
+function formatReminders(
+  offsets: EditDocketEntryDto["reminder_offsets"],
+): string {
+  if (offsets === null || offsets === undefined || offsets.length === 0) return "none";
+  return offsets
+    .map((o) => `${o.kind} ${o.offset_days >= 0 ? "−" : "+"}${Math.abs(o.offset_days)}d`)
+    .join(", ");
 }

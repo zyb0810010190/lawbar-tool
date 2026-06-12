@@ -34,6 +34,7 @@ function makeMockClient() {
       createFact: mk("createFact"),
       createDocketEntry: mk("createDocketEntry"),
       confirmDocketEntry: mk("confirmDocketEntry"),
+      editDocketEntry: mk("editDocketEntry"),
       transitionFact: mk("transitionFact"),
     },
   };
@@ -226,6 +227,39 @@ test("createCaseBoxApi: confirmDocketEntry forwards only matterId + entryId", as
   });
   assert.equal(m.calls[0].name, "confirmDocketEntry");
   assert.deepEqual(m.calls[0].dto, { matterId: VALID_ULID, entryId: "01jzentry000000000000000000" });
+});
+
+test("createCaseBoxApi: editDocketEntry forwards only matterId/entryId + the six content fields", async () => {
+  const m = makeMockClient();
+  const api = createCaseBoxApi(m.client);
+  await api.editDocketEntry({
+    matterId: VALID_ULID,
+    entryId: "01jzentry000000000000000000",
+    proposed_kind: "hearing",
+    proposed_due_at: "2026-06-20T16:00:00.000Z",
+    proposed_due_at_kind: "datetime",
+    proposed_due_at_timezone: "America/New_York",
+    proposed_owner_user_id: "01jzowner000000000000000000",
+    reminder_offsets: null,
+    // smuggled authority/provenance/lifecycle fields must be stripped:
+    tenant_id: "evil",
+    matter_id: "evil",
+    entry_id: "evil",
+    editor_actor_user_id: "evil",
+    revised_at: "2099-01-01T00:00:00.000Z",
+    confirmation_state: "confirmed",
+  });
+  assert.equal(m.calls[0].name, "editDocketEntry");
+  assert.deepEqual(m.calls[0].dto, {
+    matterId: VALID_ULID,
+    entryId: "01jzentry000000000000000000",
+    proposed_kind: "hearing",
+    proposed_due_at: "2026-06-20T16:00:00.000Z",
+    proposed_due_at_kind: "datetime",
+    proposed_due_at_timezone: "America/New_York",
+    proposed_owner_user_id: "01jzowner000000000000000000",
+    reminder_offsets: null,
+  });
 });
 
 test("createCaseBoxApi: transitionFact forwards only matterId/factId/to/rejection_reason", async () => {

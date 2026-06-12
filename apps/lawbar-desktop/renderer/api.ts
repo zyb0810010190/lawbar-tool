@@ -14,6 +14,7 @@ import type {
   CreateFactDto,
   CreateMatterDto,
   DismissDocketEntryDto,
+  EditDocketEntryDto,
   GetDocumentDto,
   GetMatterDto,
   IpcEnvelope,
@@ -35,6 +36,7 @@ import {
   RENDERER_CREATE_DOCKET_DTO_FIELDS,
   RENDERER_CREATE_FACT_DTO_FIELDS,
   RENDERER_DISMISS_DOCKET_DTO_FIELDS,
+  RENDERER_EDIT_DOCKET_DTO_FIELDS,
   RENDERER_LIST_DOCKET_DTO_FIELDS,
   RENDERER_TRANSITION_FACT_DTO_FIELDS,
   RENDERER_TRANSITION_DEADLINE_DTO_FIELDS,
@@ -69,6 +71,7 @@ export interface CaseBoxClient {
   transitionFact(dto: TransitionFactDto): Promise<IpcEnvelope<unknown>>;
   listDocketEntries(dto: ListDocketEntriesDto): Promise<IpcEnvelope<unknown>>;
   dismissDocketEntry(dto: DismissDocketEntryDto): Promise<IpcEnvelope<unknown>>;
+  editDocketEntry(dto: EditDocketEntryDto): Promise<IpcEnvelope<unknown>>;
 }
 
 export interface CaseBoxApi {
@@ -90,6 +93,7 @@ export interface CaseBoxApi {
   transitionFact(dto: TransitionFactDto): Promise<IpcEnvelope<unknown>>;
   listDocketEntries(dto: ListDocketEntriesDto): Promise<IpcEnvelope<unknown>>;
   dismissDocketEntry(dto: DismissDocketEntryDto): Promise<IpcEnvelope<unknown>>;
+  editDocketEntry(dto: EditDocketEntryDto): Promise<IpcEnvelope<unknown>>;
 }
 
 // Strip any DTO key not in the renderer-side allowlist. Drops with a
@@ -152,6 +156,8 @@ export function createCaseBoxApi(client: CaseBoxClient): CaseBoxApi {
       client.listDocketEntries(stripDtoFields(dto, RENDERER_LIST_DOCKET_DTO_FIELDS)),
     dismissDocketEntry: (dto) =>
       client.dismissDocketEntry(stripDtoFields(dto, RENDERER_DISMISS_DOCKET_DTO_FIELDS)),
+    editDocketEntry: (dto) =>
+      client.editDocketEntry(stripDtoFields(dto, RENDERER_EDIT_DOCKET_DTO_FIELDS)),
   };
 }
 
