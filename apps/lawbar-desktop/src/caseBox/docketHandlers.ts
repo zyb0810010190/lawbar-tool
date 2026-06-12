@@ -28,6 +28,8 @@ import {
   DOCKET_SOURCE_TYPES,
   DISMISS_DOCKET_DTO_FIELDS,
   DISMISS_DOCKET_FORBIDDEN_FIELDS,
+  EDIT_DOCKET_DTO_FIELDS,
+  EDIT_DOCKET_FORBIDDEN_FIELDS,
   MAX_LIST_LIMIT,
   MAX_CURSOR_LENGTH,
   type CreateDocketEntryDto,
@@ -38,6 +40,8 @@ import {
   type ListDocketEntriesResult,
   type DismissDocketEntryDto,
   type DismissDocketEntryResult,
+  type EditDocketEntryDto,
+  type EditDocketEntryResult,
   type RendererDocketEntryRow,
   type RendererConfirmDeadlineRow,
 } from "./dto.js";
@@ -389,5 +393,122 @@ export async function dismissDocketEntryHandler(
     };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.docketDismiss }) };
+  }
+}
+
+// --- edit a PROPOSED docket entry (in-place content edit) ------------------
+// WI-DPE4: expose the DPE3 editDocketEntry persistence op. Mirrors the
+// dismiss handler's fail-closed scoped-preflight + proposed-only discipline.
+// The renderer supplies ONLY { matterId, entryId } + the six editable content
+// fields; the server derives tenant_id / matter_id / entry_id /
+// editor_actor_user_id, and persistence server-derives revised_at (NOT passed
+// from here, NEVER trusted from the renderer). DPE3 persistence remains the
+// FINAL authority for tenant/matter/proposed-state/content rules — the
+// preflight + proposed-only check here are READ-ONLY defense-in-depth.
+export async function editDocketEntryHandler(
+  payload: unknown,
+  provide: PersistenceProvider,
+): Promise<EditDocketEntryResult> {
+  if (!isPlainJsonObject(payload)) return shapeGuardFailure();
+  for (const f of EDIT_DOCKET_FORBIDDEN_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(payload, f)) return forbiddenFieldFailure(f);
+  }
+  for (const key of Object.keys(payload)) {
+    if (!(EDIT_DOCKET_DTO_FIELDS as readonly string[]).includes(key)) {
+      return { ok: false, error: makeInvalidPayload("unknown field in EditDocketEntryDto", { schemaPath: key }) };
+    }
+  }
+  const dto = payload as unknown as EditDocketEntryDto;
+  if (!nonEmptyString(dto.matterId)) {
+    return { ok: false, error: makeInvalidPayload("matterId must be a non-empty string") };
+  }
+  if (!nonEmptyString(dto.entryId)) {
+    return { ok: false, error: makeInvalidPayload("entryId must be a non-empty string") };
+  }
+  if (!nonEmptyString(dto.proposed_kind)) {
+    return { ok: false, error: makeInvalidPayload("proposed_kind must be a non-empty string") };
+  }
+  if (!nonEmptyString(dto.proposed_due_at)) {
+    return { ok: false, error: makeInvalidPayload("proposed_due_at must be a non-empty ISO-8601 datetime") };
+  }
+  if (dto.proposed_due_at_kind !== "datetime" && dto.proposed_due_at_kind !== "date_only") {
+    return {
+      ok: false,
+      error: makeInvalidPayload("proposed_due_at_kind must be datetime|date_only", { schemaPath: "proposed_due_at_kind" }),
+    };
+  }
+  if (dto.proposed_due_at_timezone !== null && !nonEmptyString(dto.proposed_due_at_timezone)) {
+    return {
+      ok: false,
+      error: makeInvalidPayload("proposed_due_at_timezone must be a non-empty IANA timezone or null", {
+        schemaPath: "proposed_due_at_timezone",
+      }),
+    };
+  }
+  if (!nonEmptyString(dto.proposed_owner_user_id)) {
+    return { ok: false, error: makeInvalidPayload("proposed_owner_user_id must be a non-empty string") };
+  }
+  if (dto.reminder_offsets !== null && !Array.isArray(dto.reminder_offsets)) {
+    return {
+      ok: false,
+      error: makeInvalidPayload("reminder_offsets must be an array or null", { schemaPath: "reminder_offsets" }),
+    };
+  }
+  try {
+    const { persistence } = provide();
+    const matter = await persistence.getMatter(dto.matterId);
+    if (matter === null) return { ok: false, error: makeBoundaryError("unknown_matter") };
+    if (matter.tenant_id !== getActiveTenantId()) {
+      return { ok: false, error: makeBoundaryError("tenant_mismatch") };
+    }
+    // SCOPED preflight (read-only defense-in-depth): the entry must exist UNDER this
+    // matter + active tenant. A null means unknown / wrong-matter / wrong-tenant
+    // entry_id -> reject WITHOUT editing (fail-closed; indistinguishable from
+    // non-existent, no foreign matter_id disclosure).
+    const existing = await persistence.getDocketEntry({
+      tenant_id: getActiveTenantId(),
+      matter_id: dto.matterId,
+      entry_id: dto.entryId,
+    });
+    if (existing === null) {
+      return {
+        ok: false,
+        error: makeInvalidPayload("entryId does not reference an editable docket entry in this matter"),
+      };
+    }
+    // PROPOSED-ONLY (read-only defense-in-depth; DPE3 persistence re-enforces this
+    // before any mutation). Confirmed/dismissed entries are terminal.
+    if ((existing as { confirmation_state?: string }).confirmation_state !== "proposed") {
+      return {
+        ok: false,
+        error: makeInvalidPayload(
+          "only a proposed docket entry can be edited (confirmed/dismissed entries are out of scope)",
+          { schemaPath: "confirmation_state" },
+        ),
+      };
+    }
+    // Server-derive scope + actor; forward ONLY the six content fields. revised_at is
+    // NOT passed — persistence server-derives it (authority boundary, DPE3).
+    const entry = await persistence.editDocketEntry({
+      tenant_id: getActiveTenantId(),
+      matter_id: dto.matterId,
+      entry_id: dto.entryId,
+      editor_actor_user_id: getActiveActorUserId(),
+      proposed_kind: dto.proposed_kind,
+      proposed_due_at: dto.proposed_due_at,
+      proposed_due_at_kind: dto.proposed_due_at_kind,
+      proposed_due_at_timezone: dto.proposed_due_at_timezone,
+      proposed_owner_user_id: dto.proposed_owner_user_id,
+      reminder_offsets: dto.reminder_offsets,
+    });
+    return {
+      ok: true,
+      value: projectRow<RendererDocketEntryRow>(
+        entry as unknown as Record<string, unknown>,
+        DOCKET_ENTRY_RESPONSE_FIELDS,
+      ),
+    };
+  } catch (err) {
+    return { ok: false, error: mapThrownError(err, { channel: CHANNEL.docketEdit }) };
   }
 }

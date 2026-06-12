@@ -21,6 +21,7 @@ import type {
   ConfirmDocketEntryDto,
   ListDocketEntriesDto,
   DismissDocketEntryDto,
+  EditDocketEntryDto,
   TransitionFactDto,
   TransitionDeadlineDto,
   CreateMatterResult,
@@ -39,6 +40,7 @@ import type {
   ConfirmDocketEntryResult,
   ListDocketEntriesResult,
   DismissDocketEntryResult,
+  EditDocketEntryResult,
   TransitionFactResult,
   TransitionDeadlineResult,
 } from "../src/caseBox/dto.js";
@@ -74,6 +76,8 @@ export interface CaseBoxApi {
   transitionFact(dto: TransitionFactDto): Promise<TransitionFactResult>;
   listDocketEntries(dto: ListDocketEntriesDto): Promise<ListDocketEntriesResult>;
   dismissDocketEntry(dto: DismissDocketEntryDto): Promise<DismissDocketEntryResult>;
+  // WI-DPE4: edit a proposed docket entry (IPC/DTO only; renderer call sites are DPE5).
+  editDocketEntry(dto: EditDocketEntryDto): Promise<EditDocketEntryResult>;
 }
 
 const themeApi: ThemeApi = {
@@ -108,6 +112,7 @@ const caseBoxApi: CaseBoxApi = {
   transitionFact: (dto) => ipcRenderer.invoke("casebox:fact:transition", dto),
   listDocketEntries: (dto) => ipcRenderer.invoke("casebox:docket:list", dto),
   dismissDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:dismiss", dto),
+  editDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:edit", dto),
 };
 
 contextBridge.exposeInMainWorld("lawbar", { theme: themeApi, caseBox: caseBoxApi });

@@ -25,6 +25,7 @@ export const CHANNEL = {
   docketConfirm: "casebox:docket:confirm",
   docketList: "casebox:docket:list",
   docketDismiss: "casebox:docket:dismiss",
+  docketEdit: "casebox:docket:edit",
   factList: "casebox:fact:list",
   factCreate: "casebox:fact:create",
   factTransition: "casebox:fact:transition",
