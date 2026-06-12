@@ -108,7 +108,7 @@ test("packaged .app exists at one of the expected release paths", () => {
   assert.ok(isExecutable, `${binary} is not executable`);
 });
 
-test("packaged .app launches; window opens; title correct; 12 panels render with data-token attrs", async (t) => {
+test("packaged .app launches; window opens; title=lawbar; renders case-box list shell", async (t) => {
   const binary = findPackagedBinary();
   assert.ok(binary !== null, "packaged .app missing");
 
@@ -121,7 +121,7 @@ test("packaged .app launches; window opens; title correct; 12 panels render with
     // §4.1). The packaged binary inherits this env from the spawning
     // process; production launches still BLOCK on FileVault-off Macs.
     env: { ...process.env, LAWBAR_MODE: "dev" },
-  }, { testName: "packaged smoke: 12 panels" });
+  }, { testName: "packaged smoke: case-box shell" });
   t.after(async () => {
     await app.close();
     clearPref();
@@ -130,31 +130,29 @@ test("packaged .app launches; window opens; title correct; 12 panels render with
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
 
+  // Mirror the dev Electron smoke (tests/smoke.electron.test.mjs): the packaged
+  // binary must render the SAME current case-box shell, not the retired
+  // token-fixture UI. The effective title is the HTML <title> "lawbar" (which
+  // overrides the BrowserWindow title option).
   const title = await window.title();
-  assert.equal(title, "lawbar (token fixture)");
+  assert.equal(title, "lawbar");
 
-  await window.waitForSelector("article.panel");
-  const panelCount = await window.locator("article.panel").count();
-  assert.equal(panelCount, 12, "must render exactly 12 token panels");
+  // The router shell mount point.
+  await window.waitForSelector("main#app");
 
-  const expectedTokens = [
-    "background",
-    "surface",
-    "surface-elevated",
-    "text",
-    "muted-text",
-    "border",
-    "accent",
-    "text-on-accent",
-    "danger",
-    "warning",
-    "success",
-    "focus-ring",
-  ];
-  for (const token of expectedTokens) {
-    const found = await window.locator(`article.panel[data-token="${token}"]`).count();
-    assert.equal(found, 1, `missing packaged panel for token: ${token}`);
-  }
+  // Default route #/matters renders <h1>lawbar — case-box</h1>.
+  await window.waitForSelector("h1");
+  const h1Text = await window.locator("h1").first().textContent();
+  assert.equal(h1Text, "lawbar — case-box");
+
+  // In-memory backing is fresh on launch → the empty-state marker is present.
+  await window.waitForSelector('[data-test-id="list-empty"]', { timeout: 5000 });
+  const emptyText = await window.locator('[data-test-id="list-empty"]').textContent();
+  assert.match(emptyText, /Matters are stored locally on this device\./);
+
+  // The + New matter button is present so the user can navigate forward.
+  const newBtn = window.locator("button.list-new-btn");
+  await newBtn.waitFor({ state: "visible" });
 });
 
 test("packaged .app theme switching toggles <html data-theme>", async (t) => {
@@ -174,17 +172,28 @@ test("packaged .app theme switching toggles <html data-theme>", async (t) => {
 
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
-  await window.waitForSelector("article.panel");
+  await window.waitForSelector("main#app");
 
-  await window.click("button[data-mode='dark']");
+  // Drive the flip via nativeTheme.themeSource from the main process — the same
+  // path the dev smoke exercises. The retired token-fixture button[data-mode]
+  // controls are not rendered by the case-box shell.
+  await app.evaluate(({ nativeTheme }) => {
+    nativeTheme.themeSource = "dark";
+  });
   await window.waitForFunction(
     () => document.documentElement.getAttribute("data-theme") === "dark",
+    null,
+    { timeout: 5000 },
   );
   assert.equal(await window.getAttribute("html", "data-theme"), "dark");
 
-  await window.click("button[data-mode='light']");
+  await app.evaluate(({ nativeTheme }) => {
+    nativeTheme.themeSource = "light";
+  });
   await window.waitForFunction(
     () => document.documentElement.getAttribute("data-theme") === "light",
+    null,
+    { timeout: 5000 },
   );
   assert.equal(await window.getAttribute("html", "data-theme"), "light");
 });
