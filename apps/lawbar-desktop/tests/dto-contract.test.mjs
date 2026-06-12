@@ -18,6 +18,9 @@ import {
   TRANSITION_FACT_DTO_FIELDS,
   TRANSITION_FACT_FORBIDDEN_FIELDS,
   TRANSITION_FACT_RESPONSE_FIELDS,
+  EDIT_DOCKET_DTO_FIELDS,
+  EDIT_DOCKET_FORBIDDEN_FIELDS,
+  DOCKET_ENTRY_RESPONSE_FIELDS,
   MAX_LIST_LIMIT,
   MAX_CURSOR_LENGTH,
 } from "../dist/src/caseBox/dto.js";
@@ -208,5 +211,74 @@ test("TransitionFact response allowlist strips authority identities", () => {
   // but the review-state fields the renderer needs ARE present:
   for (const f of ["status", "reviewed_at", "accepted_at", "rejected_at", "rejection_reason"]) {
     assert.ok(TRANSITION_FACT_RESPONSE_FIELDS.includes(f));
+  }
+});
+
+// --- WI-DPE4: EditDocketEntry DTO / forbidden / projection contracts ---------
+
+const DOCKET_SCHEMA_PATH = path.resolve(
+  __dirname, "..", "..", "..", "docs", "contracts", "case-box-contract", "schemas",
+  "case-box-docket-entry.schema.json",
+);
+const EDIT_CONTENT_FIELDS = [
+  "proposed_kind",
+  "proposed_due_at",
+  "proposed_due_at_kind",
+  "proposed_due_at_timezone",
+  "proposed_owner_user_id",
+  "reminder_offsets",
+];
+
+test("EditDocketEntryDto fields are exactly the 8: scope (matterId, entryId) + the six content fields", () => {
+  assert.deepEqual([...EDIT_DOCKET_DTO_FIELDS].sort(), [
+    "entryId",
+    "matterId",
+    "proposed_due_at",
+    "proposed_due_at_kind",
+    "proposed_due_at_timezone",
+    "proposed_kind",
+    "proposed_owner_user_id",
+    "reminder_offsets",
+  ]);
+});
+
+test("EditDocket DTO and forbidden lists are disjoint", () => {
+  const dto = new Set(EDIT_DOCKET_DTO_FIELDS);
+  for (const f of EDIT_DOCKET_FORBIDDEN_FIELDS) {
+    assert.equal(dto.has(f), false, `${f} is both a DTO field and forbidden`);
+  }
+});
+
+test("EditDocket DTO exposes NO snake_case authority/scope field", () => {
+  for (const f of ["tenant_id", "matter_id", "entry_id", "actor_user_id", "editor_actor_user_id", "revised_at"]) {
+    assert.equal((EDIT_DOCKET_DTO_FIELDS).includes(f), false, `${f} must not be a renderer-facing EditDocketEntryDto field`);
+  }
+  // and these snake_case authority/scope aliases ARE explicitly forbidden as input
+  for (const f of ["tenant_id", "matter_id", "entry_id", "editor_actor_user_id", "revised_at"]) {
+    assert.ok((EDIT_DOCKET_FORBIDDEN_FIELDS).includes(f), `${f} must be in EDIT_DOCKET_FORBIDDEN_FIELDS`);
+  }
+});
+
+test("revised_at is input-forbidden but output-projected", () => {
+  assert.ok((EDIT_DOCKET_FORBIDDEN_FIELDS).includes("revised_at"), "revised_at must be input-forbidden");
+  assert.ok((DOCKET_ENTRY_RESPONSE_FIELDS).includes("revised_at"), "revised_at must be in DOCKET_ENTRY_RESPONSE_FIELDS (output-exposed)");
+});
+
+test("EditDocket coverage: every docket-entry schema property is either an editable content field or forbidden", () => {
+  const schema = JSON.parse(readFileSync(DOCKET_SCHEMA_PATH, "utf8"));
+  const props = Object.keys(schema.properties);
+  const content = new Set(EDIT_CONTENT_FIELDS);
+  const forbidden = new Set(EDIT_DOCKET_FORBIDDEN_FIELDS);
+  for (const p of props) {
+    const isContent = content.has(p);
+    const isForbidden = forbidden.has(p);
+    assert.ok(
+      isContent !== isForbidden, // XOR: each schema prop is editable XOR forbidden
+      `docket-entry property ${p} must be EITHER an editable content field OR forbidden (got content=${isContent} forbidden=${isForbidden}). Update EDIT_DOCKET_* in src/caseBox/dto/docket.ts.`,
+    );
+  }
+  // the six content fields are not forbidden
+  for (const f of EDIT_CONTENT_FIELDS) {
+    assert.equal(forbidden.has(f), false, `${f} is editable and must not be forbidden`);
   }
 });

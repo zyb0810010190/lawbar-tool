@@ -26,6 +26,7 @@ import {
   confirmDocketEntryHandler,
   listDocketEntriesHandler,
   dismissDocketEntryHandler,
+  editDocketEntryHandler,
 } from "../../src/caseBox/docketHandlers.js";
 // WI-602 fact write handler — imported DIRECTLY from the per-entity module for
 // the same reason as the docket handlers above (handlers.ts barrel is outside
@@ -114,6 +115,9 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.docketDismiss, async (_evt, payload: unknown) => {
     return dismissDocketEntryHandler(payload, provide, nowFn);
+  });
+  ipcMain.handle(CHANNEL.docketEdit, async (_evt, payload: unknown) => {
+    return editDocketEntryHandler(payload, provide);
   });
   ipcMain.handle(CHANNEL.factList, async (_evt, payload: unknown) => {
     return listFactsHandler(payload, provide);

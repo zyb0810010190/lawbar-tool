@@ -22,6 +22,7 @@ import {
   archiveMatterHandler,
   registerDocumentHandler,
 } from "../dist/src/caseBox/handlers.js";
+import { editDocketEntryHandler } from "../dist/src/caseBox/docketHandlers.js";
 
 const FIXED_ID = "01jz0000000000000000000000";
 const FIXED_NOW = new Date("2026-05-27T00:00:00.000Z");
@@ -468,4 +469,75 @@ test("projection: empty page yields empty rows and preserves null cursor", async
     assert.deepEqual(result.value.rows, []);
     assert.equal(result.value.next_cursor, null);
   }
+});
+
+// ---------- WI-DPE4: editDocketEntry response projection ----------
+// The edit handler projects the persistence row through DOCKET_ENTRY_RESPONSE_FIELDS:
+// authority identities stripped; the new revised_at IS exposed (output-safe timestamp).
+
+const EDIT_MATTER = "01jzmatter0000000000000000";
+const DOCKET_AUTHORITY = [
+  "tenant_id",
+  "actor_user_id",
+  "confirmation_actor_user_id",
+  "dismissal_actor_user_id",
+];
+
+test("editDocketEntry response projection: authority identities stripped; revised_at exposed", async () => {
+  const RAW_REVISED = {
+    id: FIXED_ID,
+    tenant_id: "default-tenant",
+    actor_user_id: "local-user",
+    confirmation_actor_user_id: "secret-confirmer",
+    dismissal_actor_user_id: "secret-dismisser",
+    matter_id: EDIT_MATTER,
+    source_type: "manual",
+    proposed_kind: "hearing",
+    proposed_due_at: "2026-06-15T17:00:00.000Z",
+    proposed_due_at_kind: "datetime",
+    proposed_due_at_timezone: "America/New_York",
+    proposed_owner_user_id: "local-user",
+    source_rule_citation: null,
+    extractor_name: null,
+    extractor_version: null,
+    extraction_confidence: null,
+    source_document_id: null,
+    source_page_number: null,
+    source_excerpt: null,
+    reminder_offsets: [],
+    confirmation_state: "proposed",
+    proposed_at: "2026-05-21T20:00:00.000Z",
+    confirmed_at: null,
+    confirmed_deadline_id: null,
+    dismissed_at: null,
+    dismissal_reason: null,
+    created_at: "2026-05-21T20:00:00.000Z",
+    revised_at: FIXED_NOW.toISOString(),
+  };
+  for (const f of DOCKET_AUTHORITY) assert.ok(f in RAW_REVISED, `raw row should carry ${f}`);
+  const provide = makeProvider({
+    getMatter: async (id) =>
+      id === EDIT_MATTER ? { id: EDIT_MATTER, tenant_id: "default-tenant", status: "active" } : null,
+    getDocketEntry: async () => ({ ...RAW_REVISED, confirmation_state: "proposed" }),
+    editDocketEntry: async () => RAW_REVISED,
+  });
+  const r = await editDocketEntryHandler(
+    {
+      matterId: EDIT_MATTER,
+      entryId: FIXED_ID,
+      proposed_kind: "hearing",
+      proposed_due_at: "2026-06-15T17:00:00.000Z",
+      proposed_due_at_kind: "datetime",
+      proposed_due_at_timezone: "America/New_York",
+      proposed_owner_user_id: "local-user",
+      reminder_offsets: [],
+    },
+    provide,
+  );
+  assert.equal(r.ok, true);
+  for (const f of DOCKET_AUTHORITY) {
+    assert.ok(!(f in r.value), `edit response must OMIT authority field ${f}`);
+  }
+  assert.equal(r.value.revised_at, FIXED_NOW.toISOString()); // output-exposed
+  assert.equal(r.value.proposed_kind, "hearing");
 });

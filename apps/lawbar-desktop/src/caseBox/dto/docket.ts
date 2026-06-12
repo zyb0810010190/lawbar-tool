@@ -104,6 +104,9 @@ export const DOCKET_ENTRY_RESPONSE_FIELDS = Object.freeze([
   "dismissed_at",
   "dismissal_reason",
   "created_at",
+  // WI-DPE4: the optional edit timestamp (renderer-safe; a timestamp, not an
+  // actor/tenant identity). Absent on never-edited entries.
+  "revised_at",
 ] as const);
 
 
@@ -235,3 +238,72 @@ export const DISMISS_DOCKET_FORBIDDEN_FIELDS = Object.freeze([
 
 // Dismiss returns the projected (now-dismissed) docket entry.
 export type DismissDocketEntryResult = IpcEnvelope<RendererDocketEntryRow>;
+
+
+// WI-DPE4 (BATCH-CASEBOX-DOCKET-PROPOSAL-EDIT-IPC-00): docket-entry EDIT (in-place
+// content edit of a PROPOSED proposal). Renderer supplies only the scope
+// (matterId/entryId, camelCase like confirm/dismiss) + the SIX editable content
+// fields (snake_case, matching create + the contract). The server derives all
+// trusted fields (tenant_id, matter_id, entry_id, editor_actor_user_id) and the
+// persistence layer server-derives revised_at. Mirrors the confirm/dismiss
+// scoped-preflight + proposed-only discipline (DPE3 persistence is the final
+// authority; the handler preflight is read-only defense-in-depth).
+export interface EditDocketEntryDto {
+  readonly matterId: string;
+  readonly entryId: string;
+  readonly proposed_kind: string;
+  readonly proposed_due_at: string;
+  readonly proposed_due_at_kind: "datetime" | "date_only";
+  readonly proposed_due_at_timezone: string | null;
+  readonly proposed_owner_user_id: string;
+  readonly reminder_offsets:
+    | null
+    | ReadonlyArray<{ readonly offset_days: number; readonly kind: "advance_notice" | "final_notice" }>;
+}
+
+export const EDIT_DOCKET_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "entryId",
+  "proposed_kind",
+  "proposed_due_at",
+  "proposed_due_at_kind",
+  "proposed_due_at_timezone",
+  "proposed_owner_user_id",
+  "reminder_offsets",
+] as const);
+
+// INPUT-REJECT list (the handler REJECTS any present key; it never "strips" input).
+// The complement of the six editable content fields over the docket-entry surface,
+// PLUS the snake_case scope aliases (tenant_id/matter_id/entry_id — the camelCase
+// matterId/entryId are the only accepted scope form) + the server-derived authority
+// fields editor_actor_user_id + revised_at. "Strip" applies ONLY to the OUTPUT
+// projection (DOCKET_ENTRY_RESPONSE_FIELDS).
+export const EDIT_DOCKET_FORBIDDEN_FIELDS = Object.freeze([
+  "tenant_id",
+  "matter_id",
+  "entry_id",
+  "actor_user_id",
+  "editor_actor_user_id",
+  "revised_at",
+  "id",
+  "source_type",
+  "source_rule_citation",
+  "extractor_name",
+  "extractor_version",
+  "extraction_confidence",
+  "source_document_id",
+  "source_page_number",
+  "source_excerpt",
+  "confirmation_state",
+  "proposed_at",
+  "confirmation_actor_user_id",
+  "confirmed_at",
+  "confirmed_deadline_id",
+  "dismissal_actor_user_id",
+  "dismissed_at",
+  "dismissal_reason",
+  "created_at",
+] as const);
+
+// Edit returns the projected (now-revised) docket entry (incl. revised_at).
+export type EditDocketEntryResult = IpcEnvelope<RendererDocketEntryRow>;
