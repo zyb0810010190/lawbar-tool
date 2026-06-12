@@ -151,6 +151,24 @@ export interface DismissDocketEntryDto {
   readonly dismissal_reason: string;
 }
 
+// Renderer-supplied fields for casebox:docket:edit (WI-DPE5): the scope (matterId/entryId,
+// camelCase) + the SIX editable content fields (snake_case, mirroring the contract + create).
+// The server derives every trusted field (tenant_id, matter_id, entry_id, editor_actor_user_id)
+// and persistence server-derives revised_at — none are renderer inputs. This mirrors the
+// canonical EDIT_DOCKET_DTO_FIELDS in src/caseBox/dto/docket.ts (asserted by renderer-dto-sync).
+export interface EditDocketEntryDto {
+  readonly matterId: string;
+  readonly entryId: string;
+  readonly proposed_kind: string;
+  readonly proposed_due_at: string;
+  readonly proposed_due_at_kind: "datetime" | "date_only";
+  readonly proposed_due_at_timezone: string | null;
+  readonly proposed_owner_user_id: string;
+  readonly reminder_offsets:
+    | null
+    | ReadonlyArray<{ readonly offset_days: number; readonly kind: "advance_notice" | "final_notice" }>;
+}
+
 // Fact-transition targets (WI-804). The renderer offers only the legal edges for a
 // fact's current status; persistence owns the state machine.
 export type FactTransitionTarget = "reviewed" | "accepted" | "rejected";
@@ -311,6 +329,21 @@ export const RENDERER_DISMISS_DOCKET_DTO_FIELDS = Object.freeze([
   "matterId",
   "entryId",
   "dismissal_reason",
+] as const);
+
+// WI-DPE5: the edit bridge allowlist — exactly the 8 EDIT_DOCKET_DTO_FIELDS (scope
+// matterId/entryId + the six editable content fields). Authority/provenance/lifecycle/
+// revised_at are absent, so stripDtoFields drops them before the IPC call (defense-in-depth;
+// main's EDIT_DOCKET_FORBIDDEN_FIELDS remains the authority).
+export const RENDERER_EDIT_DOCKET_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "entryId",
+  "proposed_kind",
+  "proposed_due_at",
+  "proposed_due_at_kind",
+  "proposed_due_at_timezone",
+  "proposed_owner_user_id",
+  "reminder_offsets",
 ] as const);
 
 export const RENDERER_TRANSITION_FACT_DTO_FIELDS = Object.freeze([
