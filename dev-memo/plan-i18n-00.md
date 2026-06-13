@@ -1,7 +1,8 @@
 # Plan — Renderer i18n structure (holistic, drift-preventing)
 
-**Status**: PLAN WI (non-authorizing). Not implementation-authorizing until it passes
-`/cc-suite:review-plan` and the open decision points below are resolved by the user.
+**Status**: PLAN WI (non-authorizing). Decisions D1–D4 are RESOLVED (§6, user 2026-06-13). Not
+implementation-authorizing until it passes `/cc-suite:review-plan` (READY) and is promoted to a
+migration WI plan.
 **Date**: 2026-06-13. **Author**: Claude Code.
 **Type**: PLAN (doc-only). **Scope**: diagnosis + proposed structure for renderer localization.
 **Explicit non-goal of THIS WI**: translating any screen, editing label values, or touching
@@ -33,6 +34,23 @@ new hardcoded literal, and the list↔detail language gap widens.
   createMatter 13, viewMatterDocketProposals 12, viewMatterAudit 11, viewMatterDeadlines 8,
   viewMatterDocuments 7, archiveMatter 7, viewMatterFacts 6. Shell chrome strings live in
   `apps/lawbar-desktop/renderer/index.html` (titlebar/sidebar/statusbar; English).
+- **The `el(...,["…"])` count UNDERCOUNTS the real surface** (review completeness finding). The full
+  user-facing-string inventory the migration must cover also includes: `renderer/index.ts`
+  not-found/bootstrap copy; `aria-label` / `title` attribute values; form field + option labels and
+  `<legend>`/placeholder text (createMatter, the write controls); `setText(node, "…")` calls;
+  **template-literal copy** with interpolation (e.g. `Pending proposals (${total})`, `due ${date}`,
+  the CN `正在加载${…}案件…`); and strings inside the lazy sub-section helpers (docket
+  propose/edit/dismiss, fact add/review, deadline add/confirm, document add). The migration WI MUST
+  begin with a complete grep-based inventory across `renderer/**` (not just `screens/**`).
+- **Raw domain/contract passthrough is NOT localizable** (review boundary finding): values shown
+  verbatim from the contract/DTO — e.g. audit fallback `ev.action`, `entity_type`, `proposed_kind`,
+  `source_type`, `date_only`/`datetime` discriminators, and DTO enum values surfaced in editing
+  controls — must stay raw (contract fidelity / debuggability) and be explicitly EXEMPT from the
+  catalog + guard. The migration WI draws this localizable-vs-passthrough line per field.
+- **Date/time + number formatting is presentation, not translation**: `formatLocalDateTime`,
+  `ulidShort`, `classifyDeadlineUrgency` stay in `format.ts` (NOT catalog entries). They are
+  acceptable as-is for zh-CN v1; a future `en` locale may need a separate date-format decision
+  (recorded, not solved here).
 - **No locale mechanism**: Phase 0 found none; no `navigator.language`, no catalog, no `t()`.
 - **Related guards** (precedent for an anti-drift gate): `tests/renderer-no-hardcoded-color.test.mjs`
   (block-level lint) and `main.test.mjs` palette-sync show the repo's pattern of a test that pins a
@@ -71,7 +89,7 @@ new hardcoded literal, and the list↔detail language gap widens.
 - **C. Third-party i18n lib (e.g. i18next)** — rejected for v1: new runtime dependency (a hard-stop
   per `autonomy.md`), heavier than a single-app, ~150-string surface needs.
 
-## 6. Recommended direction (Option B) + open decisions
+## 6. Recommended direction (Option B) + resolved decisions
 
 Structure (to be implemented in a FOLLOW-UP WI after approval):
 
@@ -85,10 +103,43 @@ Structure (to be implemented in a FOLLOW-UP WI after approval):
    both become thin `t()` lookups. (`format.ts` keeps non-label pure utils like `formatLocalDateTime`,
    `ulidShort`, `classifyDeadlineUrgency`.) `auditEventLabels.ts` folds into the catalog.
 4. **Anti-drift guard** — a test (sibling to the no-hardcoded-color lint) that flags raw user-facing
-   string literals (CJK or bare English UI text) in `renderer/screens/**` + `index.html` outside the
-   catalog, so a new hardcoded label fails CI.
-5. **Shell strings** — move `index.html`'s static chrome text into the catalog applied at bootstrap
-   (or keep static but single-locale-consistent), decided with the locale choice.
+   string literals (CJK or bare English UI text) in `renderer/screens/**`, `renderer/index.ts`, and
+   `index.html` outside the catalog, so a new hardcoded label fails CI. (Full scan set + exemptions +
+   the exact-occurrence allowlist are specified in §6A.)
+5. **Shell strings** — `index.html`'s static chrome text (titlebar/sidebar/statusbar) is **temporarily
+   allowlisted** in the first WI and migrated into the catalog (applied at bootstrap) in a later
+   shell-migration WI. It must be single-locale-consistent meanwhile (v1 = zh-CN, so the shell's
+   currently-English chrome is itself a drift item the migration closes).
+
+### 6A. Load-bearing specifications (required by the migration WI; from review)
+
+- **Typed enum-label facade** (feasibility): enum→label mapping lives in ONE typed module under
+  `renderer/i18n/` (e.g. `labels.ts`) exposing `matterTypeLabel`/`confidentialityLabel`/`statusLabel`/
+  `deadlineUrgencyLabel`/`ledgerCategoryLabel`/`eventKindLabel`, each an **exhaustive `switch`** over the
+  enum that returns `t("enum.<...>")`. This preserves compile-time exhaustiveness (a new enum member
+  fails the build) instead of scattering raw `t("enum…")` string keys across screens. It replaces BOTH
+  the `format.ts` EN helpers AND the `listMatters` `*Zh` copies (single source).
+- **`t(id, params?)` semantics**: **named** interpolation only (`t("list.loading", {status})`), no
+  positional; a **missing required param or missing key FAILS** (throws in dev / returns a loud marker)
+  rather than silently rendering a partial string; covers the existing templated copy (`Pending
+  proposals (${total})`, `due ${date}`, `正在加载${status}案件…`). The first WI ships **key-coverage +
+  interpolation tests** (every catalog key resolves; params are validated).
+- **Anti-drift guard spec** (resolves the High ambiguity):
+  - **Scanned**: `renderer/screens/**`, `renderer/index.ts`, `renderer/index.html`.
+  - **Flagged as user-facing**: string-literal/template children of `el(...)`, `setText(node, "…")`
+    args, `aria-label`/`title`/placeholder/`<legend>` text, and CJK literals anywhere — i.e. any string
+    that reaches the DOM as visible/AT-exposed text.
+  - **Exempt**: catalog files under `renderer/i18n/`; raw domain/contract passthrough fields (the §2
+    list); `data-*`/`class`/`role`/`href`/`id` attribute values; code comments; test files; non-UI
+    constants. The exemption set is enumerated in the guard, mirroring the block-level model of
+    `tests/renderer-no-hardcoded-color.test.mjs`.
+  - **Allowlist = exact existing occurrences** (line/string-pattern entries), NOT per-file — so a file
+    that keeps a pre-existing literal cannot also add a NEW one without failing. The allowlist is seeded
+    to today's occurrences and **burns down to empty** as per-area migration WIs land; CI fails on any
+    occurrence not in the allowlist.
+- **auditEventLabels migration**: folding `EVENT_KIND_LABELS` into the catalog MUST preserve the
+  existing coverage test (every contract event kind has a label) against the new catalog keys, including
+  the null/unknown-kind fallback behavior.
 
 **Resolved decisions (user, 2026-06-13):**
 - **D1. Primary v1 locale = `zh-CN`.** The catalog is keyed by stable IDs so `en` can be added later
@@ -98,16 +149,21 @@ Structure (to be implemented in a FOLLOW-UP WI after approval):
 - **D3. Catalog format = TypeScript** (type-safe string-ID keys; no JSON).
 - **D4. Migration sequencing**: the **first WI builds catalog + `t()` + the anti-drift guard ONLY**
   (no screen migration); screen migrations follow as **separate, later WIs**, each gated, burning the
-  guard's per-file allowlist down to empty.
+  guard's **exact-occurrence allowlist** (per §6A — line/string patterns, NOT per-file) down to empty.
 
 ## 7. Risks
 
 - **High — test churn**: ~80+ label assertions across `renderer-*-matter`, list, view, sub-section
-  tests will move from literal expectations to catalog-driven ones. Mitigation: tests assert via the
-  same `t()`/catalog (single source), not duplicated literals.
-- **Medium — partial-migration drift during rollout**: if migration is multi-WI, the guard test must
-  land EARLY and allow an explicit per-file allowlist that shrinks to empty, so half-migrated state is
-  visible and converges. Mitigation: guard + allowlist with a burn-down.
+  tests move from literal expectations to catalog-driven ones. Mitigation: assert **catalog
+  completeness** (every key resolves) + **key usage via `t()`/the facade** as the single source — but
+  do NOT over-collapse: RETAIN rendered-text smoke checks on the user-visible screens (e.g. the
+  smoke.electron h1/empty-copy assertions) so a wrong-catalog-wiring regression is still caught. The
+  smoke checks reference the catalog value, not a duplicated literal.
+- **Medium — partial-migration drift during rollout**: the guard must block NEW drift even in a
+  half-migrated tree. So the guard lands EARLY with an **exact-occurrence allowlist** (line/string
+  patterns, NOT per-file — a per-file allowlist would let a file keep old literals while adding new
+  ones). The allowlist is seeded to today's occurrences and burns down to empty as per-area migration
+  WIs land; any non-allowlisted occurrence fails CI.
 - **Medium — locale choice reversibility**: picking zh-CN-only now and adding en later is cheap IF the
   catalog is keyed by ID from the start; picking en-only would mean re-translating PR2's CN list.
 - **Low — `format.ts` consumers**: deleting EN enum helpers touches viewMatter/createMatter/archive/
@@ -117,8 +173,9 @@ Structure (to be implemented in a FOLLOW-UP WI after approval):
 
 - **New runtime dependency** — AVOIDED by the hand-rolled recommendation; adopting a lib (Option C)
   would trigger the `autonomy.md` hard-stop and needs explicit approval.
-- **Locale = product direction** — D1/D2 are product decisions; per `client-local-first.md` +
-  `autonomy.md` they are STOP-AND-ASK, not agent-defaulted.
+- **Locale = product direction** — D1/D2 are product decisions (STOP-AND-ASK, not agent-defaulted, per
+  `client-local-first.md` + `autonomy.md`); RESOLVED by the user 2026-06-13 (D1=zh-CN, D2=no runtime
+  switch v1). Any later change to the locale strategy re-triggers this stop.
 - No contract/IPC/DTO/enum-value change (would be a separate ADR-gated change; this WI forbids it).
 
 ## 9. Required downstream artifact
@@ -140,8 +197,9 @@ only (no screen migration); per-screen migration WIs follow per §6 D4.
 ## 11. Next bounded WI suggestion
 
 `WI-i18n-1: scaffold renderer/i18n/ catalog + t() + anti-drift guard test (no screen migration)` —
-build the structure + the failing-on-new-literal guard with an explicit per-file allowlist seeded to
-the current screens, so migration WIs burn the allowlist down to empty. Expected paths:
+build the structure + the failing-on-new-literal guard with an **exact-occurrence allowlist** (per §6A;
+line/string patterns, NOT per-file) seeded to the current occurrences, so migration WIs burn the
+allowlist down to empty. Expected paths:
 `renderer/i18n/*`, `tests/renderer-i18n*.test.mjs`. No screen DOM/label change in that WI.
 
 ## 12. Stop condition
