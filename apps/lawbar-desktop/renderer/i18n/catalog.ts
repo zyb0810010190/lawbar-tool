@@ -1,14 +1,16 @@
-// renderer/i18n/catalog.ts — zh-CN message catalog (WI-i18n-1, infra-only).
+// renderer/i18n/catalog.ts — zh-CN message catalog. Central source for all migrated UI strings.
 // Per dev-memo/plan-i18n-00.md + dev-memo/plan-i18n-impl-00.md. v1 LOCALE = zh-CN (D1/D2).
 //
-// Stable string IDs → display text. This WI seeds ONLY the enum-label entries (finite, needed by the
-// typed facade in ./labels.ts) plus a small set of shared keys used to exercise t(). Per-screen
-// free-text chrome keys are added by the later screen-migration WIs; NO screen consumes this catalog
-// yet (it is unwired — see plan §6/§6A).
+// Stable string IDs → display text. Seeds the enum-label entries (finite, used by the typed facade in
+// ./labels.ts), shared keys, and — as of WI-i18n-2 — the shell chrome (shell.*) and matter-list route
+// (list.*) strings. Those surfaces now CONSUME this catalog: renderer/index.ts applyShellI18n() resolves
+// the shell data-i18n hooks, and renderer/screens/listMatters.ts resolves via t() + the labels facade.
+// The remaining screens (detail/create/archive and the lazy sub-sections) are migrated by later WIs,
+// which add their keys here.
 //
 // This file lives under renderer/i18n/ and is EXEMPT from the anti-drift guard's scan set (the guard
 // scans renderer/screens/**, renderer/index.ts, renderer/index.html only). Its CJK values are the
-// single source of truth the facade resolves through t().
+// single source of truth the facade + t() resolve.
 
 export const CATALOG = {
   // ---- enum: matter type (renderer/types.ts MatterType) ----
