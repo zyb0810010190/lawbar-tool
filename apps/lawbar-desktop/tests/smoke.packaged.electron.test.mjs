@@ -140,15 +140,16 @@ test("packaged .app launches; window opens; title=lawbar; renders case-box list 
   // The router shell mount point.
   await window.waitForSelector("main#app");
 
-  // Default route #/matters renders <h1>lawbar — case-box</h1>.
+  // Default route #/matters renders <h1>案件台账</h1> (PR2 desktop variant;
+  // no i18n layer, list labels are hardcoded Chinese).
   await window.waitForSelector("h1");
   const h1Text = await window.locator("h1").first().textContent();
-  assert.equal(h1Text, "lawbar — case-box");
+  assert.equal(h1Text, "案件台账");
 
   // In-memory backing is fresh on launch → the empty-state marker is present.
   await window.waitForSelector('[data-test-id="list-empty"]', { timeout: 5000 });
   const emptyText = await window.locator('[data-test-id="list-empty"]').textContent();
-  assert.match(emptyText, /Matters are stored locally on this device\./);
+  assert.match(emptyText, /仅保存在本机/);
 
   // The + New matter button is present so the user can navigate forward.
   const newBtn = window.locator("button.list-new-btn");

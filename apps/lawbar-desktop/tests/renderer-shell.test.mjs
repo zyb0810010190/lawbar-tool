@@ -70,6 +70,14 @@ test("sidebar nav links target only real routes", () => {
   }
 });
 
+test("static shell does NOT hardcode aria-current (UISHELL-L1); links carry data-nav", () => {
+  // aria-current is driven dynamically by renderer/nav.ts; the static markup
+  // must not pin it (that was the UISHELL-L1 a11y bug).
+  assert.ok(!/aria-current/.test(HTML), "static shell must not hardcode aria-current");
+  assert.match(HTML, /href="#\/matters"[^>]*data-nav="list"/, "Matters link needs data-nav=list");
+  assert.match(HTML, /href="#\/matters\/new"[^>]*data-nav="new"/, "New-matter link needs data-nav=new");
+});
+
 test("traffic-light dots are tokenised, not raw hex", () => {
   assert.match(CSS, /\.traffic-light--close\s*\{\s*background:\s*var\(--traffic-close\)/);
   assert.match(CSS, /\.traffic-light--min\s*\{\s*background:\s*var\(--traffic-min\)/);

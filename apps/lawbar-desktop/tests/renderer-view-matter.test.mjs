@@ -107,6 +107,46 @@ test("active matter: renders title + status pill + detail fields + Archive butto
   assert.equal(doc._focused, archive);
 });
 
+test("detail desktop layout (PR3): view-desktop grid + view-card + meta-strip + colophon + archive-pull", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    getMatter: async () => ({ ok: true, value: syntheticMatter() }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  const byClass = (cls) =>
+    findOne(root, (n) => (n.getAttribute("class") ?? "").split(/\s+/).includes(cls));
+  assert.ok(byClass("view-desktop"), "expected the .view-desktop two-column grid");
+  assert.ok(byClass("view-card"), "expected the .view-card info panel");
+  assert.ok(byClass("view-meta-strip"), "expected the .view-meta-strip eyebrows");
+  assert.ok(byClass("colophon"), "expected the .colophon aside");
+  assert.ok(byClass("view-aside"), "expected the .view-aside column");
+  assert.ok(byClass("archive-pull"), "active matter shows the .archive-pull danger card");
+  // The archive button lives INSIDE the archive-pull card.
+  const pull = byClass("archive-pull");
+  assert.ok(
+    findOne(pull, (n) => n.getAttribute("data-test-id") === "view-archive") !== null,
+    "Archive button is inside the danger-zone card",
+  );
+});
+
+test("detail desktop layout (PR3): archived matter shows no archive-pull, keeps archived marker", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    getMatter: async () => ({
+      ok: true,
+      value: syntheticMatter({ status: "archived", archived_at: "2026-05-28T00:00:00Z" }),
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  const byClass = (cls) =>
+    findOne(root, (n) => (n.getAttribute("class") ?? "").split(/\s+/).includes(cls));
+  assert.equal(byClass("archive-pull"), null, "archived matter has no danger-zone card");
+  assert.ok(byClass("view-archived-marker"), "archived marker present");
+  assert.ok(byClass("view-desktop"), "still uses the desktop grid");
+});
+
 test("Archive button: navigates to #/matters/:id/archive", async () => {
   const doc = new MockDoc();
   const root = doc.createElement("main");

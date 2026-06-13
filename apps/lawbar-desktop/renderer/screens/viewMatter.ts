@@ -287,10 +287,24 @@ function renderDetail(
     [row.name],
     doc,
   );
+  // Editorial meta strip — monospace eyebrows under the title (id · type ·
+  // created). Additive; the authoritative fields stay in the <dl> below.
+  const metaStrip = el(
+    "div",
+    { class: "view-meta-strip", "data-test-id": "view-meta" },
+    [
+      el("span", { class: "meta-id" }, [ulidShort(row.id)], doc),
+      el("span", { class: "meta-pipe" }, [], doc),
+      el("span", {}, [matterTypeLabel(row.matter_type)], doc),
+      el("span", { class: "meta-pipe" }, [], doc),
+      el("span", {}, [statusLabel(row.status)], doc),
+    ],
+    doc,
+  );
   const header = el(
     "header",
     { class: "view-header" },
-    [back, titleEl, pill],
+    [back, titleEl, pill, metaStrip],
     doc,
   );
 
@@ -350,33 +364,8 @@ function renderDetail(
   // Parties.
   dl.appendChild(renderField("Parties", renderParties(row.parties, doc), doc));
 
-  // Action buttons.
-  let primaryAction: HTMLElement;
-  if (row.status === "active") {
-    primaryAction = el(
-      "button",
-      {
-        type: "button",
-        class: "button button--primary view-archive-btn",
-        "data-test-id": "view-archive",
-      },
-      ["Archive…"],
-      doc,
-    );
-    primaryAction.addEventListener("click", () => {
-      deps.navigate(buildHash("archive", { id: row.id }));
-    });
-  } else {
-    // Archived: no archive button. Primary affordance is the back link.
-    primaryAction = el(
-      "p",
-      { class: "view-archived-marker" },
-      ["This matter is archived."],
-      doc,
-    );
-  }
-
-  // ULID disclosure under the title.
+  // ULID disclosure (full id under a <details>). Lives in the right-column
+  // colophon panel below.
   const fullIdDetails = el(
     "details",
     { class: "view-full-id" },
@@ -397,33 +386,136 @@ function renderDetail(
     doc,
   );
 
-  // Read-only Documents section (B2, lazy load on disclosure open).
+  // Primary content card — authoritative detail fields + parties (the <dl>
+  // keeps its data-test-id + English labels; only the surrounding chrome is new).
+  const infoCard = el(
+    "section",
+    { class: "view-card", "data-test-id": "view-info-card" },
+    [
+      el(
+        "h2",
+        { class: "view-card-title" },
+        ["Matter details", el("span", { class: "card-eyebrow" }, ["§ DETAIL"], doc)],
+        doc,
+      ),
+      dl,
+    ],
+    doc,
+  );
+
+  // Read-only lazy sections (B2/B6/B7 — internals + lazy <details> behavior
+  // unchanged; PR3 only relocates them into the desktop two-column layout).
   const documentsDetails = renderDocumentsDisclosure(doc, deps.api, row.id);
-
-  // Read-only Deadlines section (B7, lazy load on disclosure open).
   const deadlinesDetails = renderDeadlinesDisclosure(doc, deps.api, row.id);
-
-  // Read-only Facts section (B6, lazy load on disclosure open).
   const factsDetails = renderFactsDisclosure(doc, deps.api, row.id);
-
-  // Audit chain head + event-log disclosure.
   const chainHeadDetails = renderChainHeadDisclosure(doc, deps.api, row.id);
+
+  const mainCol = el(
+    "div",
+    { class: "view-main" },
+    [infoCard, documentsDetails, deadlinesDetails, factsDetails],
+    doc,
+  );
+
+  // Right column — colophon (id/created dispatch) + audit chain + archive zone.
+  const colophon = el(
+    "aside",
+    { class: "colophon" },
+    [
+      el(
+        "div",
+        { class: "colophon-header" },
+        ["Colophon", el("span", { class: "colophon-marker" }, ["§"], doc)],
+        doc,
+      ),
+      el(
+        "div",
+        { class: "colophon-body" },
+        [
+          el(
+            "div",
+            { class: "colophon-row" },
+            [el("dt", {}, ["Created"], doc), el("dd", {}, [formatLocalDateTime(row.created_at)], doc)],
+            doc,
+          ),
+          el(
+            "div",
+            { class: "colophon-row" },
+            [el("dt", {}, ["Matter ID"], doc), el("dd", {}, [fullIdDetails], doc)],
+            doc,
+          ),
+        ],
+        doc,
+      ),
+    ],
+    doc,
+  );
+
+  // Archive affordance: a danger-zone pull card for active matters; a quiet
+  // marker for archived ones. (Archive button keeps its data-test-id + nav.)
+  let archiveBlock: HTMLElement;
+  let archiveBtn: HTMLElement | null = null;
+  if (row.status === "active") {
+    archiveBtn = el(
+      "button",
+      {
+        type: "button",
+        class: "button button--danger view-archive-btn",
+        "data-test-id": "view-archive",
+      },
+      ["Archive…"],
+      doc,
+    );
+    archiveBtn.addEventListener("click", () => {
+      deps.navigate(buildHash("archive", { id: row.id }));
+    });
+    archiveBlock = el(
+      "section",
+      { class: "archive-pull" },
+      [
+        el("span", { class: "archive-pull-marker" }, ["Danger zone"], doc),
+        el(
+          "p",
+          {},
+          ["Archiving locks this matter. The action is recorded in the audit log."],
+          doc,
+        ),
+        archiveBtn,
+      ],
+      doc,
+    );
+  } else {
+    archiveBlock = el(
+      "p",
+      { class: "view-archived-marker" },
+      ["This matter is archived."],
+      doc,
+    );
+  }
+
+  const aside = el(
+    "div",
+    { class: "view-aside" },
+    [colophon, chainHeadDetails, archiveBlock],
+    doc,
+  );
+
+  const grid = el(
+    "div",
+    { class: "view-desktop", "data-test-id": "view-desktop" },
+    [mainCol, aside],
+    doc,
+  );
 
   const announce = announceRegion(doc);
 
   root.appendChild(header);
-  root.appendChild(fullIdDetails);
-  root.appendChild(dl);
-  root.appendChild(primaryAction);
-  root.appendChild(documentsDetails);
-  root.appendChild(deadlinesDetails);
-  root.appendChild(factsDetails);
-  root.appendChild(chainHeadDetails);
+  root.appendChild(grid);
   root.appendChild(announce);
 
   // Initial focus per §7.4: archive button if active, else back link.
-  if (row.status === "active") {
-    focusEl(primaryAction);
+  if (archiveBtn !== null) {
+    focusEl(archiveBtn);
   } else {
     focusEl(back);
   }

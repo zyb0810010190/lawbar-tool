@@ -274,10 +274,9 @@ test("mount: loaded state renders the table with one row per matter", async () =
   const tbody = findByTag(table, "tbody");
   const trs = findAllByTag(tbody, "tr");
   assert.equal(trs.length, 3);
-  // Columns: [0]序号 [1]名称(link) [2]类型 [3]保密级别(pill) [4]创建时间 [5]状态(pill)
-  // Row 1: ordinal + name link.
-  const cells1 = findAllByTag(trs[0], "td");
-  assert.equal(collectTextContent(cells1[0]), "1");
+  // Columns: [0]名称(link) [1]类型 [2]保密级别(pill) [3]创建时间 [4]状态(pill)
+  // (No ordinal/序号 column — synthetic display numbering removed per M1-A.)
+  // Row 1: name link.
   const link0 = findByTag(trs[0], "a");
   assert.equal(link0.getAttribute("data-matter-id"), VALID_ULID_1);
   assert.equal(link0.getAttribute("href"), `#/matters/${VALID_ULID_1}`);
@@ -286,13 +285,12 @@ test("mount: loaded state renders the table with one row per matter", async () =
     (link0.getAttribute("class") ?? "").includes("matter-name"),
     "name link carries .matter-name (desktop serif)",
   );
-  // Row 2: matter_type "advisory" → Chinese "顾问".
+  // Row 2: matter_type "advisory" → Chinese "顾问" (now column [1]).
   const cells2 = findAllByTag(trs[1], "td");
-  assert.equal(collectTextContent(cells2[0]), "2");
-  assert.equal(collectTextContent(cells2[2]), "顾问");
-  // Row 3: confidentiality_class "sealed" → conf-pill "密封".
+  assert.equal(collectTextContent(cells2[1]), "顾问");
+  // Row 3: confidentiality_class "sealed" → conf-pill "密封" (now column [2]).
   const cells3 = findAllByTag(trs[2], "td");
-  const confPill = findOne(cells3[3], (n) =>
+  const confPill = findOne(cells3[2], (n) =>
     (n.getAttribute("class") ?? "").startsWith("conf-pill"),
   );
   assert.ok(confPill !== null, "confidentiality renders as a conf-pill");
