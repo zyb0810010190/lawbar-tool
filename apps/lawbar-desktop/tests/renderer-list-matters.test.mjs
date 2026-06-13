@@ -176,23 +176,53 @@ test("PAGE_SIZE constant equals 20 per §6.1", () => {
   assert.equal(PAGE_SIZE, 20);
 });
 
-test("mount: scaffold renders header with title, tabs, and + New matter button", async () => {
+test("mount: scaffold renders header (h1 案件台账), desk-tabs in a tabs-row, and + 新建案件 button", async () => {
   const doc = new MockDoc();
   const root = doc.createElement("main");
   const api = makeStubApi();
   await mountListMatters(root, { api, navigate: () => {}, doc });
   const h1 = findByTag(root, "h1");
   assert.ok(h1 !== null, "expected an <h1>");
-  assert.equal(collectTextContent(h1), "lawbar — case-box");
+  assert.equal(collectTextContent(h1), "案件台账");
+  // PR2 desktop variant: tabs use .desk-tab inside a .tabs-row tablist.
+  const tabsRow = findOne(
+    root,
+    (n) => (n.getAttribute("class") ?? "").includes("tabs-row"),
+  );
+  assert.ok(tabsRow !== null, "expected a .tabs-row tablist");
+  assert.equal(tabsRow.getAttribute("role"), "tablist");
   const tabs = findAll(root, (n) => n.getAttribute("role") === "tab");
   assert.equal(tabs.length, 2);
+  for (const t of tabs) {
+    assert.ok(
+      (t.getAttribute("class") ?? "").includes("desk-tab"),
+      "each tab should carry .desk-tab",
+    );
+  }
+  assert.equal(collectTextContent(tabs[0]), "进行中");
+  assert.equal(collectTextContent(tabs[1]), "已归档");
   const newBtn = findOne(
     root,
     (n) =>
       n.tagName === "BUTTON" &&
-      collectTextContent(n) === "+ New matter",
+      collectTextContent(n) === "+ 新建案件",
   );
-  assert.ok(newBtn !== null, "expected the + New matter button");
+  assert.ok(newBtn !== null, "expected the + 新建案件 button");
+  assert.ok(
+    (newBtn.getAttribute("class") ?? "").includes("list-new-btn"),
+    "new-matter button must keep the .list-new-btn class (smoke contract)",
+  );
+});
+
+test("mount: default tab is active, marked aria-selected", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi();
+  await mountListMatters(root, { api, navigate: () => {}, doc });
+  const activeTab = findOne(root, (n) => n.getAttribute("data-status") === "active");
+  const archivedTab = findOne(root, (n) => n.getAttribute("data-status") === "archived");
+  assert.equal(activeTab.getAttribute("aria-selected"), "true");
+  assert.equal(archivedTab.getAttribute("aria-selected"), "false");
 });
 
 test("mount: empty active state shows the in-memory-volatility copy", async () => {
@@ -204,10 +234,11 @@ test("mount: empty active state shows the in-memory-volatility copy", async () =
   await mountListMatters(root, { api, navigate: () => {}, doc });
   const empty = findByTestId(root, "list-empty");
   assert.ok(empty !== null);
-  assert.match(
-    collectTextContent(empty),
-    /Matters are stored locally on this device\./,
+  assert.ok(
+    (empty.getAttribute("class") ?? "").includes("list-empty-desktop"),
+    "empty state uses the desktop variant class",
   );
+  assert.match(collectTextContent(empty), /仅保存在本机/);
 });
 
 test("mount: empty archived state shows the archived copy", async () => {
@@ -219,7 +250,7 @@ test("mount: empty archived state shows the archived copy", async () => {
   await mountListMatters(root, { api, navigate: () => {}, doc }, "archived");
   const empty = findByTestId(root, "list-empty");
   assert.ok(empty !== null);
-  assert.equal(collectTextContent(empty), "No archived matters.");
+  assert.match(collectTextContent(empty), /暂无已归档案件/);
 });
 
 test("mount: loaded state renders the table with one row per matter", async () => {
@@ -236,20 +267,37 @@ test("mount: loaded state renders the table with one row per matter", async () =
   await mountListMatters(root, { api, navigate: () => {}, doc });
   const table = findByTestId(root, "matter-table");
   assert.ok(table !== null, "expected the matter table");
+  assert.ok(
+    (table.getAttribute("class") ?? "").includes("matter-table-desktop"),
+    "table uses the desktop variant class",
+  );
   const tbody = findByTag(table, "tbody");
   const trs = findAllByTag(tbody, "tr");
   assert.equal(trs.length, 3);
-  // Row 1: name link + labels
+  // Columns: [0]序号 [1]名称(link) [2]类型 [3]保密级别(pill) [4]创建时间 [5]状态(pill)
+  // Row 1: ordinal + name link.
+  const cells1 = findAllByTag(trs[0], "td");
+  assert.equal(collectTextContent(cells1[0]), "1");
   const link0 = findByTag(trs[0], "a");
   assert.equal(link0.getAttribute("data-matter-id"), VALID_ULID_1);
   assert.equal(link0.getAttribute("href"), `#/matters/${VALID_ULID_1}`);
   assert.equal(collectTextContent(link0), `matter-fixture-${VALID_ULID_1.slice(0, 4)}`);
-  // Row 2: matter_type label resolves to "Counsel matter"
+  assert.ok(
+    (link0.getAttribute("class") ?? "").includes("matter-name"),
+    "name link carries .matter-name (desktop serif)",
+  );
+  // Row 2: matter_type "advisory" → Chinese "顾问".
   const cells2 = findAllByTag(trs[1], "td");
-  assert.equal(collectTextContent(cells2[1]), "Counsel matter");
-  // Row 3: confidentiality_class "sealed" → "Sealed"
+  assert.equal(collectTextContent(cells2[0]), "2");
+  assert.equal(collectTextContent(cells2[2]), "顾问");
+  // Row 3: confidentiality_class "sealed" → conf-pill "密封".
   const cells3 = findAllByTag(trs[2], "td");
-  assert.equal(collectTextContent(cells3[2]), "Sealed");
+  const confPill = findOne(cells3[3], (n) =>
+    (n.getAttribute("class") ?? "").startsWith("conf-pill"),
+  );
+  assert.ok(confPill !== null, "confidentiality renders as a conf-pill");
+  assert.match(confPill.getAttribute("class"), /conf-pill--sealed/);
+  assert.equal(collectTextContent(confPill), "密封");
 });
 
 test("mount: error envelope renders inline error with role=alert and safe message only", async () => {
@@ -286,7 +334,7 @@ test("mount: + New matter button calls navigate with the new-matter hash", async
     root,
     (n) =>
       n.tagName === "BUTTON" &&
-      collectTextContent(n) === "+ New matter",
+      collectTextContent(n) === "+ 新建案件",
   );
   newBtn.dispatchEvent({ type: "click" });
   assert.deepEqual(navCalls, ["#/matters/new"]);
@@ -462,6 +510,6 @@ test("mount: status pill receives the matter's status as a class modifier", asyn
   assert.equal(pills.length, 2);
   assert.match(pills[0].getAttribute("class"), /status-pill--active/);
   assert.match(pills[1].getAttribute("class"), /status-pill--archived/);
-  assert.equal(collectTextContent(pills[0]), "Active");
-  assert.equal(collectTextContent(pills[1]), "Archived");
+  assert.equal(collectTextContent(pills[0]), "进行中");
+  assert.equal(collectTextContent(pills[1]), "已归档");
 });
