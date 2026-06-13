@@ -41,21 +41,19 @@ test("Electron launches; window opens; title=lawbar; #app renders case-box list 
   await window.waitForSelector("main#app");
 
   // Default route is #/matters (the list screen). The list screen renders
-  // an <h1>lawbar — case-box</h1> and, since v1 backing is in-memory and
-  // fresh on launch, an empty-state copy.
+  // an <h1>案件台账</h1> (PR2 desktop variant; no i18n layer, labels are
+  // hardcoded Chinese) and, since v1 backing is in-memory and fresh on
+  // launch, an empty-state copy that reassures data stays on this device.
   await window.waitForSelector("h1");
   const h1Text = await window.locator("h1").first().textContent();
-  assert.equal(h1Text, "lawbar — case-box");
+  assert.equal(h1Text, "案件台账");
 
   // The list screen marks its empty state with a stable test id.
   await window.waitForSelector('[data-test-id="list-empty"]', { timeout: 5000 });
   const emptyText = await window
     .locator('[data-test-id="list-empty"]')
     .textContent();
-  assert.match(
-    emptyText,
-    /Matters are stored locally on this device\./,
-  );
+  assert.match(emptyText, /仅保存在本机/);
 
   // The + New matter button is present so the user can navigate forward.
   const newBtn = window.locator("button.list-new-btn");
