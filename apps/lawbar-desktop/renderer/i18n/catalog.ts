@@ -90,8 +90,35 @@ export const CATALOG = {
   "eventKind.DOCKET_ENTRY_DISMISSED": "立案条目已驳回",
   "eventKind.DOCKET_ENTRY_REVISED": "立案条目已修订",
 
-  // ---- shared keys (exercise t(); also real future keys) ----
+  // ---- shared keys ----
   "common.loadMore": "加载更多",
+
+  // ---- shell chrome (WI-i18n-2; English -> zh-CN drift-closure per plan-i18n-00 §6.5) ----
+  "shell.brand": "Lawbar · 案件盒",
+  "shell.workspaceKind": "工作区",
+  "shell.workspaceName": "本地",
+  "shell.navMatters": "案件",
+  "shell.navNewMatter": "新建案件",
+  "shell.footerStatus": "本地优先",
+  "shell.statusbarLabel": "案件盒",
+  "shell.statusbarNote": "本地优先 · 文档仅存于本机",
+  "shell.ariaPrimary": "主导航",
+  "shell.ariaCaseBox": "案件盒",
+  "shell.ariaApp": "案件盒",
+
+  // ---- matter list route (WI-i18n-2; already zh-CN, moved to catalog) ----
+  "list.title": "案件台账",
+  "list.subtitle": "本机案件 · 按创建时间排列",
+  "list.newMatter": "+ 新建案件",
+  "list.tabsAria": "案件状态",
+  "list.col.name": "案件名称",
+  "list.col.type": "类型",
+  "list.col.confidentiality": "保密级别",
+  "list.col.created": "创建时间",
+  "list.col.status": "状态",
+  "list.empty.activeTitle": "暂无案件",
+  "list.empty.activeBody": "点击「新建案件」创建第一个。案件数据仅保存在本机。",
+  "list.empty.archived": "暂无已归档案件",
   "list.loading": "正在加载{status}案件…",
 } as const;
 

@@ -41,9 +41,9 @@ test("Electron launches; window opens; title=lawbar; #app renders case-box list 
   await window.waitForSelector("main#app");
 
   // Default route is #/matters (the list screen). The list screen renders
-  // an <h1>案件台账</h1> (PR2 desktop variant; no i18n layer, labels are
-  // hardcoded Chinese) and, since v1 backing is in-memory and fresh on
-  // launch, an empty-state copy that reassures data stays on this device.
+  // an <h1>案件台账</h1> (zh-CN via the i18n catalog/facade, WI-i18n-2) and,
+  // since v1 backing is in-memory and fresh on launch, an empty-state copy
+  // that reassures data stays on this device.
   await window.waitForSelector("h1");
   const h1Text = await window.locator("h1").first().textContent();
   assert.equal(h1Text, "案件台账");
@@ -58,6 +58,21 @@ test("Electron launches; window opens; title=lawbar; #app renders case-box list 
   // The + New matter button is present so the user can navigate forward.
   const newBtn = window.locator("button.list-new-btn");
   await newBtn.waitFor({ state: "visible" });
+
+  // WI-i18n-2: shell chrome renders zh-CN from the catalog (data-i18n -> t() at bootstrap).
+  await window.waitForFunction(
+    () => document.querySelector(".titlebar-crumb")?.textContent === "Lawbar · 案件盒",
+    null,
+    { timeout: 5000 },
+  );
+  assert.equal(
+    await window.locator('.sidebar-link[data-nav="list"] [data-i18n="shell.navMatters"]').textContent(),
+    "案件",
+  );
+  assert.equal(
+    await window.locator('.sidebar-link[data-nav="new"] [data-i18n="shell.navNewMatter"]').textContent(),
+    "新建案件",
+  );
 });
 
 test("sidebar aria-current follows the hash route (UISHELL-L1)", async (t) => {
