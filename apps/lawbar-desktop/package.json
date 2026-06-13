@@ -58,6 +58,9 @@
   "build": {
     "appId": "io.lawbar.desktop",
     "productName": "lawbar",
+    "directories": {
+      "output": "release"
+    },
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
@@ -66,8 +69,14 @@
       "identity": null
     },
     "files": [
-      "dist/**/*",
-      "package.json"
+      "dist/electron/**/*",
+      "dist/src/**/*",
+      "dist/renderer/**/*",
+      "package.json",
+      "!**/*.js.map",
+      "!dist/mac/**/*",
+      "!dist/mac-arm64/**/*",
+      "!dist/builder-*.{yml,yaml}"
     ],
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**"
