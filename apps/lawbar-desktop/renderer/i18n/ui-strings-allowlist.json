@@ -84,6 +84,30 @@
     "kind": "text"
   },
   {
+    "file": "renderer/index.ts",
+    "line": 76,
+    "text": "Bootstrap error: ${(err as Error).message}",
+    "kind": "textContent"
+  },
+  {
+    "file": "renderer/index.ts",
+    "line": 105,
+    "text": "Not found",
+    "kind": "textContent"
+  },
+  {
+    "file": "renderer/index.ts",
+    "line": 107,
+    "text": "The requested screen does not exist or the matter ID is malformed.",
+    "kind": "textContent"
+  },
+  {
+    "file": "renderer/index.ts",
+    "line": 111,
+    "text": "Back to matters",
+    "kind": "textContent"
+  },
+  {
     "file": "renderer/screens/archiveMatter.ts",
     "line": 108,
     "text": "Matter not found",
