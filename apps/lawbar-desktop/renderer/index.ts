@@ -8,6 +8,7 @@
 
 import { getDefaultApi, type CaseBoxApi } from "./api.js";
 import { attachRouter, type ParsedRoute } from "./router.js";
+import { applySidebarCurrent } from "./nav.js";
 import { mountListMatters } from "./screens/listMatters.js";
 import { mountCreateMatter } from "./screens/createMatter.js";
 import { mountViewMatter } from "./screens/viewMatter.js";
@@ -130,6 +131,13 @@ function bootstrap(): void {
   // attachRouter from ./router.js fires once on attach and then on every
   // hashchange event, so the initial route renders on load.
   attachRouter((route) => {
+    // Keep the static shell sidebar's aria-current in sync with the route
+    // (UISHELL-L1). Guarded so a missing sidebar (tests/headless) is a no-op.
+    try {
+      applySidebarCurrent(document, route.name);
+    } catch {
+      /* no sidebar in this context */
+    }
     void renderRoute(route);
   });
 }

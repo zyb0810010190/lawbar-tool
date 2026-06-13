@@ -41,11 +41,13 @@
           <div class="sidebar-divider"></div>
 
           <nav class="sidebar-nav" aria-label="Case Box">
-            <a class="sidebar-link" href="#/matters" aria-current="page">
+            <!-- aria-current is set dynamically from the hash route by
+                 renderer/nav.ts (UISHELL-L1); not hardcoded. -->
+            <a class="sidebar-link" href="#/matters" data-nav="list">
               <span class="link-icon" aria-hidden="true">§</span>
               <span>Matters</span>
             </a>
-            <a class="sidebar-link" href="#/matters/new">
+            <a class="sidebar-link" href="#/matters/new" data-nav="new">
               <span class="link-icon" aria-hidden="true">+</span>
               <span>New matter</span>
             </a>

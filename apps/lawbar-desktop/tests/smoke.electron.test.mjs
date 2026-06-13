@@ -60,6 +60,47 @@ test("Electron launches; window opens; title=lawbar; #app renders case-box list 
   await newBtn.waitFor({ state: "visible" });
 });
 
+test("sidebar aria-current follows the hash route (UISHELL-L1)", async (t) => {
+  const app = await electron.launch({
+    args: ["."],
+    cwd: projectRoot,
+    env: { ...process.env, LAWBAR_MODE: "dev" },
+  });
+  t.after(async () => {
+    await app.close();
+  });
+  const window = await app.firstWindow();
+  await window.waitForLoadState("domcontentloaded");
+  await window.waitForSelector("main#app");
+
+  // Default route #/matters → Matters link is current, New-matter is not.
+  await window.waitForFunction(
+    () =>
+      document.querySelector('.sidebar-link[data-nav="list"]')?.getAttribute("aria-current") === "page",
+    null,
+    { timeout: 5000 },
+  );
+  assert.equal(
+    await window.getAttribute('.sidebar-link[data-nav="new"]', "aria-current"),
+    null,
+  );
+
+  // Navigate to #/matters/new → current moves to the New-matter link only.
+  await window.evaluate(() => {
+    window.location.hash = "#/matters/new";
+  });
+  await window.waitForFunction(
+    () =>
+      document.querySelector('.sidebar-link[data-nav="new"]')?.getAttribute("aria-current") === "page",
+    null,
+    { timeout: 5000 },
+  );
+  assert.equal(
+    await window.getAttribute('.sidebar-link[data-nav="list"]', "aria-current"),
+    null,
+  );
+});
+
 test("nativeTheme.themeSource flip propagates to <html data-theme>", async (t) => {
   // Programmatic equivalent of the manual macOS Appearance toggle gate.
   // The renderer's setupTheme() registers an `onSystemChange` callback that
