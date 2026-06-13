@@ -1,0 +1,189 @@
+// i18n anti-drift scanner (WI-i18n-1). Test-support helper (NOT a node:test file; not run directly).
+// Per dev-memo/plan-i18n-impl-00.md S2/S6A. Lexical (NOT a full TS/HTML parser): it flags user-facing
+// string literals so a NEW hardcoded label fails the guard. Used by both the guard test and the
+// allowlist generator so the seed and the check come from one source.
+//
+// Scan set: renderer/screens/**.ts, renderer/index.ts, renderer/index.html. (renderer/i18n/** is the
+// catalog and is intentionally NOT scanned; format.ts/types.ts/dom.ts/etc. are out of the guard scope.)
+//
+// A "user-facing literal" candidate is, by construction of the renderer idiom:
+//   - kind "cjk"     : any string/template literal containing a CJK char (strongest drift signal)
+//   - kind "text"    : a string/template literal that is an ARRAY element (el(tag, attrs, [children]))
+//   - kind "setText" : the 2nd argument string of a setText(node, "...") call
+//   - kind "attr"    : the value of an aria-label / title / placeholder key
+//   - kind "html-text": a non-empty visible text node in index.html
+// Object values for class/role/href/id/scope/type/for/data-*/aria-* (except aria-label) are NOT array
+// elements and NOT the flagged attrs, so they are inherently exempt.
+
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+export const APP_ROOT = path.resolve(__dirname, "..");
+const RENDERER = path.join(APP_ROOT, "renderer");
+
+// CJK range as ASCII \u escapes so this scanner file stays pure-ASCII / text-reviewable (L1).
+const CJK_RE = /[\u4e00-\u9fff]/;
+const HAS_LETTER_RE = /[A-Za-z\u4e00-\u9fff]/;
+
+// Replace /* */ and // comments with spaces, preserving newlines (so line numbers are stable).
+function stripTsComments(text) {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const two = text.slice(i, i + 2);
+    if (two === "/*") {
+      const end = text.indexOf("*/", i + 2);
+      const stop = end < 0 ? text.length : end + 2;
+      for (let j = i; j < stop; j++) out += text[j] === "\n" ? "\n" : " ";
+      i = stop;
+    } else if (two === "//") {
+      const nl = text.indexOf("\n", i + 2);
+      const stop = nl < 0 ? text.length : nl;
+      for (let j = i; j < stop; j++) out += " ";
+      i = stop;
+    } else {
+      out += text[i];
+      i++;
+    }
+  }
+  return out;
+}
+
+function lineAt(text, index) {
+  let n = 1;
+  for (let i = 0; i < index && i < text.length; i++) if (text[i] === "\n") n++;
+  return n;
+}
+
+// Tokenize comment-stripped TS: emit string/template tokens with their text, line, and the bracket
+// that immediately contains them ("[" / "(" / "{" / null). Brackets are tracked only OUTSIDE strings.
+function scanTsTokens(stripped) {
+  const tokens = [];
+  const stack = [];
+  let i = 0;
+  const n = stripped.length;
+  while (i < n) {
+    const c = stripped[i];
+    if (c === "[" || c === "(" || c === "{") {
+      stack.push(c);
+      i++;
+    } else if (c === "]" || c === ")" || c === "}") {
+      stack.pop();
+      i++;
+    } else if (c === '"' || c === "'" || c === "`") {
+      const quote = c;
+      const start = i;
+      i++;
+      let body = "";
+      while (i < n) {
+        if (stripped[i] === "\\") {
+          body += stripped[i] + (stripped[i + 1] ?? "");
+          i += 2;
+          continue;
+        }
+        if (stripped[i] === quote) {
+          i++;
+          break;
+        }
+        body += stripped[i];
+        i++;
+      }
+      tokens.push({ text: body, line: lineAt(stripped, start), container: stack[stack.length - 1] ?? null });
+    } else {
+      i++;
+    }
+  }
+  return tokens;
+}
+
+function pushUnique(map, cand) {
+  // dedupe by file+line+text; keep highest-priority kind.
+  const prio = { cjk: 4, setText: 3, textContent: 3, attr: 2, text: 1, "html-text": 1 };
+  const key = JSON.stringify([cand.file, cand.line, cand.text]);
+  const prev = map.get(key);
+  if (prev === undefined || (prio[cand.kind] ?? 0) > (prio[prev.kind] ?? 0)) map.set(key, cand);
+}
+
+function scanTsFile(rel, raw) {
+  const stripped = stripTsComments(raw);
+  const map = new Map();
+  // array-element + CJK from the tokenizer
+  for (const tok of scanTsTokens(stripped)) {
+    if (CJK_RE.test(tok.text)) pushUnique(map, { file: rel, line: tok.line, text: tok.text, kind: "cjk" });
+    else if (tok.container === "[") pushUnique(map, { file: rel, line: tok.line, text: tok.text, kind: "text" });
+  }
+  // setText(node, "...") second-arg string
+  const setTextRe = /\bsetText\s*\([^,]*,\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g;
+  let m;
+  while ((m = setTextRe.exec(stripped)) !== null) {
+    const lit = m[1].slice(1, -1);
+    if (HAS_LETTER_RE.test(lit)) pushUnique(map, { file: rel, line: lineAt(stripped, m.index), text: lit, kind: "setText" });
+  }
+  // aria-label / title / placeholder values
+  const attrRe = /(?:"aria-label"|"title"|aria-label|title|placeholder)\s*:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g;
+  while ((m = attrRe.exec(stripped)) !== null) {
+    const lit = m[1].slice(1, -1);
+    if (HAS_LETTER_RE.test(lit)) pushUnique(map, { file: rel, line: lineAt(stripped, m.index), text: lit, kind: "attr" });
+  }
+  // node.textContent = "..." visible-copy assignment (e.g. renderer/index.ts not-found branch)
+  const textContentRe = /\.textContent\s*=\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g;
+  while ((m = textContentRe.exec(stripped)) !== null) {
+    const lit = m[1].slice(1, -1);
+    if (HAS_LETTER_RE.test(lit)) pushUnique(map, { file: rel, line: lineAt(stripped, m.index), text: lit, kind: "textContent" });
+  }
+  return [...map.values()];
+}
+
+function scanHtmlFile(rel, raw) {
+  // drop comments + script/style bodies
+  const cleaned = raw
+    .replace(/<!--[\s\S]*?-->/g, (s) => s.replace(/[^\n]/g, " "))
+    .replace(/<script[\s\S]*?<\/script>/gi, (s) => s.replace(/[^\n]/g, " "))
+    .replace(/<style[\s\S]*?<\/style>/gi, (s) => s.replace(/[^\n]/g, " "));
+  const map = new Map();
+  // visible text nodes between tags
+  const textRe = />([^<]+)</g;
+  let m;
+  while ((m = textRe.exec(cleaned)) !== null) {
+    const txt = m[1].trim();
+    if (txt !== "" && HAS_LETTER_RE.test(txt)) {
+      pushUnique(map, { file: rel, line: lineAt(cleaned, m.index), text: txt, kind: CJK_RE.test(txt) ? "cjk" : "html-text" });
+    }
+  }
+  // aria-label / title / placeholder attributes
+  const attrRe = /(?:aria-label|title|placeholder)\s*=\s*"([^"]*)"/g;
+  while ((m = attrRe.exec(cleaned)) !== null) {
+    const v = m[1].trim();
+    if (v !== "" && HAS_LETTER_RE.test(v)) {
+      pushUnique(map, { file: rel, line: lineAt(cleaned, m.index), text: v, kind: CJK_RE.test(v) ? "cjk" : "attr" });
+    }
+  }
+  return [...map.values()];
+}
+
+// Public: scan ONE file's content (used by the negative test with a virtual source string).
+export function scanSource(rel, content) {
+  return rel.endsWith(".html") ? scanHtmlFile(rel, content) : scanTsFile(rel, content);
+}
+
+function listScreenTs() {
+  const dir = path.join(RENDERER, "screens");
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".ts"))
+    .map((f) => `renderer/screens/${f}`);
+}
+
+// Public: scan the whole guard scan set; returns candidates sorted deterministically.
+export function scanAll() {
+  const rels = [...listScreenTs(), "renderer/index.ts", "renderer/index.html"];
+  const out = [];
+  for (const rel of rels) {
+    const abs = path.join(APP_ROOT, rel);
+    if (!statSync(abs).isFile()) continue;
+    out.push(...scanSource(rel, readFileSync(abs, "utf8")));
+  }
+  out.sort((a, b) => (a.file !== b.file ? a.file.localeCompare(b.file) : a.line - b.line || a.text.localeCompare(b.text)));
+  return out;
+}
