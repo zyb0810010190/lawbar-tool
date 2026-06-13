@@ -8,8 +8,69 @@
     <title>lawbar</title>
     <link rel="stylesheet" href="./index.css" />
   </head>
-  <body>
-    <main id="app" aria-label="lawbar case-box"></main>
+  <body class="lawbar-app">
+    <!--
+      Desktop shell (PR1: renderer UI revision — CSS integration + desktop shell).
+      Ported from dev-memo/design-source/desktop-shell.css. The Electron window is
+      framed, so the titlebar traffic-lights + search are DECORATIVE placeholders
+      (no behaviour wired) until a frameless-window WI. The router still mounts the
+      product screens flat into <main id="app">; only chrome was added around it.
+      No <h1> lives in the static chrome — screens own the page title.
+    -->
+    <div class="app-window">
+      <div class="app-titlebar">
+        <span class="traffic-lights" aria-hidden="true">
+          <span class="traffic-light traffic-light--close"></span>
+          <span class="traffic-light traffic-light--min"></span>
+          <span class="traffic-light traffic-light--max"></span>
+        </span>
+        <span class="titlebar-crumb">Lawbar · Case Box</span>
+        <span class="titlebar-spacer"></span>
+      </div>
+
+      <div class="app-shell">
+        <aside class="app-sidebar" aria-label="Primary">
+          <div class="workspace-card" aria-hidden="true">
+            <span class="workspace-glyph">L</span>
+            <span class="workspace-body">
+              <span class="workspace-kind">Workspace</span>
+              <span class="workspace-name">Local</span>
+            </span>
+          </div>
+
+          <div class="sidebar-divider"></div>
+
+          <nav class="sidebar-nav" aria-label="Case Box">
+            <a class="sidebar-link" href="#/matters" aria-current="page">
+              <span class="link-icon" aria-hidden="true">§</span>
+              <span>Matters</span>
+            </a>
+            <a class="sidebar-link" href="#/matters/new">
+              <span class="link-icon" aria-hidden="true">+</span>
+              <span>New matter</span>
+            </a>
+          </nav>
+
+          <div class="sidebar-footer">
+            <span class="footer-status">Local-first</span>
+          </div>
+        </aside>
+
+        <div class="app-main">
+          <div class="main-scroll">
+            <main id="app" aria-label="lawbar case-box"></main>
+          </div>
+        </div>
+      </div>
+
+      <div class="app-statusbar">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span>Case Box</span>
+        <span class="spacer"></span>
+        <span>Local-first · documents stay on this Mac</span>
+      </div>
+    </div>
+
     <div id="sr-announce" role="status" aria-live="polite" class="visually-hidden"></div>
     <script type="module" src="./index.js"></script>
   </body>
