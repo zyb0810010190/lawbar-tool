@@ -146,13 +146,10 @@ test("case-box UI packaged flow: list → create → view → archive → chain 
     await win.waitForSelector("main#app", { timeout: 20000 });
     await win.waitForSelector('h1', { timeout: 20000 });
     const h1Text = await win.locator("h1").first().textContent();
-    assert.equal(h1Text, "lawbar — case-box");
+    assert.equal(h1Text, "案件台账");
     await win.waitForSelector('[data-test-id="list-empty"]', { timeout: 5000 });
     const emptyText = await win.locator('[data-test-id="list-empty"]').textContent();
-    assert.match(
-      emptyText,
-      /Matters are stored locally on this device\./,
-    );
+    assert.match(emptyText, /仅保存在本机/);
 
     // 2) Click + New matter → create form.
     await win.locator("button.list-new-btn").click();

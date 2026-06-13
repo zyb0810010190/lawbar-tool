@@ -377,7 +377,6 @@ function renderRows(
         "tr",
         {},
         [
-          el("th", { scope: "col", class: "col-num" }, ["序号"], doc),
           el("th", { scope: "col" }, ["案件名称"], doc),
           el("th", { scope: "col" }, ["类型"], doc),
           el("th", { scope: "col" }, ["保密级别"], doc),
@@ -391,7 +390,7 @@ function renderRows(
   );
 
   const tbody = el("tbody", {}, [], doc);
-  page.rows.forEach((row, index) => {
+  for (const row of page.rows) {
     // The name anchor carries both `.matter-link` (hover underline) and
     // `.matter-name` (serif desktop title); the name is a direct text child so
     // it renders verbatim (no innerHTML).
@@ -413,7 +412,6 @@ function renderRows(
       "tr",
       { class: "matter-row", "data-matter-id": row.id },
       [
-        el("td", { class: "row-num" }, [String(index + 1)], doc),
         el("td", {}, [link], doc),
         el("td", { class: "cell-type" }, [matterTypeLabelZh(row.matter_type)], doc),
         el("td", {}, [confPill(row.confidentiality_class, doc)], doc),
@@ -423,7 +421,7 @@ function renderRows(
       doc,
     );
     tbody.appendChild(tr);
-  });
+  }
 
   const table = el(
     "table",
