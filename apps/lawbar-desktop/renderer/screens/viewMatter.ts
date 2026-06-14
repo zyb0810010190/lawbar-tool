@@ -13,13 +13,9 @@ import type {
 } from "../types.js";
 import { el, focusEl, setText } from "../dom.js";
 import { buildHash, parseHash } from "../router.js";
-import {
-  confidentialityLabel,
-  formatLocalDateTime,
-  matterTypeLabel,
-  statusLabel,
-  ulidShort,
-} from "../format.js";
+import { formatLocalDateTime, ulidShort } from "../format.js";
+import { confidentialityLabel, matterTypeLabel, statusLabel } from "../i18n/labels.js";
+import { t } from "../i18n/t.js";
 import { renderChainHeadDisclosure } from "./viewMatterAudit.js";
 import { renderDocumentsDisclosure } from "./viewMatterDocuments.js";
 import { renderDeadlinesDisclosure } from "./viewMatterDeadlines.js";
@@ -62,7 +58,7 @@ function backLink(deps: ViewMatterDeps, doc: Document): HTMLElement {
       class: "back-link",
       "data-test-id": "view-back-link",
     },
-    ["← Back to matters"],
+    [t("detail.back")],
     doc,
   );
   link.addEventListener("click", (event) => {
@@ -126,11 +122,11 @@ function renderInvalidId(
       "section",
       { class: "view-error", "data-test-id": "view-invalid-id" },
       [
-        el("h1", {}, ["Matter not found"], doc),
+        el("h1", {}, [t("detail.notFoundTitle")], doc),
         el(
           "p",
           { role: "alert" },
-          ["The matter ID is malformed or unknown."],
+          [t("detail.invalidId")],
           doc,
         ),
         link,
@@ -152,7 +148,7 @@ function renderLoading(
     el(
       "p",
       { class: "view-loading", "data-test-id": "view-loading" },
-      ["Loading matter…"],
+      [t("detail.loading")],
       doc,
     ),
   );
@@ -171,7 +167,7 @@ function renderEnvelopeError(
       "section",
       { class: "view-error", "data-test-id": "view-envelope-error" },
       [
-        el("h1", {}, ["Matter unavailable"], doc),
+        el("h1", {}, [t("detail.unavailableTitle")], doc),
         el("p", { role: "alert" }, [safeMessage], doc),
         link,
       ],
@@ -193,13 +189,11 @@ function renderNotFound(
       "section",
       { class: "view-error", "data-test-id": "view-not-found" },
       [
-        el("h1", {}, ["Matter not found"], doc),
+        el("h1", {}, [t("detail.notFoundTitle")], doc),
         el(
           "p",
           {},
-          [
-            "The link may be out of date.",
-          ],
+          [t("detail.notFoundBody")],
           doc,
         ),
         link,
@@ -230,7 +224,7 @@ function renderJurisdictionValue(
   jurisdiction: { value: string; locked: boolean },
   doc: Document,
 ): HTMLElement {
-  const lockedMarker = jurisdiction.locked ? " (locked)" : "";
+  const lockedMarker = jurisdiction.locked ? t("detail.locked") : "";
   return el(
     "span",
     {},
@@ -313,18 +307,18 @@ function renderDetail(
     "dl",
     { class: "view-fields", "data-test-id": "view-fields" },
     [
-      renderField("Matter type", matterTypeLabel(row.matter_type), doc),
+      renderField(t("detail.field.matterType"), matterTypeLabel(row.matter_type), doc),
       renderField(
-        "Jurisdiction",
+        t("detail.field.jurisdiction"),
         renderJurisdictionValue(row.jurisdiction, doc),
         doc,
       ),
       renderField(
-        "Confidentiality",
+        t("detail.field.confidentiality"),
         confidentialityLabel(row.confidentiality_class),
         doc,
       ),
-      renderField("Created", formatLocalDateTime(row.created_at), doc),
+      renderField(t("detail.field.created"), formatLocalDateTime(row.created_at), doc),
     ],
     doc,
   );
@@ -336,12 +330,12 @@ function renderDetail(
     row.archived_at !== ""
   ) {
     dl.appendChild(
-      renderField("Archived at", formatLocalDateTime(row.archived_at), doc),
+      renderField(t("detail.field.archivedAt"), formatLocalDateTime(row.archived_at), doc),
     );
     dl.appendChild(
       renderField(
-        "Archive reason",
-        "Reason recorded in audit log.",
+        t("detail.field.archiveReason"),
+        t("detail.archiveReasonRecorded"),
         doc,
       ),
     );
@@ -349,11 +343,11 @@ function renderDetail(
 
   // Optional free-text fields (only when non-empty after trim).
   const optionals: Array<[string, string | undefined]> = [
-    ["Retainer scope", row.retainer_scope],
-    ["Case type", row.case_type_text],
-    ["Case progress", row.case_progress_text],
-    ["Court contact", row.court_contact_text],
-    ["Contention summary", row.contention_summary_text],
+    [t("detail.field.retainerScope"), row.retainer_scope],
+    [t("detail.field.caseType"), row.case_type_text],
+    [t("detail.field.caseProgress"), row.case_progress_text],
+    [t("detail.field.courtContact"), row.court_contact_text],
+    [t("detail.field.contentionSummary"), row.contention_summary_text],
   ];
   for (const [label, value] of optionals) {
     if (value !== undefined && value.trim() !== "") {
@@ -362,7 +356,7 @@ function renderDetail(
   }
 
   // Parties.
-  dl.appendChild(renderField("Parties", renderParties(row.parties, doc), doc));
+  dl.appendChild(renderField(t("detail.field.parties"), renderParties(row.parties, doc), doc));
 
   // ULID disclosure (full id under a <details>). Lives in the right-column
   // colophon panel below.
@@ -373,7 +367,7 @@ function renderDetail(
       el(
         "summary",
         { "data-test-id": "view-full-id-summary" },
-        [`Matter ID: ${ulidShort(row.id)}`],
+        [t("detail.matterIdSummary", { id: ulidShort(row.id) })],
         doc,
       ),
       el(
@@ -386,8 +380,8 @@ function renderDetail(
     doc,
   );
 
-  // Primary content card — authoritative detail fields + parties (the <dl>
-  // keeps its data-test-id + English labels; only the surrounding chrome is new).
+  // Primary content card — authoritative detail fields + parties. The <dl> keeps its stable
+  // data-test-id hooks; labels resolve through the i18n catalog/facade.
   const infoCard = el(
     "section",
     { class: "view-card", "data-test-id": "view-info-card" },
@@ -395,7 +389,7 @@ function renderDetail(
       el(
         "h2",
         { class: "view-card-title" },
-        ["Matter details", el("span", { class: "card-eyebrow" }, ["§ DETAIL"], doc)],
+        [t("detail.cardTitle"), el("span", { class: "card-eyebrow" }, [t("detail.cardEyebrow")], doc)],
         doc,
       ),
       dl,
@@ -425,7 +419,7 @@ function renderDetail(
       el(
         "div",
         { class: "colophon-header" },
-        ["Colophon", el("span", { class: "colophon-marker" }, ["§"], doc)],
+        [t("detail.colophonTitle"), el("span", { class: "colophon-marker" }, ["§"], doc)],
         doc,
       ),
       el(
@@ -435,13 +429,13 @@ function renderDetail(
           el(
             "div",
             { class: "colophon-row" },
-            [el("dt", {}, ["Created"], doc), el("dd", {}, [formatLocalDateTime(row.created_at)], doc)],
+            [el("dt", {}, [t("detail.field.created")], doc), el("dd", {}, [formatLocalDateTime(row.created_at)], doc)],
             doc,
           ),
           el(
             "div",
             { class: "colophon-row" },
-            [el("dt", {}, ["Matter ID"], doc), el("dd", {}, [fullIdDetails], doc)],
+            [el("dt", {}, [t("detail.colophonMatterId")], doc), el("dd", {}, [fullIdDetails], doc)],
             doc,
           ),
         ],
@@ -463,7 +457,7 @@ function renderDetail(
         class: "button button--danger view-archive-btn",
         "data-test-id": "view-archive",
       },
-      ["Archive…"],
+      [t("detail.archiveButton")],
       doc,
     );
     archiveBtn.addEventListener("click", () => {
@@ -473,11 +467,11 @@ function renderDetail(
       "section",
       { class: "archive-pull" },
       [
-        el("span", { class: "archive-pull-marker" }, ["Danger zone"], doc),
+        el("span", { class: "archive-pull-marker" }, [t("detail.dangerZone")], doc),
         el(
           "p",
           {},
-          ["Archiving locks this matter. The action is recorded in the audit log."],
+          [t("detail.archiveWarning")],
           doc,
         ),
         archiveBtn,
@@ -488,7 +482,7 @@ function renderDetail(
     archiveBlock = el(
       "p",
       { class: "view-archived-marker" },
-      ["This matter is archived."],
+      [t("detail.archivedMarker")],
       doc,
     );
   }

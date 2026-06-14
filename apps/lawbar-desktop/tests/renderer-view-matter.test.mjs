@@ -3,6 +3,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
 import {
   VALID_ULID,
@@ -77,7 +80,7 @@ test("value=null: renders not-found copy + back link + focuses back link", async
   await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
   const nf = findByTestId(root, "view-not-found");
   assert.ok(nf !== null);
-  assert.match(collectText(nf), /link may be out of date/);
+  assert.match(collectText(nf), /链接可能已失效/);
   assert.equal(doc._focused, findByTestId(root, "view-back-link"));
 });
 
@@ -98,9 +101,9 @@ test("active matter: renders title + status pill + detail fields + Archive butto
   // Detail fields list
   const fields = findByTestId(root, "view-fields");
   assert.ok(fields !== null);
-  assert.match(collectText(fields), /Litigation matter/);
+  assert.match(collectText(fields), /诉讼/);
   assert.match(collectText(fields), /test-jx/);
-  assert.match(collectText(fields), /Normal/);
+  assert.match(collectText(fields), /普通/);
   // Archive button visible + focused
   const archive = findByTestId(root, "view-archive");
   assert.ok(archive !== null);
@@ -184,7 +187,7 @@ test("Back link: navigates to #/matters + preventDefault on click", async () => 
   assert.deepEqual(navCalls, ["#/matters"]);
 });
 
-test("archived matter: NO Archive button; shows 'Reason recorded in audit log.' + focuses back link", async () => {
+test("archived matter: NO Archive button; shows the archive-reason copy + focuses back link", async () => {
   const doc = new MockDoc();
   const root = doc.createElement("main");
   const api = makeStubApi({
@@ -199,8 +202,8 @@ test("archived matter: NO Archive button; shows 'Reason recorded in audit log.' 
   await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
   assert.equal(findByTestId(root, "view-archive"), null);
   const fields = findByTestId(root, "view-fields");
-  assert.match(collectText(fields), /Reason recorded in audit log\./);
-  assert.match(collectText(fields), /Archived at/);
+  assert.match(collectText(fields), /原因记录于审计日志。/);
+  assert.match(collectText(fields), /归档时间/);
   assert.equal(doc._focused, findByTestId(root, "view-back-link"));
 });
 
@@ -248,13 +251,13 @@ test("optional free-text fields: rendered only when non-empty", async () => {
   });
   await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
   const fields = collectText(findByTestId(root, "view-fields"));
-  assert.match(fields, /Retainer scope/);
+  assert.match(fields, /委托范围/);
   assert.match(fields, /scope-text-fixture/);
-  assert.match(fields, /Contention summary/);
+  assert.match(fields, /争议焦点/);
   assert.match(fields, /summary-text-fixture/);
   // Empty + whitespace-only fields NOT rendered.
-  assert.doesNotMatch(fields, /Case type/);
-  assert.doesNotMatch(fields, /Court contact/);
+  assert.doesNotMatch(fields, /案由/);
+  assert.doesNotMatch(fields, /法院联系人/);
 });
 
 test("HTML-shaped matter name + party display_name render as text only", async () => {
@@ -428,7 +431,7 @@ test("normal active render emits NO console.warn", async () => {
   );
 });
 
-test("jurisdiction locked indicator: shows (locked) when locked=true", async () => {
+test("jurisdiction locked indicator: shows the locked marker when locked=true", async () => {
   const doc = new MockDoc();
   const root = doc.createElement("main");
   const api = makeStubApi({
@@ -441,7 +444,23 @@ test("jurisdiction locked indicator: shows (locked) when locked=true", async () 
   });
   await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
   const fields = collectText(findByTestId(root, "view-fields"));
-  assert.match(fields, /test-jx \(locked\)/);
+  assert.match(fields, /test-jx \(已锁定\)/);
+});
+
+test("WI-i18n-3: detail main route uses the i18n catalog/facade (zh-CN, no hardcoded labels)", async () => {
+  const src = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "renderer", "screens", "viewMatter.ts"),
+    "utf8",
+  );
+  // Enum labels come from the shared facade, not format.ts.
+  assert.match(src, /from "\.\.\/i18n\/labels\.js"/, "must import enum-label facade");
+  assert.match(src, /from "\.\.\/i18n\/t\.js"/, "must import t()");
+  // format.ts is imported ONLY for the language-neutral utils (no label helpers).
+  assert.match(src, /import \{ formatLocalDateTime, ulidShort \} from "\.\.\/format\.js"/, "format.ts gives only date/id utils");
+  // No leftover English main-route chrome literals (spot-check a few migrated strings).
+  for (const gone of ["Matter not found", "Loading matter", "Danger zone", "Archive…", "Back to matters"]) {
+    assert.ok(!src.includes(`"${gone}"`) && !src.includes(`["${gone}"]`), `migrated literal still present: ${gone}`);
+  }
 });
 
 test("full ULID disclosure: short tag (8) + full ULID present", async () => {

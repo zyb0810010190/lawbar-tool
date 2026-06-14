@@ -1,8 +1,7 @@
 // renderer/i18n/labels.ts — typed enum-label facade (shared across migrated surfaces).
-// Per dev-memo/plan-i18n-impl-00.md §2 / §6A. Single source for enum→display-label, replacing (in
-// each screen-migration WI) both the English helpers in ../format.ts and the list-local `*Zh`
-// helpers in ../screens/listMatters.ts. Consumed by the matter-list migration (WI-i18n-2); the
-// remaining screens adopt it in later WIs.
+// Per dev-memo/plan-i18n-impl-00.md §2 / §6A. Single source for enum→display-label, replacing the
+// English helpers in ../format.ts as each screen migrates. Consumed by migrated screens; more surfaces
+// adopt it as they migrate.
 //
 // Exhaustiveness: the small closed unions use an exhaustive `switch` + `assertNever(x)` with an
 // explicit `string` return type, so a new enum member fails the TypeScript build (enforced by the

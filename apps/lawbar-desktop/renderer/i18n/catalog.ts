@@ -1,12 +1,10 @@
 // renderer/i18n/catalog.ts — zh-CN message catalog. Central source for all migrated UI strings.
 // Per dev-memo/plan-i18n-00.md + dev-memo/plan-i18n-impl-00.md. v1 LOCALE = zh-CN (D1/D2).
 //
-// Stable string IDs → display text. Seeds the enum-label entries (finite, used by the typed facade in
-// ./labels.ts), shared keys, and — as of WI-i18n-2 — the shell chrome (shell.*) and matter-list route
-// (list.*) strings. Those surfaces now CONSUME this catalog: renderer/index.ts applyShellI18n() resolves
-// the shell data-i18n hooks, and renderer/screens/listMatters.ts resolves via t() + the labels facade.
-// The remaining screens (detail/create/archive and the lazy sub-sections) are migrated by later WIs,
-// which add their keys here.
+// Stable string IDs → display text. Holds the enum-label entries (finite, used by the typed facade in
+// ./labels.ts), shared keys, and per-screen UI strings (shell.* / list.* / detail.* / …) added as each
+// surface migrates. Migrated surfaces resolve their user-facing text here via t() and/or the labels
+// facade; the anti-drift guard's allowlist burns down as screens move their literals into this catalog.
 //
 // This file lives under renderer/i18n/ and is EXEMPT from the anti-drift guard's scan set (the guard
 // scans renderer/screens/**, renderer/index.ts, renderer/index.html only). Its CJK values are the
@@ -122,6 +120,37 @@ export const CATALOG = {
   "list.empty.activeBody": "点击「新建案件」创建第一个。案件数据仅保存在本机。",
   "list.empty.archived": "暂无已归档案件",
   "list.loading": "正在加载{status}案件…",
+
+  // ---- matter detail MAIN route (WI-i18n-3; English -> zh-CN drift-closure) ----
+  "detail.back": "← 返回案件列表",
+  "detail.loading": "正在加载案件…",
+  "detail.notFoundTitle": "未找到案件",
+  "detail.invalidId": "案件编号无效或不存在。",
+  "detail.unavailableTitle": "案件不可用",
+  "detail.notFoundBody": "链接可能已失效。",
+  "detail.locked": " (已锁定)",
+  "detail.cardTitle": "案件信息",
+  "detail.cardEyebrow": "§ 详情",
+  "detail.matterIdSummary": "案件编号：{id}",
+  "detail.field.matterType": "案件类型",
+  "detail.field.jurisdiction": "管辖",
+  "detail.field.confidentiality": "保密级别",
+  "detail.field.created": "创建时间",
+  "detail.field.archivedAt": "归档时间",
+  "detail.field.archiveReason": "归档原因",
+  "detail.field.retainerScope": "委托范围",
+  "detail.field.caseType": "案由",
+  "detail.field.caseProgress": "案件进展",
+  "detail.field.courtContact": "法院联系人",
+  "detail.field.contentionSummary": "争议焦点",
+  "detail.field.parties": "当事人",
+  "detail.archiveReasonRecorded": "原因记录于审计日志。",
+  "detail.colophonTitle": "档案信息",
+  "detail.colophonMatterId": "案件编号",
+  "detail.dangerZone": "危险操作",
+  "detail.archiveWarning": "归档将锁定本案件，操作记录于审计日志。",
+  "detail.archiveButton": "归档…",
+  "detail.archivedMarker": "本案件已归档。",
 } as const;
 
 export type CatalogId = keyof typeof CATALOG;
