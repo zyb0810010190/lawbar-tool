@@ -1,14 +1,16 @@
-// renderer/i18n/catalog.ts — zh-CN message catalog (WI-i18n-1, infra-only).
+// renderer/i18n/catalog.ts — zh-CN message catalog. Central source for all migrated UI strings.
 // Per dev-memo/plan-i18n-00.md + dev-memo/plan-i18n-impl-00.md. v1 LOCALE = zh-CN (D1/D2).
 //
-// Stable string IDs → display text. This WI seeds ONLY the enum-label entries (finite, needed by the
-// typed facade in ./labels.ts) plus a small set of shared keys used to exercise t(). Per-screen
-// free-text chrome keys are added by the later screen-migration WIs; NO screen consumes this catalog
-// yet (it is unwired — see plan §6/§6A).
+// Stable string IDs → display text. Seeds the enum-label entries (finite, used by the typed facade in
+// ./labels.ts), shared keys, and — as of WI-i18n-2 — the shell chrome (shell.*) and matter-list route
+// (list.*) strings. Those surfaces now CONSUME this catalog: renderer/index.ts applyShellI18n() resolves
+// the shell data-i18n hooks, and renderer/screens/listMatters.ts resolves via t() + the labels facade.
+// The remaining screens (detail/create/archive and the lazy sub-sections) are migrated by later WIs,
+// which add their keys here.
 //
 // This file lives under renderer/i18n/ and is EXEMPT from the anti-drift guard's scan set (the guard
 // scans renderer/screens/**, renderer/index.ts, renderer/index.html only). Its CJK values are the
-// single source of truth the facade resolves through t().
+// single source of truth the facade + t() resolve.
 
 export const CATALOG = {
   // ---- enum: matter type (renderer/types.ts MatterType) ----
@@ -90,8 +92,35 @@ export const CATALOG = {
   "eventKind.DOCKET_ENTRY_DISMISSED": "立案条目已驳回",
   "eventKind.DOCKET_ENTRY_REVISED": "立案条目已修订",
 
-  // ---- shared keys (exercise t(); also real future keys) ----
+  // ---- shared keys ----
   "common.loadMore": "加载更多",
+
+  // ---- shell chrome (WI-i18n-2; English -> zh-CN drift-closure per plan-i18n-00 §6.5) ----
+  "shell.brand": "Lawbar · 案件盒",
+  "shell.workspaceKind": "工作区",
+  "shell.workspaceName": "本地",
+  "shell.navMatters": "案件",
+  "shell.navNewMatter": "新建案件",
+  "shell.footerStatus": "本地优先",
+  "shell.statusbarLabel": "案件盒",
+  "shell.statusbarNote": "本地优先 · 文档仅存于本机",
+  "shell.ariaPrimary": "主导航",
+  "shell.ariaCaseBox": "案件盒",
+  "shell.ariaApp": "案件盒",
+
+  // ---- matter list route (WI-i18n-2; already zh-CN, moved to catalog) ----
+  "list.title": "案件台账",
+  "list.subtitle": "本机案件 · 按创建时间排列",
+  "list.newMatter": "+ 新建案件",
+  "list.tabsAria": "案件状态",
+  "list.col.name": "案件名称",
+  "list.col.type": "类型",
+  "list.col.confidentiality": "保密级别",
+  "list.col.created": "创建时间",
+  "list.col.status": "状态",
+  "list.empty.activeTitle": "暂无案件",
+  "list.empty.activeBody": "点击「新建案件」创建第一个。案件数据仅保存在本机。",
+  "list.empty.archived": "暂无已归档案件",
   "list.loading": "正在加载{status}案件…",
 } as const;
 

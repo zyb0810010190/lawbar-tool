@@ -7,103 +7,37 @@
   },
   {
     "file": "renderer/index.html",
-    "line": 27,
-    "text": "Lawbar · Case Box",
-    "kind": "html-text"
-  },
-  {
-    "file": "renderer/index.html",
-    "line": 32,
-    "text": "Primary",
-    "kind": "attr"
-  },
-  {
-    "file": "renderer/index.html",
     "line": 34,
     "text": "L",
     "kind": "html-text"
   },
   {
-    "file": "renderer/index.html",
-    "line": 36,
-    "text": "Workspace",
-    "kind": "html-text"
-  },
-  {
-    "file": "renderer/index.html",
-    "line": 37,
-    "text": "Local",
-    "kind": "html-text"
-  },
-  {
-    "file": "renderer/index.html",
-    "line": 43,
-    "text": "Case Box",
-    "kind": "attr"
-  },
-  {
-    "file": "renderer/index.html",
-    "line": 48,
-    "text": "Matters",
-    "kind": "html-text"
-  },
-  {
-    "file": "renderer/index.html",
-    "line": 52,
-    "text": "New matter",
-    "kind": "html-text"
-  },
-  {
-    "file": "renderer/index.html",
-    "line": 57,
-    "text": "Local-first",
-    "kind": "html-text"
-  },
-  {
-    "file": "renderer/index.html",
-    "line": 63,
-    "text": "lawbar case-box",
-    "kind": "attr"
-  },
-  {
-    "file": "renderer/index.html",
-    "line": 70,
-    "text": "Case Box",
-    "kind": "html-text"
-  },
-  {
-    "file": "renderer/index.html",
-    "line": 72,
-    "text": "Local-first · documents stay on this Mac",
-    "kind": "html-text"
-  },
-  {
     "file": "renderer/index.ts",
-    "line": 51,
+    "line": 53,
     "text": "name",
     "kind": "text"
   },
   {
     "file": "renderer/index.ts",
-    "line": 76,
+    "line": 78,
     "text": "Bootstrap error: ${(err as Error).message}",
     "kind": "textContent"
   },
   {
     "file": "renderer/index.ts",
-    "line": 105,
+    "line": 107,
     "text": "Not found",
     "kind": "textContent"
   },
   {
     "file": "renderer/index.ts",
-    "line": 107,
+    "line": 109,
     "text": "The requested screen does not exist or the matter ID is malformed.",
     "kind": "textContent"
   },
   {
     "file": "renderer/index.ts",
-    "line": 111,
+    "line": 113,
     "text": "Back to matters",
     "kind": "textContent"
   },
@@ -313,165 +247,9 @@
   },
   {
     "file": "renderer/screens/listMatters.ts",
-    "line": 44,
-    "text": "诉讼",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 46,
-    "text": "顾问",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 48,
-    "text": "仲裁",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 50,
-    "text": "尽职调查",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 52,
-    "text": "刑事辩护",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 54,
-    "text": "其他",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 61,
-    "text": "普通",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 63,
-    "text": "加强",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 65,
-    "text": "密封",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 72,
-    "text": "进行中",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 74,
-    "text": "已归档",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 110,
-    "text": "案件台账",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 114,
-    "text": "本机案件 · 按创建时间排列",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 121,
-    "text": "+ 新建案件",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 162,
-    "text": "案件状态",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 268,
-    "text": "正在加载${statusLabelZh(status)}案件…",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 281,
+    "line": 239,
     "text": "§",
     "kind": "text"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 292,
-    "text": "+ 新建案件",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 304,
-    "text": "暂无案件",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 308,
-    "text": "点击「新建案件」创建第一个。案件数据仅保存在本机。",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 322,
-    "text": "暂无已归档案件",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 380,
-    "text": "案件名称",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 381,
-    "text": "类型",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 382,
-    "text": "保密级别",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 383,
-    "text": "创建时间",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 384,
-    "text": "状态",
-    "kind": "cjk"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 442,
-    "text": "加载更多",
-    "kind": "cjk"
   },
   {
     "file": "renderer/screens/viewMatter.ts",

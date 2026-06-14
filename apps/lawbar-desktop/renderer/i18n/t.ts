@@ -1,4 +1,4 @@
-// renderer/i18n/t.ts — message resolver (WI-i18n-1, infra-only).
+// renderer/i18n/t.ts — message resolver (catalog lookup; used by migrated shell/list + i18n modules).
 // Per dev-memo/plan-i18n-impl-00.md. v1 LOCALE = "zh-CN" (D1); NO runtime switching (D2).
 //
 // `t(id, params?)` resolves a catalog key to its zh-CN text with NAMED interpolation only.

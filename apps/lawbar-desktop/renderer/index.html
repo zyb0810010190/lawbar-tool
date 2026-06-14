@@ -10,12 +10,12 @@
   </head>
   <body class="lawbar-app">
     <!--
-      Desktop shell (PR1: renderer UI revision — CSS integration + desktop shell).
-      Ported from dev-memo/design-source/desktop-shell.css. The Electron window is
-      framed, so the titlebar traffic-lights + search are DECORATIVE placeholders
-      (no behaviour wired) until a frameless-window WI. The router still mounts the
-      product screens flat into <main id="app">; only chrome was added around it.
-      No <h1> lives in the static chrome — screens own the page title.
+      Desktop shell (PR1 + WI-i18n-2). Ported from dev-memo/design-source/desktop-shell.css.
+      Chrome strings are now i18n-driven (WI-i18n-2): elements carry data-i18n / data-i18n-aria
+      keys and renderer/index.ts populates their text + aria-label from the zh-CN catalog at
+      bootstrap (English -> zh-CN drift-closure per plan-i18n-00 §6.5). No literal chrome copy here.
+      The Electron window is framed, so the titlebar traffic-lights are decorative placeholders.
+      The router still mounts the product screens flat into <main id="app">. No <h1> in the chrome.
     -->
     <div class="app-window">
       <div class="app-titlebar">
@@ -24,52 +24,52 @@
           <span class="traffic-light traffic-light--min"></span>
           <span class="traffic-light traffic-light--max"></span>
         </span>
-        <span class="titlebar-crumb">Lawbar · Case Box</span>
+        <span class="titlebar-crumb" data-i18n="shell.brand"></span>
         <span class="titlebar-spacer"></span>
       </div>
 
       <div class="app-shell">
-        <aside class="app-sidebar" aria-label="Primary">
+        <aside class="app-sidebar" data-i18n-aria="shell.ariaPrimary">
           <div class="workspace-card" aria-hidden="true">
             <span class="workspace-glyph">L</span>
             <span class="workspace-body">
-              <span class="workspace-kind">Workspace</span>
-              <span class="workspace-name">Local</span>
+              <span class="workspace-kind" data-i18n="shell.workspaceKind"></span>
+              <span class="workspace-name" data-i18n="shell.workspaceName"></span>
             </span>
           </div>
 
           <div class="sidebar-divider"></div>
 
-          <nav class="sidebar-nav" aria-label="Case Box">
+          <nav class="sidebar-nav" data-i18n-aria="shell.ariaCaseBox">
             <!-- aria-current is set dynamically from the hash route by
                  renderer/nav.ts (UISHELL-L1); not hardcoded. -->
             <a class="sidebar-link" href="#/matters" data-nav="list">
               <span class="link-icon" aria-hidden="true">§</span>
-              <span>Matters</span>
+              <span data-i18n="shell.navMatters"></span>
             </a>
             <a class="sidebar-link" href="#/matters/new" data-nav="new">
               <span class="link-icon" aria-hidden="true">+</span>
-              <span>New matter</span>
+              <span data-i18n="shell.navNewMatter"></span>
             </a>
           </nav>
 
           <div class="sidebar-footer">
-            <span class="footer-status">Local-first</span>
+            <span class="footer-status" data-i18n="shell.footerStatus"></span>
           </div>
         </aside>
 
         <div class="app-main">
           <div class="main-scroll">
-            <main id="app" aria-label="lawbar case-box"></main>
+            <main id="app" data-i18n-aria="shell.ariaApp"></main>
           </div>
         </div>
       </div>
 
       <div class="app-statusbar">
         <span class="status-dot" aria-hidden="true"></span>
-        <span>Case Box</span>
+        <span data-i18n="shell.statusbarLabel"></span>
         <span class="spacer"></span>
-        <span>Local-first · documents stay on this Mac</span>
+        <span data-i18n="shell.statusbarNote"></span>
       </div>
     </div>
 

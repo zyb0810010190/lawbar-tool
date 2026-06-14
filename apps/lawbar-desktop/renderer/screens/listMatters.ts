@@ -1,23 +1,19 @@
 // List-matters screen. Per dev-memo/plan-casebox-ui-plan-00.md rev-0.1 §6.1.
 //
-// PR2 (renderer UI revision — matter list desktop variant): the DOM is reworked
-// onto the desktop-shell list classes integrated in PR1
-// (dev-memo/design-source/desktop-shell.css): `.tabs-row` / `.desk-tab` for the
-// status tabs, `.matter-table-desktop` for the table, `.list-empty-desktop` for
-// the empty state, plus the editorial `.status-pill` / `.conf-pill` / `.matter-name`.
-// Behaviour (active/archived tabs, paging, navigation) is unchanged.
-//
-// Phase 0 found NO i18n layer, so the list's visible labels are hardcoded
-// Chinese strings local to this screen (matterTypeLabelZh / confidentialityLabelZh
-// / statusLabelZh below). The shared English helpers in ../format.js are left
-// untouched — they still back the detail/create/archive screens, which are
-// reworked in later stacked PRs; a future i18n WI consolidates the two.
+// PR2 (renderer UI revision) reworked the DOM onto the desktop-shell list classes.
+// WI-i18n-2 (this change) wires the screen to the i18n catalog/facade: the list's
+// visible labels now resolve through ../i18n/labels.js (typed enum-label facade) and
+// ../i18n/t.js (catalog lookup) instead of list-local Chinese maps + hardcoded literals.
+// Output is the SAME zh-CN copy as before — no semantic copy drift — but it is now the
+// single catalog source, and the list's allowlist entries are burned down.
 //
 // Consumes ONLY committed renderer primitives:
 //   - ../api.js          (CaseBoxApi)
 //   - ../dom.js          (el, setText)
 //   - ../router.js       (buildHash)
 //   - ../format.js       (formatLocalDateTime — language-neutral date format)
+//   - ../i18n/labels.js  (matterTypeLabel, confidentialityLabel, statusLabel)
+//   - ../i18n/t.js       (t)
 //   - ../types.js        (MatterStatus, MatterType, ConfidentialityClass)
 //
 // Mountable under any document instance (injected via deps.doc) so tests run
@@ -32,48 +28,10 @@ import type {
 import { el, setText } from "../dom.js";
 import { buildHash } from "../router.js";
 import { formatLocalDateTime } from "../format.js";
+import { matterTypeLabel, confidentialityLabel, statusLabel } from "../i18n/labels.js";
+import { t } from "../i18n/t.js";
 
 export const PAGE_SIZE = 20;
-
-// --- List-local Chinese labels (no i18n layer yet; see file header) ----------
-// Exhaustive switches so a future enum change fails the TypeScript build here.
-
-function matterTypeLabelZh(t: MatterType): string {
-  switch (t) {
-    case "litigation":
-      return "诉讼";
-    case "advisory":
-      return "顾问";
-    case "arbitration":
-      return "仲裁";
-    case "due_diligence":
-      return "尽职调查";
-    case "criminal_defense":
-      return "刑事辩护";
-    case "other":
-      return "其他";
-  }
-}
-
-function confidentialityLabelZh(c: ConfidentialityClass): string {
-  switch (c) {
-    case "normal":
-      return "普通";
-    case "heightened":
-      return "加强";
-    case "sealed":
-      return "密封";
-  }
-}
-
-function statusLabelZh(s: MatterStatus): string {
-  switch (s) {
-    case "active":
-      return "进行中";
-    case "archived":
-      return "已归档";
-  }
-}
 
 // Shape of a single matter row as returned by the IPC. The renderer-side
 // validator runs on the main process; here we just cast at the boundary.
@@ -107,18 +65,18 @@ export async function mountListMatters(
   const doc = deps.doc ?? document;
 
   // Build static scaffold and attach to root.
-  const title = el("h1", {}, ["案件台账"], doc);
+  const title = el("h1", {}, [t("list.title")], doc);
   const subtitle = el(
     "p",
     { class: "list-subtitle header-sublede" },
-    ["本机案件 · 按创建时间排列"],
+    [t("list.subtitle")],
     doc,
   );
 
   const newBtn = el(
     "button",
     { type: "button", class: "button button--accent list-new-btn" },
-    ["+ 新建案件"],
+    [t("list.newMatter")],
     doc,
   );
   newBtn.addEventListener("click", () => {
@@ -143,7 +101,7 @@ export async function mountListMatters(
       role: "tab",
       "data-status": "active",
     },
-    [statusLabelZh("active")],
+    [statusLabel("active")],
     doc,
   );
   const archivedTab = el(
@@ -154,12 +112,12 @@ export async function mountListMatters(
       role: "tab",
       "data-status": "archived",
     },
-    [statusLabelZh("archived")],
+    [statusLabel("archived")],
     doc,
   );
   const tabsNav = el(
     "nav",
-    { class: "tabs-row", role: "tablist", "aria-label": "案件状态" },
+    { class: "tabs-row", role: "tablist", "aria-label": t("list.tabsAria") },
     [activeTab, archivedTab],
     doc,
   );
@@ -265,7 +223,7 @@ function renderLoading(
     el(
       "p",
       { class: "list-loading", "data-test-id": "list-loading" },
-      [`正在加载${statusLabelZh(status)}案件…`],
+      [t("list.loading", { status: statusLabel(status) })],
       doc,
     ),
   );
@@ -289,7 +247,7 @@ function renderEmpty(
         class: "button button--accent",
         "data-test-id": "list-empty-new",
       },
-      ["+ 新建案件"],
+      [t("list.newMatter")],
       doc,
     );
     newBtn.addEventListener("click", () => {
@@ -301,13 +259,8 @@ function renderEmpty(
         { class: "list-empty-desktop", "data-test-id": "list-empty" },
         [
           glyph,
-          el("h2", {}, ["暂无案件"], doc),
-          el(
-            "p",
-            {},
-            ["点击「新建案件」创建第一个。案件数据仅保存在本机。"],
-            doc,
-          ),
+          el("h2", {}, [t("list.empty.activeTitle")], doc),
+          el("p", {}, [t("list.empty.activeBody")], doc),
           newBtn,
         ],
         doc,
@@ -319,7 +272,7 @@ function renderEmpty(
     el(
       "section",
       { class: "list-empty-desktop", "data-test-id": "list-empty" },
-      [glyph, el("h2", {}, ["暂无已归档案件"], doc)],
+      [glyph, el("h2", {}, [t("list.empty.archived")], doc)],
       doc,
     ),
   );
@@ -348,14 +301,14 @@ function renderError(
 function confPill(c: ConfidentialityClass, doc: Document): HTMLElement {
   // `normal` keeps the base `.conf-pill`; heightened/sealed add the modifier.
   const cls = c === "normal" ? "conf-pill" : `conf-pill conf-pill--${c}`;
-  return el("span", { class: cls }, [confidentialityLabelZh(c)], doc);
+  return el("span", { class: cls }, [confidentialityLabel(c)], doc);
 }
 
 function statusPill(s: MatterStatus, doc: Document): HTMLElement {
   return el(
     "span",
     { class: `status-pill status-pill--${s}` },
-    [statusLabelZh(s)],
+    [statusLabel(s)],
     doc,
   );
 }
@@ -377,11 +330,11 @@ function renderRows(
         "tr",
         {},
         [
-          el("th", { scope: "col" }, ["案件名称"], doc),
-          el("th", { scope: "col" }, ["类型"], doc),
-          el("th", { scope: "col" }, ["保密级别"], doc),
-          el("th", { scope: "col" }, ["创建时间"], doc),
-          el("th", { scope: "col", class: "col-status" }, ["状态"], doc),
+          el("th", { scope: "col" }, [t("list.col.name")], doc),
+          el("th", { scope: "col" }, [t("list.col.type")], doc),
+          el("th", { scope: "col" }, [t("list.col.confidentiality")], doc),
+          el("th", { scope: "col" }, [t("list.col.created")], doc),
+          el("th", { scope: "col", class: "col-status" }, [t("list.col.status")], doc),
         ],
         doc,
       ),
@@ -413,7 +366,7 @@ function renderRows(
       { class: "matter-row", "data-matter-id": row.id },
       [
         el("td", {}, [link], doc),
-        el("td", { class: "cell-type" }, [matterTypeLabelZh(row.matter_type)], doc),
+        el("td", { class: "cell-type" }, [matterTypeLabel(row.matter_type)], doc),
         el("td", {}, [confPill(row.confidentiality_class, doc)], doc),
         el("td", { class: "cell-mono" }, [formatLocalDateTime(row.created_at)], doc),
         el("td", {}, [statusPill(row.status, doc)], doc),
@@ -439,7 +392,7 @@ function renderRows(
         class: "button list-load-more",
         "data-test-id": "list-load-more",
       },
-      ["加载更多"],
+      [t("common.loadMore")],
       doc,
     );
     moreBtn.addEventListener("click", onLoadMore);

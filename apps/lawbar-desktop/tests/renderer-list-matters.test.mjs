@@ -3,7 +3,23 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { mountListMatters, PAGE_SIZE } from "../dist/renderer/screens/listMatters.js";
+
+const LIST_SRC = readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "renderer", "screens", "listMatters.ts"),
+  "utf8",
+);
+
+test("WI-i18n-2: list uses the i18n facade/catalog, with NO list-local label maps left", () => {
+  // The duplicate list-local Chinese label maps from PR2 must be gone — the single source is
+  // ../i18n/labels.js (facade) + ../i18n/t.js (catalog).
+  assert.ok(!/LabelZh\b/.test(LIST_SRC), "no *LabelZh local label map may remain in listMatters.ts");
+  assert.match(LIST_SRC, /from "\.\.\/i18n\/labels\.js"/, "must import the enum-label facade");
+  assert.match(LIST_SRC, /from "\.\.\/i18n\/t\.js"/, "must import t() from the catalog");
+});
 
 const VALID_ULID_1 = "01jzabcdef0123456789ghjkmn";
 const VALID_ULID_2 = "01jzwxyzpq0123456789rstvwx";

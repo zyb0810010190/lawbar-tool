@@ -9,6 +9,8 @@
 import { getDefaultApi, type CaseBoxApi } from "./api.js";
 import { attachRouter, type ParsedRoute } from "./router.js";
 import { applySidebarCurrent } from "./nav.js";
+import { t } from "./i18n/t.js";
+import type { CatalogId } from "./i18n/catalog.js";
 import { mountListMatters } from "./screens/listMatters.js";
 import { mountCreateMatter } from "./screens/createMatter.js";
 import { mountViewMatter } from "./screens/viewMatter.js";
@@ -126,8 +128,23 @@ function setupTheme(): void {
   });
 }
 
+// Populate the static shell chrome from the i18n catalog (WI-i18n-2). Elements carry
+// `data-i18n` (textContent) / `data-i18n-aria` (aria-label) keys; values resolve via t()
+// from the zh-CN catalog. A missing key throws (loud) by t()'s policy.
+function applyShellI18n(d: Document): void {
+  for (const node of Array.from(d.querySelectorAll("[data-i18n]"))) {
+    const key = node.getAttribute("data-i18n");
+    if (key !== null) node.textContent = t(key as CatalogId);
+  }
+  for (const node of Array.from(d.querySelectorAll("[data-i18n-aria]"))) {
+    const key = node.getAttribute("data-i18n-aria");
+    if (key !== null) node.setAttribute("aria-label", t(key as CatalogId));
+  }
+}
+
 function bootstrap(): void {
   setupTheme();
+  applyShellI18n(document);
   // attachRouter from ./router.js fires once on attach and then on every
   // hashchange event, so the initial route renders on load.
   attachRouter((route) => {
