@@ -187,7 +187,7 @@ test("Back link: navigates to #/matters + preventDefault on click", async () => 
   assert.deepEqual(navCalls, ["#/matters"]);
 });
 
-test("archived matter: NO Archive button; shows 'Reason recorded in audit log.' + focuses back link", async () => {
+test("archived matter: NO Archive button; shows the archive-reason copy + focuses back link", async () => {
   const doc = new MockDoc();
   const root = doc.createElement("main");
   const api = makeStubApi({
@@ -431,7 +431,7 @@ test("normal active render emits NO console.warn", async () => {
   );
 });
 
-test("jurisdiction locked indicator: shows (locked) when locked=true", async () => {
+test("jurisdiction locked indicator: shows the locked marker when locked=true", async () => {
   const doc = new MockDoc();
   const root = doc.createElement("main");
   const api = makeStubApi({
