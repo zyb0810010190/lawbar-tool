@@ -380,8 +380,8 @@ function renderDetail(
     doc,
   );
 
-  // Primary content card — authoritative detail fields + parties (the <dl>
-  // keeps its data-test-id + English labels; only the surrounding chrome is new).
+  // Primary content card — authoritative detail fields + parties. The <dl> keeps its stable
+  // data-test-id hooks; labels resolve through the i18n catalog/facade.
   const infoCard = el(
     "section",
     { class: "view-card", "data-test-id": "view-info-card" },
