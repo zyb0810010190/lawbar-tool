@@ -253,152 +253,20 @@
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 65,
-    "text": "← Back to matters",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 129,
-    "text": "Matter not found",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 133,
-    "text": "The matter ID is malformed or unknown.",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 155,
-    "text": "Loading matter…",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 174,
-    "text": "Matter unavailable",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 196,
-    "text": "Matter not found",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 201,
-    "text": "The link may be out of date.",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 237,
+    "line": 231,
     "text": "${jurisdiction.value}${lockedMarker}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 257,
+    "line": 251,
     "text": "${p.role} — ${p.display_name} (${p.party_kind})",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 352,
-    "text": "Retainer scope",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 353,
-    "text": "Case type",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 354,
-    "text": "Case progress",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 355,
-    "text": "Court contact",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 356,
-    "text": "Contention summary",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 376,
-    "text": "Matter ID: ${ulidShort(row.id)}",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 398,
-    "text": "§ DETAIL",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 398,
-    "text": "Matter details",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 428,
+    "line": 422,
     "text": "§",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 428,
-    "text": "Colophon",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 438,
-    "text": "Created",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 444,
-    "text": "Matter ID",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 466,
-    "text": "Archive…",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 476,
-    "text": "Danger zone",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 480,
-    "text": "Archiving locks this matter. The action is recorded in the audit log.",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 491,
-    "text": "This matter is archived.",
     "kind": "text"
   },
   {
