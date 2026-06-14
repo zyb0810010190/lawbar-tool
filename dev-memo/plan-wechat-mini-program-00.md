@@ -126,7 +126,9 @@ may a concrete implementation WI be drafted.
 - No production-data wiring.
 - No new dependency, endpoint, or deployment.
 
-This is a Gate-0 record. It authorizes only the decision memo of §4 (itself doc-only).
+This is a Gate-0 record. It authorizes no work. The decision memo of §4 is the recommended
+prerequisite next artifact (itself doc-only); it is not authorized by this plan and requires
+its own go-ahead.
 
 ## Appendix A — illustrative, non-binding cost surface (NOT plan-of-record)
 
