@@ -220,15 +220,21 @@ WI-EVW6  WORKFLOW  Create /evidence-workflow + /evidence-geometry-gate commands.
                    Allowed: .claude/commands/{evidence-workflow,evidence-geometry-gate}.md.
                    Gates: check-gates.sh. Depends: EVW3, EVW7.
 
-WI-EVW7  SCAFFOLD  ◀── NEXT SUBSTANTIVE WI. Scaffold native/evidence-core deterministic-JSON harness command surface
-                   (8 commands, §4.4) — ALL not_implemented = FAIL (exit non-zero). Synthetic
-                   fixtures only; NO client PDFs. HIGH-RISK if it introduces a new runtime/native
-                   toolchain → that introduction is an autonomy hard-stop (new dependency) and is
-                   split out / user-authorized separately. This WI scaffolds the JS-side command
-                   contract + failing stubs only; the native toolchain decision is its own WI.
-                   Allowed: native/evidence-core/** (new tree), package wiring as needed.
-                   Gates: each harness exits non-zero with not_implemented JSON; check-gates.sh.
-                   Depends: EVW1. Risk: HIGH (toolchain) — review-plan required.
+WI-EVW7  SCAFFOLD  Scaffold native/evidence-core deterministic-JSON harness command surface — a
+                   10-command surface (§4.4): 2 UTILITY commands (version, healthcheck) that return
+                   status "passed" (exit 0), and 8 GATE commands (renderer-conformance,
+                   geometry-roundtrip, citation-stability-gate, coordinate-roundtrip, a3-regression,
+                   snapshot-verify, golden-export, compress-readability-fixtures) that return
+                   not_implemented = FAIL (exit non-zero), never pass. [DONE — JS-only shim.] Synthetic
+                   fixtures only; NO client PDFs. The JS-only shim is dependency-free (existing Node 22+)
+                   and is NOT an autonomy hard-stop; introducing the real native toolchain
+                   (Swift/SwiftPM/PDFKit) IS a new-runtime/toolchain autonomy hard-stop and is split out /
+                   user-authorized separately. This WI scaffolds the JS-side command contract + failing
+                   stubs only; the native toolchain decision is its own WI.
+                   Allowed: native/evidence-core/** (new tree).
+                   Gates: each gate command exits non-zero with not_implemented JSON; version/healthcheck
+                   pass; broker review-plan + audit + verify; check-gates.sh.
+                   Depends: EVW1. Risk: HIGH (new package tree) — review-plan + audit + verify required.
 
 WI-EVW9  SCAFFOLD  (Deferred) Arm tdd-guardian teeth for Evidence + stop-review gate iff Codex
                    login confirmed. Allowed: .claude/settings.json (enabledPlugins + hooks),

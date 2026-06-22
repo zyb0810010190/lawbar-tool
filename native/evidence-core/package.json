@@ -1,0 +1,16 @@
+{
+  "name": "@lawbar/evidence-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Evidence-Genie M0 deterministic-JSON harness contract shim (JS-only). NOT the Swift/PDFKit A0.7 implementation — see README.",
+  "bin": {
+    "evidence-core": "./cli.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0 <26.0.0"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}
