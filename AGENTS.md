@@ -275,3 +275,37 @@ The desktop UI gate is `npm --prefix apps/lawbar-desktop test`, run by
   `.claude/skills/` (Codex scan path). `.codex/`, `.gemini/` — Codex/Gemini bridges.
   `.mcp.json` — shared MCP registrations.
 - Write rules/memory to `AGENTS.md` only; `CLAUDE.md` / `GEMINI.md` import it verbatim.
+
+## Evidence-Genie M0 workflow composition
+
+Authoritative decision record: `docs/adr/ADR-evidence-m0-xiaolai-workflow-composition.md` (EVW-00).
+Port plan + proposed WI sequence: `dev-memo/plan-batch-casebox-evidence-workflow-port-00.md`.
+
+The Evidence-Genie M0 work composes three layers; higher layers constrain lower ones, and no layer
+may weaken an Evidence invariant:
+
+1. **xiaolai workflow substrate** (reusable machinery, reused as-is) — `init-workspace`, `cc-suite`
+   (Claude↔Codex broker + stop-review gate), `tdd-guardian`, `docs-guardian`, `loc-guardian`,
+   `grill`, `echo-sleuth`. Do NOT hand-roll machinery xiaolai already provides (EVW-00 D1).
+2. **Lawbar `.claude` orchestration** (this repo) — `rules/*.md`, hard hooks, the governed queue,
+   the autonomy/cc-suite policy, least-privilege agents, and the workflow commands
+   (`/feature-workflow`, `/fix-issue`, `/evidence-workflow`, `/evidence-geometry-gate`). It delegates
+   generic verbs to layer 1 and specializes them for the domain.
+3. **Evidence-Genie M0 domain gates** (most specific; never weakened) — the A0.7 geometry
+   classification gate, A1 citation identity, A3 anchor resolution, A8 snapshot integrity/seal
+   anti-circularity, A10 export reproducibility, and A1-T9 readable compression. Surfaced as the
+   Evidence hard hooks, the future `rules/evidence-genie.md`, and the deterministic-JSON
+   `native/evidence-core` harness command surface.
+
+**Guardian-enablement posture (EVW-00 D3).** Enablement is decided per gate by teeth, not turned all
+on. `cc-suite` + `echo-sleuth` stay on; `loc-guardian` stays the Lawbar rule (`.claude/rules/loc-guardian.md`),
+the plugin off (single LOC authority); `tdd-guardian` is enabled with `blockCommitWithoutFreshGate: true`
+for Evidence WIs only; `docs-guardian` / `grill` stay off until a real failure mode bites. The
+stop-review gate is armed only if a live Codex CLI login is confirmed, never assumed-pass.
+
+**Stop-grade invariant posture (EVW-00 D4).** The Evidence court-facing invariants get hard
+(`exit 2` / `deny`) enforcement, not advisory rules: no Evidence UI before A0.7 is green; citations
+single-source (A10-T1 contract / `DocumentPage` only); an `OptimizedDocumentRendition` is never a
+citation/anchor basis; snapshot manifest/seal anti-circularity; offline entitlement (no network in
+the Evidence surface). A `not_implemented` harness is FAIL, never a pass. A0.7 remains the first real
+Evidence architecture gate — nothing builds on it until it is green and its failures classified.
