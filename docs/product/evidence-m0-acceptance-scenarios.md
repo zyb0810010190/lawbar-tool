@@ -28,7 +28,7 @@ exists today.
 
 ### AS-A1 — citation identity from `DocumentPage` / physical page
 - Invariant: citation identity · Flow F3/F8 · surface: 证据目录 · Pre: documents imported, 证据号 assigned.
-- **Given** an evidence item with a physical page range, **When** its 卷X页Y citation is generated and the
+- **Given** an evidence item (belonging to 原告 (plaintiff) or 被告 (defendant)) with a physical page range, **When** its 卷X页Y citation is generated and the
   case is closed/reopened/exported, **Then** the citation is byte-identical and derived solely from
   `DocumentPage`; an ambiguous range is refused+warned, never guessed.
 - Observable: identical 卷X页Y across close/reopen/export; an explicit warning on ambiguity.
@@ -44,7 +44,7 @@ exists today.
 
 ### AS-A5 — manual forms (举证质证表 and 质证记录)
 - Invariant: manual-truth / export contract · Flow F8 · surface: export-package · Pre: items + claims entered.
-- **Given** lawyer-entered claim/element → evidence relations and 三性 cross-examination entries, **When**
+- **Given** lawyer-entered claim/element → our (原告 / 被告, as applicable) evidence relations and 三性 cross-examination entries against the opposing party (and the 法院 (court)-filed record where relevant), **When**
   the 举证质证表 and 质证记录 are produced, **Then** each row cites via the single citation contract and
   flags proof gaps per rule.
 - Observable: forms with contract-rendered citations + flagged gaps. A0.7 gate: **gated behind A0.7**.
