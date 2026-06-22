@@ -37,8 +37,14 @@ Loaded memory (`MEMORY.md`) supplies the recent-lane recap used here:
 - Operational lessons: verify branch state before "next step" plans; Codex `/implement` scope
   violations (always `git status`/`diff` before trusting a delegated report); cc-suite↔codex-cli
   version mismatch (runner patch); never bundle govern with its commit.
-A full `/echo-sleuth:recap` + `/echo-sleuth:lessons` SHOULD be run at promotion time (before any
-WI in §5 is governed) and cited in that WI's pre-flight.
+Per `.claude/rules/echo-sleuth.md`, the **lessons/recall pre-flight is REQUIRED** before editing any
+`.claude/rules/**` file (§C) — it is the binding pre-flight for any rule-authoring WI in §5 (e.g. EVW8),
+cited in that WI's pre-flight. The broader **lane-start recap** is REQUIRED before the major-lane triggers
+§A enumerates (a new Phase-B sub-WI plan or impl, a new umbrella plan or revision, a new ADR, a new RCA
+lane, a `/project-autopilot` or `/loop` start, or whole-project intake); for an individual WI that is not
+one of those triggers it is advisory. The `MEMORY.md` checkpoints above are the recap surrogate used for
+this lane's authoring. (Closes deferred finding EVW-PORT-L1: the prior wording recorded this as a generic
+"SHOULD", understating the §C REQUIRED rule-edit pre-flight.)
 
 ## 2. Repo-state findings (verified 2026-06-22, not assumed)
 
