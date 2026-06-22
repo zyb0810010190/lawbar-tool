@@ -113,16 +113,48 @@ Per-tool target posture (decisions in EVW-00 D3/D6):
 | evidence-invariant-reviewer | Read, Grep, Glob | read-only; checks A0.7/A1/A3/A8/A10/A1-T9 not weakened |
 | release-steward | Read, Grep, Glob, Bash(git, explicit-path) | commits **only when explicitly asked**; never pushes |
 
-### 4.3 Evidence hard-hook plan (Layer 3 — stop-grade enforcement; planned, not built)
+### 4.3 Evidence hard-hook plan (Layer 3 — stop-grade enforcement; DEFERRED until after EVW7)
 
-Five `exit 2` / `deny` hooks (EVW-00 D4). Built only once Evidence-core paths exist to scope them:
+**Decision (2026-06-22): all five Evidence hard hooks are DEFERRED until after EVW7.** They are NOT built
+before EVW7. The five `exit 2` / `deny` hooks (EVW-00 D4) remain the eventual target set:
 1. **no-evidence-ui-before-a0.7** — deny edits under the Evidence UI path until A0.7 gate green.
 2. **citation-single-source** — deny citation-string formatting outside the A10-T1 contract.
 3. **optimized-never-canonical** — deny using `OptimizedDocumentRendition` as citation/anchor basis.
 4. **snapshot-seal-anti-circularity** — deny manifest hashing of the encrypted DB holding the seal.
 5. **offline-entitlement-check** — deny adding network entitlement / outbound network in Evidence surface.
 
-Each fails closed, mirrors Lawbar's existing hook posture, and is registered in
+**Why deferred (broker-driven).** An EVW5a/EVW5b split was considered (EVW5a = offline-entitlement only,
+now; EVW5b = the other four + marker provenance, later). The broker (`/cc-suite:review-plan`) returned
+NEEDS-FIX three times on this hook family:
+- `review-plan-mqp1dwa4-iymjmp` — the 5-hook bundle is too broad; split required; Tier-B semantic hooks
+  (citation / optimized / snapshot) are premature because the semantic anchors (native/evidence-core, the
+  A10-T1 citation contract, the snapshot/optimized model) do not exist yet, and the repo already has
+  existing CaseBox `evidence` surfaces a loose match would block.
+- `review-plan-mqp1un1y-wh7yrw` — the Tier-A pair still had a **marker-forgery hole** (the A0.7-green
+  marker is not provenance-protected: existing run-control hooks guard only specific basenames, not
+  `dev-memo/run/evidence/**`) **and a Bash bypass** (Write/Edit-only hooks miss `Bash` writes).
+- `review-plan-mqp4e3di-lgegnb` — the offline-only hook's **Bash mutation coverage was incomplete** (missed
+  `plutil`, `PlistBuddy`, `sed -i`, `perl -i`, `cp`/`mv`, inline `node -e`/`python -c` writers); for a
+  hard-deny invariant, an incomplete Bash detector is worse than none (false confidence).
+
+**Final decision:** defer all EVW5 hard hooks until the protected surfaces exist. The hooks need
+real targets — `native/evidence-core`, the A0.7 harness output + marker provenance/tamper protection,
+concrete Evidence-Genie target paths, and real entitlement files — none of which exist before EVW7. The
+Evidence invariants themselves are NOT weakened by this deferral: they remain recorded (soft, rule-level)
+in `.claude/rules/evidence-genie.md` and `docs/adr/ADR-evidence-m0-xiaolai-workflow-composition.md`
+(EVW-00 D4); only the hard-hook *enforcement build* is deferred.
+
+**Eventual EVW5 requirements (when built, after EVW7).** The hooks MUST include:
+- `Write`/`Edit`/`MultiEdit` coverage AND `Bash` coverage — including plist-mutation tools (`plutil`,
+  `/usr/libexec/PlistBuddy`, `sed -i`, `perl -i`, `cp`/`mv` into a target, inline `node -e`/`python -c`
+  writers), not just shell redirection/`tee`;
+- canonical path normalization (relative/absolute/`./`/`//`/`../`), as the existing run-control hooks do;
+- A0.7 marker **provenance/tamper protection** (the green marker generated only by the real
+  native/evidence-core A0.7 harness, never hand-authored; tamper-protected, not merely schema-valid);
+- concrete Evidence-Genie target paths (no generic `evidence/**`; must not block existing CaseBox work);
+- deny/allow fixture tests proving both fail-closed-on-violation and fail-open-on-unrelated-work.
+
+Each then fails closed, mirrors Lawbar's existing hook posture, and is registered in
 `.claude/settings.json` (`hooks`/`permissions` carve-out per `staging-hygiene.md`).
 
 ### 4.4 Evidence harness plan (Layer 3 — deterministic-JSON surface; scaffold later)
@@ -169,20 +201,26 @@ WI-EVW8  WORKFLOW  Create .claude/rules/evidence-genie.md (domain invariant rule
                    Gates: check-contract-integrity.sh (rules are contract docs); check-gates.sh.
                    Risk: contract-doc. Depends: EVW2.
 
-WI-EVW5  SCAFFOLD  Create the 5 Evidence hard hooks (§4.3) + register in settings.json (hooks/
-                   permissions carve-out only). HIGH-RISK (enforcement + settings.json):
-                   broker review-plan REQUIRED before impl; broker audit+verify after.
-                   Allowed: .claude/hooks/evidence/**, .claude/settings.json (hooks/permissions only),
-                            .claude/hooks/tests/**.  Gates: hook unit tests; check-gates.sh.
-                   Depends: EVW8 (rule defines what each hook enforces). Note: hooks reference
-                   Evidence paths that may not exist yet — ship them fail-open on missing-path,
-                   fail-closed on violation, with tests proving both.
+WI-EVW5  (DEFERRED until AFTER EVW7 — see §4.3 "Why deferred (broker-driven)") The Evidence hard
+                   hooks are NOT built before EVW7. An EVW5a/EVW5b split was considered:
+                     EVW5a — offline-entitlement hook only (Write/Edit/MultiEdit + Bash);
+                     EVW5b — no-UI-before-A0.7 + citation-single-source + optimized-never-canonical +
+                             snapshot-seal-anti-circularity + A0.7 marker provenance/tamper guard.
+                   Both are DEFERRED until after EVW7: the broker returned NEEDS-FIX three times
+                   (review-plan-mqp1dwa4-iymjmp, review-plan-mqp1un1y-wh7yrw, review-plan-mqp4e3di-lgegnb)
+                   — marker provenance/tamper protection is not yet sound, Bash mutation coverage is
+                   broader than this WI should solve, and the concrete native/evidence-core / A0.7
+                   surfaces do not exist yet. When built (after EVW7) the hooks MUST meet the eventual
+                   requirements in §4.3 (Write/Edit/MultiEdit + Bash incl. plist-mutation tools, canonical
+                   path normalization, marker provenance/tamper protection, concrete Evidence-Genie
+                   target paths, deny/allow fixtures). HIGH-RISK: broker review-plan REQUIRED before impl;
+                   broker audit+verify after.
 
-WI-EVW6  WORKFLOW  Create /evidence-workflow + /evidence-geometry-gate commands.
+WI-EVW6  WORKFLOW  Create /evidence-workflow + /evidence-geometry-gate commands. [DONE]
                    Allowed: .claude/commands/{evidence-workflow,evidence-geometry-gate}.md.
                    Gates: check-gates.sh. Depends: EVW3, EVW7.
 
-WI-EVW7  SCAFFOLD  Scaffold native/evidence-core deterministic-JSON harness command surface
+WI-EVW7  SCAFFOLD  ◀── NEXT SUBSTANTIVE WI. Scaffold native/evidence-core deterministic-JSON harness command surface
                    (8 commands, §4.4) — ALL not_implemented = FAIL (exit non-zero). Synthetic
                    fixtures only; NO client PDFs. HIGH-RISK if it introduces a new runtime/native
                    toolchain → that introduction is an autonomy hard-stop (new dependency) and is
@@ -194,16 +232,21 @@ WI-EVW7  SCAFFOLD  Scaffold native/evidence-core deterministic-JSON harness comm
 
 WI-EVW9  SCAFFOLD  (Deferred) Arm tdd-guardian teeth for Evidence + stop-review gate iff Codex
                    login confirmed. Allowed: .claude/settings.json (enabledPlugins + hooks),
-                   tdd-guardian config. Depends: EVW5. Risk: changes enforcement posture — review.
+                   tdd-guardian config. Depends: EVW5b (the deferred hard-hook enforcement build).
+                   Risk: changes enforcement posture — review.
 
 —— A0.7 line ——  No WI past here implements Evidence architecture. The first real Evidence gate
                    (A0.7 renderer-conformance on real fixtures, class-1/2 classification) is a
-                   SEPARATE governed plan authored after EVW1–EVW8 land. This PR stops here.
+                   SEPARATE governed plan authored after EVW7 lands the harness surface. EVW7 is the
+                   next substantive WI; the EVW5 hard hooks (EVW5a/EVW5b) are deferred until after it.
 ```
 
-**Risk-trigger note** (autonomy Layer C): WI-EVW7 (potential new native dependency) and WI-EVW5/9
-(enforcement-posture change) force an immediate batch audit and are NOT eligible for unattended
-auto-advance; each is review-plan-gated.
+**Sequencing note (2026-06-22):** EVW1–EVW4, EVW6, EVW8 are executed. **EVW7 is the next substantive WI.**
+The EVW5 hard hooks (split EVW5a/EVW5b) are **deferred until after EVW7** per §4.3.
+
+**Risk-trigger note** (autonomy Layer C): WI-EVW7 (potential new native dependency) and the deferred
+WI-EVW5a/EVW5b/EVW9 (enforcement-posture change) force an immediate batch audit and are NOT eligible for
+unattended auto-advance; each is review-plan-gated.
 
 ## 6. Promotion path (queue governance — why queue.md is NOT edited here)
 
