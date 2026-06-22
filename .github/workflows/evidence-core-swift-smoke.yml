@@ -1,0 +1,29 @@
+name: evidence-core-swift smoke
+
+# macOS SwiftPM SMOKE only — builds + tests the native/evidence-core-swift skeleton.
+# It does NOT run PDFKit, the A0.7 harness, or any product behavior. The existing
+# ubuntu ui-design-artifact.yml workflow is separate and unchanged.
+
+on:
+  push:
+    paths:
+      - 'native/evidence-core-swift/**'
+      - '.github/workflows/evidence-core-swift-smoke.yml'
+  pull_request:
+    paths:
+      - 'native/evidence-core-swift/**'
+      - '.github/workflows/evidence-core-swift-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  swiftpm-smoke:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build (skeleton)
+        run: swift build --package-path native/evidence-core-swift
+      - name: Test (smoke)
+        run: swift test --package-path native/evidence-core-swift

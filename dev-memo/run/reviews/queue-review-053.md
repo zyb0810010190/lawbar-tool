@@ -45,7 +45,8 @@ the dev-memo plan packet (both are in the WI's Allowed files).
 ## Disposition
 
 READY → eligible to govern. Proceeding to mark-reviewed + govern (standalone, content-bound to sha
-`1a806fc9…`). ENA0 execution authors the feasibility plan packet + the ADR (proposal-only); it implements
+`6e969762…`, after a Depends-on lint-formatting fix changed the queue.md sha from the pre-fix `1a806fc9…`).
+ENA0 execution authors the feasibility plan packet + the ADR (proposal-only); it implements
 nothing and SwiftPM/PDFKit/macOS-CI/real-A0.7 remain hard-stops requiring separate explicit authorization.
 
 QUEUE_REVIEW_VERDICT=PASS
