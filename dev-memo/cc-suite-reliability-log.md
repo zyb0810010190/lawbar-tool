@@ -156,3 +156,8 @@ When a new error class is observed (anything not in the §"Error class taxonomy"
 | Final verdict | READY (Low-risk clarifications); SCOPE-ASSESSMENT NOT-BROADER (rawOutput sha256 `9755b34e4ff9009a33de64dfc30dbf9b2afc54cdca828e201c2e000ae67549be`) |
 | Resolution commit | recorded in `dev-memo/run/reviews/queue-review-058.md`; governance commit governs queue for WI-ENA5 |
 | Root cause | Recurring CCSUITE-02 pattern: even a compact packet times out if Codex still chooses to read repo files at effort high. The fix that worked: an explicit "answer only from this packet; do not read repo files" directive plus a tighter body, so the verdict needs zero file reads. Confirms the retry policy on the first ENA coordinate-step review. |
+
+## 2026-06-23 — A07-KEY-00 ADR audit (TIMEOUT → Path 1 retry PASS)
+- audit-mqqqcri5-nqg95s: TIMEOUT (spawnSync codex ETIMEDOUT) on the full-rigor audit prompt.
+- Retry audit-mqqrgoq9-g1xzo8 (Path 1, tighter file-scoped prompt): PASS C0 H0 M0 L0, sha 7567092b…
+- Class: TIMEOUT. Resolution: Path 1 retry with a narrower prompt succeeded (no Path 2 fallback needed).
