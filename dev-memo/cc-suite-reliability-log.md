@@ -116,3 +116,23 @@ When a new error class is observed (anything not in the §"Error class taxonomy"
 | Resolution commit | _pending (rev-1 re-review then implementation)_ |
 | Root cause | Same pattern as the A1/A2 retrospectives: a `review-plan` prompt that makes Codex READ files (plan + hooks + guard) at `effort: high` inflates context past the 30-min budget. The fix that worked: inline the compact packet so the verdict needs no repo reads. Confirms the CCSUITE-02 retry policy on first live use. |
 | Operational note | The attempt-2 launch was itself first DENIED by `block-run-control-bash-write.sh` because the heredoc prompt body contained a redirection-token adjacent to the marker path (lexical over-deny on PROSE). Re-staged the prompt via the Write tool to `/tmp` so no marker path sat on a Bash command line. This is live evidence for the plan's own Q2 over-deny concern. |
+
+### 2026-06-22 — WI-ENA1 window batch-audit (Layer-B, retry policy success on attempt 2)
+
+| Field | Value |
+|---|---|
+| WI | WI-ENA1 window Layer-B batch audit (range `5d825e0..34e6c43`: closeout + queue governance + SwiftPM skeleton + PR #103 merge) |
+| Kind | audit (Layer-B batch) |
+| Path 1 attempt 1 | FAILED — FULL prompt (asked Codex to diff the range in the read-only sandbox at effort high) |
+| Path 1 attempt 1 job ID | `audit-mqpvpnl9-7ogsx6` |
+| Path 1 attempt 1 error class | TIMEOUT (`spawnSync codex ETIMEDOUT`) |
+| Path 1 attempt 1 retrievable | YES (`{ "error": "spawnSync codex ETIMEDOUT" }` at `.../jobs/audit-mqpvpnl9-7ogsx6.json`) |
+| Path 1 attempt 2 | SUCCESS — tighter prompt naming the exact diff command + diffstat magnitude (14 files, +220/-16) so Codex runs one `git diff` and answers efficiently |
+| Path 1 attempt 2 job ID | `audit-mqpwtbw8-c47zs2` |
+| Path 1 attempt 2 error class | none (completed) |
+| Path 1 attempt 2 retrievable | YES |
+| Retry attempts | 2 (attempt 1 FULL → TIMEOUT; attempt 2 tight → completed) per `.claude/rules/cc-suite.md` §"Timeout / failure classification" (audit class) |
+| Fallback path | none needed (attempt 2 Path 1 succeeded; no Path 2/3) |
+| Final verdict | BATCH-PASS C0 H0 M0 L0 (rawOutput sha256 `631596621b50ece2ca0f38fedc64aa89db2aa37a886502fc629deb3018dc7f7b`) |
+| Resolution commit | closeout advances marker `5d825e0 → 34e6c43`; study packet `dev-memo/study/2026-06-22-batch-audit-132.md` |
+| Root cause | Same as the CCSUITE-02 pattern: an open-ended audit prompt at effort high lets Codex over-explore. Naming the single `git diff` command + the magnitude up front bounded the work under the 30-min budget. Audit-class TIMEOUT recovered on Path 1 without needing Path 2. |
