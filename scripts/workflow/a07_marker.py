@@ -39,6 +39,9 @@ PAYLOAD_FIELDS = [
     "fixturePath", "fixtureSha256", "oraclePath", "oracleSha256",
     "resultStatus", "resultClassification", "observedPageCount", "tolerance",
     "command", "platform", "producedAt", "runId",
+    # isMarker is HMAC-bound (WI-ENA11-FIX1): editing it from true -> false changes the canonical
+    # payload, breaking provenancePayloadHash + the HMAC, and is also rejected by an explicit check.
+    "isMarker",
 ]
 
 
@@ -107,6 +110,7 @@ def cmd_write(a):
         "platform": a.platform,
         "producedAt": a.produced_at,
         "runId": run_id,
+        "isMarker": True,  # HMAC-bound (in PAYLOAD_FIELDS); tamper-evident
     }
     canonical = _canonical(payload)
     pph = _payload_hash(canonical)
@@ -114,7 +118,6 @@ def cmd_write(a):
     marker = dict(payload)
     marker["provenancePayloadHash"] = pph
     marker["provenance"] = prov
-    marker["isMarker"] = True
 
     out_root = a.out_root
     marker_dir = os.path.join(out_root, "a07")
@@ -156,6 +159,11 @@ def cmd_validate(a):
             return _reject(f"missing field {k}")
     if m.get("gateId") != GATE_ID:
         return _reject(f"unexpected gateId {m.get('gateId')}")
+    # isMarker must be the boolean true (not "true"/1). A genuine marker writes True; a flipped
+    # isMarker: true -> false also breaks the HMAC below, but this explicit check rejects it up front
+    # and ensures an isMarker=false object can never satisfy marker validity (WI-ENA11-FIX1).
+    if m.get("isMarker") is not True:
+        return _reject("isMarker must be boolean true")
     if m.get("resultStatus") != "pass" or m.get("resultClassification") != "ok":
         return _reject("not marker-eligible (resultStatus/classification != pass/ok)")
     # Reconstruct the EXACT canonical payload from the stored fields and recompute hash + HMAC.
