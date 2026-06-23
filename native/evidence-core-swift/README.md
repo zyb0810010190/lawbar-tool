@@ -1,11 +1,13 @@
-# native/evidence-core-swift — Evidence Core Swift skeleton + PDFKit + PDF-load + page-box + coordinate-roundtrip probes (smoke only)
+# native/evidence-core-swift — Evidence Core Swift: probes + A0.7 conformance harness (no marker)
 
-**Skeleton + probes only.** This SwiftPM package exists to prove (1) the Swift toolchain + macOS CI can build
-and test a native package in this repo (WI-ENA1); (2) **PDFKit is importable + linkable on macOS** (WI-ENA2);
-(3) **PDFKit can load/parse a PDF far enough to report its page count** (WI-ENA3); (4) **PDFKit can read a
-page's raw box extent (`mediaBox` width/height)** (WI-ENA4); and (5) **a PDF-space ↔ normalized-`[0,1]`
-coordinate transform is invertible (roundtrips) against a page's box extent** (WI-ENA5). These are the first
-five authorized steps of the Native Evidence Core lane.
+**Probes + the A0.7 harness (no marker).** This SwiftPM package proves (1) the Swift toolchain + macOS CI can
+build and test a native package in this repo (WI-ENA1); (2) **PDFKit is importable + linkable on macOS**
+(WI-ENA2); (3) **PDFKit can load/parse a PDF far enough to report its page count** (WI-ENA3); (4) **PDFKit can
+read a page's raw box extent (`mediaBox` width/height)** (WI-ENA4); (5) **a PDF-space ↔ normalized-`[0,1]`
+coordinate transform is invertible (roundtrips)** (WI-ENA5); and (6) it implements the **A0.7
+renderer-conformance harness** that classifies observed geometry against the committed oracle (WI-ENA8). These
+are the first authorized steps of the Native Evidence Core lane. The harness **writes no A0.7 marker** — a
+durable marker requires provenance + the tamper guard, which are separate authorized WIs (A07-GATE-00 §5/§8).
 
 **PDFKit import is proven** — `EvidenceCorePdfKitProbe.pdfKitAvailable` is a **compile-gated constant**
 (`#if canImport(PDFKit)`), determined at compile time. It instantiates no `PDFDocument` and only proves the
@@ -29,19 +31,27 @@ It is **NOT** production anchor geometry: **no** rotation, **no** origin/box-off
 versioning, **no** persistence, **no** viewport/pixel mapping, **no** anchor/citation/page-identity, **no**
 renderer-conformance, and **no** A0.7 claim. It only demonstrates the arithmetic is invertible.
 
-**This package is NOT:**
-- **NOT the A0.7 renderer-conformance harness** — it runs no conformance, classifies no failures.
-- **NOT a marker** — it creates no A0.7 marker and (apart from reading the bundled test fixture) writes no files.
-- **NOT PDF geometry math** — it reads a page's raw `mediaBox` width/height and proves an invertible
-  `[0,1]` roundtrip (probe-only), but performs **no** rendering, **no** anchors, **no** persistence, and makes
-  **no** page-identity/citation or A0.7 claim.
-- **NOT production anchor geometry** — the coordinate roundtrip is an internal probe, not the anchor
-  implementation (which is a separate, explicitly-authorized hard-stop WI).
-- **NOT product behavior** — it exposes only a smoke version/value (`EvidenceCoreSmoke.smokeVersion`,
-  `EvidenceCoreSmoke.smoke()`), the PDFKit capability probe (`EvidenceCorePdfKitProbe.pdfKitAvailable`,
-  `EvidenceCorePdfKitProbe.probe()`), the PDF load/page-count probe (`EvidenceCorePdfLoadProbe.load(url:)`), and
-  the page-box read probe (`EvidenceCorePageBoxProbe.inspectMediaBoxes(url:)`). The coordinate roundtrip probe
-  is internal and exposes **no** public symbol.
+**A0.7 renderer-conformance harness (WI-ENA8) — classifies, does NOT mark.** `EvidenceCoreA07Harness.run(fixtureURL:oracleURL:)`
+loads the committed synthetic fixture, **reads the committed oracle from disk** (`a07-renderer-conformance/oracle.json`
+— expected values are NOT hardcoded in the harness, so it cannot self-fulfill a pass), computes observed page
+count / `mediaBox` extents / normalized sample values, compares them to the oracle within the oracle's own
+tolerance, and returns a deterministic verdict: `status` (`pass`/`fail`/`inconclusive`) + `classification`
+(`ok` / `class_1_normalization_math_bug` / `class_2_geometry_source_instability` / `fixture_or_oracle_invalid`
+/ `not_implemented` / `inconclusive_no_checkable_assertions`). **`not_implemented` is a fail**; **inconclusive
+is not pass**; a **Class-2** geometry-source instability is a STOP and is never downgraded to pass. The result
+carries `isMarker=false`: a passing harness run is **not** an A0.7 marker.
+
+**This package is NOT (still):**
+- **NOT an A0.7 marker** — the harness writes **no** marker and **no** files; it touches **no**
+  `dev-memo/run/evidence/**`, and creates **no** provenance/HMAC and **no** tamper/fabrication guard. A durable,
+  provenance-valid marker is a separate authorized WI (A07-GATE-00 §5/§8).
+- **NOT production anchor geometry** — the coordinate roundtrip is an internal probe and the harness reads only
+  box/structural geometry; neither is the production anchor implementation (a separate hard-stop WI).
+- **NOT product behavior** — no anchors, no citation/page-identity persistence, no PDFView/UI conversion, no
+  export, no OCR/AI/cloud/auth/network. Public symbols: `EvidenceCoreSmoke.smokeVersion`/`.smoke()`,
+  `EvidenceCorePdfKitProbe.pdfKitAvailable`/`.probe()`, `EvidenceCorePdfLoadProbe.load(url:)`,
+  `EvidenceCorePageBoxProbe.inspectMediaBoxes(url:)`, and `EvidenceCoreA07Harness.run(fixtureURL:oracleURL:)`.
+  The coordinate roundtrip probe is internal (no public symbol).
 
 It does not touch or change the existing `native/evidence-core/` JS deterministic-JSON shim.
 
@@ -65,17 +75,18 @@ reveals nothing about any matter or document.
 swift build --package-path native/evidence-core-swift
 swift test  --package-path native/evidence-core-swift
 ```
-macOS CI runs the same smoke build/test (now covering all smoke probe tests: PDFKit import, PDF load/page-count,
-page-box read, and coordinate roundtrip) in `.github/workflows/evidence-core-swift-smoke.yml` (the existing `ui-design-artifact.yml` ubuntu check is
+macOS CI runs the same smoke build/test (now covering all probe tests plus the A0.7 harness: PDFKit import,
+PDF load/page-count, page-box read, coordinate roundtrip, and A0.7 conformance) in `.github/workflows/evidence-core-swift-smoke.yml` (the existing `ui-design-artifact.yml` ubuntu check is
 unchanged). The job runs on **Apple Swift on macOS CI**; the runner image is `macos-latest`, a moving image —
 no specific Swift/Xcode version is pinned or asserted.
 
 ## Hard stops (separate explicit authorization required)
 Per `docs/adr/ADR-evidence-native-core-a07-feasibility.md` (ENA-00) and
-`dev-memo/plan-batch-casebox-evidence-native-a07-feasibility-00.md`: **production anchor geometry** (rotation,
-captured-geometry versioning, viewport/pixel mapping, persistence), page identity / citation, geometry pass/fail
-classification, PDF rendering/PDFView conversion, the real A0.7 renderer-conformance harness, A0.7 marker
-generation, marker provenance/HMAC, and Evidence UI are all hard-stops beyond this skeleton + PDFKit-import +
-PDF-load/page-count + page-box-read + coordinate-roundtrip probe — none are implemented here. (Reading a raw
-`mediaBox` width/height (WI-ENA4) and proving an internal `[0,1]` coordinate roundtrip (WI-ENA5) are structural/
+`docs/adr/ADR-evidence-a07-renderer-conformance-gate.md` (A07-GATE-00 §5/§8): **A0.7 marker generation**, marker
+**provenance/HMAC**, the **tamper/fabrication guard**, **EVW5 hard hooks**, **production anchor geometry**
+(rotation, captured-geometry versioning, viewport/pixel mapping, persistence), page identity / citation, PDF
+rendering/PDFView conversion, and Evidence UI are all hard-stops beyond this probe set + the A0.7 harness — none
+are implemented here. The A0.7 harness (WI-ENA8) classifies geometry against the committed oracle but writes
+**no** marker. (Reading a raw `mediaBox` width/height (WI-ENA4) and proving an internal `[0,1]` coordinate
+roundtrip (WI-ENA5) are structural/
 arithmetic probes, not production anchor geometry.)
