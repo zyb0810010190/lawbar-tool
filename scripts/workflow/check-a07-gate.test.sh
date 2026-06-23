@@ -32,7 +32,12 @@ run_gate() { # <project> <required?0/1> <withKey?0/1> -> rc
   local T="$1" req="$2" wk="$3"; local -a envs=("CLAUDE_PROJECT_DIR=$T")
   [ "$req" = 1 ] && envs+=("A07_REQUIRED=1")
   [ "$wk" = 1 ] && envs+=("LAWBAR_A07_MARKER_HMAC_KEY=$KEY")
-  env "${envs[@]}" bash "$GATE" >/dev/null 2>&1; echo $?
+  # Hermetic: clear ambient A07_REQUIRED + LAWBAR_A07_MARKER_HMAC_KEY first, then set ONLY the case-intended
+  # state (WI-EVW5-FIX1). Without `-u`, running this self-test under an outer `A07_REQUIRED=1 check-gates.sh`
+  # (the human mode-9b gated verification) leaked required=1 into the not-required cases and failed them.
+  # `env -u` (not `env -i`) is deliberate: it preserves PATH/temp/tool lookup while controlling the two
+  # ambient gate vars. The production gate (check-a07-gate.sh) still reads ambient A07_REQUIRED — unchanged.
+  env -u A07_REQUIRED -u LAWBAR_A07_MARKER_HMAC_KEY "${envs[@]}" bash "$GATE" >/dev/null 2>&1; echo $?
 }
 
 # 1. not required + clean tree -> pass
@@ -52,11 +57,12 @@ require_project; mkdir -p "$T/dev-memo/run/evidence/a07"; echo '{"fabricated":tr
 # 7. not required + genuine marker + key -> pass
 require_project; seed_marker "$T"; [ "$(run_gate "$T" 0 1)" = 0 ] && ok || bad "not-required + genuine marker + key should pass"; rm -rf "$T"
 # 8. required via queue "Requires-A07: true" (no env) + genuine marker + key -> pass
+# Hermetic: clear ambient A07_REQUIRED so required-ness derives ONLY from the temp queue fixture (WI-EVW5-FIX1).
 require_project; printf 'Requires-A07: true\n' >> "$T/dev-memo/run/queue.md"; seed_marker "$T"
-[ "$(CLAUDE_PROJECT_DIR="$T" LAWBAR_A07_MARKER_HMAC_KEY="$KEY" bash "$GATE" >/dev/null 2>&1; echo $?)" = 0 ] && ok || bad "queue Requires-A07 + genuine marker + key should pass"; rm -rf "$T"
+[ "$(env -u A07_REQUIRED -u LAWBAR_A07_MARKER_HMAC_KEY CLAUDE_PROJECT_DIR="$T" LAWBAR_A07_MARKER_HMAC_KEY="$KEY" bash "$GATE" >/dev/null 2>&1; echo $?)" = 0 ] && ok || bad "queue Requires-A07 + genuine marker + key should pass"; rm -rf "$T"
 # 9. required via queue line + no marker -> fail closed
 require_project; printf 'Requires-A07: yes\n' >> "$T/dev-memo/run/queue.md"
-[ "$(CLAUDE_PROJECT_DIR="$T" LAWBAR_A07_MARKER_HMAC_KEY="$KEY" bash "$GATE" >/dev/null 2>&1; echo $?)" = 2 ] && ok || bad "queue Requires-A07 + no marker should fail closed"; rm -rf "$T"
+[ "$(env -u A07_REQUIRED -u LAWBAR_A07_MARKER_HMAC_KEY CLAUDE_PROJECT_DIR="$T" LAWBAR_A07_MARKER_HMAC_KEY="$KEY" bash "$GATE" >/dev/null 2>&1; echo $?)" = 2 ] && ok || bad "queue Requires-A07 + no marker should fail closed"; rm -rf "$T"
 # 10. committed (tracked) marker material -> fail unconditionally (even if not required)
 require_project; mkdir -p "$T/dev-memo/run/evidence/a07"; echo '{}' > "$T/dev-memo/run/evidence/a07/c.marker.json"
 ( cd "$T" && git add -f dev-memo/run/evidence/a07/c.marker.json >/dev/null 2>&1 )
