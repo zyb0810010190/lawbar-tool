@@ -14,6 +14,9 @@ bash "$ROOT/scripts/workflow/check-marker-guard.sh" --scan || exit 1
 bash "$ROOT/scripts/workflow/check-marker-guard.test.sh" || exit 1
 echo "Running A0.7 marker write/validate self-test..."
 bash "$ROOT/scripts/workflow/a07-marker.test.sh" || exit 1
+echo "Running A0.7 hard gate (EVW5: enforce marker only when A0.7-dependent) + self-test..."
+bash "$ROOT/scripts/workflow/check-a07-gate.sh" || exit 1
+bash "$ROOT/scripts/workflow/check-a07-gate.test.sh" || exit 1
 
 echo "Running desktop app test suite..."
 npm --prefix apps/lawbar-desktop test || exit 1
