@@ -136,3 +136,23 @@ When a new error class is observed (anything not in the §"Error class taxonomy"
 | Final verdict | BATCH-PASS C0 H0 M0 L0 (rawOutput sha256 `631596621b50ece2ca0f38fedc64aa89db2aa37a886502fc629deb3018dc7f7b`) |
 | Resolution commit | closeout advances marker `5d825e0 → 34e6c43`; study packet `dev-memo/study/2026-06-22-batch-audit-132.md` |
 | Root cause | Same as the CCSUITE-02 pattern: an open-ended audit prompt at effort high lets Codex over-explore. Naming the single `git diff` command + the magnitude up front bounded the work under the 30-min budget. Audit-class TIMEOUT recovered on Path 1 without needing Path 2. |
+
+### 2026-06-22 — WI-ENA5 review-plan (retry policy success on attempt 2)
+
+| Field | Value |
+|---|---|
+| WI | WI-ENA5 coordinate transform roundtrip probe (review-plan) |
+| Kind | review-plan |
+| Path 1 attempt 1 | FAILED — packet prompt at effort high; Codex apparently read repo files and overran |
+| Path 1 attempt 1 job ID | `review-plan-mqq2vxfy-yhlfmz` |
+| Path 1 attempt 1 error class | TIMEOUT (`spawnSync codex ETIMEDOUT`) |
+| Path 1 attempt 1 retrievable | YES (`{ "error": "spawnSync codex ETIMEDOUT" }`) |
+| Path 1 attempt 2 | SUCCESS — tighter COMPACT packet with an explicit "ANSWER ONLY FROM THIS PACKET; do NOT read repo files" instruction (~2.5KB) |
+| Path 1 attempt 2 job ID | `review-plan-mqq3zdkx-ujv2g1` |
+| Path 1 attempt 2 error class | none (completed) |
+| Path 1 attempt 2 retrievable | YES |
+| Retry attempts | 2 (attempt 1 → TIMEOUT; attempt 2 compact + no-repo-read → completed) per `.claude/rules/cc-suite.md` §"Retry policy" |
+| Fallback path | none needed (attempt 2 Path 1 succeeded; no Path 2/3) |
+| Final verdict | READY (Low-risk clarifications); SCOPE-ASSESSMENT NOT-BROADER (rawOutput sha256 `9755b34e4ff9009a33de64dfc30dbf9b2afc54cdca828e201c2e000ae67549be`) |
+| Resolution commit | recorded in `dev-memo/run/reviews/queue-review-058.md`; governance commit governs queue for WI-ENA5 |
+| Root cause | Recurring CCSUITE-02 pattern: even a compact packet times out if Codex still chooses to read repo files at effort high. The fix that worked: an explicit "answer only from this packet; do not read repo files" directive plus a tighter body, so the verdict needs zero file reads. Confirms the retry policy on the first ENA coordinate-step review. |
