@@ -45,6 +45,11 @@ T=$(mktemp -d); OUT="$T/dev-memo/run/evidence"
 MKPATH="$(write_marker "$OUT" aa11bb22)"; wrc=$?
 { [ "$wrc" = 0 ] && [ -f "$MKPATH" ] && [ -f "$OUT/ledger.jsonl" ]; } && ok || bad "genuine write should produce marker + ledger"
 [ "$(LAWBAR_A07_MARKER_HMAC_KEY="$GOODKEY" rc_of python3 "$MARK" validate --marker "$MKPATH" --ledger "$OUT/ledger.jsonl")" = 0 ] && ok || bad "genuine marker should validate (exit 0)"
+# 5b. (WI-ENA11-FIX1) flipping ONLY isMarker true -> false fails validation (bound + checked)
+cp "$MKPATH" "$T/ismarker-flip.json"
+python3 -c "import json,sys;m=json.load(open(sys.argv[1]));assert m['isMarker'] is True;m['isMarker']=False;json.dump(m,open(sys.argv[1],'w'))" "$T/ismarker-flip.json"
+[ "$(LAWBAR_A07_MARKER_HMAC_KEY="$GOODKEY" rc_of python3 "$MARK" validate --marker "$T/ismarker-flip.json" --ledger "$OUT/ledger.jsonl")" != 0 ] && ok || bad "isMarker true->false must fail validation"
+
 # 6. touched marker fails
 cp "$MKPATH" "$T/touched.json"; python3 -c "import json,sys;m=json.load(open(sys.argv[1]));m['observedPageCount']=99;json.dump(m,open(sys.argv[1],'w'))" "$T/touched.json"
 # validate the touched copy against the ledger entry's path? touched.json runId still matches but path differs -> reject anyway
