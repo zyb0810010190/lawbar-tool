@@ -133,6 +133,28 @@ the key env-only. This design WI (A3-T1-DESIGN) is the only A3-T1 WI that is not
   the **storage engine** (SQLite/GRDB/SQLCipher) and any numeric-decimal storage option (decision-Medium) —
   a future dependency hard-stop WI.
 
+## 6. Reconciliation note (added by A3-PAGE-00, 2026-06-23)
+
+A pre-flight investigation for the schema implementation found two assumptions in this ADR that do not hold
+against the chosen substrate (`services/case-box-persistence`, per A3-DB-00). Both are reconciled by
+`ADR-evidence-a3-page-geometry-foundation.md` (A3-PAGE-00); this note records the correction so the contract no
+longer contradicts reality:
+
+1. **"FK →" is not a SQLite foreign key here.** `services/case-box-persistence` uses **no SQLite FK
+   constraints by design** (app-layer invariants enforce correctness; `schema.ts:14`/`:134`). Every "FK →" in
+   §3 (Anchor → DocumentPage, Anchor → DocumentPageGeometry, Link → Anchor) is therefore realized as a
+   **NOT NULL column + an app-layer invariant**, not a SQLite `FOREIGN KEY`, unless a future substrate WI
+   changes the no-FK convention. The intent (referential integrity, provenance required, no implicit `valid`)
+   is unchanged; only the enforcement mechanism is corrected.
+2. **`DocumentPage` and `DocumentPageGeometry` are PREREQUISITES that do not yet exist.** Neither table (nor
+   any page-identity / geometry concept) exists in `case-box-persistence` or the `case-box-contract` package;
+   `case_box_documents` is document-level only. They must be defined + implemented as their own A0.7-gated
+   foundation WIs (A3-PAGE-00 → DocumentPage schema → DocumentPageGeometry schema) **before** the A3-T1-IMPL
+   anchor/link schema. The §2.6 migration sequence is amended accordingly (foundations first).
+
+This note does not change any §1-§5 decision; it corrects the enforcement mechanism (FK → app-layer invariant)
+and records the prerequisite ordering.
+
 ## References
 - `docs/adr/ADR-evidence-a3-anchor-link-contract.md` (A3-CONTRACT-00 — §3 invariants, §4 API, §5 data model,
   decision 9 cascade-unresolved, decision 3 geometry-version key).
