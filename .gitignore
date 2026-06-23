@@ -53,3 +53,6 @@ dev-memo/superseded/
 # Batch-closeout transient sentinel (BATCH-CLOSEOUT-AUTO-00); written/removed only by
 # scripts/workflow/batch-closeout.mjs, never committed.
 /dev-memo/run/.closeout-pending
+
+# A0.7 marker write — local-only run-state (WI-ENA11); markers/ledger are never committed.
+/dev-memo/run/evidence/

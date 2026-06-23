@@ -9,9 +9,13 @@ let package = Package(
     name: "EvidenceCoreSmoke",
     products: [
         .library(name: "EvidenceCoreSmoke", targets: ["EvidenceCoreSmoke"]),
+        // Thin CLI that runs the A0.7 harness and prints its deterministic verdict, so the marker
+        // writer (WI-ENA11) reuses the real harness instead of re-implementing classification.
+        .executable(name: "a07-harness-cli", targets: ["A07HarnessCLI"]),
     ],
     targets: [
         .target(name: "EvidenceCoreSmoke"),
+        .executableTarget(name: "A07HarnessCLI", dependencies: ["EvidenceCoreSmoke"]),
         .testTarget(name: "EvidenceCoreSmokeTests", dependencies: ["EvidenceCoreSmoke"]),
     ]
 )

@@ -1,23 +1,25 @@
 #!/bin/bash
-# check-marker-guard.sh — fail-closed A0.7 marker tamper/fabrication guard (WI-ENA10).
+# check-marker-guard.sh — fail-closed A0.7 marker tamper/fabrication guard (WI-ENA10; extended WI-ENA11).
 #
 # Per ADR A07-GATE-00 §5/§8 and ADR A07-MARK-00: an A0.7 marker is durable, provenance-valid
-# evidence of a real harness pass. No marker WRITER or VALIDATOR is authorized yet (those are
-# separate future WIs), so the accepted-marker set is EMPTY. This guard therefore REJECTS, fail-
-# closed, ANY file under the marker namespace:
+# evidence of a real harness pass. Markers are LOCAL-ONLY run-state under the namespace:
 #
-#     dev-memo/run/evidence/**
+#     dev-memo/run/evidence/**     (gitignored; NEVER committed)
 #
-# That makes a fabricated / hand-touched / copied / schema-only marker impossible to land
-# unnoticed: with no authorized writer, every such file fails. A harness result with
-# isMarker=false is not a marker and cannot satisfy this guard (the harness never writes here).
+# Guard policy:
+#   * --staged AND tracked files (git ls-files) under the namespace — including the ledger — are
+#     rejected UNCONDITIONALLY: committed/staged markers are never allowed.
+#   * --scan validates only UNTRACKED (local) markers: a *.marker.json is accepted ONLY if it is
+#     provenance-valid via scripts/workflow/a07_marker.py (HMAC over the canonical payload + matching
+#     bound fixture/oracle bytes + a ledger-bound runId), which requires LAWBAR_A07_MARKER_HMAC_KEY.
+#     The guard-owned ledger.jsonl is skipped; any other namespace file is rejected. Without the key
+#     (or on any validation failure) it FAILS CLOSED. A fabricated / hand-touched / copied / schema-
+#     only marker, and an isMarker=false harness result, all fail. A clean tree (no markers, e.g. CI)
+#     passes.
 #
-# This guard does NOT: write a marker, generate provenance, compute HMAC/signatures, manage key
-# custody, or CREATE the marker namespace. It only inspects + classifies paths, read-only.
-#
-# When a future, authorized marker-writer/validator WI lands, it replaces the empty accepted set
-# with a provenance-valid acceptance check (re-read bound artifacts, verify tamper-evidence, and
-# the ledger-bound non-replay check from A07-MARK-00 §4/§5). Until then: reject all.
+# This guard itself does NOT write a marker, generate provenance, compute HMAC, manage key custody,
+# or CREATE the marker namespace. It inspects + classifies paths and delegates marker validation to
+# a07_marker.py (read-only). The marker WRITER is scripts/workflow/a07-marker-write.sh.
 #
 # Usage:
 #   check-marker-guard.sh [--scan]            # tracked files + working tree under the namespace (default)
@@ -39,28 +41,8 @@ case "${1:-}" in
   *) echo "check-marker-guard: unknown arg '${1}'"; exit 2 ;;
 esac
 
-declare -a candidates=()
-case "$mode" in
-  --paths)
-    candidates=("${paths[@]:-}")
-    ;;
-  --staged)
-    while IFS= read -r p; do [ -n "$p" ] && candidates+=("$p"); done \
-      < <(git -C "$ROOT" diff --cached --name-only 2>/dev/null)
-    ;;
-  --scan)
-    # Tracked files (catches a committed marker) ...
-    while IFS= read -r p; do [ -n "$p" ] && candidates+=("$p"); done \
-      < <(git -C "$ROOT" ls-files 2>/dev/null)
-    # ... plus ANY entry physically present under the namespace — files, symlinks, dirs (not just
-    # regular files), so an untracked symlink/created marker cannot slip past. Read-only: we never
-    # create the directory here. `-mindepth 1` lists everything beneath the namespace.
-    if [ -d "$ROOT/$MARKER_NS" ]; then
-      while IFS= read -r p; do [ -n "$p" ] && candidates+=("${p#"$ROOT"/}"); done \
-        < <(find "$ROOT/$MARKER_NS" -mindepth 1 2>/dev/null)
-    fi
-    ;;
-esac
+HERE="$(cd "$(dirname "$0")" && pwd)"
+LEDGER_REL="$MARKER_NS/ledger.jsonl"
 
 # Normalize a candidate path to a canonical repo-relative form so non-canonical inputs cannot evade
 # the namespace prefix match. Lexical only (no filesystem): (a) if absolute under the repo ROOT,
@@ -90,26 +72,63 @@ normalize_path() {
   done
   printf '%s' "$joined"
 }
+under_ns() { case "$1" in "$MARKER_NS"|"$MARKER_NS"/*) return 0 ;; *) return 1 ;; esac; }
+# Validate a genuine LOCAL marker via the provenance core (HMAC + bound-artifact + ledger checks).
+validate_local_marker() {
+  python3 "$HERE/a07_marker.py" validate --marker "$ROOT/$1" --ledger "$ROOT/$LEDGER_REL" >/dev/null 2>&1
+}
 
 declare -a violations=()
-norm=""
-for p in "${candidates[@]:-}"; do
-  [ -n "$p" ] || continue
-  norm="$(normalize_path "$p")"
-  case "$norm" in
-    "$MARKER_NS"|"$MARKER_NS"/*) violations+=("$p") ;;  # report the original path as given
-  esac
-done
+
+if [ "$mode" = "--paths" ] || [ "$mode" = "--staged" ]; then
+  # Unconditional: ANY namespace path given/staged is rejected. Committed/staged markers (and the
+  # ledger) are NEVER allowed — markers are local-only run-state.
+  declare -a candidates=()
+  if [ "$mode" = "--paths" ]; then
+    candidates=("${paths[@]:-}")
+  else
+    while IFS= read -r p; do [ -n "$p" ] && candidates+=("$p"); done \
+      < <(git -C "$ROOT" diff --cached --name-only 2>/dev/null)
+  fi
+  for p in "${candidates[@]:-}"; do
+    [ -n "$p" ] || continue
+    under_ns "$(normalize_path "$p")" && violations+=("$p")
+  done
+else
+  # --scan: (1) tracked namespace files = committed markers => ALWAYS reject.
+  declare -A tracked_ns=()
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    n="$(normalize_path "$p")"
+    if under_ns "$n"; then tracked_ns["$n"]=1; violations+=("$p (committed marker material — never allowed)"); fi
+  done < <(git -C "$ROOT" ls-files 2>/dev/null)
+  # (2) Untracked working-tree entries (files + symlinks) under the namespace: validate genuine local
+  #     markers, skip the guard-owned ledger, reject anything else. Read-only: never creates the dir.
+  if [ -d "$ROOT/$MARKER_NS" ]; then
+    while IFS= read -r abs; do
+      [ -n "$abs" ] || continue
+      rel="${abs#"$ROOT"/}"; n="$(normalize_path "$rel")"
+      under_ns "$n" || continue
+      [ -n "${tracked_ns[$n]:-}" ] && continue
+      case "$n" in
+        "$LEDGER_REL") : ;;  # guard-owned ledger, not a marker
+        *.marker.json)
+          if ! validate_local_marker "$n"; then violations+=("$rel (not a provenance-valid local marker)"); fi ;;
+        *) violations+=("$rel (non-marker file in marker namespace)") ;;
+      esac
+    done < <(find "$ROOT/$MARKER_NS" -mindepth 1 \( -type f -o -type l \) 2>/dev/null)
+  fi
+fi
 
 if [ "${#violations[@]}" -gt 0 ]; then
-  echo "MARKER-GUARD: FAIL — file(s) under $MARKER_NS/** but no authorized A0.7 marker writer/validator exists."
-  echo "  The accepted-marker set is EMPTY (fail-closed): a fabricated / touched / copied / schema-only marker is rejected."
+  echo "MARKER-GUARD: FAIL — dev-memo/run/evidence/** material that is not a genuine, provenance-valid local marker."
   printf '  rejected: %s\n' "${violations[@]}"
-  echo "  Per ADR A07-MARK-00: a valid marker requires a provenance-valid writer + tamper/fabrication validation"
-  echo "  (re-read bound artifacts, verify HMAC/signature, ledger-bound non-replay). Until that WI lands, the"
-  echo "  marker namespace must remain absent. See docs/adr/ADR-evidence-a07-marker-provenance.md."
+  echo "  Committed/staged markers (and the ledger) are NEVER allowed; a LOCAL marker is accepted only when"
+  echo "  provenance-valid: HMAC over the canonical payload + matching bound fixture/oracle bytes + a ledger-bound"
+  echo "  runId, with LAWBAR_A07_MARKER_HMAC_KEY set. Fabricated/touched/copied/schema-only markers fail."
+  echo "  See docs/adr/ADR-evidence-a07-marker-provenance.md and scripts/workflow/a07_marker.py."
   exit 2
 fi
 
-echo "MARKER-GUARD: OK — no files under $MARKER_NS/** (marker namespace absent; nothing to validate)."
+echo "MARKER-GUARD: OK — no committed marker material; any local markers present are provenance-valid (or namespace absent)."
 exit 0
