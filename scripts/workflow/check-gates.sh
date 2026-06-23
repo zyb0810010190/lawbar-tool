@@ -12,6 +12,8 @@ echo "== lawbar-tool gates =="
 echo "Running A0.7 marker guard (scan + self-test)..."
 bash "$ROOT/scripts/workflow/check-marker-guard.sh" --scan || exit 1
 bash "$ROOT/scripts/workflow/check-marker-guard.test.sh" || exit 1
+echo "Running A0.7 marker write/validate self-test..."
+bash "$ROOT/scripts/workflow/a07-marker.test.sh" || exit 1
 
 echo "Running desktop app test suite..."
 npm --prefix apps/lawbar-desktop test || exit 1
