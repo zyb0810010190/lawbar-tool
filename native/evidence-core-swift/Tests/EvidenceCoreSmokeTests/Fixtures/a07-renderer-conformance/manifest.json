@@ -1,0 +1,30 @@
+{
+  "schemaName": "a07-renderer-conformance-fixture-manifest",
+  "schemaVersion": "0.1.0-design",
+  "status": "design-only; fixture/oracle data, NOT a harness, NOT a marker, NOT production anchor geometry",
+  "wi": "WI-ENA7",
+  "adr": "docs/adr/ADR-evidence-a07-renderer-conformance-gate.md (A07-GATE-00)",
+  "notAuthorizing": "These artifacts do not authorize or constitute an A0.7 run. No A0.7 marker may be derived from them alone (ADR A07-GATE-00 §5). dev-memo/run/evidence/** remains absent.",
+  "fixtures": [
+    {
+      "id": "synthetic-twopage",
+      "path": "../synthetic-twopage.pdf",
+      "reused": true,
+      "reuseNote": "Reuses the existing WI-ENA3 synthetic fixture; not duplicated (ADR §2; ENA7 scope).",
+      "provenance": "Synthetic, deterministically generated from a minimal-PDF source (two empty US-Letter pages: a /Catalog, a /Pages node with /Count 2, and two /Page objects each /MediaBox [0 0 612 792], no /Contents stream, no /Font, /XObject, or /Metadata; correct xref + %%EOF). No fonts, images, text, metadata, annotations, JavaScript, or any client/confidential material.",
+      "confidential": false,
+      "sha256": "63d91a6c75cc10350c0a15df19a12620d938637acf3529c15cab7d4e6e0d9276",
+      "sizeBytes": 432,
+      "pageCount": 2,
+      "pageIndexConvention": "0-based, matching PDFKit PDFDocument.page(at:) — page indices 0 and 1 map to physical pages 1 and 2.",
+      "pageBox": "mediaBox",
+      "pageBoxOrigin": "[0 0 612 792]; origin at (0,0), extent 612 x 792 PDF points (1 pt = 1/72 inch).",
+      "perPageGeometry": [
+        { "pageIndex": 0, "mediaBox": { "x": 0, "y": 0, "width": 612, "height": 792 } },
+        { "pageIndex": 1, "mediaBox": { "x": 0, "y": 0, "width": 612, "height": 792 } }
+      ],
+      "canonical": true,
+      "canonicalNote": "Canonical per ADR §2 only because it is documented (this manifest) and reviewed (cc-suite audit/verify under WI-ENA7)."
+    }
+  ]
+}

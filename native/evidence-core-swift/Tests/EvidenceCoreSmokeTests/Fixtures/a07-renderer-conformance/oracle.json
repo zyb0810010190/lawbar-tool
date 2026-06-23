@@ -1,0 +1,44 @@
+{
+  "schemaName": "a07-renderer-conformance-oracle",
+  "schemaVersion": "0.1.0-design",
+  "status": "design-only oracle DATA, defined BEFORE any harness exists; NOT a harness, NOT an A0.7 run, NOT a marker, NOT production anchor geometry",
+  "wi": "WI-ENA7",
+  "adr": "docs/adr/ADR-evidence-a07-renderer-conformance-gate.md (A07-GATE-00)",
+  "fixtureId": "synthetic-twopage",
+  "fixtureRef": "manifest.json#/fixtures/0",
+  "independenceStatement": "These expected values are derived ONLY from the fixture's known construction (US-Letter mediaBox [0 0 612 792], two pages) and from the documented normalization formula below. They are INDEPENDENT of any future harness/code under test (ADR §3); a future harness MUST be compared against these pre-recorded values, never have its own output back-filled into this oracle.",
+  "expected": {
+    "pageCount": 2,
+    "pageIndexes": [0, 1],
+    "pageIndexConvention": "0-based (PDFKit page(at:)); index 0 = physical page 1, index 1 = physical page 2",
+    "perPageMediaBox": [
+      { "pageIndex": 0, "width": 612, "height": 792 },
+      { "pageIndex": 1, "width": 612, "height": 792 }
+    ],
+    "normalizationFormula": "nx = x / width, ny = y / height (normalize); x = nx * width, y = ny * height (denormalize). Page-box extent only; no rotation, no origin transform, no viewport/pixel mapping.",
+    "samplePoints": [
+      { "pdf": { "x": 0,     "y": 0    }, "normalized": { "nx": 0.0,                 "ny": 0.0                  } },
+      { "pdf": { "x": 612,   "y": 792  }, "normalized": { "nx": 1.0,                 "ny": 1.0                  } },
+      { "pdf": { "x": 306,   "y": 396  }, "normalized": { "nx": 0.5,                 "ny": 0.5                  } },
+      { "pdf": { "x": 100,   "y": 200  }, "normalized": { "nx": 0.16339869281045752, "ny": 0.25252525252525254 } },
+      { "pdf": { "x": 611.5, "y": 0.25 }, "normalized": { "nx": 0.9991830065359477,  "ny": 0.0003156565656565657 } }
+    ],
+    "roundtripMaxAbsError": 0.0
+  },
+  "tolerance": {
+    "absolutePdfPoints": 1e-9,
+    "rule": "A value passes iff |observed - expected| <= absolutePdfPoints for box extents and for denormalize-roundtrip recovery of PDF-space points. Normalized components are compared with the same 1e-9 absolute tolerance. The transform is divide-then-multiply, so genuine error is at floating-point noise (<< 1e-9); 1e-9 catches real instability while permitting FP noise (ADR §3).",
+    "units": "PDF points (1 pt = 1/72 inch) for PDF-space values; dimensionless for normalized components"
+  },
+  "resultInterpretation": {
+    "pass": "Every asserted value (page count, per-page mediaBox extent, sample-point normalize/denormalize roundtrip) is within tolerance.",
+    "fail": "At least one asserted value is outside tolerance. Subject to ADR §4 classification (Class-1 normalization/math bug vs Class-2 geometry-source instability). A Class-2 fail is an architectural STOP and MUST NOT be downgraded to green.",
+    "inconclusive": "The harness could not produce a comparable value (fixture failed to load, geometry unavailable, environment unsupported). INCONCLUSIVE IS NOT PASS and MUST NOT advance the gate."
+  },
+  "hardConstraints": {
+    "notProductionAnchorGeometry": "These are fixtures/oracle values only — NOT production anchor geometry (no rotation, no captured-geometry versioning, no persistence, no viewport mapping).",
+    "inconclusiveIsNotPass": true,
+    "notImplementedIsFail": "Until a real A0.7 harness exists and runs against this oracle, the A0.7 status is not_implemented, which is a FAIL — never a pass (ADR §4/§6; evidence-genie.md invariant 10).",
+    "noMarkerFromArtifactsAlone": "No A0.7 marker may be written from this manifest/oracle alone. A marker requires a real harness producing provenance-valid classified-pass evidence, and the tamper/fabrication guard must be in place first (ADR §5, §8). dev-memo/run/evidence/** remains absent."
+  }
+}
