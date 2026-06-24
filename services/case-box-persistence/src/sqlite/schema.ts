@@ -48,7 +48,7 @@ import type { Database } from "better-sqlite3";
 
 import { CaseBoxPersistenceError } from "../errors.js";
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -492,6 +492,60 @@ const DDL_STATEMENTS_V9: ReadonlyArray<string> = [
      ON case_box_document_pages (tenant_id, matter_id, document_id, physical_page_index ASC);`,
 ];
 
+// ---------------------------------------------------------------------------
+// Version 10 (Evidence-Genie A3 foundation, WI-A3-PAGE-T2): case_box_document_page_geometries.
+//
+// The DocumentPageGeometry geometry-version owner — the second A3 prerequisite,
+// after DocumentPage (V9) and before the anchor/link engine (A3-PAGE-00 decision 6).
+// Geometry provenance only; NO anchors/links, NO viewport/screen coordinates, NO
+// rendering/transform model beyond what anchors need.
+//
+// App-layer identity invariant (A3-PAGE-00): a geometry row's
+// `(document_id, physical_page_index)` references the SAME canonical page identity
+// owned by V9 `case_box_document_pages` — ONE page-identity owner, no parallel path.
+// `physical_page_index` is 0-BASED (CHECK >= 0), consistent with V9.
+//
+// UNIQUE(document_id, physical_page_index): SINGLE-CURRENT geometry per page (per the
+// merged A3-PAGE-00 ADR + handover §10). `captured_at` is that row's geometry VERSION
+// (= the anchor's geometryCapturedAt); a re-capture updates the row, and an anchor whose
+// version != the current `captured_at` resolves to `needs_review` (INV-A3-6). Version
+// history is intentionally NOT modelled here.
+//
+// `bounds_x/bounds_y/bounds_width/bounds_height` are stored as FIXED-DECIMAL TEXT with
+// exactly 12 fractional decimal places (canonical strings like "612.000000000000"),
+// COLLATE BINARY — byte-stable, consistent with the A3-SCHEMA-00 page_ratio 12-dp TEXT
+// decision; preserves fractional PDF user-space points; avoids SQLite REAL float drift.
+// The canonical 12-dp format and width/height positivity are APP-LAYER invariants
+// (TEXT decimals do not take a numeric SQLite CHECK in the case-box style), enforced by
+// the geometry-capture/repository layer.
+//
+// NO FOREIGN KEY (case-box convention): document_id -> case_box_documents.id and the
+// page-identity binding are APP-LAYER invariants, not SQLite FKs.
+// ---------------------------------------------------------------------------
+const DDL_STATEMENTS_V10: ReadonlyArray<string> = [
+  `CREATE TABLE IF NOT EXISTS case_box_document_page_geometries (
+     id                       TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     document_id              TEXT    NOT NULL,
+     physical_page_index      INTEGER NOT NULL CHECK (physical_page_index >= 0),
+     resolved_box             TEXT    NOT NULL CHECK (resolved_box IN ('cropBox', 'mediaBox')),
+     bounds_x                 TEXT    NOT NULL COLLATE BINARY,
+     bounds_y                 TEXT    NOT NULL COLLATE BINARY,
+     bounds_width             TEXT    NOT NULL COLLATE BINARY,
+     bounds_height            TEXT    NOT NULL COLLATE BINARY,
+     rotation                 INTEGER NOT NULL CHECK (rotation IN (0, 90, 180, 270)),
+     captured_at              TEXT    NOT NULL COLLATE BINARY,
+     created_at               TEXT    NOT NULL COLLATE BINARY,
+     payload_json             TEXT    NOT NULL,
+     UNIQUE (document_id, physical_page_index)
+   );`,
+
+  // By-document geometry lookup, tenant/matter-scoped, ordered by physical page index.
+  `CREATE INDEX IF NOT EXISTS idx_case_box_document_page_geometries_by_document
+     ON case_box_document_page_geometries (tenant_id, matter_id, document_id, physical_page_index ASC);`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
   [2, DDL_STATEMENTS_V2],
@@ -502,6 +556,7 @@ const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [7, DDL_STATEMENTS_V7],
   [8, DDL_STATEMENTS_V8],
   [9, DDL_STATEMENTS_V9],
+  [10, DDL_STATEMENTS_V10],
 ]);
 
 /**

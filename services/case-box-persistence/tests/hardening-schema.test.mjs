@@ -84,7 +84,7 @@ function insertPage(db, id, documentId, physicalPageIndex) {
 
 test("A3-PAGE-T1: V9 creates case_box_document_pages with the expected columns (no geometry/viewport)", () => {
   const db = new Database(":memory:");
-  assert.equal(applySchema(db), 9);
+  applySchema(db);
   const cols = db
     .prepare("PRAGMA table_info('case_box_document_pages')")
     .all()
@@ -146,40 +146,192 @@ test("A3-PAGE-T1: case_box_document_pages has NO SQLite foreign keys (app-layer 
   db.close();
 });
 
-test("A3-PAGE-T1: V9 introduces NO geometry/anchor/link tables", () => {
+test("A3-PAGE foundations: DocumentPage + geometry exist at current schema, but NO anchor/link tables yet", () => {
   const db = new Database(":memory:");
   applySchema(db);
   const tables = new Set(
     db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((t) => t.name),
   );
-  for (const absent of [
-    "case_box_document_page_geometry",
-    "case_box_document_page_geometries",
-    "case_box_anchors",
-    "case_box_links",
-    "case_box_anchor_links",
-  ]) {
-    assert.ok(!tables.has(absent), `V9 must not create '${absent}' (foundations/anchors are later WIs)`);
+  assert.ok(tables.has("case_box_document_pages"), "V9 DocumentPage table must exist");
+  assert.ok(tables.has("case_box_document_page_geometries"), "V10 DocumentPageGeometry table must exist");
+  for (const absent of ["case_box_anchors", "case_box_links", "case_box_anchor_links"]) {
+    assert.ok(!tables.has(absent), `'${absent}' must not exist yet (anchors/links are a later WI)`);
   }
   db.close();
 });
 
-test("A3-PAGE-T1: V9 upgrades a V8 DB additively without dropping existing data", () => {
+test("A3-PAGE-T1: V8 -> current upgrade is additive (V9 DocumentPage present, data preserved)", () => {
   const db = new Database(":memory:");
-  // Plant a V8 DB with a pre-existing document row; applySchema must apply ONLY V9
-  // and leave the existing data intact.
+  // Plant a V8 DB with a pre-existing document row; applySchema must apply the versions
+  // above 8 (V9, and now V10) and leave the existing data intact.
   db.exec(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
            INSERT INTO schema_version (version, applied_at) VALUES (8, '2026-06-24T00:00:00.000Z');
            CREATE TABLE case_box_documents (id TEXT PRIMARY KEY, payload_json TEXT NOT NULL);
            INSERT INTO case_box_documents (id, payload_json) VALUES ('keep-me', '{}');`);
-  assert.equal(applySchema(db), 9);
+  assert.equal(applySchema(db), CURRENT_SCHEMA_VERSION);
   const kept = db.prepare("SELECT id FROM case_box_documents WHERE id='keep-me'").get();
-  assert.ok(kept, "existing document row must survive the V8 -> V9 upgrade");
+  assert.ok(kept, "existing document row must survive the additive upgrade");
   const pages = db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='case_box_document_pages'")
     .get();
-  assert.ok(pages, "case_box_document_pages must exist after the V9 upgrade");
+  assert.ok(pages, "case_box_document_pages must exist after the upgrade");
   const ver = db.prepare("SELECT MAX(version) AS v FROM schema_version").get();
-  assert.equal(ver.v, 9);
+  assert.equal(ver.v, CURRENT_SCHEMA_VERSION);
+  db.close();
+});
+
+// ---------------------------------------------------------------------------
+// WI-A3-PAGE-T2: schema V10 case_box_document_page_geometries (DocumentPageGeometry).
+// Geometry-version owner; UNIQUE(document_id, physical_page_index) single-current;
+// bounds_x/y/width/height stored as fixed 12-dp decimal TEXT (COLLATE BINARY);
+// resolved_box cropBox|mediaBox; rotation 0/90/180/270; captured_at version. No FK,
+// no viewport/screen columns, no anchor/link tables.
+// ---------------------------------------------------------------------------
+
+function insertGeom(db, overrides = {}) {
+  const g = {
+    id: "g0",
+    document_id: "doc-1",
+    physical_page_index: 0,
+    resolved_box: "mediaBox",
+    bounds_x: "0.000000000000",
+    bounds_y: "0.000000000000",
+    bounds_width: "612.000000000000",
+    bounds_height: "792.000000000000",
+    rotation: 0,
+    captured_at: "2026-06-24T00:00:00.000Z",
+    ...overrides,
+  };
+  db.prepare(
+    `INSERT INTO case_box_document_page_geometries
+       (id, tenant_id, matter_id, document_id, physical_page_index, resolved_box,
+        bounds_x, bounds_y, bounds_width, bounds_height, rotation, captured_at, created_at, payload_json)
+     VALUES (@id, 't1', 'm1', @document_id, @physical_page_index, @resolved_box,
+             @bounds_x, @bounds_y, @bounds_width, @bounds_height, @rotation, @captured_at,
+             '2026-06-24T00:00:00.000Z', '{}')`,
+  ).run(g);
+}
+
+test("A3-PAGE-T2: V10 creates case_box_document_page_geometries with the expected columns (no viewport)", () => {
+  const db = new Database(":memory:");
+  assert.equal(applySchema(db), 10);
+  const cols = db
+    .prepare("PRAGMA table_info('case_box_document_page_geometries')")
+    .all()
+    .map((c) => c.name)
+    .sort();
+  assert.deepEqual(cols, [
+    "bounds_height", "bounds_width", "bounds_x", "bounds_y",
+    "captured_at", "created_at", "document_id", "id", "matter_id",
+    "payload_json", "physical_page_index", "resolved_box", "rotation", "tenant_id",
+  ].sort());
+  for (const forbidden of ["viewport", "screen", "device_pixel_ratio", "css_pixel", "page_ratio", "rect_x"]) {
+    assert.ok(!cols.includes(forbidden), `unexpected viewport/anchor column '${forbidden}'`);
+  }
+  db.close();
+});
+
+test("A3-PAGE-T2: bounds stored as fixed 12-dp decimal TEXT, byte-identical round-trip", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  insertGeom(db, { id: "g-bounds", bounds_width: "612.500000000000" });
+  const got = db
+    .prepare("SELECT bounds_width AS w, typeof(bounds_width) AS t FROM case_box_document_page_geometries WHERE id='g-bounds'")
+    .get();
+  assert.equal(got.t, "text", "bounds must be stored as TEXT (byte-stable), not REAL");
+  assert.equal(got.w, "612.500000000000");
+  assert.match(got.w, /^\d+\.\d{12}$/);
+  db.close();
+});
+
+test("A3-PAGE-T2: resolved_box CHECK rejects anything outside cropBox/mediaBox", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  assert.doesNotThrow(() => insertGeom(db, { id: "g-crop", resolved_box: "cropBox" }));
+  assert.throws(() => insertGeom(db, { id: "g-trim", resolved_box: "trimBox" }), /CHECK|constraint/i);
+  db.close();
+});
+
+test("A3-PAGE-T2: rotation CHECK rejects anything outside 0/90/180/270", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  // Distinct physical_page_index per row so the UNIQUE(document_id, physical_page_index)
+  // constraint does not collide — this test isolates the rotation CHECK.
+  let pageIdx = 0;
+  for (const r of [0, 90, 180, 270]) {
+    assert.doesNotThrow(() => insertGeom(db, { id: `g-rot-${r}`, physical_page_index: pageIdx++, rotation: r }));
+  }
+  assert.throws(() => insertGeom(db, { id: "g-rot-45", physical_page_index: 99, rotation: 45 }), /CHECK|constraint/i);
+  db.close();
+});
+
+test("A3-PAGE-T2: physical_page_index 0 accepted, negative rejected (0-based, consistent with V9)", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  assert.doesNotThrow(() => insertGeom(db, { id: "g-idx0", physical_page_index: 0 }));
+  assert.throws(() => insertGeom(db, { id: "g-idxneg", physical_page_index: -1 }), /CHECK|constraint/i);
+  db.close();
+});
+
+test("A3-PAGE-T2: required columns (document_id, physical_page_index, captured_at) are NOT NULL", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  assert.throws(() => insertGeom(db, { id: "g-nodoc", document_id: null }), /NOT NULL|constraint/i);
+  assert.throws(() => insertGeom(db, { id: "g-noidx", physical_page_index: null }), /NOT NULL|constraint/i);
+  assert.throws(() => insertGeom(db, { id: "g-nover", captured_at: null }), /NOT NULL|constraint/i);
+  db.close();
+});
+
+test("A3-PAGE-T2: UNIQUE(document_id, physical_page_index) — single-current geometry per page", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  insertGeom(db, { id: "g-a", document_id: "doc-1", physical_page_index: 0 });
+  // Same (document, page) again — even with a different captured_at — is rejected (single-current).
+  assert.throws(
+    () => insertGeom(db, { id: "g-b", document_id: "doc-1", physical_page_index: 0, captured_at: "2026-06-25T00:00:00.000Z" }),
+    /UNIQUE|constraint/i,
+  );
+  // Same page on a DIFFERENT document is fine.
+  assert.doesNotThrow(() => insertGeom(db, { id: "g-c", document_id: "doc-2", physical_page_index: 0 }));
+  db.close();
+});
+
+test("A3-PAGE-T2: geometry table has NO SQLite foreign keys (app-layer invariant)", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  const fks = db.prepare("PRAGMA foreign_key_list('case_box_document_page_geometries')").all();
+  assert.equal(fks.length, 0, "case-box convention forbids SQLite FKs; document/page binding is app-layer");
+  db.close();
+});
+
+test("A3-PAGE-T2: V10 introduces NO anchor/link tables", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  const tables = new Set(
+    db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((t) => t.name),
+  );
+  for (const absent of ["case_box_anchors", "case_box_links", "case_box_anchor_links"]) {
+    assert.ok(!tables.has(absent), `V10 must not create '${absent}' (anchors/links are a later WI)`);
+  }
+  db.close();
+});
+
+test("A3-PAGE-T2: V9 -> V10 upgrade preserves existing DocumentPage data", () => {
+  const db = new Database(":memory:");
+  // Plant a V9 DB with a pre-existing document_pages row; applySchema applies ONLY V10
+  // and leaves the existing page data intact.
+  db.exec(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+           INSERT INTO schema_version (version, applied_at) VALUES (9, '2026-06-24T00:00:00.000Z');
+           CREATE TABLE case_box_document_pages (id TEXT PRIMARY KEY, payload_json TEXT NOT NULL);
+           INSERT INTO case_box_document_pages (id, payload_json) VALUES ('page-keep', '{}');`);
+  assert.equal(applySchema(db), 10);
+  const kept = db.prepare("SELECT id FROM case_box_document_pages WHERE id='page-keep'").get();
+  assert.ok(kept, "existing DocumentPage row must survive the V9 -> V10 upgrade");
+  const geom = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='case_box_document_page_geometries'")
+    .get();
+  assert.ok(geom, "case_box_document_page_geometries must exist after the V10 upgrade");
+  const ver = db.prepare("SELECT MAX(version) AS v FROM schema_version").get();
+  assert.equal(ver.v, 10);
   db.close();
 });
