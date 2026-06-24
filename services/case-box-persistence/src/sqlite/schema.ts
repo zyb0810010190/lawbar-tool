@@ -48,7 +48,7 @@ import type { Database } from "better-sqlite3";
 
 import { CaseBoxPersistenceError } from "../errors.js";
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -546,6 +546,77 @@ const DDL_STATEMENTS_V10: ReadonlyArray<string> = [
      ON case_box_document_page_geometries (tenant_id, matter_id, document_id, physical_page_index ASC);`,
 ];
 
+// ---------------------------------------------------------------------------
+// Version 11 (Evidence-Genie A3, WI-A3-T1-IMPL): case_box_anchors + case_box_links.
+//
+// The Anchor/Link engine schema (A3-SCHEMA-00 §3 + A3-CONTRACT-00 §4), the final A3
+// foundation lane — built on V9 case_box_document_pages (page identity) + V10
+// case_box_document_page_geometries (geometry version). SCHEMA ONLY: no resolver,
+// no status-transition logic, no replacement/quarantine, no export, no UI.
+//
+// case_box_anchors — a page region anchored to a captured geometry version:
+//   - document_id + physical_page_index bind the V9 page identity (app-layer invariant; NO FK).
+//   - geometry_captured_at is NOT NULL (provenance required) and immutable per stored anchor
+//     (app-layer invariant -> a V10 ...geometries.captured_at for the same page) — an anchor
+//     can never be persisted without resolved geometry provenance (INV-A3-2/7).
+//   - rect_x/y/width/height are canonical page_ratio components stored as fixed 12-dp decimal
+//     TEXT COLLATE BINARY (byte-stable, identical form to V10 bounds / A3-T2 page_ratio; NO REAL,
+//     NO viewport/screen). The 12-dp format + [0,1] domain are APP-LAYER invariants (no numeric
+//     SQLite CHECK, per the V10 bounds decision). coordinate_space/origin_ref are pinned consts.
+//   - page_rotation == the geometry version's rotation (0/90/180/270).
+//   - Multiple anchors per page are allowed (no UNIQUE beyond the PK).
+//
+// case_box_links — a work-product source -> anchor target with an explicit status:
+//   - status is CHECK valid|needs_review|broken, NOT NULL, NO DEFAULT — no implicit `valid`
+//     (INV-A3-8; A3-SCHEMA-00 decision 3). The resolver/status transitions are a LATER WI.
+//   - anchor_id -> case_box_anchors.id is an app-layer invariant (NO FK).
+//
+// NO SQLite FOREIGN KEY and NO ON DELETE cascade on either table: the case-box no-FK convention,
+// and the anchor-delete cascade policy is UNRESOLVED (A3-SCHEMA-00 decision 5 / A3-CONTRACT-00
+// decision 9) — not invented here.
+// ---------------------------------------------------------------------------
+const DDL_STATEMENTS_V11: ReadonlyArray<string> = [
+  `CREATE TABLE IF NOT EXISTS case_box_anchors (
+     id                       TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     document_id              TEXT    NOT NULL,
+     physical_page_index      INTEGER NOT NULL CHECK (physical_page_index >= 0),
+     geometry_captured_at     TEXT    NOT NULL COLLATE BINARY,
+     rect_x                   TEXT    NOT NULL COLLATE BINARY,
+     rect_y                   TEXT    NOT NULL COLLATE BINARY,
+     rect_width               TEXT    NOT NULL COLLATE BINARY,
+     rect_height              TEXT    NOT NULL COLLATE BINARY,
+     coordinate_space         TEXT    NOT NULL CHECK (coordinate_space = 'page_ratio'),
+     origin_ref               TEXT    NOT NULL CHECK (origin_ref = 'DocumentPageGeometry'),
+     page_rotation            INTEGER NOT NULL CHECK (page_rotation IN (0, 90, 180, 270)),
+     created_at               TEXT    NOT NULL COLLATE BINARY,
+     payload_json             TEXT    NOT NULL
+   );`,
+
+  // By-page anchor lookup, tenant/matter-scoped.
+  `CREATE INDEX IF NOT EXISTS idx_case_box_anchors_by_document
+     ON case_box_anchors (tenant_id, matter_id, document_id, physical_page_index ASC);`,
+
+  `CREATE TABLE IF NOT EXISTS case_box_links (
+     id                       TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     source_type              TEXT    NOT NULL CHECK (source_type IN ('evidence', 'note', 'question', 'calcTerm', 'claimElement')),
+     source_id                TEXT    NOT NULL,
+     anchor_id                TEXT    NOT NULL,
+     status                   TEXT    NOT NULL CHECK (status IN ('valid', 'needs_review', 'broken')),
+     created_at               TEXT    NOT NULL COLLATE BINARY,
+     payload_json             TEXT    NOT NULL
+   );`,
+
+  // By-source link lookup (work-product -> links) and by-anchor lookup (anchor -> links).
+  `CREATE INDEX IF NOT EXISTS idx_case_box_links_by_source
+     ON case_box_links (tenant_id, matter_id, source_type, source_id, id);`,
+  `CREATE INDEX IF NOT EXISTS idx_case_box_links_by_anchor
+     ON case_box_links (anchor_id, id);`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
   [2, DDL_STATEMENTS_V2],
@@ -557,6 +628,7 @@ const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [8, DDL_STATEMENTS_V8],
   [9, DDL_STATEMENTS_V9],
   [10, DDL_STATEMENTS_V10],
+  [11, DDL_STATEMENTS_V11],
 ]);
 
 /**
