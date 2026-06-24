@@ -48,7 +48,7 @@ import type { Database } from "better-sqlite3";
 
 import { CaseBoxPersistenceError } from "../errors.js";
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -456,6 +456,42 @@ const DDL_STATEMENTS_V8: ReadonlyArray<string> = [
      ON case_box_ocr_links (matter_id, status_snapshot, last_seen_at DESC, document_id ASC);`,
 ];
 
+// ---------------------------------------------------------------------------
+// Version 9 (Evidence-Genie A3 foundation, WI-A3-PAGE-T1): case_box_document_pages.
+//
+// The DocumentPage page-identity owner — the prerequisite for the A3 anchor/link
+// engine (A3-PAGE-00; A3-SCHEMA-00 §6). Page identity only; NO geometry (that is
+// WI-A3-PAGE-T2 / a later version), NO anchors/links, NO viewport/screen coordinates.
+//
+// `physical_page_index` is 0-BASED (CHECK >= 0): the first physical page is index 0
+// (user decision 2026-06-24). It is the MACHINE identity; the human-facing citation
+// page LABEL (citationPageLabel / citationVolume / citationPageSortKey / isCitable /
+// note) lives in payload_json (case-box canonical-source rule) and is NEVER conflated
+// with the machine index. `(document_id, physical_page_index)` is the canonical page
+// identity (UNIQUE). `document_id` is globally unique (= case_box_documents.id PRIMARY
+// KEY), so the UNIQUE needs no tenant/matter scoping.
+//
+// NO FOREIGN KEY (case-box convention, schema.ts header §3 / V2 note): document_id ->
+// case_box_documents.id is an APP-LAYER invariant enforced by the repository layer,
+// not a SQLite FK.
+// ---------------------------------------------------------------------------
+const DDL_STATEMENTS_V9: ReadonlyArray<string> = [
+  `CREATE TABLE IF NOT EXISTS case_box_document_pages (
+     id                       TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     document_id              TEXT    NOT NULL,
+     physical_page_index      INTEGER NOT NULL CHECK (physical_page_index >= 0),
+     created_at               TEXT    NOT NULL COLLATE BINARY,
+     payload_json             TEXT    NOT NULL,
+     UNIQUE (document_id, physical_page_index)
+   );`,
+
+  // By-document page lookup, tenant/matter-scoped, ordered by physical page index.
+  `CREATE INDEX IF NOT EXISTS idx_case_box_document_pages_by_document
+     ON case_box_document_pages (tenant_id, matter_id, document_id, physical_page_index ASC);`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
   [2, DDL_STATEMENTS_V2],
@@ -465,6 +501,7 @@ const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [6, DDL_STATEMENTS_V6],
   [7, DDL_STATEMENTS_V7],
   [8, DDL_STATEMENTS_V8],
+  [9, DDL_STATEMENTS_V9],
 ]);
 
 /**
