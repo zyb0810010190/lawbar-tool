@@ -161,3 +161,8 @@ When a new error class is observed (anything not in the §"Error class taxonomy"
 - audit-mqqqcri5-nqg95s: TIMEOUT (spawnSync codex ETIMEDOUT) on the full-rigor audit prompt.
 - Retry audit-mqqrgoq9-g1xzo8 (Path 1, tighter file-scoped prompt): PASS C0 H0 M0 L0, sha 7567092b…
 - Class: TIMEOUT. Resolution: Path 1 retry with a narrower prompt succeeded (no Path 2 fallback needed).
+
+## 2026-06-24 — A3-PAGE-T2 lane batch-audit (TIMEOUT -> Path 1 retry PASS)
+- audit-mqrpyva2-fpd6fb: TIMEOUT (spawnSync codex ETIMEDOUT) on the window batch-audit prompt.
+- Retry audit-mqrr211l-bscakg (Path 1, tighter prompt): BATCH-PASS C0 H0 M0 L0, sha e426d410…
+- Class: TIMEOUT. Resolution: Path 1 retry with a narrower prompt succeeded (no Path 2 fallback).
