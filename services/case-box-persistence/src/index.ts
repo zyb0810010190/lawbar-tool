@@ -14,6 +14,14 @@ export type {
 } from "./sqlite/openSqliteCaseBoxPersistence.js";
 export { applySchema, CURRENT_SCHEMA_VERSION } from "./sqlite/schema.js";
 
+// A3 link-status resolver (WI-A3-T5-RESOLVE) — headless, deterministic, idempotent.
+export { resolveLinkStatuses } from "./sqlite/linkStatusResolverQueries.js";
+export type {
+  ResolvedLinkStatus,
+  ResolveLinkStatusScope,
+  LinkStatusResolutionResult,
+} from "./sqlite/linkStatusResolverQueries.js";
+
 export { CaseBoxPersistenceError } from "./errors.js";
 export type { CaseBoxPersistenceErrorCode } from "./errors.js";
 
