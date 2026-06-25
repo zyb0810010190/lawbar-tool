@@ -15,6 +15,7 @@ export type CaseBoxPersistenceErrorCode =
   | "invalid_payload"
   | "invalid_initial_state"
   | "invalid_argument"
+  | "anchor_referenced"
   | "not_implemented";
 
 export class CaseBoxPersistenceError extends Error {
