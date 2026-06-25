@@ -30,6 +30,10 @@ export type {
   ExportCitationResult,
 } from "./sqlite/exportCitationQueries.js";
 
+// A3 referenced-anchor-delete refusal guard (WI-A3-DELETE-T1) — negative-path; no physical delete.
+export { assertCanDeleteAnchor } from "./sqlite/anchorDeleteGuardQueries.js";
+export type { AnchorDeleteGuardScope } from "./sqlite/anchorDeleteGuardQueries.js";
+
 export { CaseBoxPersistenceError } from "./errors.js";
 export type { CaseBoxPersistenceErrorCode } from "./errors.js";
 
