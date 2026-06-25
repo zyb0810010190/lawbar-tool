@@ -22,6 +22,14 @@ export type {
   LinkStatusResolutionResult,
 } from "./sqlite/linkStatusResolverQueries.js";
 
+// A3 headless export-citation builder (WI-A3-EXPORT-T1) — resolver-first, deterministic, idempotent.
+export { buildExportCitations } from "./sqlite/exportCitationQueries.js";
+export type {
+  ExportCitationFlag,
+  ExportCitation,
+  ExportCitationResult,
+} from "./sqlite/exportCitationQueries.js";
+
 export { CaseBoxPersistenceError } from "./errors.js";
 export type { CaseBoxPersistenceErrorCode } from "./errors.js";
 
