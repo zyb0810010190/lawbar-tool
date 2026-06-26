@@ -166,3 +166,8 @@ When a new error class is observed (anything not in the §"Error class taxonomy"
 - audit-mqrpyva2-fpd6fb: TIMEOUT (spawnSync codex ETIMEDOUT) on the window batch-audit prompt.
 - Retry audit-mqrr211l-bscakg (Path 1, tighter prompt): BATCH-PASS C0 H0 M0 L0, sha e426d410…
 - Class: TIMEOUT. Resolution: Path 1 retry with a narrower prompt succeeded (no Path 2 fallback).
+
+## 2026-06-26 — WI-A3-LINK-CREATE-DESIGN-00 ADR verify (TIMEOUT -> Path 1 compact retry ALL CLOSED)
+- verify-mqum736p-y50aef: TIMEOUT (spawnSync codex ETIMEDOUT) on the full verify prompt; runner stayed alive ~30 min then wrote the ETIMEDOUT terminal state (NOT a HARNESS_REAP — native --background runner reached its own spawnSync timeout; empty rawOutput).
+- Retry verify-mqunb7mv-euhw9q (Path 1, compact verdict-only prompt: "answer only from §6/§9; output only the verdict line"): VERIFY-VERDICT: ALL CLOSED, sha fcfd0091…
+- Class: TIMEOUT. Resolution: Path 1 retry with a tight, zero-extra-read prompt succeeded (no Path 2 fallback). Confirms the CCSUITE-02 pattern again — a long verify prompt can make Codex over-read at effort high; the compact prompt verdicts in <1 min.
