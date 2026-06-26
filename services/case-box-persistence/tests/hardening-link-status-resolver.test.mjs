@@ -720,3 +720,219 @@ test("A3-UNLINK-T1: operation performs no schema bump (CURRENT_SCHEMA_VERSION ==
   assert.equal(applySchema(db), CURRENT_SCHEMA_VERSION, "applySchema idempotent; version unchanged");
   db.close();
 });
+
+// ===========================================================================
+// WI-A3-LINK-CREATE-T1 — audited createLink OPERATION.
+//
+// Inserts a durable active case_box_links row (provisional needs_review; NULL
+// markers) + emits EXACTLY ONE LINK_CREATED chain event in one BEGIN IMMEDIATE.
+// Concrete-class method; SQLite-only. Validates matter/tenant/source/anchor +
+// evidence existence (source_type='evidence'). Reuses MID/OP_SCOPE/opSetup.
+// Fixtures synthetic-only. See dev-memo/plan-batch-casebox-evidence-a3-link-create-t1-00.md.
+// ===========================================================================
+
+const EVID = mkid("ev1"); // a synthetic evidence-item id (ULID-shaped, audit not required but keep consistent)
+
+// Insert the matter MID (required by createLink's requireMatterTenant).
+function opMatter(db) {
+  db.prepare(
+    `INSERT INTO case_box_matters (id, tenant_id, actor_user_id, status, archived_at, created_at, matter_type, successor_matter_id, payload_json)
+     VALUES (?, 't1', 'u1', 'active', NULL, '2026-06-24T00:00:00.000Z', 'litigation', NULL, '{}')`,
+  ).run(MID);
+}
+// Insert an evidence_item under MID (for source_type='evidence' creates).
+function opEvidence(db, id = EVID) {
+  db.prepare(
+    `INSERT INTO case_box_evidence_items (id, tenant_id, matter_id, source_document_id, status, party_side, supersedes_evidence_id, lawyer_weight, created_at, payload_json)
+     VALUES (?, 't1', ?, NULL, 'proposed', NULL, NULL, NULL, '2026-06-24T00:00:00.000Z', '{}')`,
+  ).run(id, MID);
+}
+function createInput(over = {}) {
+  return { tenant_id: "t1", matter_id: MID, source_type: "note", source_id: "src-1", anchor_id: "a0", actor_user_id: "lawyer", ...over };
+}
+function linkRowsFor(db) {
+  return db.prepare("SELECT * FROM case_box_links WHERE matter_id = ?").all(MID);
+}
+// opSeedValid with a CITABLE page (citationVolume/citationPageLabel/isCitable in payload_json),
+// so a created link over anchor a0 resolves valid AND exports a clean citation.
+function opSeedCitable(db) {
+  db.prepare(
+    `INSERT INTO case_box_documents (id, tenant_id, matter_id, actor_user_id, status, received_at, doc_type, supersedes_document_id, payload_json)
+     VALUES ('doc-1', 't1', ?, 'u1', 'reviewed', '2026-06-24T00:00:00.000Z', 'exhibit', NULL, '{}')`,
+  ).run(MID);
+  db.prepare(
+    `INSERT INTO case_box_document_pages (id, tenant_id, matter_id, document_id, physical_page_index, created_at, payload_json)
+     VALUES ('p0', 't1', ?, 'doc-1', 0, '2026-06-24T00:00:00.000Z', ?)`,
+  ).run(MID, JSON.stringify({ citationVolume: "1", citationPageLabel: "5", isCitable: true }));
+  db.prepare(
+    `INSERT INTO case_box_document_page_geometries (id, tenant_id, matter_id, document_id, physical_page_index, resolved_box,
+        bounds_x, bounds_y, bounds_width, bounds_height, rotation, captured_at, created_at, payload_json)
+     VALUES ('g0', 't1', ?, 'doc-1', 0, 'mediaBox', '0.000000000000', '0.000000000000', '612.000000000000', '792.000000000000', 0, ?, '2026-06-24T00:00:00.000Z', '{}')`,
+  ).run(MID, GEOM_VERSION);
+  db.prepare(
+    `INSERT INTO case_box_anchors (id, tenant_id, matter_id, document_id, physical_page_index, geometry_captured_at,
+        rect_x, rect_y, rect_width, rect_height, coordinate_space, origin_ref, page_rotation, created_at, payload_json)
+     VALUES ('a0', 't1', ?, 'doc-1', 0, ?, '0.250000000000', '0.250000000000', '0.500000000000', '0.500000000000', 'page_ratio', 'DocumentPageGeometry', 0, '2026-06-24T00:00:00.000Z', '{}')`,
+  ).run(MID, GEOM_VERSION);
+}
+
+// 1+2. createLink inserts one row with expected fields + needs_review + NULL markers.
+test("A3-LINK-CREATE-T1: createLink inserts one row (generated id, needs_review, NULL markers, single stamp)", async () => {
+  const { persistence, db } = opSetup();
+  opMatter(db); opSeedValid(db); // opSeedValid provides anchor a0 under MID
+  const ret = await persistence.createLink(createInput());
+  const rows = linkRowsFor(db);
+  assert.equal(rows.length, 1, "exactly one link row");
+  const row = rows[0];
+  assert.equal(row.id, ret.id);
+  assert.match(row.id, /^[0-9a-z]{26}$/, "generated ULID id");
+  assert.equal(row.status, "needs_review", "provisional status (valid never a default)");
+  assert.equal(row.unlinked_at, null);
+  assert.equal(row.unlink_reason, null);
+  assert.equal(row.created_at, T0, "created_at = the single stamp");
+  assert.equal(row.source_type, "note");
+  assert.equal(row.anchor_id, "a0");
+  // deterministic payload_json = canonical link identity (audit L1).
+  assert.equal(
+    row.payload_json,
+    JSON.stringify({ id: row.id, tenant_id: "t1", matter_id: MID, source_type: "note", source_id: "src-1", anchor_id: "a0", created_at: T0 }),
+  );
+  db.close();
+});
+
+// 3+4+5. emits exactly one LINK_CREATED event (action create, entity_type link, before null, after present); atomic.
+test("A3-LINK-CREATE-T1: createLink emits exactly one LINK_CREATED event (atomic, before null)", async () => {
+  const { persistence, db } = opSetup();
+  opMatter(db); opSeedValid(db);
+  const ret = await persistence.createLink(createInput());
+  const evs = eventsFor(db);
+  assert.equal(evs.length, 1, "exactly one event");
+  const e = JSON.parse(evs[0].event_json);
+  assert.equal(evs[0].entity_type, "link");
+  assert.equal(e.event_kind, "LINK_CREATED");
+  assert.equal(e.action, "create");
+  assert.equal(e.entity_id, ret.id);
+  assert.equal(e.before_state_hash, null, "create -> before_state_hash null");
+  assert.equal(e.after_state_hash.length, 64);
+  assert.equal(e.timestamp, ret.created_at, "event timestamp == created_at (single stamp)");
+  assert.equal(e.reason, undefined, "create needs no reason");
+  const c = chainCounts(db);
+  assert.equal(c.event_count, 1);
+  assert.equal(c.count, 1);
+  assert.equal(c.maxSeq, 1);
+  db.close();
+});
+
+// 7. Missing evidence (source_type='evidence') is rejected; no row/event.
+test("A3-LINK-CREATE-T1: missing evidence (source_type evidence) -> invalid_argument, no row/event", async () => {
+  const { persistence, db } = opSetup();
+  opMatter(db); opSeedValid(db); // no evidence_item inserted
+  await assert.rejects(
+    () => persistence.createLink(createInput({ source_type: "evidence", source_id: EVID })),
+    (e) => e.code === "invalid_argument",
+  );
+  assert.equal(linkRowsFor(db).length, 0, "no link row");
+  assert.equal(chainCounts(db).count, 0, "no event");
+  db.close();
+});
+
+// evidence present -> create succeeds (the evidence-existence happy path).
+test("A3-LINK-CREATE-T1: source_type evidence with an existing evidence_item creates normally", async () => {
+  const { persistence, db } = opSetup();
+  opMatter(db); opSeedValid(db); opEvidence(db);
+  const ret = await persistence.createLink(createInput({ source_type: "evidence", source_id: EVID }));
+  assert.equal(linkRowsFor(db).length, 1);
+  assert.equal(ret.source_type, "evidence");
+  db.close();
+});
+
+// 8. Missing anchor is rejected; no row/event.
+test("A3-LINK-CREATE-T1: missing anchor -> invalid_argument, no row/event", async () => {
+  const { persistence, db } = opSetup();
+  opMatter(db); // no anchor inserted
+  await assert.rejects(
+    () => persistence.createLink(createInput({ anchor_id: "no-such-anchor" })),
+    (e) => e.code === "invalid_argument",
+  );
+  assert.equal(linkRowsFor(db).length, 0);
+  assert.equal(chainCounts(db).count, 0);
+  db.close();
+});
+
+// 9. Unknown matter / tenant mismatch rejected; no row/event.
+test("A3-LINK-CREATE-T1: unknown matter and tenant mismatch are rejected, no row/event", async () => {
+  // unknown matter (none inserted)
+  let { persistence, db } = opSetup();
+  opSeedValid(db);
+  await assert.rejects(() => persistence.createLink(createInput()), (e) => e.code === "unknown_matter");
+  assert.equal(linkRowsFor(db).length, 0);
+  assert.equal(chainCounts(db).count, 0);
+  db.close();
+  // tenant mismatch (matter exists under t1; input claims t2)
+  ({ persistence, db } = opSetup());
+  opMatter(db); opSeedValid(db);
+  await assert.rejects(() => persistence.createLink(createInput({ tenant_id: "t2" })), (e) => e.code === "tenant_mismatch");
+  assert.equal(linkRowsFor(db).length, 0);
+  assert.equal(chainCounts(db).count, 0);
+  db.close();
+});
+
+// bad source_type / empty fields rejected; no row/event.
+test("A3-LINK-CREATE-T1: bad source_type / empty actor / empty source_id -> invalid_argument, no row/event", async () => {
+  for (const over of [{ source_type: "bogus" }, { actor_user_id: "" }, { source_id: "" }, { tenant_id: "" }, { matter_id: "" }, { anchor_id: "" }]) {
+    const { persistence, db } = opSetup();
+    opMatter(db); opSeedValid(db);
+    await assert.rejects(() => persistence.createLink(createInput(over)), (e) => e.code === "invalid_argument");
+    assert.equal(linkRowsFor(db).length, 0);
+    assert.equal(chainCounts(db).count, 0);
+    db.close();
+  }
+});
+
+// 6. Duplicate generated-id -> duplicate_id (deterministic), no second row/event.
+test("A3-LINK-CREATE-T1: a generated-id collision -> duplicate_id, leaves the first row only", async () => {
+  const FIXED = mkid("dup");
+  const { persistence, db } = openSqliteCaseBoxPersistence({ now: makeClock(T0), generateId: () => FIXED });
+  opMatter(db); opSeedValid(db);
+  await persistence.createLink(createInput()); // first: id = FIXED
+  await assert.rejects(() => persistence.createLink(createInput()), (e) => e.code === "duplicate_id");
+  assert.equal(linkRowsFor(db).length, 1, "only the first row");
+  assert.equal(chainCounts(db).count, 1, "only the first event");
+  db.close();
+});
+
+// 10+11. Created structurally valid link resolves valid + exports a clean citation.
+test("A3-LINK-CREATE-T1: a created structurally-valid link resolves valid + exports a clean citation", async () => {
+  const { persistence, db } = opSetup();
+  opMatter(db); opSeedCitable(db); // doc + citable page + geom + anchor under MID
+  const ret = await persistence.createLink(createInput());
+  resolveLinkStatuses(db, OP_SCOPE);
+  assert.equal(statusOf(db, ret.id), "valid");
+  const cite = buildExportCitations(db, OP_SCOPE).citations.find((c) => c.linkId === ret.id);
+  assert.equal(cite.exportFlag, null, "clean citation, no flag");
+  db.close();
+});
+
+// 12. A created link can subsequently be unlinked + relinked through the live ops.
+test("A3-LINK-CREATE-T1: a created link can be unlinked then relinked", async () => {
+  const { persistence, db } = opSetup();
+  opMatter(db); opSeedValid(db);
+  const ret = await persistence.createLink(createInput());
+  await persistence.unlinkLink(ret.id, { actor_user_id: "lawyer", unlink_reason: "wrong" });
+  assert.notEqual(linkRow(db, ret.id).unlinked_at, null, "unlinked");
+  await persistence.relinkLink(ret.id, { actor_user_id: "lawyer" });
+  assert.equal(linkRow(db, ret.id).unlinked_at, null, "relinked");
+  // create + unlink + relink = 3 events on the chain.
+  assert.equal(chainCounts(db).count, 3);
+  db.close();
+});
+
+// 14. No schema version bump from createLink.
+test("A3-LINK-CREATE-T1: createLink performs no schema bump (CURRENT_SCHEMA_VERSION == 12)", async () => {
+  const { persistence, db } = opSetup();
+  opMatter(db); opSeedValid(db);
+  await persistence.createLink(createInput());
+  assert.equal(applySchema(db), CURRENT_SCHEMA_VERSION);
+  assert.equal(CURRENT_SCHEMA_VERSION, 12);
+  db.close();
+});
