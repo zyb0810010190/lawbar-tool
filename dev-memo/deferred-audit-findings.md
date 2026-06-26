@@ -410,3 +410,13 @@ for a dedicated persistence-hardening WI.
 | Reason for deferral | Cleanup-only doc inconsistency, no runtime/security impact. The committed governance prose (dev-memo/run/queue.md Risk-flags + dev-memo/run/reviews/queue-review-094.md) still carries a leftover "no errorMap change" / "anchor_referenced NOT surfaced" phrase from before the user-authorized 1a amendment that added the one anchor_referenced exhaustiveness line. The Allowed-files + Commit-boundary blocks WERE correctly amended; only the prose is stale. The actual code change is exactly the authorized one-line sync. |
 | Target future WI/backlog | A follow-up docs-only touch (or fold into the next governance doc pass) reconciling the queue/review-094 prose with the amended errorMap allowance. |
 | Safe-to-proceed? | YES — governance-record prose only; the file-level governance (Allowed files / Commit boundary) is correct and content-bound; no behavioral/security/scope impact. |
+
+## WI-A3-LINK-UI-DESIGN-00 batch-audit-175 — stale queue prose on link-row export flags (doc-consistency)
+
+| Field | Value |
+|---|---|
+| Finding ID | LINK-UI-DESIGN-D4 |
+| Severity | Low |
+| Reason for deferral | Cleanup-only governance-prose drift, no product/runtime impact. The committed dev-memo/run/queue.md (WI-A3-LINK-UI-DESIGN-00 Scope / decision-2 STATE MODEL / acceptance) still describes export flags as part of the link-ROW state, which lags the FINAL design artifact's corrected contract (rows are RendererLink only — status + lifecycle; export flags live ONLY in the export-citations panel). The authoritative artifact is correct; the queue prose was authored before the design audit's M1 fix. |
+| Target future WI/backlog | Fold the queue-prose reconciliation into the same docs-only cleanup lane as D2 (stale errorMap prose) + D3 (IPC ADR §2 matterId table sync). |
+| Safe-to-proceed? | YES — governance-record prose only; the authoritative design artifact + file-level governance are correct; no behavioral/security/scope impact. |
