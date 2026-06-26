@@ -76,11 +76,16 @@ function insertAnchor(db, overrides = {}) {
 }
 
 function insertLink(db, overrides = {}) {
-  const l = { id: "l0", source_type: "evidence", source_id: "ev-1", anchor_id: "a0", status: "valid", ...overrides };
+  const l = {
+    id: "l0", source_type: "evidence", source_id: "ev-1", anchor_id: "a0", status: "valid",
+    unlinked_at: null, unlink_reason: null, ...overrides,
+  };
   db.prepare(
     `INSERT INTO case_box_links
-       (id, tenant_id, matter_id, source_type, source_id, anchor_id, status, created_at, payload_json)
-     VALUES (@id, 't1', 'm1', @source_type, @source_id, @anchor_id, @status, '2026-06-25T00:00:00.000Z', '{}')`,
+       (id, tenant_id, matter_id, source_type, source_id, anchor_id, status, created_at, payload_json,
+        unlinked_at, unlink_reason)
+     VALUES (@id, 't1', 'm1', @source_type, @source_id, @anchor_id, @status, '2026-06-25T00:00:00.000Z', '{}',
+             @unlinked_at, @unlink_reason)`,
   ).run(l);
 }
 
@@ -303,5 +308,62 @@ test("A3-EXPORT-T1: rejects an empty scope (invalid_argument)", () => {
   const db = freshDb();
   assert.throws(() => buildExportCitations(db, { tenant_id: "", matter_id: "m1" }), /invalid_argument|tenant_id/);
   assert.throws(() => buildExportCitations(db, { tenant_id: "t1", matter_id: "" }), /invalid_argument|matter_id/);
+  db.close();
+});
+
+// ---------------------------------------------------------------------------
+// WI-A3-UNLINK-RESOLVE: the V12 durable explicit-unlink marker (case_box_links.unlinked_at)
+// exports as a DISTINCT non-clean UNLINKED flag (distinguishable from structural BROKEN;
+// A10 no-drop; never clean; row preserved).
+// ---------------------------------------------------------------------------
+
+test("A3-UNLINK-RESOLVE: an unlinked link exports UNLINKED (non-clean, never clean), distinct from structural BROKEN", () => {
+  const db = freshDb();
+  seedCitable(db); // otherwise a clean citation
+  insertLink(db, { id: "l-unlinked", status: "valid", unlinked_at: "2026-06-26T12:00:00.000Z", unlink_reason: "detached" });
+  // a separate, structurally-broken link (no geometry) for the distinguishability check
+  insertDoc(db, { id: "doc-b" });
+  insertPage(db, { id: "p-b", document_id: "doc-b" });
+  insertAnchor(db, { id: "a-b", document_id: "doc-b" }); // no geometry for doc-b -> broken
+  insertLink(db, { id: "l-structbroken", anchor_id: "a-b", status: "valid" });
+  const res = buildExportCitations(db, SCOPE);
+  const u = byLink(res, "l-unlinked");
+  assert.equal(u.exportFlag, "UNLINKED", "explicit unlink -> UNLINKED flag");
+  assert.equal(u.citation, null, "unlinked is never a clean citation");
+  assert.equal(u.linkStatus, "broken", "the resolver set status broken (trust gate)");
+  // distinguishable from a structurally-broken link:
+  assert.equal(byLink(res, "l-structbroken").exportFlag, "BROKEN", "structural broken stays BROKEN, not UNLINKED");
+  db.close();
+});
+
+test("A3-UNLINK-RESOLVE: A10 no-drop — the unlinked link is not omitted (exactly one object) and the row persists", () => {
+  const db = freshDb();
+  seedCitable(db);
+  insertLink(db, { id: "l-keep", status: "valid", unlinked_at: "2026-06-26T12:00:00.000Z", unlink_reason: "x" });
+  const res = buildExportCitations(db, SCOPE);
+  assert.equal(res.citations.filter((c) => c.linkId === "l-keep").length, 1, "exactly one export object for the unlinked link");
+  assert.equal(res.byFlag.UNLINKED, 1, "byFlag counts the UNLINKED link");
+  // the row is preserved (export deletes nothing).
+  assert.equal(db.prepare("SELECT COUNT(*) AS c FROM case_box_links WHERE id='l-keep'").get().c, 1, "unlinked row preserved");
+  db.close();
+});
+
+test("A3-UNLINK-RESOLVE: a legacy NULL-marker valid link still exports a clean citation (unchanged)", () => {
+  const db = freshDb();
+  seedCitable(db);
+  insertLink(db, { id: "l-clean", status: "needs_review" }); // unlinked_at defaults NULL
+  const c = byLink(buildExportCitations(db, SCOPE), "l-clean");
+  assert.equal(c.exportFlag, null, "NULL-marker valid+citable link is still a clean citation");
+  assert.ok(c.citation, "clean citation present");
+  db.close();
+});
+
+test("A3-UNLINK-RESOLVE: idempotent — repeated export of an unlinked link is stable", () => {
+  const db = freshDb();
+  seedCitable(db);
+  insertLink(db, { id: "l-idem", status: "valid", unlinked_at: "2026-06-26T12:00:00.000Z", unlink_reason: "x" });
+  const first = buildExportCitations(db, SCOPE);
+  const second = buildExportCitations(db, SCOPE);
+  assert.deepEqual(second, first, "same DB state + scope -> identical result");
   db.close();
 });

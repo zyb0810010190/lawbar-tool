@@ -7,8 +7,15 @@
 // WRITES ONLY `case_box_links.status`, and only when the computed status differs
 // from the stored one (no spurious writes / audit churn — A3-RESOLVE-00 §5).
 //
-// Status precedence ladder (A3-RESOLVE-00 §3), strict + ordered; the first
-// matching rung wins so a combined failure yields exactly ONE status:
+// Status precedence ladder (A3-RESOLVE-00 §3 + the V12 durable-unlink override,
+// A3-UNLINK-SCHEMA-00 §5), strict + ordered; the first matching rung wins so a
+// combined failure yields exactly ONE status:
+//   0. broken       — case_box_links.unlinked_at IS NOT NULL (the V12 durable EXPLICIT-UNLINK
+//                     marker, WI-A3-UNLINK-RESOLVE): the HIGHEST-precedence rung. An explicitly
+//                     unlinked link is never recomputed to valid regardless of structural state —
+//                     the marker is the durable reason. (Export distinguishes it from a structural
+//                     `broken` by reading the marker, A3-UNLINK-SCHEMA-00 §6.) `status` is still
+//                     the trust gate; `unlinked_at` is the override that keeps it non-clean.
 //   1. broken       — missing anchor target, OR missing V9 page identity, OR
 //                     missing V10 geometry record (A3-RESOLVE-00 §3 rung 1; INV-A3-8).
 //   2. needs_review — geometry-version mismatch (anchor.geometry_captured_at !=
@@ -77,6 +84,7 @@ const COMPUTE_SQL = `
     l.id     AS link_id,
     l.status AS current_status,
     CASE
+      WHEN l.unlinked_at IS NOT NULL THEN 'broken'
       WHEN a.id IS NULL THEN 'broken'
       WHEN p.id IS NULL THEN 'broken'
       WHEN g.id IS NULL THEN 'broken'
