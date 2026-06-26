@@ -178,10 +178,11 @@ test("A3-DELETE-T1: idempotent — repeated guard calls yield the same outcome a
   db.close();
 });
 
-test("A3-DELETE-T1: guard adds no schema / FK / version bump (CURRENT_SCHEMA_VERSION stays 11)", () => {
+test("A3-DELETE-T1: guard adds no schema / FK side effects of its own", () => {
   const db = freshDb();
-  assert.equal(CURRENT_SCHEMA_VERSION, 11, "no schema version bump");
   // foreign_keys behavior is unaffected; the guard is app-layer (no FK relied upon).
-  assert.equal(applySchema(db), 11, "applySchema idempotent at v11");
+  // (The absolute schema version is set by the migration WIs, not the guard — assert idempotence
+  // at the CURRENT version rather than pinning a literal, which a later additive migration bumps.)
+  assert.equal(applySchema(db), CURRENT_SCHEMA_VERSION, "applySchema idempotent at the current version");
   db.close();
 });

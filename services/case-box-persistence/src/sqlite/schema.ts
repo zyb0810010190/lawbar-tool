@@ -48,7 +48,7 @@ import type { Database } from "better-sqlite3";
 
 import { CaseBoxPersistenceError } from "../errors.js";
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -617,6 +617,34 @@ const DDL_STATEMENTS_V11: ReadonlyArray<string> = [
      ON case_box_links (anchor_id, id);`,
 ];
 
+// ---------------------------------------------------------------------------
+// Version 12 (Evidence-Genie A3, WI-A3-UNLINK-SCHEMA-01): durable-unlink marker.
+//
+// The durable-unlink schema mechanism chosen by A3-UNLINK-SCHEMA-00 §2 — a forward-only
+// ADDITIVE migration that adds two nullable marker columns to case_box_links so an explicit
+// unlink/break-link is durable + schema-backed (A3-UNLINK-00's load-bearing finding: a
+// status-only `broken` is non-durable because the resolver recomputes it to `valid`).
+//
+//   - `unlinked_at` — the durable marker, a byte-stable timestamp TEXT COLLATE BINARY (same
+//     style as created_at/captured_at). A link is explicitly unlinked IFF unlinked_at IS NOT
+//     NULL. Nullable; existing rows default NULL (= not unlinked).
+//   - `unlink_reason` — the why/reason, plain nullable TEXT. The app-layer invariant
+//     "unlink_reason required IFF unlinked_at IS NOT NULL" is enforced by the future operation
+//     WI's repository layer (the case-box no-cross-column-CHECK convention; ADR §5/§9), NOT a
+//     SQLite CHECK — a cross-column iff CHECK cannot be added via ALTER without a table rebuild.
+//
+// SCHEMA-ONLY (A3-UNLINK-SCHEMA-00 §11): no resolver/export marker-awareness and no
+// unlink/relink operation here — both are separate future A0.7-gated WIs (WI-A3-UNLINK-RESOLVE,
+// WI-A3-UNLINK-T1). anchor_id stays NOT NULL; LinkStatus stays valid|needs_review|broken (no
+// `unlinked` value). No FK, no ON DELETE cascade, no index on the marker columns (a future WI
+// adds an index if a query needs one). Additive ALTER ADD COLUMN with no DEFAULT: existing rows
+// read NULL; applySchema is version-gated (current+1..CURRENT) so the ALTER runs exactly once.
+// ---------------------------------------------------------------------------
+const DDL_STATEMENTS_V12: ReadonlyArray<string> = [
+  `ALTER TABLE case_box_links ADD COLUMN unlinked_at TEXT COLLATE BINARY;`,
+  `ALTER TABLE case_box_links ADD COLUMN unlink_reason TEXT;`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
   [2, DDL_STATEMENTS_V2],
@@ -629,6 +657,7 @@ const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [9, DDL_STATEMENTS_V9],
   [10, DDL_STATEMENTS_V10],
   [11, DDL_STATEMENTS_V11],
+  [12, DDL_STATEMENTS_V12],
 ]);
 
 /**

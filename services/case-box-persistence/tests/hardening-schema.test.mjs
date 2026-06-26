@@ -3,6 +3,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import Database from "better-sqlite3";
 
 import {
@@ -377,9 +379,9 @@ function insertLink(db, overrides = {}) {
   db.prepare(`INSERT INTO case_box_links (${cols.join(", ")}) VALUES (${vals.join(", ")})`).run(l);
 }
 
-test("A3-T1-IMPL: V11 creates case_box_anchors + case_box_links with the expected columns (no viewport)", () => {
+test("A3-T1-IMPL: case_box_anchors + case_box_links have the expected columns (V11 base + V12 unlink markers; no viewport)", () => {
   const db = new Database(":memory:");
-  assert.equal(applySchema(db), 11);
+  assert.equal(applySchema(db), CURRENT_SCHEMA_VERSION);
   const anchorCols = db.prepare("PRAGMA table_info('case_box_anchors')").all().map((c) => c.name).sort();
   assert.deepEqual(anchorCols, [
     "coordinate_space", "created_at", "document_id", "geometry_captured_at", "id", "matter_id",
@@ -389,9 +391,11 @@ test("A3-T1-IMPL: V11 creates case_box_anchors + case_box_links with the expecte
   for (const forbidden of ["viewport", "screen", "device_pixel_ratio", "bounds_x"]) {
     assert.ok(!anchorCols.includes(forbidden), `unexpected column '${forbidden}' on case_box_anchors`);
   }
+  // case_box_links = the V11 base columns + the V12 durable-unlink markers (unlinked_at, unlink_reason).
   const linkCols = db.prepare("PRAGMA table_info('case_box_links')").all().map((c) => c.name).sort();
   assert.deepEqual(linkCols, [
     "anchor_id", "created_at", "id", "matter_id", "payload_json", "source_id", "source_type", "status", "tenant_id",
+    "unlink_reason", "unlinked_at",
   ].sort());
   db.close();
 });
@@ -460,24 +464,142 @@ test("A3-T1-IMPL: neither case_box_anchors nor case_box_links has SQLite foreign
   db.close();
 });
 
-test("A3-T1-IMPL: V10 -> V11 upgrade preserves existing DocumentPage + geometry data", () => {
+test("A3-T1-IMPL: V10 -> current upgrade preserves existing DocumentPage + geometry data", () => {
   const db = new Database(":memory:");
-  // Plant a V10 DB with pre-existing page + geometry rows; applySchema applies ONLY V11.
+  // Plant a V10 DB with pre-existing page + geometry rows; applySchema applies V11..CURRENT additively.
   db.exec(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
            INSERT INTO schema_version (version, applied_at) VALUES (10, '2026-06-24T00:00:00.000Z');
            CREATE TABLE case_box_document_pages (id TEXT PRIMARY KEY, payload_json TEXT NOT NULL);
            INSERT INTO case_box_document_pages (id, payload_json) VALUES ('p-keep', '{}');
            CREATE TABLE case_box_document_page_geometries (id TEXT PRIMARY KEY, payload_json TEXT NOT NULL);
            INSERT INTO case_box_document_page_geometries (id, payload_json) VALUES ('g-keep', '{}');`);
-  assert.equal(applySchema(db), 11);
+  assert.equal(applySchema(db), CURRENT_SCHEMA_VERSION);
   assert.ok(db.prepare("SELECT id FROM case_box_document_pages WHERE id='p-keep'").get(), "page row preserved");
   assert.ok(db.prepare("SELECT id FROM case_box_document_page_geometries WHERE id='g-keep'").get(), "geometry row preserved");
   for (const t of ["case_box_anchors", "case_box_links"]) {
     assert.ok(
       db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(t),
-      `${t} must exist after the V11 upgrade`,
+      `${t} must exist after the upgrade`,
     );
   }
-  assert.equal(db.prepare("SELECT MAX(version) AS v FROM schema_version").get().v, 11);
+  assert.equal(db.prepare("SELECT MAX(version) AS v FROM schema_version").get().v, CURRENT_SCHEMA_VERSION);
+  db.close();
+});
+
+// ---------------------------------------------------------------------------
+// WI-A3-UNLINK-SCHEMA-01: schema V12 durable-unlink marker columns on case_box_links
+// (unlinked_at TEXT COLLATE BINARY, unlink_reason TEXT). Additive, forward-only; existing
+// rows default unlinked_at NULL. SCHEMA-ONLY (no resolver/export/operation; the marker is
+// written by future WIs). anchor_id stays NOT NULL; LinkStatus unchanged. No FK, no index.
+// ---------------------------------------------------------------------------
+
+// Insert a case_box_links row, optionally with the V12 marker columns set.
+function insertLinkRow(db, overrides = {}) {
+  const l = {
+    id: "l0", source_type: "evidence", source_id: "ev-1", anchor_id: "a0", status: "valid",
+    unlinked_at: null, unlink_reason: null, ...overrides,
+  };
+  db.prepare(
+    `INSERT INTO case_box_links
+       (id, tenant_id, matter_id, source_type, source_id, anchor_id, status, created_at, payload_json,
+        unlinked_at, unlink_reason)
+     VALUES (@id, 't1', 'm1', @source_type, @source_id, @anchor_id, @status,
+             '2026-06-26T00:00:00.000Z', '{}', @unlinked_at, @unlink_reason)`,
+  ).run(l);
+}
+
+test("A3-UNLINK-SCHEMA-01: CURRENT_SCHEMA_VERSION is 12 and applySchema reaches 12 with schema_version 1..12", () => {
+  const db = new Database(":memory:");
+  assert.equal(CURRENT_SCHEMA_VERSION, 12, "V12 durable-unlink migration is current");
+  assert.equal(applySchema(db), 12);
+  const versions = db.prepare("SELECT version FROM schema_version ORDER BY version").all().map((r) => r.version);
+  const expected = [];
+  for (let i = 1; i <= 12; i++) expected.push(i);
+  assert.deepEqual(versions, expected);
+  db.close();
+});
+
+test("A3-UNLINK-SCHEMA-01: V12 adds nullable unlinked_at + unlink_reason to case_box_links (no NOT NULL, no default)", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  const cols = db.prepare("PRAGMA table_info('case_box_links')").all();
+  const byName = Object.fromEntries(cols.map((c) => [c.name, c]));
+  for (const name of ["unlinked_at", "unlink_reason"]) {
+    assert.ok(byName[name], `case_box_links must have the V12 column '${name}'`);
+    assert.equal(byName[name].notnull, 0, `${name} must be nullable`);
+    assert.equal(byName[name].dflt_value, null, `${name} must have no default`);
+  }
+  // A row inserted WITHOUT the markers succeeds (existing-row shape); markers read NULL.
+  assert.doesNotThrow(() => insertLinkRow(db, { id: "l-nomarker" }));
+  const row = db.prepare("SELECT unlinked_at, unlink_reason FROM case_box_links WHERE id='l-nomarker'").get();
+  assert.equal(row.unlinked_at, null);
+  assert.equal(row.unlink_reason, null);
+  db.close();
+});
+
+test("A3-UNLINK-SCHEMA-01: durable-unlink marker persists across DB close + reopen", () => {
+  const file = `${tmpdir()}/a3-unlink-v12-${process.pid}-${process.hrtime.bigint()}.sqlite`;
+  try {
+    const db1 = new Database(file);
+    applySchema(db1);
+    insertLinkRow(db1, { id: "l-unlinked", unlinked_at: "2026-06-26T12:00:00.000Z", unlink_reason: "superseded by re-import" });
+    db1.close();
+    // Reopen: applySchema is a no-op at v12; the durable marker survives the round-trip.
+    const db2 = new Database(file);
+    assert.equal(applySchema(db2), 12, "reopen: applySchema idempotent at v12 (no duplicate-column error)");
+    const row = db2.prepare("SELECT unlinked_at, unlink_reason FROM case_box_links WHERE id='l-unlinked'").get();
+    assert.equal(row.unlinked_at, "2026-06-26T12:00:00.000Z", "unlinked_at persisted");
+    assert.equal(row.unlink_reason, "superseded by re-import", "unlink_reason persisted");
+    db2.close();
+  } finally {
+    rmSync(file, { force: true });
+  }
+});
+
+test("A3-UNLINK-SCHEMA-01: a planted V11 DB upgrades additively to 12; existing rows read unlinked_at IS NULL", () => {
+  const db = new Database(":memory:");
+  // Plant a V1..V11 DB by running applySchema with a stale CURRENT? Instead: build to v11 by planting the
+  // schema_version row at 11 plus a minimal case_box_links table holding a pre-V12 row, then upgrade.
+  db.exec(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+           INSERT INTO schema_version (version, applied_at) VALUES (11, '2026-06-25T00:00:00.000Z');
+           CREATE TABLE case_box_links (
+             id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, matter_id TEXT NOT NULL,
+             source_type TEXT NOT NULL, source_id TEXT NOT NULL, anchor_id TEXT NOT NULL,
+             status TEXT NOT NULL, created_at TEXT NOT NULL, payload_json TEXT NOT NULL);
+           INSERT INTO case_box_links (id, tenant_id, matter_id, source_type, source_id, anchor_id, status, created_at, payload_json)
+             VALUES ('l-pre', 't1', 'm1', 'evidence', 'ev-1', 'a0', 'valid', '2026-06-25T00:00:00.000Z', '{}');`);
+  assert.equal(applySchema(db), CURRENT_SCHEMA_VERSION, "V11 DB upgrades additively to current (12)");
+  // The pre-existing row is preserved and reads NULL markers (not unlinked); no data rewrite.
+  const row = db.prepare("SELECT id, status, unlinked_at, unlink_reason FROM case_box_links WHERE id='l-pre'").get();
+  assert.ok(row, "pre-existing V11 link row preserved");
+  assert.equal(row.status, "valid");
+  assert.equal(row.unlinked_at, null, "existing row defaults to not-unlinked");
+  assert.equal(row.unlink_reason, null);
+  assert.equal(db.prepare("SELECT MAX(version) AS v FROM schema_version").get().v, 12);
+  db.close();
+});
+
+test("A3-UNLINK-SCHEMA-01: V12 still refuses a future-version (13) DB before any mutation", () => {
+  const db = new Database(":memory:");
+  db.exec(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+           INSERT INTO schema_version (version, applied_at) VALUES (13, '2026-06-26T00:00:00.000Z');`);
+  assert.throws(() => applySchema(db), CaseBoxPersistenceError);
+  db.close();
+});
+
+test("A3-UNLINK-SCHEMA-01: V12 preserves the A3 invariants (anchor_id NOT NULL; LinkStatus enum unchanged; no FK; unlinked_at COLLATE BINARY)", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  // anchor_id still NOT NULL.
+  assert.throws(() => insertLinkRow(db, { id: "l-noanchor", anchor_id: null }), /NOT NULL|constraint/i);
+  // LinkStatus enum unchanged — no 'unlinked' status value was added.
+  assert.throws(() => insertLinkRow(db, { id: "l-unlinkedstatus", status: "unlinked" }), /CHECK|constraint/i);
+  // No SQLite FK introduced by V12.
+  assert.equal(db.prepare("PRAGMA foreign_key_list('case_box_links')").all().length, 0);
+  // unlinked_at is COLLATE BINARY — provable only from the schema source (PRAGMA table_info omits collation).
+  const sql = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='case_box_links'")
+    .get().sql;
+  assert.match(sql, /unlinked_at[^,]*COLLATE BINARY/i, "unlinked_at must be COLLATE BINARY in the schema source");
   db.close();
 });
