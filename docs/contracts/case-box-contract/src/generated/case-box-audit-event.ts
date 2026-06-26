@@ -24,7 +24,7 @@ export type CaseBoxAuditEvent = {
     | "share"
     | "privilege-waive";
   /**
-   * v1 case-box entity vocabulary. Tightened from free-string to enum in Step 4. Extended in Step 5 (confidentiality_classification) and Step 6 (docket_entry). Future entities require a coordinated schema update + TS CASE_BOX_AUDIT_ENTITY_TYPES update.
+   * v1 case-box entity vocabulary. Tightened from free-string to enum in Step 4. Extended in Step 5 (confidentiality_classification), Step 6 (docket_entry), and WI-A3-UNLINK-AUDIT-KINDS (link — the A3 evidence anchor/link, for unlink/relink audit). Future entities require a coordinated schema update + TS CASE_BOX_AUDIT_ENTITY_TYPES update.
    */
   entity_type:
     | "matter"
@@ -35,7 +35,8 @@ export type CaseBoxAuditEvent = {
     | "fact"
     | "privilege_marker"
     | "confidentiality_classification"
-    | "docket_entry";
+    | "docket_entry"
+    | "link";
   entity_id: Ulid;
   /**
    * Null on create; non-null otherwise.
@@ -107,7 +108,9 @@ export type CaseBoxAuditEvent = {
     | "DOCKET_ENTRY_PROPOSED"
     | "DOCKET_ENTRY_CONFIRMED"
     | "DOCKET_ENTRY_DISMISSED"
-    | "DOCKET_ENTRY_REVISED";
+    | "DOCKET_ENTRY_REVISED"
+    | "LINK_UNLINKED"
+    | "LINK_RELINKED";
   /**
    * Audit-event canonicalization version. v2 events set this to 2 (the value is hashed in the v2 canonicalization); absent on legacy v1 events. Present iff event_kind is present.
    */
