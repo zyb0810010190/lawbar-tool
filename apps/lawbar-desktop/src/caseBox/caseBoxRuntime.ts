@@ -5,13 +5,25 @@ import {
   InMemoryCaseBoxPersistence,
   openSqliteCaseBoxPersistence,
 } from "case-box-persistence";
-import type { CaseBoxPersistence } from "case-box-persistence";
+import type {
+  CaseBoxPersistence,
+  SqliteCaseBoxPersistence,
+  OpenSqliteCaseBoxPersistenceResult,
+} from "case-box-persistence";
 
 const CASE_BOX_DB_FILENAME = "case-box.sqlite";
+
+// The raw better-sqlite3 Database handle, sourced through the persistence
+// package's typed surface (the desktop app does not ship @types/better-sqlite3).
+type SqliteDatabase = OpenSqliteCaseBoxPersistenceResult["db"];
 
 interface Runtime {
   readonly persistence: CaseBoxPersistence;
   readonly dbPath: string | null;
+  // SQLite-only handles for the Evidence link lifecycle. Both null in the
+  // pure-unit-test InMemory fallback (the link IPC requires the SQLite runtime).
+  readonly sqlite: SqliteCaseBoxPersistence | null;
+  readonly db: SqliteDatabase | null;
   readonly close: () => void;
 }
 
@@ -42,6 +54,8 @@ export function getCaseBoxRuntime(options: CaseBoxRuntimeOptions = {}): Runtime 
     runtime = {
       persistence: new InMemoryCaseBoxPersistence(),
       dbPath: null,
+      sqlite: null,
+      db: null,
       close: () => undefined,
     };
     return runtime;
@@ -57,6 +71,8 @@ export function getCaseBoxRuntime(options: CaseBoxRuntimeOptions = {}): Runtime 
   runtime = {
     persistence: opened.persistence,
     dbPath,
+    sqlite: opened.persistence,
+    db: opened.db,
     close: () => opened.db.close(),
   };
   return runtime;

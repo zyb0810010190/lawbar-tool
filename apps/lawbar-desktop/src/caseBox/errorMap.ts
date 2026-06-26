@@ -21,6 +21,7 @@ const SAFE_MESSAGES: Record<CaseBoxPersistenceErrorCode, string> = {
   invalid_payload: "invalid payload",
   invalid_initial_state: "invalid initial state",
   invalid_argument: "invalid argument",
+  anchor_referenced: "anchor is referenced",
   not_implemented: "operation not implemented",
 };
 

@@ -32,6 +32,17 @@ import {
 // the same reason as the docket handlers above (handlers.ts barrel is outside
 // this WI's governed Allowed-files; CBW-601-BARREL follow-up).
 import { createFactHandler, transitionFactHandler } from "../../src/caseBox/factHandlers.js";
+// WI-A3-LINK-IPC-T1 Evidence link write/read handlers — imported DIRECTLY from
+// the per-entity module for the same reason as the docket/fact handlers above
+// (the handlers.ts barrel is outside this WI's governed Allowed-files).
+import {
+  createLinkHandler,
+  unlinkLinkHandler,
+  relinkLinkHandler,
+  listLinksHandler,
+  exportLinkCitationsHandler,
+} from "../../src/caseBox/linkHandlers.js";
+import type { LinkPersistenceProvider } from "../../src/caseBox/handlerShared.js";
 import { getCaseBoxRuntime } from "../../src/caseBox/caseBoxRuntime.js";
 import { newUlid } from "../../src/caseBox/ulid.js";
 
@@ -46,7 +57,22 @@ export interface RegisterCaseBoxIpcHandlersOptions {
   // when absent (e.g. unit harness), register reports a safe boundary error.
   readonly chooseDocumentFile?: RegisterDocumentDeps["chooseFile"];
   readonly storeDocumentFile?: RegisterDocumentDeps["storeFile"];
+  // SQLite-only Evidence link provider. When absent, derived from the runtime;
+  // if the runtime is the InMemory fallback (no SQLite), each link channel
+  // returns a safe not_implemented boundary error instead of throwing.
+  readonly linkPersistenceProvider?: LinkPersistenceProvider;
 }
+
+// Safe boundary envelope returned by every link channel when the SQLite runtime
+// is unavailable (mirrors the document-register misconfiguration safeguard).
+const LINK_UNAVAILABLE_ENVELOPE = {
+  ok: false as const,
+  error: {
+    kind: "case_box_persistence_error" as const,
+    code: "not_implemented" as const,
+    message: "link IPC is not available (SQLite runtime required)",
+  },
+};
 
 export function registerCaseBoxIpcHandlers(
   options: RegisterCaseBoxIpcHandlersOptions = {},
@@ -54,6 +80,19 @@ export function registerCaseBoxIpcHandlers(
   const provide = options.persistenceProvider ?? getCaseBoxRuntime;
   const nowFn = options.now ?? (() => new Date());
   const idFactory = options.idFactory ?? newUlid;
+
+  // Resolve a LinkPersistenceProvider on demand. An explicit injected provider
+  // (unit harness) is used as-is; otherwise we read the runtime and only return
+  // a provider when the SQLite handles are present. `null` => the runtime is the
+  // InMemory fallback, so the link channel returns the unavailable envelope.
+  const resolveLinkProvider = (): LinkPersistenceProvider | null => {
+    if (options.linkPersistenceProvider !== undefined) return options.linkPersistenceProvider;
+    const rt = getCaseBoxRuntime();
+    if (rt.sqlite === null || rt.db === null) return null;
+    const sqlite = rt.sqlite;
+    const db = rt.db;
+    return () => ({ persistence: sqlite, db });
+  };
 
   ipcMain.handle(CHANNEL.matterCreate, async (_evt, payload: unknown) => {
     return createMatterHandler(payload, provide, nowFn, idFactory);
@@ -127,6 +166,31 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.factTransition, async (_evt, payload: unknown) => {
     return transitionFactHandler(payload, provide, nowFn);
+  });
+  ipcMain.handle(CHANNEL.linkCreate, async (_evt, payload: unknown) => {
+    const linkProvide = resolveLinkProvider();
+    if (linkProvide === null) return LINK_UNAVAILABLE_ENVELOPE;
+    return createLinkHandler(payload, linkProvide);
+  });
+  ipcMain.handle(CHANNEL.linkUnlink, async (_evt, payload: unknown) => {
+    const linkProvide = resolveLinkProvider();
+    if (linkProvide === null) return LINK_UNAVAILABLE_ENVELOPE;
+    return unlinkLinkHandler(payload, linkProvide);
+  });
+  ipcMain.handle(CHANNEL.linkRelink, async (_evt, payload: unknown) => {
+    const linkProvide = resolveLinkProvider();
+    if (linkProvide === null) return LINK_UNAVAILABLE_ENVELOPE;
+    return relinkLinkHandler(payload, linkProvide);
+  });
+  ipcMain.handle(CHANNEL.linkList, async (_evt, payload: unknown) => {
+    const linkProvide = resolveLinkProvider();
+    if (linkProvide === null) return LINK_UNAVAILABLE_ENVELOPE;
+    return listLinksHandler(payload, linkProvide);
+  });
+  ipcMain.handle(CHANNEL.linkExport, async (_evt, payload: unknown) => {
+    const linkProvide = resolveLinkProvider();
+    if (linkProvide === null) return LINK_UNAVAILABLE_ENVELOPE;
+    return exportLinkCitationsHandler(payload, linkProvide);
   });
 }
 

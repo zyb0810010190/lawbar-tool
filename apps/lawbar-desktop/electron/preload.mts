@@ -24,6 +24,11 @@ import type {
   EditDocketEntryDto,
   TransitionFactDto,
   TransitionDeadlineDto,
+  CreateLinkDto,
+  UnlinkLinkDto,
+  RelinkLinkDto,
+  ListLinksDto,
+  ExportLinkCitationsDto,
   CreateMatterResult,
   GetMatterResult,
   ListMattersResult,
@@ -43,6 +48,11 @@ import type {
   EditDocketEntryResult,
   TransitionFactResult,
   TransitionDeadlineResult,
+  CreateLinkResult,
+  UnlinkLinkResult,
+  RelinkLinkResult,
+  ListLinksResult,
+  ExportLinkCitationsResult,
 } from "../src/caseBox/dto.js";
 
 export interface ThemeApi {
@@ -78,6 +88,15 @@ export interface CaseBoxApi {
   dismissDocketEntry(dto: DismissDocketEntryDto): Promise<DismissDocketEntryResult>;
   // WI-DPE4: edit a proposed docket entry (IPC/DTO only; renderer call sites are DPE5).
   editDocketEntry(dto: EditDocketEntryDto): Promise<EditDocketEntryResult>;
+  // WI-A3-LINK-IPC-T1: the audited Evidence link lifecycle (IPC/DTO + preload
+  // only; renderer bridge deferred). The write surface is guarded server-side
+  // (tenant/matter preflight + scoped link preflight + forbidden-field rejection);
+  // SQLite-only (the InMemory fallback returns a not_implemented boundary error).
+  createLink(dto: CreateLinkDto): Promise<CreateLinkResult>;
+  unlinkLink(dto: UnlinkLinkDto): Promise<UnlinkLinkResult>;
+  relinkLink(dto: RelinkLinkDto): Promise<RelinkLinkResult>;
+  listLinks(dto: ListLinksDto): Promise<ListLinksResult>;
+  exportLinkCitations(dto: ExportLinkCitationsDto): Promise<ExportLinkCitationsResult>;
 }
 
 const themeApi: ThemeApi = {
@@ -113,6 +132,11 @@ const caseBoxApi: CaseBoxApi = {
   listDocketEntries: (dto) => ipcRenderer.invoke("casebox:docket:list", dto),
   dismissDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:dismiss", dto),
   editDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:edit", dto),
+  createLink: (dto) => ipcRenderer.invoke("casebox:link:create", dto),
+  unlinkLink: (dto) => ipcRenderer.invoke("casebox:link:unlink", dto),
+  relinkLink: (dto) => ipcRenderer.invoke("casebox:link:relink", dto),
+  listLinks: (dto) => ipcRenderer.invoke("casebox:link:list", dto),
+  exportLinkCitations: (dto) => ipcRenderer.invoke("casebox:link:export", dto),
 };
 
 contextBridge.exposeInMainWorld("lawbar", { theme: themeApi, caseBox: caseBoxApi });
