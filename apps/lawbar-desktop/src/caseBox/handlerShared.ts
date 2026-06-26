@@ -4,10 +4,20 @@
 // limit. CHANNEL, the provider/clock types, and the payload-shape guards are
 // used by every handler module.
 
-import type { CaseBoxPersistence } from "case-box-persistence";
+import type {
+  CaseBoxPersistence,
+  SqliteCaseBoxPersistence,
+  OpenSqliteCaseBoxPersistenceResult,
+} from "case-box-persistence";
 
 import { makeInvalidPayload } from "./errorMap.js";
 import type { IpcEnvelope } from "./dto.js";
+
+// The raw better-sqlite3 Database handle, sourced through the persistence
+// package's already-typed surface (OpenSqliteCaseBoxPersistenceResult.db) rather
+// than a direct `better-sqlite3` import — the desktop app does not ship
+// @types/better-sqlite3 and adding a dependency is out of scope for this WI.
+type Database = OpenSqliteCaseBoxPersistenceResult["db"];
 
 export const CHANNEL = {
   matterCreate: "casebox:matter:create",
@@ -29,10 +39,25 @@ export const CHANNEL = {
   factList: "casebox:fact:list",
   factCreate: "casebox:fact:create",
   factTransition: "casebox:fact:transition",
+  linkCreate: "casebox:link:create",
+  linkUnlink: "casebox:link:unlink",
+  linkRelink: "casebox:link:relink",
+  linkList: "casebox:link:list",
+  linkExport: "casebox:link:export",
 } as const;
 
 export type PersistenceProvider = () => { readonly persistence: CaseBoxPersistence };
 export type ClockFn = () => Date;
+
+// The Evidence link lifecycle is SQLite-only: the concrete
+// SqliteCaseBoxPersistence methods (createLink / unlinkLink / relinkLink) plus
+// the standalone resolveLinkStatuses / buildExportCitations which read the raw
+// Database. The link provider therefore surfaces BOTH the concrete persistence
+// and the raw better-sqlite3 handle (the InMemory fallback has no link support).
+export type LinkPersistenceProvider = () => {
+  readonly persistence: SqliteCaseBoxPersistence;
+  readonly db: Database;
+};
 
 export function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;

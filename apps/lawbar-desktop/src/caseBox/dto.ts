@@ -10,3 +10,4 @@ export * from "./dto/document.js";
 export * from "./dto/deadline.js";
 export * from "./dto/docket.js";
 export * from "./dto/fact.js";
+export * from "./dto/link.js";
