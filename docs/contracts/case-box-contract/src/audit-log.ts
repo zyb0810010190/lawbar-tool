@@ -35,6 +35,7 @@ export const CASE_BOX_AUDIT_ENTITY_TYPES = Object.freeze([
   "privilege_marker",
   "confidentiality_classification",
   "docket_entry",
+  "link",
 ] as const);
 
 export type CaseBoxAuditEntityType = (typeof CASE_BOX_AUDIT_ENTITY_TYPES)[number];
@@ -116,6 +117,10 @@ export const CASE_BOX_AUDIT_EVENT_KINDS = Object.freeze({
   DOCKET_ENTRY_CONFIRMED:              { action: "update", entity_type: "docket_entry", reasonRequired: false },
   DOCKET_ENTRY_DISMISSED:              { action: "update", entity_type: "docket_entry", reasonRequired: true  },
   DOCKET_ENTRY_REVISED:                { action: "update", entity_type: "docket_entry", reasonRequired: false },
+  // A3 evidence link (WI-A3-UNLINK-AUDIT-KINDS) — durable explicit unlink/relink; the emitter is WI-A3-UNLINK-T1.
+  // An unlink updates the link row's V12 unlinked_at/unlink_reason markers (not create/delete); the relink clears them.
+  LINK_UNLINKED:                       { action: "update", entity_type: "link", reasonRequired: true  },
+  LINK_RELINKED:                       { action: "update", entity_type: "link", reasonRequired: false },
 } as const satisfies Record<string, AuditKindMeta>);
 
 export type CaseBoxAuditEventKind = keyof typeof CASE_BOX_AUDIT_EVENT_KINDS;

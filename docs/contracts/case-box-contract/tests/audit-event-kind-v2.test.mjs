@@ -226,3 +226,52 @@ test("v2: a DOCKET_ENTRY_REVISED event canonicalizes deterministically and verif
   const r = verifyAuditChain([ev], { eventHashFn });
   assert.equal(r.ok, true);
 });
+
+// --- WI-A3-UNLINK-AUDIT-KINDS: the LINK_UNLINKED / LINK_RELINKED kinds + the `link` entity_type ---
+const ID_L = "01jrcasebox0000000000000l1";
+
+test("link audit kinds: registry declares the expected {action, entity_type, reasonRequired} tuples", () => {
+  assert.deepEqual(CASE_BOX_AUDIT_EVENT_KINDS.LINK_UNLINKED, { action: "update", entity_type: "link", reasonRequired: true });
+  assert.deepEqual(CASE_BOX_AUDIT_EVENT_KINDS.LINK_RELINKED, { action: "update", entity_type: "link", reasonRequired: false });
+});
+
+test("link audit kinds: a LINK_UNLINKED event (reasonRequired) WITH a reason verifies", () => {
+  const ev = v2Event({
+    action: "update", entity_type: "link", entity_id: ID_L, event_kind: "LINK_UNLINKED",
+    before_state_hash: "sha256:prev", reason: "detached by lawyer",
+  });
+  const canonical = canonicalAuditEventHashInput(ev);
+  assert.match(canonical, /"event_kind":"LINK_UNLINKED"/);
+  assert.match(canonical, /"entity_type":"link"/);
+  const r = verifyAuditChain([ev], { eventHashFn });
+  assert.equal(r.ok, true);
+});
+
+test("link audit kinds: a LINK_UNLINKED event WITHOUT a reason is rejected (reasonRequired, ADR §4)", () => {
+  // `reason` is OMITTED (the schema's reason is an optional string, not nullable); the reasonRequired
+  // kind tuple is then enforced at the verify boundary, like DEADLINE_MISSED_TO_MET above.
+  const bad = v2Event({
+    action: "update", entity_type: "link", entity_id: ID_L, event_kind: "LINK_UNLINKED",
+    before_state_hash: "sha256:prev",
+  });
+  const r = verifyAuditChain([bad], { eventHashFn });
+  assert.equal(r.ok, false);
+  assert.equal(r.errorReason, "event_kind_inconsistent");
+});
+
+test("link audit kinds: a LINK_RELINKED event (reasonRequired false) WITHOUT a reason verifies", () => {
+  const ev = v2Event({
+    action: "update", entity_type: "link", entity_id: ID_L, event_kind: "LINK_RELINKED",
+    before_state_hash: "sha256:prev",
+  });
+  const r = verifyAuditChain([ev], { eventHashFn });
+  assert.equal(r.ok, true);
+});
+
+test("link audit kinds: a LINK_UNLINKED event whose action/entity_type mismatch the kind is rejected", () => {
+  // declare LINK_UNLINKED but use the wrong (create/matter) action/entity -> tuple mismatch.
+  const bad = v2Event({ event_kind: "LINK_UNLINKED", reason: "x" });
+  const r = verifyAuditChain([bad], { eventHashFn });
+  assert.equal(r.ok, false);
+  assert.equal(r.errorReason, "event_kind_inconsistent");
+});
