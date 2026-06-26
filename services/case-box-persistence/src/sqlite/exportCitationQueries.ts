@@ -12,7 +12,12 @@
 // object per link. The resolver status is the single source of truth; the builder does
 // NOT fork its own validity computation (A3-EXPORT-00 §5/§6).
 //
-// exportFlag precedence (A3-EXPORT-00 §3; exactly one flag per link):
+// exportFlag precedence (A3-EXPORT-00 §3 + the V12 durable-unlink override, A3-UNLINK-SCHEMA-00 §6;
+// exactly one flag per link):
+//   unlinked_at IS NOT NULL     -> exportFlag UNLINKED     (V12 durable EXPLICIT-UNLINK marker, read directly —
+//                                                           HIGHEST precedence; distinct from a structural BROKEN;
+//                                                           non-clean, never dropped — A10 no-drop. `status` is the
+//                                                           trust gate, but the marker is the clean-export override.)
 //   linkStatus === broken       -> exportFlag BROKEN       (no 卷X页Y / rect claim; best-effort source +
 //                                                           best-effort document/page identity when the anchor exists)
 //   linkStatus === needs_review -> exportFlag NEEDS_REVIEW (DocumentPage identity preserved best-effort when
@@ -36,8 +41,10 @@
 // A10 no-drop: every in-scope link yields EXACTLY ONE export-citation object — a missing page/geometry/anchor
 // produces a deterministic BROKEN object (best-effort identity, empty citation), never a silent omission.
 //
-// NO SQLite FK / NO schema change: all bindings are app-layer invariants; this WI changes no schema, no
-// migration, no resolver, no UI, no export-file rendering, no cascade, no dependency.
+// NO SQLite FK / NO schema change: all bindings are app-layer invariants. This export module changes no
+// schema, no migration, no UI, no export-file rendering, no cascade, no dependency. (WI-A3-UNLINK-RESOLVE
+// added V12 unlinked-marker awareness here + a sibling resolver rung; neither writes the marker or changes
+// the schema — the marker is read-only, set/cleared only by the future unlink operation WI-A3-UNLINK-T1.)
 
 import type { Database } from "better-sqlite3";
 
@@ -49,8 +56,12 @@ import type { ResolvedLinkStatus, ResolveLinkStatusScope } from "./linkStatusRes
 // collision-proof join — written here as an explicit escape so the source stays plain text (not binary).
 const KEY_SEP = "\u0000";
 
-/** The non-clean export degradation flags (A3-EXPORT-00 §3). `null` = a clean citation. */
-export type ExportCitationFlag = "NEEDS_REVIEW" | "BROKEN" | "NON_CITABLE" | "AMBIGUOUS";
+/**
+ * The non-clean export degradation flags (A3-EXPORT-00 §3). `null` = a clean citation.
+ * `UNLINKED` (WI-A3-UNLINK-RESOLVE) is the V12 durable-explicit-unlink flag — distinct from a
+ * structural `BROKEN` — emitted when case_box_links.unlinked_at IS NOT NULL (A3-UNLINK-SCHEMA-00 §6).
+ */
+export type ExportCitationFlag = "NEEDS_REVIEW" | "BROKEN" | "NON_CITABLE" | "AMBIGUOUS" | "UNLINKED";
 
 /** A resolved, court-fileable citation derived solely from DocumentPage identity (A1). */
 export interface ExportCitation {
@@ -105,6 +116,8 @@ interface LinkRow {
   readonly source_id: string;
   readonly anchor_id: string;
   readonly status: ResolvedLinkStatus;
+  /** The V12 durable explicit-unlink marker (A3-UNLINK-SCHEMA-00 §2); non-null iff the link is unlinked. */
+  readonly unlinked_at: string | null;
 }
 
 /**
@@ -131,7 +144,7 @@ export function buildExportCitations(db: Database, scope: ResolveLinkStatusScope
   //    DocumentPage payload labels — never geometry/viewport; review L2).
   const links = db
     .prepare(
-      `SELECT id, source_type, source_id, anchor_id, status FROM case_box_links
+      `SELECT id, source_type, source_id, anchor_id, status, unlinked_at FROM case_box_links
        WHERE tenant_id = @tenant_id AND matter_id = @matter_id ORDER BY id ASC`,
     )
     .all(bind) as LinkRow[];
@@ -173,6 +186,7 @@ export function buildExportCitations(db: Database, scope: ResolveLinkStatusScope
     BROKEN: 0,
     NON_CITABLE: 0,
     AMBIGUOUS: 0,
+    UNLINKED: 0,
   };
   const citations: ExportCitation[] = [];
 
@@ -184,7 +198,14 @@ export function buildExportCitations(db: Database, scope: ResolveLinkStatusScope
     let exportFlag: ExportCitationFlag | null;
     let citation: ExportCitation["citation"] = null;
 
-    if (link.status === "broken") {
+    if (link.unlinked_at !== null) {
+      // V12 durable EXPLICIT-UNLINK marker (A3-UNLINK-SCHEMA-00 §6): the HIGHEST-precedence export branch.
+      // Read the marker directly (not only `status`) so an explicitly-unlinked link is DISTINGUISHABLE from a
+      // structurally-`broken` one. It is non-clean (never a clean citation) and never dropped (A10 no-drop) —
+      // it still gets exactly one object, with best-effort link/source identity. (The resolver already set its
+      // status to 'broken' for the trust gate; the marker yields the distinct UNLINKED flag.)
+      exportFlag = "UNLINKED";
+    } else if (link.status === "broken") {
       exportFlag = "BROKEN";
     } else if (link.status === "needs_review") {
       exportFlag = "NEEDS_REVIEW";

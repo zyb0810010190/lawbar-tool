@@ -80,12 +80,16 @@ function insertAnchor(db, overrides = {}) {
 }
 
 function insertLink(db, overrides = {}) {
-  const l = { id: "l0", source_type: "evidence", source_id: "ev-1", anchor_id: "a0", status: "valid", ...overrides };
+  const l = {
+    id: "l0", source_type: "evidence", source_id: "ev-1", anchor_id: "a0", status: "valid",
+    unlinked_at: null, unlink_reason: null, ...overrides,
+  };
   db.prepare(
     `INSERT INTO case_box_links
-       (id, tenant_id, matter_id, source_type, source_id, anchor_id, status, created_at, payload_json)
+       (id, tenant_id, matter_id, source_type, source_id, anchor_id, status, created_at, payload_json,
+        unlinked_at, unlink_reason)
      VALUES (@id, 't1', 'm1', @source_type, @source_id, @anchor_id, @status,
-             '2026-06-24T00:00:00.000Z', '{}')`,
+             '2026-06-24T00:00:00.000Z', '{}', @unlinked_at, @unlink_reason)`,
   ).run(l);
 }
 
@@ -321,5 +325,58 @@ test("A3-T5: writes ONLY case_box_links.status — no audit events, no other tab
     "the anchor row is not mutated",
   );
   assert.equal(statusOf(db, "l-w"), "valid", "the link status itself DID change");
+  db.close();
+});
+
+// ---------------------------------------------------------------------------
+// WI-A3-UNLINK-RESOLVE: the V12 durable explicit-unlink marker (case_box_links.unlinked_at)
+// is the HIGHEST-precedence resolver rung -> 'broken'; never recomputed to valid; durable.
+// ---------------------------------------------------------------------------
+
+test("A3-UNLINK-RESOLVE: an unlinked link (unlinked_at set) with otherwise-valid structure -> broken, never valid", () => {
+  const db = freshDb();
+  seedValid(db);
+  insertLink(db, { id: "l-unlinked", status: "valid", unlinked_at: "2026-06-26T12:00:00.000Z", unlink_reason: "detached by lawyer" });
+  resolveLinkStatuses(db, SCOPE);
+  assert.equal(statusOf(db, "l-unlinked"), "broken", "explicit unlink resolves non-clean regardless of structure");
+  db.close();
+});
+
+test("A3-UNLINK-RESOLVE: marker takes precedence over a structurally-valid link (durable, not recomputed to valid)", () => {
+  const db = freshDb();
+  // Stored status starts 'valid' (stale), structure is clean, and the link is explicitly unlinked.
+  seedValid(db);
+  insertLink(db, { id: "l-mark", status: "valid", unlinked_at: "2026-06-26T12:00:00.000Z", unlink_reason: "superseded" });
+  const first = resolveLinkStatuses(db, SCOPE);
+  assert.equal(statusOf(db, "l-mark"), "broken", "first resolve flips valid -> broken via the marker");
+  assert.equal(first.updated, 1, "first run wrote the changed status");
+  // Re-run: the unlinked status is durable + stable; no spurious write (review L2).
+  const second = resolveLinkStatuses(db, SCOPE);
+  assert.equal(second.updated, 0, "second run is idempotent (no recompute to valid)");
+  assert.equal(statusOf(db, "l-mark"), "broken");
+  // The unlinked row REMAINS in storage (the resolver never deletes rows).
+  assert.equal(db.prepare("SELECT COUNT(*) AS c FROM case_box_links WHERE id='l-mark'").get().c, 1, "row preserved");
+  db.close();
+});
+
+test("A3-UNLINK-RESOLVE: a legacy NULL-marker link with valid structure is unchanged (still valid)", () => {
+  const db = freshDb();
+  seedValid(db);
+  insertLink(db, { id: "l-legacy", status: "needs_review" }); // unlinked_at defaults NULL
+  resolveLinkStatuses(db, SCOPE);
+  assert.equal(statusOf(db, "l-legacy"), "valid", "NULL-marker rows follow the existing ladder (valid)");
+  db.close();
+});
+
+test("A3-UNLINK-RESOLVE: unlinked marker wins over structural needs_review (combined)", () => {
+  const db = freshDb();
+  // geometry mismatch (would be needs_review) AND explicitly unlinked -> broken (marker rung 0 wins).
+  insertDoc(db);
+  insertPage(db);
+  insertGeom(db, { captured_at: "2026-07-01T00:00:00.000Z" });
+  insertAnchor(db, { geometry_captured_at: GEOM_VERSION });
+  insertLink(db, { id: "l-both", status: "valid", unlinked_at: "2026-06-26T12:00:00.000Z", unlink_reason: "x" });
+  resolveLinkStatuses(db, SCOPE);
+  assert.equal(statusOf(db, "l-both"), "broken", "marker precedence over needs_review");
   db.close();
 });
