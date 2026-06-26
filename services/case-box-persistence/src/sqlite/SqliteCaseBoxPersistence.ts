@@ -72,9 +72,11 @@ import {
   listDeadlinesSqlite,
 } from "./deadlineRepoQueries.js";
 import {
+  applyCreateLinkSqlite,
   applyRelinkLinkSqlite,
   applyUnlinkLinkSqlite,
   type CaseBoxLinkRow,
+  type CreateLinkInput,
   type RelinkLinkOptions,
   type UnlinkLinkOptions,
 } from "./linkRepoQueries.js";
@@ -522,6 +524,11 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   // columns AND appends ONE tamper-evident audit event (LINK_UNLINKED /
   // LINK_RELINKED) in one BEGIN IMMEDIATE. The link row is preserved.
   // -------------------------------------------------------------------------
+
+  async createLink(input: CreateLinkInput): Promise<CaseBoxLinkRow> {
+    const row = this.#runImmediateWrite((db, deps) => applyCreateLinkSqlite(db, input, deps));
+    return structuredClone(row) as CaseBoxLinkRow;
+  }
 
   async unlinkLink(linkId: string, opts: UnlinkLinkOptions): Promise<CaseBoxLinkRow> {
     const row = this.#runImmediateWrite((db, deps) => applyUnlinkLinkSqlite(db, linkId, opts, deps));

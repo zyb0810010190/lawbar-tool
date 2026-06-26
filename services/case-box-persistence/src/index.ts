@@ -40,6 +40,7 @@ export type {
   CaseBoxLinkRow,
   UnlinkLinkOptions,
   RelinkLinkOptions,
+  CreateLinkInput,
 } from "./sqlite/linkRepoQueries.js";
 
 export { CaseBoxPersistenceError } from "./errors.js";

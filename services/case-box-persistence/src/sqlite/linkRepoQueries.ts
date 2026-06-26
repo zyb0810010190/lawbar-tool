@@ -63,6 +63,19 @@ export interface RelinkLinkOptions {
   readonly actor_user_id: string;
 }
 
+/** Input for createLink: insert a durable, active case_box_links row + emit
+ *  LINK_CREATED. The id is GENERATED (never caller-supplied); status starts
+ *  provisional `needs_review` (the resolver computes the authoritative status
+ *  afterward). */
+export interface CreateLinkInput {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly source_type: string;
+  readonly source_id: string;
+  readonly anchor_id: string;
+  readonly actor_user_id: string;
+}
+
 /** Shared write deps (structurally identical to SqliteWriteDeps). */
 export interface LinkWriteDeps {
   readonly generateId: () => string;
@@ -132,6 +145,133 @@ function requireActor(opts: unknown): string {
     throw new CaseBoxPersistenceError("invalid_argument", "opts.actor_user_id must be a non-empty string");
   }
   return actor;
+}
+
+// ---------------------------------------------------------------------------
+// createLink — insert a durable active row + emit LINK_CREATED
+// ---------------------------------------------------------------------------
+
+// The case_box_links.source_type CHECK set (V11 schema). Validated at the
+// operation boundary; the schema CHECK is the second guard.
+const SOURCE_TYPES = ["evidence", "note", "question", "calcTerm", "claimElement"];
+
+function requireNonEmpty(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new CaseBoxPersistenceError("invalid_argument", `${field} must be a non-empty string`);
+  }
+  return value;
+}
+
+function existsScoped(db: Database, table: string, id: string, tenantId: string, matterId: string): boolean {
+  return (
+    db
+      .prepare(`SELECT 1 FROM ${table} WHERE id = ? AND tenant_id = ? AND matter_id = ?`)
+      .get(id, tenantId, matterId) !== undefined
+  );
+}
+
+function insertLinkRow(db: Database, row: CaseBoxLinkRow): void {
+  db.prepare(
+    `INSERT INTO case_box_links (${LINK_COLUMNS})
+     VALUES (@id, @tenant_id, @matter_id, @source_type, @source_id, @anchor_id, @status, @created_at, @payload_json, @unlinked_at, @unlink_reason)`,
+  ).run(row);
+}
+
+function prepareCreateLink(db: Database, input: CreateLinkInput, deps: LinkWriteDeps): PrepareLinkResult {
+  // Operation-boundary validation — all BEFORE any write, so a rejection leaves
+  // no row and no event.
+  if (typeof input !== "object" || input === null) {
+    throw new CaseBoxPersistenceError("invalid_argument", "input must be an object");
+  }
+  const tenant_id = requireNonEmpty(input.tenant_id, "input.tenant_id");
+  const matter_id = requireNonEmpty(input.matter_id, "input.matter_id");
+  const source_id = requireNonEmpty(input.source_id, "input.source_id");
+  const anchor_id = requireNonEmpty(input.anchor_id, "input.anchor_id");
+  const actor_user_id = requireNonEmpty(input.actor_user_id, "input.actor_user_id");
+  const source_type = requireNonEmpty(input.source_type, "input.source_type");
+  if (!SOURCE_TYPES.includes(source_type)) {
+    throw new CaseBoxPersistenceError("invalid_argument", `input.source_type must be one of ${SOURCE_TYPES.join(", ")}`);
+  }
+
+  // Matter exists + tenant match.
+  const matterRow = db
+    .prepare("SELECT tenant_id FROM case_box_matters WHERE id = ?")
+    .get(matter_id) as { tenant_id: string } | undefined;
+  if (matterRow === undefined) {
+    throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matter_id}`);
+  }
+  if (matterRow.tenant_id !== tenant_id) {
+    throw new CaseBoxPersistenceError(
+      "tenant_mismatch",
+      `input.tenant_id (${tenant_id}) does not match matter.tenant_id (${matterRow.tenant_id})`,
+    );
+  }
+
+  // Anchor must exist in the same tenant+matter (require-exists, ADR D4a).
+  if (!existsScoped(db, "case_box_anchors", anchor_id, tenant_id, matter_id)) {
+    throw new CaseBoxPersistenceError("invalid_argument", `unknown anchor: ${anchor_id}`);
+  }
+
+  // Evidence-existence (ADR-EXTENSION, review B): for source_type 'evidence' the
+  // evidence_item must exist in the same tenant+matter. The other source_types
+  // (note/question/calcTerm/claimElement) have no backing table yet — a recorded
+  // known gap; only their non-empty source_id is validated above.
+  if (source_type === "evidence" && !existsScoped(db, "case_box_evidence_items", source_id, tenant_id, matter_id)) {
+    throw new CaseBoxPersistenceError("invalid_argument", `unknown evidence item: ${source_id}`);
+  }
+
+  const id = deps.generateId();
+  // Generated-id collision -> duplicate_id with no row/event (review Low; mirrors
+  // createMatter's duplicate check). ULID makes this astronomically rare.
+  if (db.prepare("SELECT 1 FROM case_box_links WHERE id = ?").get(id) !== undefined) {
+    throw new CaseBoxPersistenceError("duplicate_id", `link id collision: ${id}`);
+  }
+
+  // SINGLE operation timestamp: one stamp for BOTH created_at AND the audit event
+  // timestamp (the WI-A3-UNLINK-T1 single-stamp rule).
+  const stamp = deps.nowIso();
+  const payload_json = JSON.stringify({ id, tenant_id, matter_id, source_type, source_id, anchor_id, created_at: stamp });
+  const next: CaseBoxLinkRow = {
+    id,
+    tenant_id,
+    matter_id,
+    source_type,
+    source_id,
+    anchor_id,
+    status: "needs_review", // provisional; the resolver computes the real status (valid is never a default).
+    created_at: stamp,
+    payload_json,
+    unlinked_at: null,
+    unlink_reason: null,
+  };
+
+  const stored = deps.storedAuditEventsForMatter(matter_id);
+  const built = buildCaseBoxAuditEvent({
+    kind: "LINK_CREATED",
+    id: deps.generateId(),
+    tenant_id,
+    actor_user_id,
+    matter_id,
+    entity_id: id,
+    before_state_hash: null, // create: no prior state.
+    after_state_hash: entityStateHash(linkStateForHash(next)),
+    prev_event_hash: priorHeadOf(stored),
+    timestamp: stamp,
+  });
+  if (!built.ok) {
+    throw new CaseBoxPersistenceError("invalid_payload", `audit-event builder rejected LINK_CREATED: ${built.summary}`);
+  }
+  return { next, audit: { sequence: stored.length + 1, event: built.value } };
+}
+
+export function applyCreateLinkSqlite(db: Database, input: CreateLinkInput, deps: LinkWriteDeps): CaseBoxLinkRow {
+  // Build the event + validate BEFORE the row INSERT; insert the row; append the
+  // audit event — all in the caller's one BEGIN IMMEDIATE. No row without a chain
+  // event, no chain event without a row.
+  const prepared = prepareCreateLink(db, input, deps);
+  insertLinkRow(db, prepared.next);
+  deps.writeAuditEventAndUpdateHead(prepared.audit, eventHashFn(prepared.audit.event));
+  return prepared.next;
 }
 
 // ---------------------------------------------------------------------------
