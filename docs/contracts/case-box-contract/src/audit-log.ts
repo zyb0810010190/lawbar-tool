@@ -121,6 +121,7 @@ export const CASE_BOX_AUDIT_EVENT_KINDS = Object.freeze({
   // An unlink updates the link row's V12 unlinked_at/unlink_reason markers (not create/delete); the relink clears them.
   LINK_UNLINKED:                       { action: "update", entity_type: "link", reasonRequired: true  },
   LINK_RELINKED:                       { action: "update", entity_type: "link", reasonRequired: false },
+  LINK_CREATED:                        { action: "create", entity_type: "link", reasonRequired: false },
 } as const satisfies Record<string, AuditKindMeta>);
 
 export type CaseBoxAuditEventKind = keyof typeof CASE_BOX_AUDIT_EVENT_KINDS;

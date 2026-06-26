@@ -110,7 +110,8 @@ export type CaseBoxAuditEvent = {
     | "DOCKET_ENTRY_DISMISSED"
     | "DOCKET_ENTRY_REVISED"
     | "LINK_UNLINKED"
-    | "LINK_RELINKED";
+    | "LINK_RELINKED"
+    | "LINK_CREATED";
   /**
    * Audit-event canonicalization version. v2 events set this to 2 (the value is hashed in the v2 canonicalization); absent on legacy v1 events. Present iff event_kind is present.
    */

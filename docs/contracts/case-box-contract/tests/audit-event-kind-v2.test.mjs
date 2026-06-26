@@ -233,6 +233,29 @@ const ID_L = "01jrcasebox0000000000000l1";
 test("link audit kinds: registry declares the expected {action, entity_type, reasonRequired} tuples", () => {
   assert.deepEqual(CASE_BOX_AUDIT_EVENT_KINDS.LINK_UNLINKED, { action: "update", entity_type: "link", reasonRequired: true });
   assert.deepEqual(CASE_BOX_AUDIT_EVENT_KINDS.LINK_RELINKED, { action: "update", entity_type: "link", reasonRequired: false });
+  // WI-A3-LINK-CREATE-AUDIT-KIND: the audited link-create kind (action create; no reason).
+  assert.deepEqual(CASE_BOX_AUDIT_EVENT_KINDS.LINK_CREATED, { action: "create", entity_type: "link", reasonRequired: false });
+});
+
+test("link audit kinds: a LINK_CREATED event (action create, reasonRequired false) WITHOUT a reason verifies", () => {
+  // create semantics: before_state_hash null (v2Event default); no reason mandated.
+  const ev = v2Event({
+    action: "create", entity_type: "link", entity_id: ID_L, event_kind: "LINK_CREATED",
+  });
+  const canonical = canonicalAuditEventHashInput(ev);
+  assert.match(canonical, /"event_kind":"LINK_CREATED"/);
+  assert.match(canonical, /"entity_type":"link"/);
+  assert.match(canonical, /"action":"create"/);
+  const r = verifyAuditChain([ev], { eventHashFn });
+  assert.equal(r.ok, true);
+});
+
+test("link audit kinds: a LINK_CREATED event whose action/entity_type mismatch the kind is rejected", () => {
+  // declare LINK_CREATED but use the wrong (update/link) action -> tuple mismatch.
+  const bad = v2Event({ action: "update", entity_type: "link", entity_id: ID_L, event_kind: "LINK_CREATED", before_state_hash: "sha256:prev" });
+  const r = verifyAuditChain([bad], { eventHashFn });
+  assert.equal(r.ok, false);
+  assert.equal(r.errorReason, "event_kind_inconsistent");
 });
 
 test("link audit kinds: a LINK_UNLINKED event (reasonRequired) WITH a reason verifies", () => {
