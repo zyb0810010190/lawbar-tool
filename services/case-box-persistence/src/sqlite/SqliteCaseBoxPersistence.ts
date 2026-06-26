@@ -72,6 +72,13 @@ import {
   listDeadlinesSqlite,
 } from "./deadlineRepoQueries.js";
 import {
+  applyRelinkLinkSqlite,
+  applyUnlinkLinkSqlite,
+  type CaseBoxLinkRow,
+  type RelinkLinkOptions,
+  type UnlinkLinkOptions,
+} from "./linkRepoQueries.js";
+import {
   applyAppendEvidenceItemSqlite,
   applyTransitionEvidenceItemSqlite,
   getEvidenceItemSqlite,
@@ -506,6 +513,24 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   async transitionDeadline(deadlineId: string, opts: DeadlineTransitionOpts): Promise<CaseBoxDeadline> {
     const row = this.#runImmediateWrite((db, deps) => applyTransitionDeadlineSqlite(db, deadlineId, opts, deps));
     return structuredClone(row) as CaseBoxDeadline;
+  }
+
+  // -------------------------------------------------------------------------
+  // Evidence link unlink/relink (WI-A3-UNLINK-T1) — A3 SQLite-only audited
+  // mutation. Concrete-class methods (NOT the shared CaseBoxPersistence
+  // interface; InMemory has no link support). Each sets/clears the V12 marker
+  // columns AND appends ONE tamper-evident audit event (LINK_UNLINKED /
+  // LINK_RELINKED) in one BEGIN IMMEDIATE. The link row is preserved.
+  // -------------------------------------------------------------------------
+
+  async unlinkLink(linkId: string, opts: UnlinkLinkOptions): Promise<CaseBoxLinkRow> {
+    const row = this.#runImmediateWrite((db, deps) => applyUnlinkLinkSqlite(db, linkId, opts, deps));
+    return structuredClone(row) as CaseBoxLinkRow;
+  }
+
+  async relinkLink(linkId: string, opts: RelinkLinkOptions): Promise<CaseBoxLinkRow> {
+    const row = this.#runImmediateWrite((db, deps) => applyRelinkLinkSqlite(db, linkId, opts, deps));
+    return structuredClone(row) as CaseBoxLinkRow;
   }
   async appendEvidenceItem(input: unknown): Promise<CaseBoxEvidenceItem> {
     const row = this.#runImmediateWrite((db, deps) => applyAppendEvidenceItemSqlite(db, input, deps));

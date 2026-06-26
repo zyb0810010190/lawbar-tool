@@ -34,6 +34,14 @@ export type {
 export { assertCanDeleteAnchor } from "./sqlite/anchorDeleteGuardQueries.js";
 export type { AnchorDeleteGuardScope } from "./sqlite/anchorDeleteGuardQueries.js";
 
+// A3 audited durable unlink/relink operation (WI-A3-UNLINK-T1) — SQLite-only;
+// methods ship on SqliteCaseBoxPersistence. The result/opts types are public.
+export type {
+  CaseBoxLinkRow,
+  UnlinkLinkOptions,
+  RelinkLinkOptions,
+} from "./sqlite/linkRepoQueries.js";
+
 export { CaseBoxPersistenceError } from "./errors.js";
 export type { CaseBoxPersistenceErrorCode } from "./errors.js";
 

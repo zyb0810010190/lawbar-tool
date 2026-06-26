@@ -11,8 +11,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 
-import { applySchema } from "./hardening-common.mjs";
-import { resolveLinkStatuses } from "../dist/index.js";
+import {
+  applySchema,
+  CURRENT_SCHEMA_VERSION,
+  openSqliteCaseBoxPersistence,
+  makeClock,
+  makeIdGenerator,
+} from "./hardening-common.mjs";
+import { resolveLinkStatuses, buildExportCitations } from "../dist/index.js";
 
 const GEOM_VERSION = "2026-06-24T00:00:00.000Z";
 
@@ -378,5 +384,339 @@ test("A3-UNLINK-RESOLVE: unlinked marker wins over structural needs_review (comb
   insertLink(db, { id: "l-both", status: "valid", unlinked_at: "2026-06-26T12:00:00.000Z", unlink_reason: "x" });
   resolveLinkStatuses(db, SCOPE);
   assert.equal(statusOf(db, "l-both"), "broken", "marker precedence over needs_review");
+  db.close();
+});
+
+// ===========================================================================
+// WI-A3-UNLINK-T1 — audited durable unlink/relink OPERATION.
+//
+// The OPERATION (vs the marker-awareness tested above): unlinkLink sets the
+// V12 markers + emits LINK_UNLINKED; relinkLink clears them + emits
+// LINK_RELINKED; each is one BEGIN IMMEDIATE (marker UPDATE + one audit
+// append). SQLite-only concrete-class methods. Marker-only; the row is
+// preserved (no DELETE). The audit event validates matter_id + entity_id
+// against the ULID pattern, so these fixtures use 26-char ULID-shaped matter
+// + link ids (the resolver-only tests above can use short ids because they
+// build no audit event). Fixtures use only synthetic ids (no private evidence
+// content). See dev-memo/plan-batch-casebox-evidence-a3-unlink-operation-00.md.
+// ===========================================================================
+
+const T0 = "2026-06-26T10:00:00.000Z";
+// 26-char [0-9a-z] ULID-shaped id from a short synthetic label (audit matter_id/entity_id pattern).
+const mkid = (label) => (label + "00000000000000000000000000").slice(0, 26);
+const MID = mkid("mtr1");
+const OP_SCOPE = { tenant_id: "t1", matter_id: MID };
+
+function opSetup(clockStart = T0) {
+  return openSqliteCaseBoxPersistence({
+    now: makeClock(clockStart),
+    generateId: makeIdGenerator("ul"),
+  });
+}
+
+// Seed a fully-valid doc/page/geom/anchor under the ULID matter MID (parallels seedValid,
+// but matter-parameterized so the resolver/export scope OP_SCOPE matches the link's matter).
+function opSeedValid(db) {
+  db.prepare(
+    `INSERT INTO case_box_documents (id, tenant_id, matter_id, actor_user_id, status, received_at, doc_type, supersedes_document_id, payload_json)
+     VALUES ('doc-1', 't1', ?, 'u1', 'reviewed', '2026-06-24T00:00:00.000Z', 'exhibit', NULL, '{}')`,
+  ).run(MID);
+  db.prepare(
+    `INSERT INTO case_box_document_pages (id, tenant_id, matter_id, document_id, physical_page_index, created_at, payload_json)
+     VALUES ('p0', 't1', ?, 'doc-1', 0, '2026-06-24T00:00:00.000Z', '{}')`,
+  ).run(MID);
+  db.prepare(
+    `INSERT INTO case_box_document_page_geometries (id, tenant_id, matter_id, document_id, physical_page_index, resolved_box,
+        bounds_x, bounds_y, bounds_width, bounds_height, rotation, captured_at, created_at, payload_json)
+     VALUES ('g0', 't1', ?, 'doc-1', 0, 'mediaBox', '0.000000000000', '0.000000000000', '612.000000000000', '792.000000000000', 0, ?, '2026-06-24T00:00:00.000Z', '{}')`,
+  ).run(MID, GEOM_VERSION);
+  db.prepare(
+    `INSERT INTO case_box_anchors (id, tenant_id, matter_id, document_id, physical_page_index, geometry_captured_at,
+        rect_x, rect_y, rect_width, rect_height, coordinate_space, origin_ref, page_rotation, created_at, payload_json)
+     VALUES ('a0', 't1', ?, 'doc-1', 0, ?, '0.250000000000', '0.250000000000', '0.500000000000', '0.500000000000', 'page_ratio', 'DocumentPageGeometry', 0, '2026-06-24T00:00:00.000Z', '{}')`,
+  ).run(MID, GEOM_VERSION);
+}
+
+// Insert a link under MID. `o` may override { anchor_id, status, unlinked_at, unlink_reason }.
+function opLink(db, id, o = {}) {
+  const l = { source_type: "evidence", source_id: "ev-1", anchor_id: "a0", status: "valid", unlinked_at: null, unlink_reason: null, ...o };
+  db.prepare(
+    `INSERT INTO case_box_links (id, tenant_id, matter_id, source_type, source_id, anchor_id, status, created_at, payload_json, unlinked_at, unlink_reason)
+     VALUES (?, 't1', ?, ?, ?, ?, ?, '2026-06-24T00:00:00.000Z', '{}', ?, ?)`,
+  ).run(id, MID, l.source_type, l.source_id, l.anchor_id, l.status, l.unlinked_at, l.unlink_reason);
+  return id;
+}
+
+function linkRow(db, linkId) {
+  return db.prepare("SELECT * FROM case_box_links WHERE id = ?").get(linkId);
+}
+function eventsFor(db) {
+  return db
+    .prepare("SELECT entity_type, reason, event_json FROM case_box_audit_events WHERE matter_id = ? ORDER BY sequence")
+    .all(MID);
+}
+function chainCounts(db) {
+  const head = db.prepare("SELECT event_count FROM case_box_audit_chain_heads WHERE matter_id = ?").get(MID);
+  const count = db.prepare("SELECT COUNT(*) AS c FROM case_box_audit_events WHERE matter_id = ?").get(MID);
+  const maxSeq = db.prepare("SELECT MAX(sequence) AS m FROM case_box_audit_events WHERE matter_id = ?").get(MID);
+  return { event_count: head?.event_count ?? 0, count: count.c, maxSeq: maxSeq.m ?? 0 };
+}
+
+// 1. Unlink sets both unlinked_at and unlink_reason (single shared stamp).
+test("A3-UNLINK-T1: unlink sets unlinked_at + unlink_reason (single shared stamp = T0)", async () => {
+  const { persistence, db } = opSetup();
+  const id = opLink(db, mkid("lu1"));
+  const ret = await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "wrong anchor" });
+  const row = linkRow(db, id);
+  assert.equal(row.unlinked_at, T0, "unlinked_at = the single nowIso() stamp");
+  assert.equal(row.unlink_reason, "wrong anchor");
+  assert.equal(ret.unlinked_at, T0);
+  assert.equal(ret.unlink_reason, "wrong anchor");
+  db.close();
+});
+
+// 2. Empty/blank/missing/null unlink reason rejected; row unchanged; no event.
+test("A3-UNLINK-T1: blank/empty/missing unlink_reason -> invalid_argument, row unchanged, no event", async () => {
+  for (const bad of ["", "   ", undefined, null]) {
+    const { persistence, db } = opSetup();
+    const id = opLink(db, mkid("lbad"));
+    await assert.rejects(
+      () => persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: bad }),
+      (e) => e.code === "invalid_argument",
+    );
+    const row = linkRow(db, id);
+    assert.equal(row.unlinked_at, null, "row unchanged on rejected reason");
+    assert.equal(row.unlink_reason, null);
+    assert.equal(chainCounts(db).count, 0, "no audit event appended");
+    db.close();
+  }
+});
+
+// 3. Unlink preserves the link row + the related anchor row (no DELETE).
+test("A3-UNLINK-T1: unlink preserves the link row and the related anchor row", async () => {
+  const { persistence, db } = opSetup();
+  opSeedValid(db);
+  const id = opLink(db, mkid("lpres"));
+  await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
+  assert.ok(linkRow(db, id), "link row still present");
+  assert.ok(db.prepare("SELECT 1 FROM case_box_anchors WHERE id='a0'").get(), "anchor row still present");
+  assert.equal(db.prepare("SELECT COUNT(*) AS c FROM case_box_links WHERE id=?").get(id).c, 1);
+  db.close();
+});
+
+// 4. Unlink emits exactly one LINK_UNLINKED event (entity_type link, entity_id, reason).
+test("A3-UNLINK-T1: unlink emits exactly one LINK_UNLINKED event (entity_type link, entity_id, reason)", async () => {
+  const { persistence, db } = opSetup();
+  const id = opLink(db, mkid("lev"));
+  await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "dup" });
+  const evs = eventsFor(db);
+  assert.equal(evs.length, 1, "exactly one event");
+  const e = JSON.parse(evs[0].event_json);
+  assert.equal(evs[0].entity_type, "link");
+  assert.equal(e.event_kind, "LINK_UNLINKED");
+  assert.equal(e.action, "update");
+  assert.equal(e.entity_id, id);
+  assert.equal(e.reason, "dup");
+  assert.equal(e.audit_schema_version, 2);
+  db.close();
+});
+
+// 5. Unlink event carries before/after hashes (differ); timestamp == unlinked_at.
+test("A3-UNLINK-T1: unlink event before/after hashes differ; timestamp == row.unlinked_at", async () => {
+  const { persistence, db } = opSetup();
+  const id = opLink(db, mkid("lh"));
+  await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
+  const e = JSON.parse(eventsFor(db)[0].event_json);
+  assert.ok(typeof e.before_state_hash === "string" && e.before_state_hash.length === 64, "before hash present");
+  assert.ok(typeof e.after_state_hash === "string" && e.after_state_hash.length === 64, "after hash present");
+  assert.notEqual(e.before_state_hash, e.after_state_hash, "state changed -> hashes differ");
+  assert.equal(e.timestamp, linkRow(db, id).unlinked_at, "event timestamp equals row unlinked_at (single stamp)");
+  db.close();
+});
+
+// 5b. before_state_hash EXCLUDES the resolver-derived `status` (audit L2): two links
+// identical in every authoritative field but differing only in `status` hash identically.
+test("A3-UNLINK-T1: before_state_hash excludes the resolver-derived status column", async () => {
+  async function beforeHashFor(status) {
+    const { persistence, db } = opSetup();
+    const id = opLink(db, mkid("lstatus"), { status }); // same id + matter + markers; only status differs
+    await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
+    const h = JSON.parse(eventsFor(db)[0].event_json).before_state_hash;
+    db.close();
+    return h;
+  }
+  const hValid = await beforeHashFor("valid");
+  const hBroken = await beforeHashFor("broken");
+  assert.equal(hValid, hBroken, "status is NOT part of the audited state hash input");
+});
+
+// 5c. relink rejects a passed reason (audit L1) — does not silently ignore it.
+test("A3-UNLINK-T1: relink rejects unlink_reason/reason -> invalid_argument (not silently ignored)", async () => {
+  for (const bad of [{ unlink_reason: "x" }, { reason: "x" }]) {
+    const { persistence, db } = opSetup();
+    const id = opLink(db, mkid("lrjr"), { unlinked_at: "2026-06-20T00:00:00.000Z", unlink_reason: "old" });
+    await assert.rejects(
+      () => persistence.relinkLink(id, { actor_user_id: "lawyer", ...bad }),
+      (e) => e.code === "invalid_argument",
+    );
+    assert.equal(linkRow(db, id).unlinked_at, "2026-06-20T00:00:00.000Z", "row unchanged on rejected relink");
+    assert.equal(chainCounts(db).count, 0, "no event on rejected relink");
+    db.close();
+  }
+});
+
+// 6. Marker write + audit append atomic: event_count == COUNT == MAX(sequence) == 1.
+test("A3-UNLINK-T1: unlink is atomic — event_count == COUNT(*) == MAX(sequence) == 1", async () => {
+  const { persistence, db } = opSetup();
+  const id = opLink(db, mkid("latom"));
+  await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
+  const c = chainCounts(db);
+  assert.equal(c.event_count, 1);
+  assert.equal(c.count, 1);
+  assert.equal(c.maxSeq, 1);
+  db.close();
+});
+
+// 7. Unlink drives resolver status to marker-precedence 'broken'.
+test("A3-UNLINK-T1: after unlink, resolveLinkStatuses -> 'broken' (marker precedence)", async () => {
+  const { persistence, db } = opSetup();
+  opSeedValid(db);
+  const id = opLink(db, mkid("lres"));
+  await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
+  resolveLinkStatuses(db, OP_SCOPE);
+  assert.equal(statusOf(db, id), "broken");
+  db.close();
+});
+
+// 8. Unlink drives export flag to 'UNLINKED'.
+test("A3-UNLINK-T1: after unlink, buildExportCitations -> exportFlag 'UNLINKED'", async () => {
+  const { persistence, db } = opSetup();
+  opSeedValid(db);
+  const id = opLink(db, mkid("lexp"));
+  await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
+  const cite = buildExportCitations(db, OP_SCOPE).citations.find((c) => c.linkId === id);
+  assert.equal(cite.exportFlag, "UNLINKED");
+  db.close();
+});
+
+// 9. Relink clears both marker columns.
+test("A3-UNLINK-T1: relink clears unlinked_at + unlink_reason to NULL", async () => {
+  const { persistence, db } = opSetup();
+  const id = opLink(db, mkid("lrel"), { unlinked_at: "2026-06-20T00:00:00.000Z", unlink_reason: "old" });
+  const ret = await persistence.relinkLink(id, { actor_user_id: "lawyer" });
+  const row = linkRow(db, id);
+  assert.equal(row.unlinked_at, null);
+  assert.equal(row.unlink_reason, null);
+  assert.equal(ret.unlinked_at, null);
+  assert.equal(ret.unlink_reason, null);
+  db.close();
+});
+
+// 10. Relink emits exactly one LINK_RELINKED event (entity_type link, no reason).
+test("A3-UNLINK-T1: relink emits exactly one LINK_RELINKED event (entity_type link, no reason)", async () => {
+  const { persistence, db } = opSetup();
+  const id = opLink(db, mkid("lrev"), { unlinked_at: "2026-06-20T00:00:00.000Z", unlink_reason: "old" });
+  await persistence.relinkLink(id, { actor_user_id: "lawyer" });
+  const evs = eventsFor(db);
+  assert.equal(evs.length, 1);
+  const e = JSON.parse(evs[0].event_json);
+  assert.equal(evs[0].entity_type, "link");
+  assert.equal(e.event_kind, "LINK_RELINKED");
+  assert.equal(e.action, "update");
+  assert.equal(e.entity_id, id);
+  assert.equal(e.reason, undefined, "relink mandates no reason");
+  db.close();
+});
+
+// 11. Relink event carries before/after hashes (differ).
+test("A3-UNLINK-T1: relink event before/after hashes differ (marker cleared)", async () => {
+  const { persistence, db } = opSetup();
+  const id = opLink(db, mkid("lrh"), { unlinked_at: "2026-06-20T00:00:00.000Z", unlink_reason: "old" });
+  await persistence.relinkLink(id, { actor_user_id: "lawyer" });
+  const e = JSON.parse(eventsFor(db)[0].event_json);
+  assert.equal(e.before_state_hash.length, 64);
+  assert.equal(e.after_state_hash.length, 64);
+  assert.notEqual(e.before_state_hash, e.after_state_hash);
+  db.close();
+});
+
+// 12. Relink restores normal resolver/export for a structurally valid link.
+test("A3-UNLINK-T1: relink restores normal behavior — status valid, exportFlag not UNLINKED", async () => {
+  const { persistence, db } = opSetup();
+  opSeedValid(db);
+  const id = opLink(db, mkid("lrestore"));
+  await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
+  await persistence.relinkLink(id, { actor_user_id: "lawyer" });
+  resolveLinkStatuses(db, OP_SCOPE);
+  assert.equal(statusOf(db, id), "valid", "marker cleared -> structural ladder applies (valid)");
+  const cite = buildExportCitations(db, OP_SCOPE).citations.find((c) => c.linkId === id);
+  assert.notEqual(cite.exportFlag, "UNLINKED", "no longer flagged UNLINKED after relink");
+  db.close();
+});
+
+// 13. Relink does NOT fabricate validity (missing anchor -> still broken).
+test("A3-UNLINK-T1: relink does NOT fabricate validity — a structurally broken link stays broken", async () => {
+  const { persistence, db } = opSetup();
+  opSeedValid(db);
+  const id = opLink(db, mkid("lstruct"), { anchor_id: "missing-anchor" });
+  await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
+  await persistence.relinkLink(id, { actor_user_id: "lawyer" });
+  resolveLinkStatuses(db, OP_SCOPE);
+  assert.equal(statusOf(db, id), "broken", "missing anchor -> structural broken after relink");
+  db.close();
+});
+
+// 14. Legacy NULL-marker rows remain compatible (unlink works NULL -> set).
+test("A3-UNLINK-T1: legacy NULL-marker row unlinks normally (NULL -> set)", async () => {
+  const { persistence, db } = opSetup();
+  const id = opLink(db, mkid("lleg2"), { status: "needs_review" }); // both markers default NULL
+  await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
+  assert.equal(linkRow(db, id).unlinked_at, T0);
+  db.close();
+});
+
+// 15. Deterministic / stable: re-running resolver after unlink keeps broken; marker stable.
+test("A3-UNLINK-T1: deterministic — re-resolve after unlink is stable (broken; marker unchanged)", async () => {
+  const { persistence, db } = opSetup();
+  opSeedValid(db);
+  const id = opLink(db, mkid("ldet"));
+  await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
+  const at1 = linkRow(db, id).unlinked_at;
+  resolveLinkStatuses(db, OP_SCOPE);
+  resolveLinkStatuses(db, OP_SCOPE);
+  assert.equal(statusOf(db, id), "broken");
+  assert.equal(linkRow(db, id).unlinked_at, at1, "marker unchanged by repeated resolution");
+  db.close();
+});
+
+// 16. Re-unlink / re-relink rejected (illegal_transition); missing link -> invalid_argument.
+test("A3-UNLINK-T1: re-unlink, re-relink rejected (illegal_transition); missing link -> invalid_argument", async () => {
+  const { persistence, db } = opSetup();
+  const id = opLink(db, mkid("lidem"));
+  await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
+  await assert.rejects(
+    () => persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "again" }),
+    (e) => e.code === "illegal_transition",
+  );
+  await persistence.relinkLink(id, { actor_user_id: "lawyer" });
+  await assert.rejects(
+    () => persistence.relinkLink(id, { actor_user_id: "lawyer" }),
+    (e) => e.code === "illegal_transition",
+  );
+  await assert.rejects(
+    () => persistence.unlinkLink(mkid("nope"), { actor_user_id: "lawyer", unlink_reason: "r" }),
+    (e) => e.code === "invalid_argument",
+  );
+  assert.equal(chainCounts(db).count, 2, "only the successful unlink + relink appended events");
+  db.close();
+});
+
+// 17. No schema version bump: operation does not change CURRENT_SCHEMA_VERSION (stays 12).
+test("A3-UNLINK-T1: operation performs no schema bump (CURRENT_SCHEMA_VERSION == 12)", async () => {
+  const { persistence, db } = opSetup();
+  assert.equal(CURRENT_SCHEMA_VERSION, 12);
+  const id = opLink(db, mkid("lnos"));
+  await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
+  assert.equal(applySchema(db), CURRENT_SCHEMA_VERSION, "applySchema idempotent; version unchanged");
   db.close();
 });
