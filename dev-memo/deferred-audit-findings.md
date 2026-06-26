@@ -400,3 +400,13 @@ for a dedicated persistence-hardening WI.
 | Reason for deferral | The `casebox:link:list` / `casebox:link:export` handlers call the real `resolveLinkStatuses` / `buildExportCitations`, which need a real better-sqlite3 db. The desktop's better-sqlite3 binding is Electron-ABI (NODE_MODULE_VERSION mismatch under plain `node --test`), so — like every existing desktop IPC unit test — `tests/ipc-link-handlers.unit.test.mjs` mocks the db and cannot exercise the real resolver/export. The list-row projection is unit-tested directly via `projectRow`; the resolver/export functions are fully unit-tested in the `case-box-persistence` package. Only the thin handler→real-db→projected-DTO round-trip for list/export is uncovered in this lane's unit tests. |
 | Target future WI/backlog | A future Electron integration test (e.g. extend `apps/lawbar-desktop/tests/casebox-ipc.electron.test.mjs`) with a create→list→export→unlink→relink round-trip under a real Electron-ABI db — naturally bundled with the renderer/UI lane (WI-A3-LINK-UI) or a dedicated IPC-integration WI. |
 | Safe-to-proceed? | YES — create/unlink/relink reach persistence (mocked) + DTO projection + all validation/forbidden-field/scoped-preflight paths are unit-tested (18/18); the list/export real path delegates to already-tested persistence functions; the gap is a thin delegation, not a behavioral/security hole. |
+
+## WI-A3-LINK-IPC-T1 batch-audit-174 — stale governance prose on errorMap (doc-consistency)
+
+| Field | Value |
+|---|---|
+| Finding ID | LINK-IPC-T1-D2 |
+| Severity | Low |
+| Reason for deferral | Cleanup-only doc inconsistency, no runtime/security impact. The committed governance prose (dev-memo/run/queue.md Risk-flags + dev-memo/run/reviews/queue-review-094.md) still carries a leftover "no errorMap change" / "anchor_referenced NOT surfaced" phrase from before the user-authorized 1a amendment that added the one anchor_referenced exhaustiveness line. The Allowed-files + Commit-boundary blocks WERE correctly amended; only the prose is stale. The actual code change is exactly the authorized one-line sync. |
+| Target future WI/backlog | A follow-up docs-only touch (or fold into the next governance doc pass) reconciling the queue/review-094 prose with the amended errorMap allowance. |
+| Safe-to-proceed? | YES — governance-record prose only; the file-level governance (Allowed files / Commit boundary) is correct and content-bound; no behavioral/security/scope impact. |
