@@ -420,3 +420,13 @@ for a dedicated persistence-hardening WI.
 | Reason for deferral | Cleanup-only governance-prose drift, no product/runtime impact. The committed dev-memo/run/queue.md (WI-A3-LINK-UI-DESIGN-00 Scope / decision-2 STATE MODEL / acceptance) still describes export flags as part of the link-ROW state, which lags the FINAL design artifact's corrected contract (rows are RendererLink only — status + lifecycle; export flags live ONLY in the export-citations panel). The authoritative artifact is correct; the queue prose was authored before the design audit's M1 fix. |
 | Target future WI/backlog | Fold the queue-prose reconciliation into the same docs-only cleanup lane as D2 (stale errorMap prose) + D3 (IPC ADR §2 matterId table sync). |
 | Safe-to-proceed? | YES — governance-record prose only; the authoritative design artifact + file-level governance are correct; no behavioral/security/scope impact. |
+
+## WI-A3-LINK-UI-T1 batch-audit-176 — renderer-dto-sync link-response forbidden-field coverage (test hardening)
+
+| Field | Value |
+|---|---|
+| Finding ID | LINK-UI-T1-D5 |
+| Severity | Low |
+| Reason for deferral | Test-coverage hardening, NO active leak. `tests/renderer-dto-sync.test.mjs` does not add `LINK_RESPONSE_FIELDS` to its central `RESPONSE_ALLOWLISTS` authority-field regression set. Link rows are already projected through the canonical `LINK_RESPONSE_FIELDS` (excludes `tenant_id`/`payload_json`) at the IPC layer, and `tests/ipc-link-handlers.unit.test.mjs` covers that projection; the renderer never receives the excluded fields. The finding only asks to ALSO centralize the link-response forbidden-field invariant in the renderer sync guard. Cleanup-only; out of the WI-A3-LINK-UI-T1 acceptance scope (which covers the renderer↔canonical REQUEST-DTO PAIRS, not the response-allowlist regression set). |
+| Target future WI/backlog | Fold into the same docs/test-cleanup follow-up lane as D2/D3/D4 — add `["LINK_RESPONSE_FIELDS", ["tenant_id","actor_user_id","payload_json","exportFlag","export_flag"]]` (or equivalent) to the renderer-dto-sync RESPONSE_ALLOWLISTS forbidden-field coverage. |
+| Safe-to-proceed? | YES — the projection invariant is enforced at the canonical/IPC layer and IPC-tested; this is a renderer-side regression-coverage centralization, not a behavioral/security gap. Originating Layer-B batch audit `audit-mqw17g8o-wlw2sa` (BATCH-PASS C0 H0 M0 L1); study `dev-memo/study/2026-06-27-batch-audit-176.md`. |
