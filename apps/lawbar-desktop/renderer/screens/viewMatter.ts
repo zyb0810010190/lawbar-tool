@@ -20,6 +20,7 @@ import { renderChainHeadDisclosure } from "./viewMatterAudit.js";
 import { renderDocumentsDisclosure } from "./viewMatterDocuments.js";
 import { renderDeadlinesDisclosure } from "./viewMatterDeadlines.js";
 import { renderFactsDisclosure } from "./viewMatterFacts.js";
+import { renderLinksDisclosure } from "./viewMatterLinks.js";
 
 interface ViewMatterRow {
   readonly id: string;
@@ -402,12 +403,13 @@ function renderDetail(
   const documentsDetails = renderDocumentsDisclosure(doc, deps.api, row.id);
   const deadlinesDetails = renderDeadlinesDisclosure(doc, deps.api, row.id);
   const factsDetails = renderFactsDisclosure(doc, deps.api, row.id);
+  const linksDetails = renderLinksDisclosure(doc, deps.api, row.id);
   const chainHeadDetails = renderChainHeadDisclosure(doc, deps.api, row.id);
 
   const mainCol = el(
     "div",
     { class: "view-main" },
-    [infoCard, documentsDetails, deadlinesDetails, factsDetails],
+    [infoCard, documentsDetails, deadlinesDetails, factsDetails, linksDetails],
     doc,
   );
 

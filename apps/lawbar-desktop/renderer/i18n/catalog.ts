@@ -151,6 +151,61 @@ export const CATALOG = {
   "detail.archiveWarning": "归档将锁定本案件，操作记录于审计日志。",
   "detail.archiveButton": "归档…",
   "detail.archivedMarker": "本案件已归档。",
+
+  // ---- Evidence links section (WI-A3-LINK-UI-T1) ----
+  // resolver status (RendererLinkStatus) + the unlinked lifecycle marker.
+  "linkStatus.valid": "有效",
+  "linkStatus.needs_review": "待复核",
+  "linkStatus.broken": "已失效",
+  "linkStatus.unlinked": "已断开",
+  // export-citation flags (RendererExportCitationFlag); CLEAN = a clean citation.
+  "linkFlag.CLEAN": "可引用",
+  "linkFlag.UNLINKED": "已断开",
+  "linkFlag.BROKEN": "已失效",
+  "linkFlag.NEEDS_REVIEW": "待复核",
+  "linkFlag.NON_CITABLE": "不可引用",
+  "linkFlag.AMBIGUOUS": "引用不明确",
+  // section chrome
+  "links.section.summary": "证据链接",
+  "links.loading": "正在加载链接…",
+  "links.load.failed": "无法加载链接，请重试。",
+  "links.empty.title": "暂无证据链接",
+  "links.empty.body": "使用上方的「创建链接」将证据、笔记或主张要素关联到锚点。",
+  // row labels
+  "links.row.created": "创建于",
+  "links.row.unlinkedAt": "断开于",
+  "links.row.reason": "原因",
+  // create flow
+  "links.create.sourceTypeLabel": "来源类型",
+  "links.create.sourceIdLabel": "来源编号",
+  "links.create.anchorIdLabel": "锚点编号",
+  "links.create.button": "创建链接",
+  "links.create.working": "处理中…",
+  "links.create.success": "已创建。",
+  "links.create.sourceIdRequired": "来源编号为必填项。",
+  "links.create.anchorIdRequired": "锚点编号为必填项。",
+  "links.create.failed": "无法创建链接，请重试。",
+  // unlink flow (two-step, required reason)
+  "links.unlink.button": "断开",
+  "links.unlink.reasonLabel": "断开原因",
+  "links.unlink.confirm": "确认断开",
+  "links.unlink.warning": "断开将使该引用失效，并记录于审计日志。",
+  "links.unlink.reasonRequired": "断开原因为必填项。",
+  "links.unlink.working": "处理中…",
+  "links.unlink.success": "已断开。",
+  "links.unlink.failed": "无法断开链接，请重试。",
+  // relink flow (one-click, no reason)
+  "links.relink.button": "恢复",
+  "links.relink.working": "处理中…",
+  "links.relink.success": "已恢复。",
+  "links.relink.failed": "无法恢复链接，请重试。",
+  // export-citations panel
+  "links.export.button": "导出引用",
+  "links.export.working": "正在生成引用…",
+  "links.export.title": "引用清单",
+  "links.export.empty": "暂无可导出的引用。",
+  "links.export.failed": "无法生成引用，请重试。",
+  "links.export.summaryLabel": "按分类汇总",
 } as const;
 
 export type CatalogId = keyof typeof CATALOG;

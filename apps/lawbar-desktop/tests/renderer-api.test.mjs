@@ -36,6 +36,11 @@ function makeMockClient() {
       confirmDocketEntry: mk("confirmDocketEntry"),
       editDocketEntry: mk("editDocketEntry"),
       transitionFact: mk("transitionFact"),
+      createLink: mk("createLink"),
+      unlinkLink: mk("unlinkLink"),
+      relinkLink: mk("relinkLink"),
+      listLinks: mk("listLinks"),
+      exportLinkCitations: mk("exportLinkCitations"),
     },
   };
 }
@@ -353,4 +358,73 @@ test("createCaseBoxApi: success envelope value object reference passes through u
   const env = await api.listMatters({ status: "active" });
   assert.equal(env.ok, true);
   assert.equal(env.value, valueObj, "wrapper must pass the value reference through");
+});
+
+// --- Evidence link channels (WI-A3-LINK-UI-T1) ---
+
+test("createCaseBoxApi: createLink forwards only the 4 allowlisted fields, drops identity", async () => {
+  const m = makeMockClient();
+  const api = createCaseBoxApi(m.client);
+  await api.createLink({
+    matterId: VALID_ULID,
+    sourceType: "evidence",
+    sourceId: "src-1",
+    anchorId: "anc-1",
+    // renderer must never forward server-authority identity:
+    tenantId: "evil-tenant",
+    actorUserId: "evil-actor",
+    status: "valid",
+  });
+  assert.equal(m.calls.length, 1);
+  assert.equal(m.calls[0].name, "createLink");
+  assert.deepEqual(m.calls[0].dto, {
+    matterId: VALID_ULID,
+    sourceType: "evidence",
+    sourceId: "src-1",
+    anchorId: "anc-1",
+  });
+  assert.equal("tenantId" in m.calls[0].dto, false);
+  assert.equal("actorUserId" in m.calls[0].dto, false);
+});
+
+test("createCaseBoxApi: unlinkLink forwards { matterId, linkId, unlinkReason }, drops identity", async () => {
+  const m = makeMockClient();
+  const api = createCaseBoxApi(m.client);
+  await api.unlinkLink({
+    matterId: VALID_ULID,
+    linkId: "01jzlink00000000000000000a",
+    unlinkReason: "superseded",
+    tenantId: "evil",
+    actorUserId: "evil",
+  });
+  assert.equal(m.calls[0].name, "unlinkLink");
+  assert.deepEqual(m.calls[0].dto, {
+    matterId: VALID_ULID,
+    linkId: "01jzlink00000000000000000a",
+    unlinkReason: "superseded",
+  });
+});
+
+test("createCaseBoxApi: relinkLink forwards only { matterId, linkId } (no reason)", async () => {
+  const m = makeMockClient();
+  const api = createCaseBoxApi(m.client);
+  await api.relinkLink({
+    matterId: VALID_ULID,
+    linkId: "01jzlink00000000000000000a",
+    unlinkReason: "should-be-stripped",
+    actorUserId: "evil",
+  });
+  assert.equal(m.calls[0].name, "relinkLink");
+  assert.deepEqual(m.calls[0].dto, { matterId: VALID_ULID, linkId: "01jzlink00000000000000000a" });
+});
+
+test("createCaseBoxApi: listLinks + exportLinkCitations forward only matterId", async () => {
+  const m = makeMockClient();
+  const api = createCaseBoxApi(m.client);
+  await api.listLinks({ matterId: VALID_ULID, tenantId: "evil" });
+  await api.exportLinkCitations({ matterId: VALID_ULID, actorUserId: "evil" });
+  assert.equal(m.calls[0].name, "listLinks");
+  assert.deepEqual(m.calls[0].dto, { matterId: VALID_ULID });
+  assert.equal(m.calls[1].name, "exportLinkCitations");
+  assert.deepEqual(m.calls[1].dto, { matterId: VALID_ULID });
 });
