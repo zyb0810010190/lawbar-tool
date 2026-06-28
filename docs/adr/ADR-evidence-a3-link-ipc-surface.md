@@ -70,8 +70,8 @@ returns **`invalid_payload`** (with `details.schemaPath`), NOT `invalid_argument
 | DTO (renderer → main, camelCase) | Fields | Main injects (persistence snake_case) | Forbidden from renderer |
 |---|---|---|---|
 | `CreateLinkDto` | `matterId`, `sourceType`, `sourceId`, `anchorId` | `tenant_id`, `actor_user_id` | `tenantId`/`tenant_id`, `actorUserId`/`actor_user_id`, `id`, `status`, `createdAt`, `unlinkedAt`, `unlinkReason` |
-| `UnlinkLinkDto` | `linkId`, `unlinkReason` | `actor_user_id` | `actorUserId`/`actor_user_id` |
-| `RelinkLinkDto` | `linkId` | `actor_user_id` | `actorUserId`/`actor_user_id`, `unlinkReason`/`reason` (relink takes no reason — matches persistence) |
+| `UnlinkLinkDto` | `matterId`, `linkId`, `unlinkReason` | `actor_user_id` | `actorUserId`/`actor_user_id` |
+| `RelinkLinkDto` | `matterId`, `linkId` | `actor_user_id` | `actorUserId`/`actor_user_id`, `unlinkReason`/`reason` (relink takes no reason — matches persistence) |
 | `ListLinksDto` | `matterId` | `tenant_id` (scope) | `tenantId`/`tenant_id` |
 | `ExportLinkCitationsDto` | `matterId` | `tenant_id` (scope) | `tenantId`/`tenant_id` |
 
