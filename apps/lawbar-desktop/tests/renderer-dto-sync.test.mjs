@@ -153,6 +153,10 @@ const RESPONSE_ALLOWLISTS = [
   // DOCKET_ENTRY carries proposer + lifecycle actor identities; all must stay out of the allowlist.
   ["DOCKET_ENTRY_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "confirmation_actor_user_id", "dismissal_actor_user_id"]],
   ["CONFIRM_DOCKET_DEADLINE_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
+  // LINK-UI-T1-D5: the link response allowlist excludes authority (tenant_id /
+  // actor_user_id) + internal (payload_json) AND must never admit an export flag
+  // (export flags live only in the export-citations panel, never on a link row).
+  ["LINK_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "payload_json", "exportFlag", "export_flag"]],
 ];
 
 test("response projection: canonical *_RESPONSE_FIELDS allowlists exist and are non-empty", () => {
