@@ -147,6 +147,9 @@ const EVENT_KIND_ID: Record<CaseBoxAuditEventKind, CatalogId> = {
   DOCKET_ENTRY_CONFIRMED: "eventKind.DOCKET_ENTRY_CONFIRMED",
   DOCKET_ENTRY_DISMISSED: "eventKind.DOCKET_ENTRY_DISMISSED",
   DOCKET_ENTRY_REVISED: "eventKind.DOCKET_ENTRY_REVISED",
+  LINK_CREATED: "eventKind.LINK_CREATED",
+  LINK_UNLINKED: "eventKind.LINK_UNLINKED",
+  LINK_RELINKED: "eventKind.LINK_RELINKED",
 };
 
 // Label for a KNOWN audit event kind. (Screen-side handling of null/unknown/missing kinds — the

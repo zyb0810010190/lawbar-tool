@@ -18,6 +18,9 @@ echo "Running A0.7 hard gate (EVW5: enforce marker only when A0.7-dependent) + s
 bash "$ROOT/scripts/workflow/check-a07-gate.sh" || exit 1
 bash "$ROOT/scripts/workflow/check-a07-gate.test.sh" || exit 1
 
+echo "Running internal-tarball drift guard (DESKTOP-DEPS-00)..."
+node "$ROOT/scripts/workflow/check-internal-tarballs.mjs" || exit 1
+
 echo "Running desktop app test suite..."
 npm --prefix apps/lawbar-desktop test || exit 1
 

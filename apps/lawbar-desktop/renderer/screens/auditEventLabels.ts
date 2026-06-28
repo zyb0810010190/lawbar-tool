@@ -59,6 +59,9 @@ export const EVENT_KIND_LABELS: Readonly<Record<string, string>> = Object.freeze
   DOCKET_ENTRY_CONFIRMED: "Docket proposal confirmed",
   DOCKET_ENTRY_DISMISSED: "Docket proposal dismissed",
   DOCKET_ENTRY_REVISED: "Docket proposal revised",
+  LINK_CREATED: "Evidence link created",
+  LINK_UNLINKED: "Evidence link unlinked",
+  LINK_RELINKED: "Evidence link relinked",
 });
 
 /**
