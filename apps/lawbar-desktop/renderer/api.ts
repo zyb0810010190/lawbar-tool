@@ -27,6 +27,11 @@ import type {
   RegisterDocumentDto,
   TransitionFactDto,
   TransitionDeadlineDto,
+  CreateLinkDto,
+  UnlinkLinkDto,
+  RelinkLinkDto,
+  ListLinksDto,
+  ExportLinkCitationsDto,
 } from "./types.js";
 
 import {
@@ -49,6 +54,11 @@ import {
   RENDERER_LIST_FACTS_DTO_FIELDS,
   RENDERER_LIST_MATTERS_DTO_FIELDS,
   RENDERER_REGISTER_DOCUMENT_DTO_FIELDS,
+  RENDERER_CREATE_LINK_DTO_FIELDS,
+  RENDERER_UNLINK_LINK_DTO_FIELDS,
+  RENDERER_RELINK_LINK_DTO_FIELDS,
+  RENDERER_LIST_LINKS_DTO_FIELDS,
+  RENDERER_EXPORT_LINK_CITATIONS_DTO_FIELDS,
 } from "./types.js";
 
 // Shape of the preload-injected client (`window.lawbar.caseBox`).
@@ -72,6 +82,11 @@ export interface CaseBoxClient {
   listDocketEntries(dto: ListDocketEntriesDto): Promise<IpcEnvelope<unknown>>;
   dismissDocketEntry(dto: DismissDocketEntryDto): Promise<IpcEnvelope<unknown>>;
   editDocketEntry(dto: EditDocketEntryDto): Promise<IpcEnvelope<unknown>>;
+  createLink(dto: CreateLinkDto): Promise<IpcEnvelope<unknown>>;
+  unlinkLink(dto: UnlinkLinkDto): Promise<IpcEnvelope<unknown>>;
+  relinkLink(dto: RelinkLinkDto): Promise<IpcEnvelope<unknown>>;
+  listLinks(dto: ListLinksDto): Promise<IpcEnvelope<unknown>>;
+  exportLinkCitations(dto: ExportLinkCitationsDto): Promise<IpcEnvelope<unknown>>;
 }
 
 export interface CaseBoxApi {
@@ -94,6 +109,11 @@ export interface CaseBoxApi {
   listDocketEntries(dto: ListDocketEntriesDto): Promise<IpcEnvelope<unknown>>;
   dismissDocketEntry(dto: DismissDocketEntryDto): Promise<IpcEnvelope<unknown>>;
   editDocketEntry(dto: EditDocketEntryDto): Promise<IpcEnvelope<unknown>>;
+  createLink(dto: CreateLinkDto): Promise<IpcEnvelope<unknown>>;
+  unlinkLink(dto: UnlinkLinkDto): Promise<IpcEnvelope<unknown>>;
+  relinkLink(dto: RelinkLinkDto): Promise<IpcEnvelope<unknown>>;
+  listLinks(dto: ListLinksDto): Promise<IpcEnvelope<unknown>>;
+  exportLinkCitations(dto: ExportLinkCitationsDto): Promise<IpcEnvelope<unknown>>;
 }
 
 // Strip any DTO key not in the renderer-side allowlist. Drops with a
@@ -158,6 +178,16 @@ export function createCaseBoxApi(client: CaseBoxClient): CaseBoxApi {
       client.dismissDocketEntry(stripDtoFields(dto, RENDERER_DISMISS_DOCKET_DTO_FIELDS)),
     editDocketEntry: (dto) =>
       client.editDocketEntry(stripDtoFields(dto, RENDERER_EDIT_DOCKET_DTO_FIELDS)),
+    createLink: (dto) =>
+      client.createLink(stripDtoFields(dto, RENDERER_CREATE_LINK_DTO_FIELDS)),
+    unlinkLink: (dto) =>
+      client.unlinkLink(stripDtoFields(dto, RENDERER_UNLINK_LINK_DTO_FIELDS)),
+    relinkLink: (dto) =>
+      client.relinkLink(stripDtoFields(dto, RENDERER_RELINK_LINK_DTO_FIELDS)),
+    listLinks: (dto) =>
+      client.listLinks(stripDtoFields(dto, RENDERER_LIST_LINKS_DTO_FIELDS)),
+    exportLinkCitations: (dto) =>
+      client.exportLinkCitations(stripDtoFields(dto, RENDERER_EXPORT_LINK_CITATIONS_DTO_FIELDS)),
   };
 }
 

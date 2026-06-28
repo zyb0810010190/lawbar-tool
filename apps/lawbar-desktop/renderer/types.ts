@@ -359,3 +359,122 @@ export const RENDERER_TRANSITION_DEADLINE_DTO_FIELDS = Object.freeze([
   "to",
   "transition_reason",
 ] as const);
+
+// ---------------------------------------------------------------------------
+// Evidence link lifecycle (WI-A3-LINK-UI-T1). Renderer-side mirrors of the
+// canonical link DTOs in src/caseBox/dto/link.ts (renderer cannot import from
+// src/caseBox — renderer-import lint forbids it; field-name parity is asserted
+// by tests/renderer-dto-sync.test.mjs). The server injects every authority field
+// (tenant_id / actor_user_id); persistence owns id / status / created_at / the
+// unlink markers; the renderer forwards only the camelCase fields below.
+// ---------------------------------------------------------------------------
+
+// The 5 source kinds an evidence link may attach (case_box_links CHECK enum). The
+// server re-validates; the create select offers exactly these.
+export type LinkSourceType = "evidence" | "note" | "question" | "calcTerm" | "claimElement";
+
+// Resolver-computed link status (resolveLinkStatuses). A LIST-row property.
+export type RendererLinkStatus = "valid" | "needs_review" | "broken";
+
+// Export-citation degradation flags (exportLinkCitations). `null` ⇒ a clean
+// citation (CLEAN). These appear ONLY in the export-citations panel, never on a
+// list row.
+export type RendererExportCitationFlag =
+  | "NEEDS_REVIEW"
+  | "BROKEN"
+  | "NON_CITABLE"
+  | "AMBIGUOUS"
+  | "UNLINKED";
+
+export interface CreateLinkDto {
+  readonly matterId: string;
+  readonly sourceType: string;
+  readonly sourceId: string;
+  readonly anchorId: string;
+}
+
+export interface UnlinkLinkDto {
+  readonly matterId: string;
+  readonly linkId: string;
+  readonly unlinkReason: string;
+}
+
+export interface RelinkLinkDto {
+  readonly matterId: string;
+  readonly linkId: string;
+}
+
+export interface ListLinksDto {
+  readonly matterId: string;
+}
+
+export interface ExportLinkCitationsDto {
+  readonly matterId: string;
+}
+
+// The renderer-facing link ROW (mirrors the canonical LINK_RESPONSE_FIELDS, which
+// EXCLUDES tenant_id + payload_json). It carries resolver status + lifecycle ONLY
+// — there is intentionally NO exportFlag on a row (export flags live only in the
+// RendererExportCitationResult, surfaced in the export-citations panel).
+export interface RendererLink {
+  readonly id: string;
+  readonly matter_id: string;
+  readonly source_type: string;
+  readonly source_id: string;
+  readonly anchor_id: string;
+  readonly status: RendererLinkStatus;
+  readonly created_at: string;
+  readonly unlinked_at: string | null;
+  readonly unlink_reason: string | null;
+}
+
+// Renderer-LOCAL export-citation shapes. The renderer MUST NOT import
+// ExportCitationResult / ExportCitation from case-box-persistence (or any type
+// from src/caseBox) — check-renderer-imports forbids it. These mirror the
+// IPC-returned shape structurally, for read-only rendering in the export panel.
+export interface RendererExportCitation {
+  readonly linkId: string;
+  readonly sourceType: string;
+  readonly sourceId: string;
+  readonly documentId: string | null;
+  readonly physicalPageIndex: number | null;
+  readonly linkStatus: string;
+  readonly exportFlag: RendererExportCitationFlag | null;
+  readonly citation:
+    | { readonly citationVolume: string; readonly citationPageLabel: string; readonly text: string }
+    | null;
+}
+
+export interface RendererExportCitationResult {
+  readonly citations: ReadonlyArray<RendererExportCitation>;
+  // Count of links by their export classification ("CLEAN" + each flag).
+  readonly byFlag: Readonly<Record<string, number>>;
+}
+
+// Field-name allowlists for the 5 link channels. Each set-equals its canonical
+// *_LINK_DTO_FIELDS counterpart in src/caseBox/dto/link.ts (renderer-dto-sync).
+export const RENDERER_CREATE_LINK_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "sourceType",
+  "sourceId",
+  "anchorId",
+] as const);
+
+export const RENDERER_UNLINK_LINK_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "linkId",
+  "unlinkReason",
+] as const);
+
+export const RENDERER_RELINK_LINK_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "linkId",
+] as const);
+
+export const RENDERER_LIST_LINKS_DTO_FIELDS = Object.freeze([
+  "matterId",
+] as const);
+
+export const RENDERER_EXPORT_LINK_CITATIONS_DTO_FIELDS = Object.freeze([
+  "matterId",
+] as const);

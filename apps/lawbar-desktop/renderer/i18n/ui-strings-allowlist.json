@@ -253,19 +253,19 @@
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 231,
+    "line": 232,
     "text": "${jurisdiction.value}${lockedMarker}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 251,
+    "line": 252,
     "text": "${p.role} — ${p.display_name} (${p.party_kind})",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 422,
+    "line": 424,
     "text": "§",
     "kind": "text"
   },
@@ -1059,6 +1059,126 @@
     "file": "renderer/screens/viewMatterFacts.ts",
     "line": 504,
     "text": "Show more",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 35,
+    "text": "evidence",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 36,
+    "text": "note",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 37,
+    "text": "question",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 38,
+    "text": "calcTerm",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 39,
+    "text": "claimElement",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 257,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 274,
+    "text": "${link.source_type} · ${link.source_id} → ${link.anchor_id}",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 287,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 291,
+    "text": "${t(\"links.row.created\")} ${formatLocalDateTime(link.created_at)}",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 307,
+    "text": "${t(\"linkStatus.unlinked\")} · ${t(\"links.row.unlinkedAt\")} ${formatLocalDateTime(\n            link.unlinked_at ?? link.created_at,\n          )}",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 324,
+    "text": "${t(\"links.row.reason\")}: ${link.unlink_reason}",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 592,
+    "text": "AMBIGUOUS",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 592,
+    "text": "BROKEN",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 592,
+    "text": "CLEAN",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 592,
+    "text": "NEEDS_REVIEW",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 592,
+    "text": "NON_CITABLE",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 592,
+    "text": "UNLINKED",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 602,
+    "text": "${t(\"links.export.summaryLabel\")} — ${summaryParts.join(\" · \")}",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 626,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 627,
+    "text": "${c.sourceType} · ${c.sourceId}",
     "kind": "text"
   }
 ]
