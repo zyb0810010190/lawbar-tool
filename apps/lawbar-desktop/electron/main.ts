@@ -147,6 +147,22 @@ void app.whenReady().then(async () => {
     const { runTarballPocProbe } = await import("../src/tarball-poc/probe.js");
     (globalThis as { __lawbarTarballPocProbe?: typeof runTarballPocProbe }).__lawbarTarballPocProbe = runTarballPocProbe;
   }
+
+  // D1 link round-trip test seed hook (WI-A3-LINK-D1-ROUNDTRIP-T1; ADR
+  // ADR-evidence-a3-link-d1-roundtrip-closure rev-1 §0/§11). DEFAULT-OFF: when
+  // (and only when) LAWBAR_CASEBOX_LINK_SEED_TEST_HOOK=true (set ONLY by the
+  // wrapper-driven tests/casebox-link-roundtrip.electron.test.mjs), lazily install
+  // a fixed-fixture seed function on globalThis that the test invokes via
+  // app.evaluate. The dynamic import runs in main's NATIVE ESM loader (NOT in
+  // app.evaluate's vm). It registers NO IPC channel, NO preload/contextBridge
+  // surface, NO renderer global, and accepts no raw SQL / arbitrary path / payload
+  // (see src/caseBox/testSeed/linkRoundtripSeed.ts). Production launches (env var
+  // unset; default) install nothing and never import the seed module.
+  if (process.env.LAWBAR_CASEBOX_LINK_SEED_TEST_HOOK === "true") {
+    const { seedLinkRoundtripFixture } = await import("../src/caseBox/testSeed/linkRoundtripSeed.js");
+    (globalThis as { __lawbarCaseBoxLinkSeed?: typeof seedLinkRoundtripFixture }).__lawbarCaseBoxLinkSeed =
+      seedLinkRoundtripFixture;
+  }
 });
 
 app.on("window-all-closed", () => {

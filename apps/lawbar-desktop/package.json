@@ -22,6 +22,7 @@
     "test:ipc-unit": "npm run build && node --test tests/ipc-handlers.unit.test.mjs tests/ipc-casebox-handlers.unit.test.mjs tests/ipc-casebox-docket-edit.unit.test.mjs",
     "test:ipc-contract": "npm run build && node --test tests/dto-contract.test.mjs",
     "test:ipc-packaged": "LAWBAR_TEST_FILES=tests/casebox-ipc.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
+    "test:link-roundtrip-packaged": "LAWBAR_TEST_FILES=tests/casebox-link-roundtrip.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
     "test:ui-router": "npm run build && node --test tests/renderer-router.test.mjs",
     "test:ui-shape-sync": "node --test tests/renderer-dto-sync.test.mjs",
     "test:ui-color": "node --test tests/renderer-no-hardcoded-color.test.mjs",
