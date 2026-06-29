@@ -82,10 +82,10 @@ test("facade: eventKindLabel resolves a non-empty zh-CN label for every audit ev
   }
 });
 
-test("catalog: holds all 50 eventKind.* keys + the enum-label keys", () => {
+test("catalog: holds all 53 eventKind.* keys + the enum-label keys", () => {
   const keys = Object.keys(CATALOG);
   const eventKindKeys = keys.filter((k) => k.startsWith("eventKind."));
-  assert.equal(eventKindKeys.length, 50, "expected 50 eventKind.* catalog keys");
+  assert.equal(eventKindKeys.length, 53, "expected 53 eventKind.* catalog keys");
   for (const id of ["matterType.litigation", "confidentiality.sealed", "status.active",
     "deadlineUrgency.overdue", "ledgerCategory.counsel"]) {
     assert.ok(id in CATALOG, `missing catalog key ${id}`);

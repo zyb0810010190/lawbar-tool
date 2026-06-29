@@ -89,6 +89,9 @@ export const CATALOG = {
   "eventKind.DOCKET_ENTRY_CONFIRMED": "立案条目已确认",
   "eventKind.DOCKET_ENTRY_DISMISSED": "立案条目已驳回",
   "eventKind.DOCKET_ENTRY_REVISED": "立案条目已修订",
+  "eventKind.LINK_CREATED": "证据链接已创建",
+  "eventKind.LINK_UNLINKED": "证据链接已解除",
+  "eventKind.LINK_RELINKED": "证据链接已重新链接",
 
   // ---- shared keys ----
   "common.loadMore": "加载更多",
