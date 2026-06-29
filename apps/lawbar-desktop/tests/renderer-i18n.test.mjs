@@ -11,6 +11,11 @@ import {
   ledgerCategoryLabel,
   eventKindLabel,
 } from "../dist/renderer/i18n/labels.js";
+// Canonical audit-event-kind vocabulary (the contract owns it). Deriving the
+// coverage list from here keeps the per-kind label test exhaustive + self-
+// maintaining for any future kind (WI-A3-LINK-T2-AUD-L1, closing T2-AUD-L1).
+// Same import pattern as tests/renderer-audit-labels.test.mjs.
+import { CASE_BOX_AUDIT_EVENT_KINDS } from "case-box-contract";
 
 test("LOCALE is zh-CN (v1, no runtime switch)", () => {
   assert.equal(LOCALE, "zh-CN");
@@ -59,21 +64,10 @@ test("facade: small enums resolve via exhaustive switch (every member)", () => {
   assert.equal(ledgerCategoryLabel("non_litigation"), "非诉讼");
 });
 
-const ALL_EVENT_KINDS = [
-  "MATTER_REGISTERED", "MATTER_ARCHIVED", "MATTER_UNARCHIVED", "DOCUMENT_REGISTERED",
-  "DOCUMENT_OCR_SUBMITTED", "DOCUMENT_OCR_COMPLETE", "DOCUMENT_OCR_FAILED", "DOCUMENT_TRIAGED",
-  "DOCUMENT_TAGGED", "DOCUMENT_REVIEWED", "DOCUMENT_SOFT_DELETED", "OCR_LINK_SNAPSHOTTED",
-  "OCR_LINK_REFRESHED", "DEADLINE_REGISTERED", "DEADLINE_MET", "DEADLINE_MISSED", "DEADLINE_WITHDRAWN",
-  "DEADLINE_MISSED_TO_MET", "EVIDENCE_PROPOSED", "EVIDENCE_ACCEPTED", "EVIDENCE_REJECTED",
-  "EVIDENCE_SUPERSEDED", "FACT_PROPOSED", "FACT_REVIEWED", "FACT_ACCEPTED", "FACT_REJECTED",
-  "FACT_REPLACEMENT_ACCEPTED", "PRIVILEGE_MARKER_PROPOSED", "PRIVILEGE_MARKER_CONFIRMED",
-  "PRIVILEGE_MARKER_DISMISSED", "PRIVILEGE_MARKER_WAIVED", "EXTERNAL_OCR_AUTHORIZED",
-  "EXTERNAL_OCR_REVOKED", "SYNC_GRANT_GRANTED", "SYNC_GRANT_REVOKED", "LLM_EXTRACTION_OPT_IN",
-  "LLM_EXTRACTION_OPT_OUT", "PRIVILEGE_LOG_EXPORTED", "CASE_DATA_EXPORTED", "DOCUMENT_ACCESSED",
-  "DOCUMENT_PRINTED", "DOCUMENT_SHARED", "CLASSIFICATION_SET", "CLASSIFICATION_UPGRADED",
-  "CLASSIFICATION_DOWNGRADED", "CLASSIFICATION_RESET_TO_UNCLASSIFIED", "DOCKET_ENTRY_PROPOSED",
-  "DOCKET_ENTRY_CONFIRMED", "DOCKET_ENTRY_DISMISSED", "DOCKET_ENTRY_REVISED",
-];
+// Derived from the canonical contract vocabulary (not a hand-maintained list),
+// so the per-kind label test below covers EVERY audit kind — incl. the A3 link
+// kinds LINK_CREATED/LINK_UNLINKED/LINK_RELINKED — and any future kind.
+const ALL_EVENT_KINDS = Object.keys(CASE_BOX_AUDIT_EVENT_KINDS);
 
 test("facade: eventKindLabel resolves a non-empty zh-CN label for every audit event kind", () => {
   for (const kind of ALL_EVENT_KINDS) {
