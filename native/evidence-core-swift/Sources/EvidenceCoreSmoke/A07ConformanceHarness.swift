@@ -1,19 +1,29 @@
-// A07ConformanceHarness.swift — Evidence Core Swift: A0.7 renderer-conformance HARNESS (WI-ENA8).
+// A07ConformanceHarness.swift — Evidence Core Swift: A0.7 renderer-conformance HARNESS (WI-ENA8;
+// messy-fixture coverage extended in WI-EVIDENCE-A0.7-FIXTURE-COVERAGE-00).
 //
 // First real A0.7 harness per docs/adr/ADR-evidence-a07-renderer-conformance-gate.md (A07-GATE-00).
-// It LOADS the existing synthetic fixture, READS the committed oracle (oracle.json — the expected
-// values are NOT hardcoded here; they are decoded from disk so the harness cannot self-fulfill a
-// pass), computes OBSERVED page count / page-box extents / normalized sample values, compares them to
-// the oracle within the oracle's own tolerance, and emits a deterministic classified verdict.
+// It LOADS a synthetic fixture, READS the committed oracle (oracle.json — the expected values are NOT
+// hardcoded here; they are decoded from disk so the harness cannot self-fulfill a pass), computes
+// OBSERVED page count / page-box extents / box origin / cropBox / rotation / normalized sample values,
+// compares them to the oracle within the oracle's own tolerance, and emits a deterministic classified
+// verdict.
+//
+// Coverage (WI-EVIDENCE-A0.7-FIXTURE-COVERAGE-00): beyond the original mediaBox-extent-only check, the
+// harness now also observes — when the oracle asserts them — per-page mediaBox ORIGIN (non-zero origin),
+// per-page CROPBOX (cropBox/mediaBox mismatch; PDFKit defaults cropBox to mediaBox when absent), and
+// per-page ROTATION. Sample normalization subtracts the sample page's box ORIGIN (nx = (x-originX)/width),
+// so an "origin not subtracted" bug is a detectable Class-1. All new oracle fields are OPTIONAL/additive,
+// so a pre-existing oracle (no origin/cropBox/rotation/samplePageIndex) still decodes and behaves exactly
+// as before (origin defaults to 0 → (x-0)/w, unchanged).
 //
 // It writes NO marker, touches NO `dev-memo/run/evidence/**`, creates NO provenance/HMAC, builds NO
 // tamper guard, and adds NO anchors / citation / persistence / UI. A passing harness result is NOT a
 // marker (A07-GATE-00 §5): a durable A0.7 marker requires provenance + the tamper guard, which are
 // separate authorized WIs. `not_implemented` is a FAIL, never a pass; a Class-2 (geometry-source
-// instability) result is a STOP and is never downgraded to pass.
+// instability) result is a STOP and is never downgraded to pass; `inconclusive` is NOT pass.
 //
-// The expected-value authority is the committed oracle (manifest.json / oracle.json), authored under
-// WI-ENA7 BEFORE this harness existed (A07-GATE-00 §3 — oracle independent of code under test).
+// The expected-value authority is the committed oracle, authored from each fixture's KNOWN construction
+// and INDEPENDENT of this code (A07-GATE-00 §3 — never back-fill harness output into an oracle).
 
 import Foundation
 #if canImport(PDFKit)
@@ -31,8 +41,9 @@ public enum A07Classification: String, Equatable {
     case ok
     /// Box geometry is correct, but a derived/normalized value is wrong: a local normalization/math bug.
     case class_1_normalization_math_bug
-    /// The renderer's own reported structure (page count / page box) disagrees with the captured/recorded
-    /// geometry: geometry-source instability. STOP / reassess (A07-GATE-00 §4). Never downgraded to pass.
+    /// The renderer's own reported structure (page count / page box extent / box origin / cropBox /
+    /// rotation) disagrees with the captured/recorded geometry: geometry-source instability.
+    /// STOP / reassess (A07-GATE-00 §4). Never downgraded to pass.
     case class_2_geometry_source_instability
     /// The fixture failed to load/parse, or the oracle failed to decode / is malformed.
     case fixture_or_oracle_invalid
@@ -64,8 +75,19 @@ public struct A07ConformanceResult: Equatable {
 // MARK: - Oracle (decoded from the committed oracle.json; expected values are NOT hardcoded here)
 
 struct A07Oracle: Decodable {
+    /// A PDF-space rectangle {x, y, width, height}. Used for an OPTIONAL expected cropBox.
+    struct Rect: Decodable { let x: Double; let y: Double; let width: Double; let height: Double }
+
     struct Expected: Decodable {
-        struct Box: Decodable { let pageIndex: Int; let width: Double; let height: Double }
+        struct Box: Decodable {
+            let pageIndex: Int
+            let width: Double           // mediaBox extent (existing)
+            let height: Double          // mediaBox extent (existing)
+            let x: Double?              // OPTIONAL mediaBox origin x (default 0)
+            let y: Double?              // OPTIONAL mediaBox origin y (default 0)
+            let rotation: Int?         // OPTIONAL expected page rotation (degrees); checked iff present
+            let cropBox: Rect?         // OPTIONAL expected cropBox (origin+extent); checked iff present
+        }
         struct Sample: Decodable {
             struct Pdf: Decodable { let x: Double; let y: Double }
             struct Norm: Decodable { let nx: Double; let ny: Double }
@@ -75,6 +97,7 @@ struct A07Oracle: Decodable {
         let pageCount: Int
         let perPageMediaBox: [Box]
         let samplePoints: [Sample]
+        let samplePageIndex: Int?      // OPTIONAL page used for sample normalization (default 0)
     }
     struct Tolerance: Decodable { let absolutePdfPoints: Double }
     let expected: Expected
@@ -86,12 +109,21 @@ struct A07Oracle: Decodable {
 // MARK: - Observed geometry (produced by the harness from the real renderer)
 
 struct A07Observed: Equatable {
-    struct Box: Equatable { let pageIndex: Int; let width: Double; let height: Double }
+    struct Rect: Equatable { let x: Double; let y: Double; let width: Double; let height: Double }
+    struct Box: Equatable {
+        let pageIndex: Int
+        let originX: Double
+        let originY: Double
+        let width: Double
+        let height: Double
+        let rotation: Int
+        let cropBox: Rect
+    }
     struct SampleNorm: Equatable { let nx: Double; let ny: Double }
     let pageCount: Int
     let perPageMediaBox: [Box]
-    /// Normalized sample values computed by the harness from the OBSERVED page-0 box (parallel to
-    /// the oracle's samplePoints, same order). This is the "math under test".
+    /// Normalized sample values computed by the harness from the OBSERVED sample-page box, subtracting
+    /// the box origin (nx = (x-originX)/width). This is the "math under test".
     let sampleNormalized: [SampleNorm]
 }
 
@@ -127,23 +159,34 @@ public enum EvidenceCoreA07Harness {
         }
         let pageCount = document.pageCount
 
-        // 3. Observed per-page mediaBox for the indices the oracle references.
+        // 3. Observed per-page geometry (mediaBox origin+extent, cropBox, rotation) for the indices the
+        //    oracle references. PDFKit reports bounds(for: .cropBox) defaulting to the mediaBox when the
+        //    page declares no CropBox.
         var boxes: [A07Observed.Box] = []
         for box in oracle.expected.perPageMediaBox {
             guard box.pageIndex >= 0, box.pageIndex < pageCount, let page = document.page(at: box.pageIndex) else {
                 continue // missing page -> handled as a box-count mismatch in evaluate()
             }
-            let rect = page.bounds(for: .mediaBox)
-            boxes.append(.init(pageIndex: box.pageIndex, width: Double(rect.width), height: Double(rect.height)))
+            let mb = page.bounds(for: .mediaBox)
+            let cb = page.bounds(for: .cropBox)
+            boxes.append(.init(pageIndex: box.pageIndex,
+                               originX: Double(mb.origin.x), originY: Double(mb.origin.y),
+                               width: Double(mb.width), height: Double(mb.height),
+                               rotation: page.rotation,
+                               cropBox: .init(x: Double(cb.origin.x), y: Double(cb.origin.y),
+                                              width: Double(cb.width), height: Double(cb.height))))
         }
 
-        // 4. Observed normalized sample values, computed from the OBSERVED page-0 box via nx=x/w, ny=y/h.
+        // 4. Observed normalized sample values, computed from the OBSERVED sample-page box via
+        //    nx=(x-originX)/w, ny=(y-originY)/h. The sample page is oracle.samplePageIndex (default 0).
         var sampleNorm: [A07Observed.SampleNorm] = []
-        if let page0 = document.page(at: 0) {
-            let r = page0.bounds(for: .mediaBox)
-            let w = Double(r.width), h = Double(r.height)
+        let samplePage = oracle.expected.samplePageIndex ?? 0
+        if !oracle.expected.samplePoints.isEmpty, samplePage >= 0, samplePage < pageCount,
+           let page = document.page(at: samplePage) {
+            let r = page.bounds(for: .mediaBox)
+            let ox = Double(r.origin.x), oy = Double(r.origin.y), w = Double(r.width), h = Double(r.height)
             for s in oracle.expected.samplePoints {
-                sampleNorm.append(.init(nx: s.pdf.x / w, ny: s.pdf.y / h))
+                sampleNorm.append(.init(nx: (s.pdf.x - ox) / w, ny: (s.pdf.y - oy) / h))
             }
         }
 
@@ -158,8 +201,11 @@ public enum EvidenceCoreA07Harness {
     }
 
     /// Pure classifier: compare observed geometry to the oracle. No IO. Order of checks fixes the
-    /// Class-1 vs Class-2 split: structural disagreements (page count, box extent) are Class-2; a
-    /// correct box with a wrong normalized value is Class-1.
+    /// Class-1 vs Class-2 split: structural disagreements (page count, box extent, box origin, cropBox,
+    /// rotation) are Class-2 (renderer reports geometry differently than the recorded oracle); a correct
+    /// box with a wrong normalized value is Class-1. (A07-GATE-00 §4; handover §5: "ratio uses mediaBox
+    /// while geometry says cropBox" / "origin not subtracted" are Class-1; "PDFKit reports different
+    /// crop/media bounds" / "page count differs" are Class-2.)
     static func evaluate(observed: A07Observed, oracle: A07Oracle) -> A07ConformanceResult {
         let tol = oracle.tolerance.absolutePdfPoints
 
@@ -177,7 +223,7 @@ public enum EvidenceCoreA07Harness {
                                         detail: "page count observed \(observed.pageCount) != oracle \(oracle.expected.pageCount)")
         }
 
-        // Class-2: per-page mediaBox extent disagreement.
+        // Class-2: per-page structural geometry (mediaBox extent + origin, cropBox, rotation) disagreement.
         for expectedBox in oracle.expected.perPageMediaBox {
             guard let obs = observed.perPageMediaBox.first(where: { $0.pageIndex == expectedBox.pageIndex }) else {
                 return A07ConformanceResult(status: .fail, classification: .class_2_geometry_source_instability,
@@ -187,11 +233,34 @@ public enum EvidenceCoreA07Harness {
             if abs(obs.width - expectedBox.width) > tol || abs(obs.height - expectedBox.height) > tol {
                 return A07ConformanceResult(status: .fail, classification: .class_2_geometry_source_instability,
                                             observedPageCount: observed.pageCount,
-                                            detail: "page \(expectedBox.pageIndex) mediaBox observed \(obs.width)x\(obs.height) != oracle \(expectedBox.width)x\(expectedBox.height)")
+                                            detail: "page \(expectedBox.pageIndex) mediaBox extent observed \(obs.width)x\(obs.height) != oracle \(expectedBox.width)x\(expectedBox.height)")
+            }
+            // OPTIONAL mediaBox origin (non-zero-origin coverage). Default expected origin is (0,0).
+            let ex = expectedBox.x ?? 0, ey = expectedBox.y ?? 0
+            if abs(obs.originX - ex) > tol || abs(obs.originY - ey) > tol {
+                return A07ConformanceResult(status: .fail, classification: .class_2_geometry_source_instability,
+                                            observedPageCount: observed.pageCount,
+                                            detail: "page \(expectedBox.pageIndex) mediaBox origin observed (\(obs.originX),\(obs.originY)) != oracle (\(ex),\(ey))")
+            }
+            // OPTIONAL rotation (checked iff the oracle asserts it).
+            if let rot = expectedBox.rotation, obs.rotation != rot {
+                return A07ConformanceResult(status: .fail, classification: .class_2_geometry_source_instability,
+                                            observedPageCount: observed.pageCount,
+                                            detail: "page \(expectedBox.pageIndex) rotation observed \(obs.rotation) != oracle \(rot)")
+            }
+            // OPTIONAL cropBox (cropBox/mediaBox-mismatch coverage; checked iff the oracle asserts it).
+            if let cb = expectedBox.cropBox {
+                if abs(obs.cropBox.x - cb.x) > tol || abs(obs.cropBox.y - cb.y) > tol
+                    || abs(obs.cropBox.width - cb.width) > tol || abs(obs.cropBox.height - cb.height) > tol {
+                    return A07ConformanceResult(status: .fail, classification: .class_2_geometry_source_instability,
+                                                observedPageCount: observed.pageCount,
+                                                detail: "page \(expectedBox.pageIndex) cropBox observed (\(obs.cropBox.x),\(obs.cropBox.y),\(obs.cropBox.width),\(obs.cropBox.height)) != oracle (\(cb.x),\(cb.y),\(cb.width),\(cb.height))")
+                }
             }
         }
 
-        // Class-1: normalized sample disagreement (box is correct, so a mismatch is a math bug).
+        // Class-1: normalized sample disagreement (box is correct, so a mismatch is a math bug — e.g.
+        // origin not subtracted, or ratio uses the wrong box).
         guard observed.sampleNormalized.count == oracle.expected.samplePoints.count else {
             return A07ConformanceResult(status: .fail, classification: .class_1_normalization_math_bug,
                                         observedPageCount: observed.pageCount,

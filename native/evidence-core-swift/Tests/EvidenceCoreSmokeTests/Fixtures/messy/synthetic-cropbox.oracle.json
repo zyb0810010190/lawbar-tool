@@ -1,0 +1,17 @@
+{
+  "schemaName": "a07-renderer-conformance-oracle",
+  "schemaVersion": "0.2.0-messy-coverage",
+  "wi": "WI-EVIDENCE-A0.7-FIXTURE-COVERAGE-00",
+  "fixtureId": "synthetic-cropbox",
+  "fixtureSha256": "d72df48131c1307a4cf007c010e8fe98502873c7ce0955d386fae5550b3a0870",
+  "independenceStatement": "Expected values derived ONLY from the fixture's known construction (1 page, MediaBox [0 0 612 792], CropBox [50 50 562 742] => PDFKit cropBox origin (50,50) size (512x692)). Independent of harness output (A07-GATE-00 §3).",
+  "expected": {
+    "pageCount": 1,
+    "perPageMediaBox": [
+      { "pageIndex": 0, "x": 0, "y": 0, "width": 612, "height": 792,
+        "cropBox": { "x": 50, "y": 50, "width": 512, "height": 692 } }
+    ],
+    "samplePoints": []
+  },
+  "tolerance": { "absolutePdfPoints": 1e-9 }
+}

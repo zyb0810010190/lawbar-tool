@@ -1,0 +1,17 @@
+{
+  "schemaName": "a07-renderer-conformance-oracle",
+  "schemaVersion": "0.2.0-messy-coverage",
+  "wi": "WI-EVIDENCE-A0.7-FIXTURE-COVERAGE-00",
+  "adr": "docs/adr/ADR-evidence-a07-renderer-conformance-gate.md (A07-GATE-00)",
+  "fixtureId": "synthetic-rotated",
+  "fixtureSha256": "d05e3425a3ef6e628b64829ec791bc3a29a16b856539ece5351f18de620a2b04",
+  "independenceStatement": "Expected values derived ONLY from the fixture's known construction (1 page, MediaBox [0 0 612 792], /Rotate 90; no CropBox so PDFKit reports cropBox=mediaBox). Independent of harness output (A07-GATE-00 §3).",
+  "expected": {
+    "pageCount": 1,
+    "perPageMediaBox": [
+      { "pageIndex": 0, "x": 0, "y": 0, "width": 612, "height": 792, "rotation": 90 }
+    ],
+    "samplePoints": []
+  },
+  "tolerance": { "absolutePdfPoints": 1e-9 }
+}
