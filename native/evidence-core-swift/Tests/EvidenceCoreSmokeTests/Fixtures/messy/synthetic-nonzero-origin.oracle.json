@@ -1,0 +1,21 @@
+{
+  "schemaName": "a07-renderer-conformance-oracle",
+  "schemaVersion": "0.2.0-messy-coverage",
+  "wi": "WI-EVIDENCE-A0.7-FIXTURE-COVERAGE-00",
+  "fixtureId": "synthetic-nonzero-origin",
+  "fixtureSha256": "159a490459993edefc224a68f2dd7e7a7e627135616272c239bc27843c3e1b57",
+  "independenceStatement": "Expected values derived ONLY from the fixture's known construction (1 page, MediaBox [50 50 662 842] => origin (50,50) extent 612x792). Sample normalization SUBTRACTS origin: nx=(x-50)/612, ny=(y-50)/792. Independent of harness output (A07-GATE-00 §3).",
+  "expected": {
+    "pageCount": 1,
+    "perPageMediaBox": [
+      { "pageIndex": 0, "x": 50, "y": 50, "width": 612, "height": 792 }
+    ],
+    "samplePageIndex": 0,
+    "samplePoints": [
+      { "pdf": { "x": 50,  "y": 50  }, "normalized": { "nx": 0.0, "ny": 0.0 } },
+      { "pdf": { "x": 662, "y": 842 }, "normalized": { "nx": 1.0, "ny": 1.0 } },
+      { "pdf": { "x": 356, "y": 446 }, "normalized": { "nx": 0.5, "ny": 0.5 } }
+    ]
+  },
+  "tolerance": { "absolutePdfPoints": 1e-9 }
+}

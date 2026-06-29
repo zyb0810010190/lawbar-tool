@@ -1,0 +1,17 @@
+{
+  "schemaName": "a07-renderer-conformance-oracle",
+  "schemaVersion": "0.2.0-messy-coverage",
+  "wi": "WI-EVIDENCE-A0.7-FIXTURE-COVERAGE-00",
+  "fixtureId": "synthetic-mixed-sizes",
+  "fixtureSha256": "550f1d44aa2d8ebbbe00cf2fcb91bee03e8e6d1027df00c78ba6869e99e59b42",
+  "independenceStatement": "Expected values derived ONLY from the fixture's known construction (2 pages: page0 MediaBox [0 0 612 792] US-Letter, page1 MediaBox [0 0 595 842] A4). Independent of harness output (A07-GATE-00 §3).",
+  "expected": {
+    "pageCount": 2,
+    "perPageMediaBox": [
+      { "pageIndex": 0, "x": 0, "y": 0, "width": 612, "height": 792 },
+      { "pageIndex": 1, "x": 0, "y": 0, "width": 595, "height": 842 }
+    ],
+    "samplePoints": []
+  },
+  "tolerance": { "absolutePdfPoints": 1e-9 }
+}
