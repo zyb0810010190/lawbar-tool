@@ -465,3 +465,15 @@ for a dedicated persistence-hardening WI.
 | Safe-to-proceed? | YES — the projection invariant is enforced at the canonical/IPC layer and IPC-tested; this is a renderer-side regression-coverage centralization, not a behavioral/security gap. Originating Layer-B batch audit `audit-mqw17g8o-wlw2sa` (BATCH-PASS C0 H0 M0 L1); study `dev-memo/study/2026-06-27-batch-audit-176.md`. |
 | Status | closed |
 | Resolution | CLOSED by WI-A3-LINK-DEFERRED-CLEANUP-00 (`evidence-a3-link-deferred-cleanup`). Added `["LINK_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "payload_json", "exportFlag", "export_flag"]]` to the `RESPONSE_ALLOWLISTS` set in `apps/lawbar-desktop/tests/renderer-dto-sync.test.mjs`; the existing per-entry test now also asserts the canonical `LINK_RESPONSE_FIELDS` (read via `extractCanonical()`) admits NONE of those authority/internal/export-flag fields — new test `response projection: LINK_RESPONSE_FIELDS excludes every authority field` PASSES, desktop suite 666/666. NO `exportFlag` added to `LINK_RESPONSE_FIELDS`; no renderer DTO widened; TEST-only. resolved-in this WI's commit. |
+
+## WI-EVIDENCE-A1-T6-CITATION-STABILITY-GATE-00 batch-audit-188 — A1-T6 gate oracle-strictness hardening (test hardening)
+
+| Field | Value |
+|---|---|
+| Finding ID | A1T6-AUD-L1 |
+| Severity | Low |
+| Source | Layer-B batch audit `audit-mr05ozbe-0ynd3b` (BATCH-PASS C0 H0 M0 L1); study `dev-memo/study/2026-06-30-batch-audit-188.md`. |
+| Reason for deferral | Test/gate hardening only, NO active defect. `EvidenceCoreA1CitationGate.evaluate` (`native/evidence-core-swift/Sources/EvidenceCoreSmoke/A1CitationStabilityHarness.swift`) requires only that the oracle's `expected` is non-empty, then checks the listed assertions — it does NOT semantically validate oracle COMPLETENESS (a partial oracle covering only some derived pages still passes) nor reject a non-clean expected row (`ambiguous`/`non_citable`) carrying a stray `text` field. Current impact: the committed oracle (`Fixtures/a1-citation/citation-map.oracle.json`) is complete and clean, so the current gate result remains valid; this is defense-in-depth input-strictness, not a correctness/security hole. Out of the minimal A1-T6 gate scope as reviewed (`review-plan-mr04txk8-6h3z51` READY-WITH-LOW). |
+| Target future WI/backlog | Optional A1-T6 oracle-hardening WI: require the oracle to cover every derived page (reject incomplete oracles as `fixture_or_oracle_invalid`) and reject a non-clean expected row that carries `text`. May instead fold into A10-T1 (the future single citation-contract authority). |
+| Safe-to-proceed? | YES — the committed gate classifies correctly + is byte-stable on its complete oracle; this is stricter input validation, not a current failure. |
+| Status | open (deferred) |
