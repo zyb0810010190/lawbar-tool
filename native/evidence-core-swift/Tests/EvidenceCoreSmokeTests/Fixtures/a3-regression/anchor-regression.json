@@ -1,0 +1,37 @@
+{
+  "documents": [
+    { "id": "docA" },
+    { "id": "docB" },
+    { "id": "docC" },
+    { "id": "docNew", "supersedesDocumentId": "docOld" },
+    { "id": "docOld" }
+  ],
+  "pages": [
+    { "documentId": "docA", "physicalPageIndex": 0 },
+    { "documentId": "docB", "physicalPageIndex": 0 },
+    { "documentId": "docC", "physicalPageIndex": 0 },
+    { "documentId": "docOld", "physicalPageIndex": 0 }
+  ],
+  "geometries": [
+    { "documentId": "docA", "physicalPageIndex": 0, "capturedAt": "t1" },
+    { "documentId": "docB", "physicalPageIndex": 0, "capturedAt": "t1" },
+    { "documentId": "docOld", "physicalPageIndex": 0, "capturedAt": "t1" }
+  ],
+  "anchors": [
+    { "anchorId": "aValid",       "documentId": "docA",   "physicalPageIndex": 0, "geometryCapturedAt": "t1" },
+    { "anchorId": "aStale",       "documentId": "docB",   "physicalPageIndex": 0, "geometryCapturedAt": "t0" },
+    { "anchorId": "aSuperseded",  "documentId": "docOld", "physicalPageIndex": 0, "geometryCapturedAt": "t1" },
+    { "anchorId": "aMissingPage", "documentId": "docA",   "physicalPageIndex": 7, "geometryCapturedAt": "t1" },
+    { "anchorId": "aMissingGeom", "documentId": "docC",   "physicalPageIndex": 0, "geometryCapturedAt": "t1" }
+  ],
+  "links": [
+    { "linkId": "L1-valid",            "anchorId": "aValid" },
+    { "linkId": "L2-stale-version",    "anchorId": "aStale" },
+    { "linkId": "L3-superseded",       "anchorId": "aSuperseded" },
+    { "linkId": "L4-missing-page",     "anchorId": "aMissingPage" },
+    { "linkId": "L5-missing-geometry", "anchorId": "aMissingGeom" },
+    { "linkId": "L6-unknown-anchor",   "anchorId": "ghost-anchor" },
+    { "linkId": "L7-unlinked",         "anchorId": "aValid", "unlinkedAt": "2026-06-30T00:00:00Z" },
+    { "linkId": "L8-relinked",         "anchorId": "aValid", "unlinkedAt": null }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schemaName": "a3-anchor-regression-oracle",
+  "schemaVersion": "0.1.0",
+  "wi": "WI-EVIDENCE-A3-T10-ANCHOR-REGRESSION-GATE-00",
+  "independenceStatement": "Expected per-link {status, unlinked} derived ONLY from anchor-regression.json's known construction + the built resolver ladder (linkStatusResolverQueries.ts): unlinked_at -> broken; missing anchor/page/geometry -> broken; geometry_captured_at mismatch -> needs_review; document superseded (another doc's supersedesDocumentId == it) -> needs_review; else valid. INDEPENDENT of harness output (A07-GATE-00 §3 applied to A3). docOld is superseded by docNew. aStale's geometryCapturedAt t0 != current t1. docA/7 has no page; docC/0 has a page but no geometry. L7 unlinks the otherwise-valid aValid (broken+unlinked); L8 is the relinked counterpart (unlinkedAt cleared -> valid).",
+  "expected": [
+    { "linkId": "L1-valid",            "status": "valid",        "unlinked": false },
+    { "linkId": "L2-stale-version",    "status": "needs_review", "unlinked": false },
+    { "linkId": "L3-superseded",       "status": "needs_review", "unlinked": false },
+    { "linkId": "L4-missing-page",     "status": "broken",       "unlinked": false },
+    { "linkId": "L5-missing-geometry", "status": "broken",       "unlinked": false },
+    { "linkId": "L6-unknown-anchor",   "status": "broken",       "unlinked": false },
+    { "linkId": "L7-unlinked",         "status": "broken",       "unlinked": true  },
+    { "linkId": "L8-relinked",         "status": "valid",        "unlinked": false }
+  ]
+}
