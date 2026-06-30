@@ -1,0 +1,14 @@
+{
+  "schemaName": "a1-citation-stability-oracle",
+  "schemaVersion": "0.1.0",
+  "wi": "WI-EVIDENCE-A1-T6-CITATION-STABILITY-GATE-00",
+  "independenceStatement": "Expected per-page outcomes derived ONLY from citation-map.json's known construction + the A1 contract (卷X页Y from non-empty citationVolume/citationPageLabel with isCitable!=false; ambiguity = (citationVolume,citationPageLabel) occurring >1 in a document; non-citable otherwise). INDEPENDENT of harness output (A07-GATE-00 §3 applied to A1). d1: two distinct labels -> clean 卷1页5 (golden) + 卷1页6. d2: (2,3) appears on 2 physical pages -> both ambiguous. d3: isCitable=false -> non_citable; empty citationVolume -> non_citable.",
+  "expected": [
+    { "documentId": "d1", "physicalPageIndex": 0, "outcome": "clean", "text": "卷1页5" },
+    { "documentId": "d1", "physicalPageIndex": 1, "outcome": "clean", "text": "卷1页6" },
+    { "documentId": "d2", "physicalPageIndex": 0, "outcome": "ambiguous" },
+    { "documentId": "d2", "physicalPageIndex": 1, "outcome": "ambiguous" },
+    { "documentId": "d3", "physicalPageIndex": 0, "outcome": "non_citable" },
+    { "documentId": "d3", "physicalPageIndex": 1, "outcome": "non_citable" }
+  ]
+}

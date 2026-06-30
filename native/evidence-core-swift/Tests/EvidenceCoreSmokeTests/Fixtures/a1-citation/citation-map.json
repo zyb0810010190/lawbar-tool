@@ -1,0 +1,10 @@
+{
+  "pages": [
+    { "documentId": "d1", "physicalPageIndex": 0, "citationVolume": "1", "citationPageLabel": "5", "isCitable": true },
+    { "documentId": "d1", "physicalPageIndex": 1, "citationVolume": "1", "citationPageLabel": "6", "isCitable": true },
+    { "documentId": "d2", "physicalPageIndex": 0, "citationVolume": "2", "citationPageLabel": "3", "isCitable": true },
+    { "documentId": "d2", "physicalPageIndex": 1, "citationVolume": "2", "citationPageLabel": "3", "isCitable": true },
+    { "documentId": "d3", "physicalPageIndex": 0, "citationVolume": "1", "citationPageLabel": "9", "isCitable": false },
+    { "documentId": "d3", "physicalPageIndex": 1, "citationVolume": "", "citationPageLabel": "7", "isCitable": true }
+  ]
+}
