@@ -209,6 +209,40 @@ public enum EvidenceCoreA1CitationGate {
         let byKey: [String: A1DerivedPage] = Dictionary(uniqueKeysWithValues:
             d1.map { ("\($0.documentId)\u{1F}\($0.physicalPageIndex)", $0) })
 
+        func key(_ e: A1Oracle.Expected) -> String { "\(e.documentId)\u{1F}\(e.physicalPageIndex)" }
+        func invalid(_ detail: String) -> A1CitationResult {
+            A1CitationResult(status: .fail, classification: .fixture_or_oracle_invalid,
+                             observedPageCount: fixture.pages.count, detail: detail)
+        }
+
+        // A1T6-AUD-L1 (oracle-ROW validity): each expected row MUST name a known outcome and carry `text`
+        // IFF outcome == clean — a non-clean row (`non_citable`/`ambiguous`) with a stray `text`, or a clean
+        // row missing its 卷X页Y `text`, is a malformed oracle, NOT a checkable assertion.
+        let validOutcomes: Set<String> = ["clean", "non_citable", "ambiguous"]
+        for exp in oracle.expected {
+            if !validOutcomes.contains(exp.outcome) {
+                return invalid("oracle page \(key(exp)) has unknown outcome '\(exp.outcome)'")
+            }
+            if exp.outcome == "clean" {
+                if (exp.text ?? "").isEmpty {
+                    return invalid("oracle page \(key(exp)) outcome=clean must carry a non-empty text")
+                }
+            } else if exp.text != nil {
+                return invalid("oracle page \(key(exp)) outcome=\(exp.outcome) must NOT carry a text")
+            }
+        }
+
+        // A1T6-AUD-L1 (oracle COMPLETENESS): the oracle MUST cover EXACTLY the derived page set — no
+        // duplicate keys, every derived page has an expectation, and no expectation names a non-derived page.
+        // A partial / over-covering / duplicate oracle is `fixture_or_oracle_invalid`, never a false green.
+        let oracleKeys = oracle.expected.map(key)
+        if Set(oracleKeys).count != oracleKeys.count {
+            return invalid("oracle contains a duplicate page key")
+        }
+        if Set(oracleKeys) != Set(byKey.keys) {
+            return invalid("oracle page set != derived page set (oracle must cover exactly every derived page)")
+        }
+
         for exp in oracle.expected {
             let k = "\(exp.documentId)\u{1F}\(exp.physicalPageIndex)"
             guard let obs = byKey[k] else {

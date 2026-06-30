@@ -111,17 +111,94 @@ final class A1CitationStabilityHarnessTests: XCTestCase {
         XCTAssertEqual(r.classification, .fixture_or_oracle_invalid)
     }
 
+    // The committed oracle's expected rows, as mutable dicts — the base for building COMPLETE oracles that
+    // satisfy the A1T6-AUD-L1 completeness gate, with one row deliberately mutated per test.
+    private func completeExpected() throws -> [[String: Any]] {
+        let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: oracleURL)) as! [String: Any]
+        return raw["expected"] as! [[String: Any]]
+    }
+    private func oracle(_ expected: [[String: Any]]) throws -> A1Oracle {
+        let data = try JSONSerialization.data(withJSONObject: ["expected": expected])
+        return try JSONDecoder().decode(A1Oracle.self, from: data)
+    }
+    private func mutate(_ rows: [[String: Any]], doc: String, page: Int,
+                        _ f: (inout [String: Any]) -> Void) -> [[String: Any]] {
+        var out = rows
+        for i in out.indices where (out[i]["documentId"] as? String) == doc && (out[i]["physicalPageIndex"] as? Int) == page {
+            f(&out[i])
+        }
+        return out
+    }
+
     func testAmbiguityExpectedCleanIsMismatchNotPass() throws {
-        // An oracle that wrongly expects a clean citation for the ambiguous page d2/0 must FAIL (mismatch),
-        // proving the gate never silently turns an ambiguous label into a clean citation.
+        // A COMPLETE oracle (so the completeness gate is satisfied) that wrongly flips the ambiguous page
+        // d2/0 to a clean citation must FAIL (mismatch), proving the gate never silently turns an ambiguous
+        // label into a clean citation.
         let fx = try decodeFixture()
-        let badOracle = try JSONDecoder().decode(A1Oracle.self, from: Data("""
-        { "expected": [ { "documentId": "d2", "physicalPageIndex": 0, "outcome": "clean", "text": "卷2页3" } ] }
-        """.utf8))
-        let r = EvidenceCoreA1CitationGate.evaluate(fixture: fx, oracle: badOracle)
+        let rows = mutate(try completeExpected(), doc: "d2", page: 0) { $0["outcome"] = "clean"; $0["text"] = "卷2页3" }
+        let r = EvidenceCoreA1CitationGate.evaluate(fixture: fx, oracle: try oracle(rows))
         XCTAssertEqual(r.status, .fail)
         XCTAssertEqual(r.classification, .citation_mismatch)
         XCTAssertNotEqual(r.status, .pass)
+    }
+
+    // MARK: - A1T6-AUD-L1 hardening: oracle completeness + row validity (deferred Low closed)
+
+    func testIncompleteOracleIsInvalidNotPass() throws {
+        // Drop a derived page (d3/1) from the oracle: a partial oracle must be fixture_or_oracle_invalid,
+        // NOT a false-green pass on the subset it covers.
+        let fx = try decodeFixture()
+        let rows = try completeExpected().filter { !(($0["documentId"] as? String) == "d3" && ($0["physicalPageIndex"] as? Int) == 1) }
+        let r = EvidenceCoreA1CitationGate.evaluate(fixture: fx, oracle: try oracle(rows))
+        XCTAssertEqual(r.status, .fail)
+        XCTAssertEqual(r.classification, .fixture_or_oracle_invalid)
+    }
+
+    func testOverCoveringOracleIsInvalidNotPass() throws {
+        // Add an expectation for a page that does not exist in the derived map: must be invalid.
+        let fx = try decodeFixture()
+        var rows = try completeExpected()
+        rows.append(["documentId": "d9", "physicalPageIndex": 9, "outcome": "non_citable"])
+        let r = EvidenceCoreA1CitationGate.evaluate(fixture: fx, oracle: try oracle(rows))
+        XCTAssertEqual(r.status, .fail)
+        XCTAssertEqual(r.classification, .fixture_or_oracle_invalid)
+    }
+
+    func testDuplicateOracleKeyIsInvalidNotPass() throws {
+        // A duplicate page key in the oracle must be invalid (cardinality, not just set membership).
+        let fx = try decodeFixture()
+        var rows = try completeExpected()
+        rows.append(["documentId": "d1", "physicalPageIndex": 0, "outcome": "clean", "text": "卷1页5"])
+        let r = EvidenceCoreA1CitationGate.evaluate(fixture: fx, oracle: try oracle(rows))
+        XCTAssertEqual(r.status, .fail)
+        XCTAssertEqual(r.classification, .fixture_or_oracle_invalid)
+    }
+
+    func testNonCleanRowWithStrayTextIsInvalidNotPass() throws {
+        // An ambiguous (non-clean) expected row carrying a stray `text` is a malformed oracle.
+        let fx = try decodeFixture()
+        let rows = mutate(try completeExpected(), doc: "d2", page: 0) { $0["text"] = "卷2页3" } // stays outcome=ambiguous
+        let r = EvidenceCoreA1CitationGate.evaluate(fixture: fx, oracle: try oracle(rows))
+        XCTAssertEqual(r.status, .fail)
+        XCTAssertEqual(r.classification, .fixture_or_oracle_invalid)
+    }
+
+    func testCleanRowMissingTextIsInvalidNotPass() throws {
+        // A clean expected row missing its required 卷X页Y `text` is a malformed oracle.
+        let fx = try decodeFixture()
+        let rows = mutate(try completeExpected(), doc: "d1", page: 0) { $0.removeValue(forKey: "text") }
+        let r = EvidenceCoreA1CitationGate.evaluate(fixture: fx, oracle: try oracle(rows))
+        XCTAssertEqual(r.status, .fail)
+        XCTAssertEqual(r.classification, .fixture_or_oracle_invalid)
+    }
+
+    func testUnknownOutcomeIsInvalidNotPass() throws {
+        // An expected row naming an unknown outcome is a malformed oracle (not a checkable assertion).
+        let fx = try decodeFixture()
+        let rows = mutate(try completeExpected(), doc: "d3", page: 0) { $0["outcome"] = "weird" }
+        let r = EvidenceCoreA1CitationGate.evaluate(fixture: fx, oracle: try oracle(rows))
+        XCTAssertEqual(r.status, .fail)
+        XCTAssertEqual(r.classification, .fixture_or_oracle_invalid)
     }
 
     func testNonFileUrlsAreRefused() {
