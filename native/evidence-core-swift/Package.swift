@@ -15,11 +15,15 @@ let package = Package(
         // Thin CLI for the A1-T6 citation-stability gate (WI-EVIDENCE-A1-T6-CITATION-STABILITY-GATE-00),
         // mirroring a07-harness-cli — single source of truth over EvidenceCoreSmoke.
         .executable(name: "a1-citation-stability-cli", targets: ["A1CitationStabilityCLI"]),
+        // Thin CLI for the A3-T10 anchor-resolution regression gate
+        // (WI-EVIDENCE-A3-T10-ANCHOR-REGRESSION-GATE-00), mirroring the a07/a1 CLIs.
+        .executable(name: "a3-regression-cli", targets: ["A3RegressionCLI"]),
     ],
     targets: [
         .target(name: "EvidenceCoreSmoke"),
         .executableTarget(name: "A07HarnessCLI", dependencies: ["EvidenceCoreSmoke"]),
         .executableTarget(name: "A1CitationStabilityCLI", dependencies: ["EvidenceCoreSmoke"]),
+        .executableTarget(name: "A3RegressionCLI", dependencies: ["EvidenceCoreSmoke"]),
         .testTarget(name: "EvidenceCoreSmokeTests", dependencies: ["EvidenceCoreSmoke"]),
     ]
 )
