@@ -1,0 +1,80 @@
+{
+  "description": "A10-T6 golden CanonicalExportModel — locks deterministic serialization of the A10-T1/A10-T2 citation contract (valid + missing-target + degraded flags). Rows are presence-XOR (citationText OR flag, never both, no null sentinel). internalHref excluded; authority is text-or-flag only. Shape faithful to ADR §4.",
+  "exportType": "evidence-index",
+  "warnings": [
+    "证据L2引用已解除",
+    "证据L1引用缺失"
+  ],
+  "generatedFromSnapshotId": "snap-abc",
+  "rendered": [
+    {
+      "linkId": "L3",
+      "sourceType": "evidence",
+      "sourceId": "s-L3",
+      "documentId": "doc2",
+      "physicalPageIndex": 4,
+      "citationFormatVersion": "a10.citation.v1",
+      "exportTemplateVersion": "a10.template.v1",
+      "citation": {
+        "citationVolume": "2",
+        "citationPageLabel": "6",
+        "text": "卷2页6"
+      },
+      "flag": null
+    },
+    {
+      "linkId": "L1",
+      "sourceType": "evidence",
+      "sourceId": "s-L1",
+      "documentId": "doc1",
+      "physicalPageIndex": 0,
+      "citationFormatVersion": "a10.citation.v1",
+      "exportTemplateVersion": "a10.template.v1",
+      "citation": null,
+      "flag": "BROKEN"
+    },
+    {
+      "linkId": "L4",
+      "sourceType": "evidence",
+      "sourceId": "s-L4",
+      "documentId": null,
+      "physicalPageIndex": 0,
+      "citationFormatVersion": "a10.citation.v1",
+      "exportTemplateVersion": "a10.template.v1",
+      "citation": {
+        "citationVolume": "1",
+        "citationPageLabel": "9",
+        "text": "卷1页9"
+      },
+      "flag": null
+    },
+    {
+      "linkId": "L2",
+      "sourceType": "evidence",
+      "sourceId": "s-L2",
+      "documentId": "doc1",
+      "physicalPageIndex": 0,
+      "citationFormatVersion": "a10.citation.v1",
+      "exportTemplateVersion": "a10.template.v1",
+      "citation": null,
+      "flag": "UNLINKED"
+    },
+    {
+      "linkId": "L5",
+      "sourceType": "evidence",
+      "sourceId": "s-L5",
+      "documentId": "doc3",
+      "physicalPageIndex": 7,
+      "citationFormatVersion": "a10.citation.v1",
+      "exportTemplateVersion": "a10.template.v1",
+      "citation": {
+        "citationVolume": "3",
+        "citationPageLabel": "12",
+        "text": "卷3页12"
+      },
+      "flag": null
+    }
+  ],
+  "expectedSha256": "633177b3f698e5bdb904d86afbe457ebb110a74650cdc95c062c545c870b69a2",
+  "expectedSerialization": "{\"citationFormatVersion\":\"a10.citation.v1\",\"citations\":[{\"citationPageLabel\":\"6\",\"citationVolume\":\"2\",\"linkId\":\"L3\",\"text\":\"卷2页6\"},{\"citationPageLabel\":\"9\",\"citationVolume\":\"1\",\"linkId\":\"L4\",\"text\":\"卷1页9\"},{\"citationPageLabel\":\"12\",\"citationVolume\":\"3\",\"linkId\":\"L5\",\"text\":\"卷3页12\"}],\"exportTemplateVersion\":\"a10.template.v1\",\"exportType\":\"evidence-index\",\"flags\":[\"BROKEN\",\"UNLINKED\"],\"generatedFromSnapshotId\":\"snap-abc\",\"linkDegradations\":[{\"flag\":\"BROKEN\",\"linkId\":\"L1\"},{\"flag\":\"UNLINKED\",\"linkId\":\"L2\"}],\"rows\":[{\"flag\":\"BROKEN\",\"linkId\":\"L1\"},{\"flag\":\"UNLINKED\",\"linkId\":\"L2\"},{\"citationText\":\"卷2页6\",\"linkId\":\"L3\"},{\"citationText\":\"卷1页9\",\"linkId\":\"L4\"},{\"citationText\":\"卷3页12\",\"linkId\":\"L5\"}],\"sourceObjectIds\":[\"s-L1\",\"s-L2\",\"s-L3\",\"s-L4\",\"s-L5\"],\"warnings\":[\"证据L1引用缺失\",\"证据L2引用已解除\"]}"
+}
