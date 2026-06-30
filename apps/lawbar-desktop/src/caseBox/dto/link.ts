@@ -11,6 +11,7 @@
 
 import type { ExportCitationResult } from "case-box-persistence";
 import type { IpcEnvelope } from "./shared.js";
+import type { LiveCanonicalExport } from "../export/a10LivePipeline.js";
 
 
 // ---------------------------------------------------------------------------
@@ -195,4 +196,10 @@ export type CreateLinkResult = IpcEnvelope<RendererLink>;
 export type UnlinkLinkResult = IpcEnvelope<RendererLink>;
 export type RelinkLinkResult = IpcEnvelope<RendererLink>;
 export type ListLinksResult = IpcEnvelope<readonly RendererLink[]>;
-export type ExportLinkCitationsResult = IpcEnvelope<ExportCitationResult>;
+// A10 live-pipeline wiring (WI-EVIDENCE-A10-LIVE-PIPELINE-WIRING-00): the export result additively carries
+// the deterministic A10 CanonicalExportModel + its reproducibility hash (built from A10-T1/T2/T6). The
+// pre-existing `citations` / `byFlag` fields of `ExportCitationResult` are preserved verbatim.
+export type LiveExportCitationResult = ExportCitationResult & {
+  readonly canonicalExport: LiveCanonicalExport;
+};
+export type ExportLinkCitationsResult = IpcEnvelope<LiveExportCitationResult>;

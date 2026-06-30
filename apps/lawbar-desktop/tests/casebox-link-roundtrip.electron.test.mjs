@@ -140,6 +140,19 @@ test("D1: real-db casebox:link:* round-trip resolves valid + clean export via th
     assert.equal(citation.citation.citationPageLabel, seeded.citationPageLabel);
     assert.equal(citation.citation.text, `卷${seeded.citationVolume}页${seeded.citationPageLabel}`, `synthesized text mismatch: ${citation.citation.text}`);
 
+    // 6b) A10 live-pipeline wiring (WI-EVIDENCE-A10-LIVE-PIPELINE-WIRING-00): the live handler attaches the
+    // deterministic A10 CanonicalExportModel (text-or-flag rows, internalHref excluded) + its sha256, while
+    // preserving the pre-existing citations/byFlag fields.
+    const canon = exported.value.canonicalExport;
+    assert.ok(canon, "live export did not attach canonicalExport");
+    assert.match(canon.canonicalModelSha256, /^[0-9a-f]{64}$/, "canonicalModelSha256 not 64-hex");
+    const canonRow = canon.canonicalModel.rows.find((r) => r.linkId === linkId);
+    assert.deepEqual(canonRow, { linkId, citationText: `卷${seeded.citationVolume}页${seeded.citationPageLabel}` },
+      `canonical row mismatch: ${JSON.stringify(canonRow)}`);
+    assert.equal("internalHref" in canonRow, false, "internalHref must not be in the court-facing model");
+    const canonSer = JSON.stringify(canon.canonicalModel);
+    assert.ok(!/lawbar:|internalHref|"href"/i.test(canonSer), "no href/nav metadata in the canonical model");
+
     // 7) Lifecycle: unlink (required reason) then relink → unlinked_at cleared.
     const unlinked = await win.evaluate((args) =>
       window.lawbar.caseBox.unlinkLink({ matterId: args.matterId, linkId: args.linkId, unlinkReason: "synthetic test unlink" }),
