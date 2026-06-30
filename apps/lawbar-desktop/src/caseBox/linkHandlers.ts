@@ -43,6 +43,7 @@ import { mapThrownError, makeInvalidPayload, makeBoundaryError } from "./errorMa
 import { getActiveTenantId } from "../security/activeTenant.js";
 import { getActiveActorUserId } from "../security/activeActor.js";
 import { resolveLinkStatuses, buildExportCitations } from "case-box-persistence";
+import { buildLiveCanonicalExport } from "./export/a10LivePipeline.js";
 import {
   CHANNEL,
   isPlainJsonObject,
@@ -292,9 +293,12 @@ export async function exportLinkCitationsHandler(
       return { ok: false, error: makeBoundaryError("tenant_mismatch") };
     }
     // The export result carries no actor/tenant authority fields (deterministic
-    // citation set + byFlag counts), so it is returned verbatim.
+    // citation set + byFlag counts). A10 live-pipeline wiring (WI-EVIDENCE-A10-LIVE-PIPELINE-WIRING-00):
+    // attach the deterministic A10 CanonicalExportModel + its reproducibility hash, built by reusing
+    // A10-T1/T2/T6 (no citation/href logic redefined here). Additive — the existing citations/byFlag fields
+    // are preserved verbatim for existing consumers.
     const result = buildExportCitations(db, { tenant_id: tenantId, matter_id: dto.matterId });
-    return { ok: true, value: result };
+    return { ok: true, value: { ...result, canonicalExport: buildLiveCanonicalExport(result) } };
   } catch (err) {
     return { ok: false, error: mapThrownError(err, { channel: CHANNEL.linkExport }) };
   }
