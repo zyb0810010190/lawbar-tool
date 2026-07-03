@@ -1,8 +1,13 @@
 # Forms-spec design note — A10-T3/T4/T5 from real samples (FORMS-SPEC-A10-T3-T5-00)
 
 **Date**: 2026-07-02. **Type**: DESIGN / SPEC note (documentation only; no product code, no schema, no
-render). **Lane**: WI-FORMS-SPEC-A10-T3-T5-SAMPLE-ADR-00. **Status**: design input for a *future* forms PLAN
-WI — **not** implementation-authorizing.
+render). **Lane**: WI-FORMS-SPEC-A10-T3-T5-SAMPLE-ADR-00 (§0–§G); **amended by** WI-FORMS-T3-Q1-Q4-DECISION-RECORD-00
+(§H, DR-00). **Status**: design input for a *future* forms PLAN WI — **not** implementation-authorizing.
+
+> **AUDIENCE (DR-00, 2026-07-02 — see §H):** these forms are **internal lawyer trial-review tools**, NOT
+> court-filing artifacts in this phase. Where §0–§G describe the samples as "court-fileable / court work-product"
+> that is the *sample's* origin and the A10 program name; the **product use is internal trial review**, so no
+> court-template compliance, signature/seal, or custody/tamper-evidence is required this phase (§H governs).
 
 This note grounds the still-gated A10-T3/T4/T5 court-work-product forms in two REAL user-provided samples so a
 later forms PLAN WI has a concrete reference instead of invention. It authorizes **no** implementation. Per
@@ -119,13 +124,17 @@ design-gated** — this note does not prove their required fields are sufficient
 
 ## F. Open questions (must be answered before the respective PLAN WI)
 
-1. **T3 audience** — is 证据目录 for internal lawyer review first, or direct court filing (affects the
-   signature/receive block handling)?
-2. **T3 export format** — DOCX first? (or PDF, or both, or logical CanonicalExportModel only?)
-3. **T3 description column** — use the sample's `证明内容`, or the `证明目的` label used elsewhere in the product
-   docs? (they differ; the sample says 证明内容.)
-4. **T3 `页码` meaning** — physical bundle page range (as the sample shows), the A10 `卷X页Y` citation, or both?
-   The A10-T1 contract produces 卷X页Y; the sample uses physical ranges. This must be decided before T3.
+1. **T3 audience** — is 证据目录 for internal lawyer review first, or direct court filing? **RESOLVED (§H, DR-00
+   2026-07-02): internal lawyer trial-review tool; NOT direct court submission; NOT an official court-filing
+   artifact in this phase.**
+2. **T3 export format** — DOCX first? **RESOLVED (§H): lawyer-review DOCX first (lawyers may edit/annotate); an
+   app preview/table view may follow later; PDF NOT required this phase unless separately authorized. This note
+   does NOT implement any of them.**
+3. **T3 description column** — `证明内容` vs `证明目的`? **RESOLVED (§H): use the sample label `证明内容`; do NOT
+   replace with `证明目的` unless a later product/legal review requires it.**
+4. **T3 `页码` meaning** — physical bundle page range vs `卷X页Y`? **RESOLVED (§H): physical bundle page range
+   first (matching the sample); the A10 `卷X页Y` citation may be supporting metadata later but does NOT replace
+   the sample's `页码` field.**
 5. **T5 output shape** — generate the **narrative 质证意见 brief** (matching the sample), a **structured
    质证记录 table**, or both? A structured table needs a normalized 三性 + 证明目的 + reasons + contradiction-
    citation model that the sample does not supply.
@@ -139,12 +148,51 @@ design-gated** — this note does not prove their required fields are sufficient
 
 ## G. Status
 
-- **T3 证据目录及说明** — concrete structure captured from a real filing; **best first candidate**; ready for a
-  later PLAN WI after this note is governed AND Q1–Q4 answered. NOT implemented here.
+- **T3 证据目录及说明** — concrete structure captured from a real filing; **best first candidate**; its blocking
+  open questions **Q1–Q4 are now RESOLVED** (see §H) → **T3 is eligible for a later implementation PLAN WI**.
+  NOT implemented here (this lane records decisions only; implementation is a separate governed WI).
 - **T5 质证意见 / 质证记录** — narrative sample captured; **design-gated** pending Q5/Q6.
 - **T4 举证质证表** — **design-gated** pending the proof-model + Q6.
-- No code, schema, fixture, IPC, native, custody, JS-shim, A8, or forms implementation performed. Raw samples
-  stay untracked input under `dev-memo/run/intake/forms-samples/`.
+- No code, schema, fixture, IPC, native, custody, JS-shim, A8, renderer, or DOCX/PDF-generation performed. Raw
+  samples stay untracked input under `dev-memo/run/intake/forms-samples/`.
+
+## H. Decision record DR-00 — internal trial-review audience + T3 Q1–Q4 (2026-07-02)
+
+**New product decision (user, 2026-07-02):** these forms do **NOT** need to be submitted to the court. They are
+**internal lawyer trial-review tools** — used to make it easier for a lawyer to review evidence during trial
+(quick evidence lookup, review, and argument preparation). Therefore, **in this phase**:
+
+- T3/T4/T5 are **NOT court-filing artifacts**.
+- **No court-specific official-template compliance** is required.
+- **No signature/seal placement** is required.
+- **No custody / seal / tamper-evidence** is required.
+
+### Consequences of the internal-review decision
+- Court-specific template compliance, signature/seal placement, and custody/tamper-evidence are **OUT OF SCOPE
+  for this phase**.
+- **A8 custody/snapshot/seal is NOT implicated** by this internal-review decision (an internal review tool need
+  not be sealed). A8 remains its own separate, unstarted area.
+- The **design goal is lawyer usability during trial** — fast evidence lookup, on-screen/review-doc convenience,
+  and argument preparation — not court-format fidelity.
+
+### T3 Q1–Q4 resolutions (unblock a later T3 PLAN WI)
+| Q | Decision |
+|---|---|
+| **Q1 audience** | Internal lawyer review during trial. NOT direct court submission. NOT an official court-filing artifact in this phase. |
+| **Q2 export format** | Prefer a **lawyer-review DOCX first** (lawyers may edit/annotate). An app preview/table view may be useful later; **PDF not required** this phase unless separately authorized. This lane implements **none** of them. |
+| **Q3 description label** | Use the sample label **`证明内容`** for T3. Do NOT replace it with `证明目的` unless later product/legal review requires that wording. |
+| **Q4 `页码` meaning** | Use the **physical bundle page range** first (matching the sample). The A10 `卷X页Y` citation may be **supporting metadata later**, but does NOT replace the sample's `页码` field. |
+
+### Effect on gating
+- **T3** — Q1–Q4 resolved → **eligible for a later implementation PLAN WI**. This lane does **NOT** authorize T3
+  implementation; a separate governed PLAN WI (with its own review/audit) is still required, and if it turns out
+  to need new persisted fields that triggers the schema ADR + explicit approval (Q7).
+- **T4 举证质证表** — **remains under-specified** (proof-model undecided; §C / §F Q6–Q7).
+- **T5 质证意见 / 质证记录** — **remains design-gated**; the sample is a **narrative 质证意见**, not a finalized
+  structured 质证记录 table (§B / §F Q5).
+- **The §E explicit non-decisions still hold in full**: no schema mutation, no DOCX/PDF renderer implementation,
+  no custody/seal/tamper-evidence, no A8, and **no forms implementation** are approved by this note. DR-00
+  narrows the audience/scope; it does not authorize building anything.
 
 ## References
 - `docs/adr/ADR-evidence-a10-court-fileable-export.md` (A10-DESIGN-00 §5/§7/§10/§13 — forms gated behind a
