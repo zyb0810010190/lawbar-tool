@@ -23,6 +23,18 @@ export type CaseBoxEvidenceItem = {
    */
   supersedes_evidence_id?: null | Ulid;
   notes?: string;
+  /**
+   * Lawyer-entered display name for the evidence item (T3 证据名称). Optional; absent on legacy rows. NOT derivable from a document filename. FORMS-T3-S0-SCHEMA-00 §4 Option A.
+   */
+  evidence_title?: string;
+  /**
+   * Lawyer-entered proof statement (T3 证明内容). Optional; blank content is expressed by ABSENCE — persistence normalizes whitespace-only input to absent, never stores an empty string. FORMS-T3-S0-SCHEMA-00 §4 Option A.
+   */
+  proof_statement?: string;
+  /**
+   * Optional lawyer-controlled catalogue order (absence-only: present or absent, no null). Absent rows sort after ordered rows by created_at ASC, id ASC. FORMS-T3-S0-SCHEMA-00 §4 Option A.
+   */
+  display_order?: number;
   created_at: string;
   /**
    * Optional marker for which party introduced the evidence. v1 supports §7.A 'evidence list for both parties'. R-5(g).

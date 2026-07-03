@@ -88,6 +88,10 @@ export interface CaseBoxMatter {
    * Free-text summary of parties' main points of contention. Lawyer-facing only when matter_type = 'litigation'. POST-V1: structured sub-entity. R-5(j).
    */
   contention_summary_text?: string;
+  /**
+   * Lawyer-entered procedural position of the client party (T3 提交人诉讼地位: 原告/被告). Optional; absent on legacy rows. NOT derivable from Party.role. M0 invariant: applies to ALL client parties of the matter. FORMS-T3-S0-SCHEMA-00 §4 Option A.
+   */
+  litigation_position?: "plaintiff" | "defendant";
   [k: string]: unknown;
 }
 /**

@@ -80,3 +80,42 @@ test("impl-parity B1.6: createMatter rejects same way (duplicate_id) on both imp
   assert.equal(sqErr.code, imErr.code);
   assert.equal(sqErr.code, "duplicate_id");
 });
+
+// ---------------------------------------------------------------------------
+// T3 S0 (FORMS-T3-S0-SCHEMA-00 §4 Option A): matter litigation_position.
+// ---------------------------------------------------------------------------
+
+test("impl-parity T3-S0: createMatter with litigation_position round-trips identically", async () => {
+  const { inMem, sqlite } = makePair();
+  const input = makeMatterInput({ litigation_position: "plaintiff" });
+  const im = await inMem.createMatter(input);
+  const sq = await sqlite.createMatter(input);
+  assert.deepEqual(sq, im);
+  assert.equal(sq.litigation_position, "plaintiff");
+  const imGet = await inMem.getMatter(DEFAULT_MATTER_ID);
+  const sqGet = await sqlite.getMatter(DEFAULT_MATTER_ID);
+  assert.deepEqual(sqGet, imGet);
+  assert.equal(sqGet.litigation_position, "plaintiff");
+});
+
+test("impl-parity T3-S0: legacy matter without litigation_position stays valid; field absent on read", async () => {
+  const { inMem, sqlite } = makePair();
+  const input = makeMatterInput();
+  await inMem.createMatter(input);
+  await sqlite.createMatter(input);
+  const imGet = await inMem.getMatter(DEFAULT_MATTER_ID);
+  const sqGet = await sqlite.getMatter(DEFAULT_MATTER_ID);
+  assert.deepEqual(sqGet, imGet);
+  assert.ok(!("litigation_position" in sqGet), "legacy matter must not grow litigation_position");
+});
+
+test("impl-parity T3-S0: out-of-enum litigation_position is rejected identically by both impls", async () => {
+  const { inMem, sqlite } = makePair();
+  const input = makeMatterInput({ litigation_position: "third_party" });
+  let imErr, sqErr;
+  try { await inMem.createMatter(input); } catch (e) { imErr = e; }
+  try { await sqlite.createMatter(input); } catch (e) { sqErr = e; }
+  assert.ok(imErr && sqErr, "both implementations must reject an out-of-enum litigation_position");
+  assert.equal(imErr.code, sqErr.code);
+  assert.equal(imErr.code, "invalid_payload");
+});
