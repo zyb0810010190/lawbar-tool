@@ -1,0 +1,20 @@
+{
+  "id": "01jrcasebox0000000000000m7",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "name": "Test Matter — Litigation Position",
+  "jurisdiction": { "value": "cn-sh", "locked": false },
+  "matter_type": "litigation",
+  "parties": [
+    { "role": "client",   "display_name": "孙乐驰",  "party_kind": "individual" },
+    { "role": "opposing", "display_name": "Counterparty Ltd", "party_kind": "organization" }
+  ],
+  "retainer_scope": "First-instance labor dispute representation.",
+  "confidentiality_class": "normal",
+  "status": "active",
+  "external_ocr_authorized": false,
+  "sync_grant_present": false,
+  "llm_extraction_opt_in": false,
+  "litigation_position": "plaintiff",
+  "created_at": "2026-07-03T10:00:00.000Z"
+}

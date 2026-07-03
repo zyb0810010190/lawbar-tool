@@ -44,6 +44,21 @@
       "description": "Required when status is \"superseded\"."
     },
     "notes":      { "type": "string" },
+    "evidence_title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Lawyer-entered display name for the evidence item (T3 证据名称). Optional; absent on legacy rows. NOT derivable from a document filename. FORMS-T3-S0-SCHEMA-00 §4 Option A."
+    },
+    "proof_statement": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Lawyer-entered proof statement (T3 证明内容). Optional; blank content is expressed by ABSENCE — persistence normalizes whitespace-only input to absent, never stores an empty string. FORMS-T3-S0-SCHEMA-00 §4 Option A."
+    },
+    "display_order": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional lawyer-controlled catalogue order (absence-only: present or absent, no null). Absent rows sort after ordered rows by created_at ASC, id ASC. FORMS-T3-S0-SCHEMA-00 §4 Option A."
+    },
     "created_at": { "type": "string", "format": "date-time" },
     "party_side": {
       "anyOf": [

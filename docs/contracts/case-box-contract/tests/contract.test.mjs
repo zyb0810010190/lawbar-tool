@@ -776,3 +776,78 @@ test("invalid: document-mime-type-over-maxlength is rejected (maxLength: 255)", 
   const offenders = (validateDocument.errors || []).filter((e) => e.instancePath === "/mime_type");
   assert.ok(offenders.length > 0, `expected error on /mime_type (got ${errs(validateDocument)})`);
 });
+
+// ---------------------------------------------------------------------------
+// T3 S0 catalog fields (FORMS-T3-S0-SCHEMA-00 §4 Option A) — additive optional
+// payload-only properties: evidence_title / proof_statement / display_order on
+// evidence items; litigation_position on matters. Legacy fixtures above (no new
+// fields) continue to pass unchanged, proving back-compat.
+// ---------------------------------------------------------------------------
+
+test("valid: evidence item with evidence_title + proof_statement + display_order passes", () => {
+  const fixture = readJson(join(validDir, "evidence-item-with-t3-fields.valid.json"));
+  assert.equal(validateEvidenceItem(fixture), true, errs(validateEvidenceItem));
+});
+
+test("valid: matter with litigation_position passes", () => {
+  const fixture = readJson(join(validDir, "matter-with-litigation-position.valid.json"));
+  assert.equal(validateMatter(fixture), true, errs(validateMatter));
+});
+
+test("invalid: evidence with empty-string proof_statement is rejected (minLength 1)", () => {
+  const fixture = readJson(join(invalidDir, "evidence-empty-proof-statement.json"));
+  assert.equal(validateEvidenceItem(fixture), false);
+  const offenders = (validateEvidenceItem.errors || []).filter((e) => e.instancePath === "/proof_statement");
+  assert.ok(offenders.length > 0, `expected error on /proof_statement (got ${errs(validateEvidenceItem)})`);
+});
+
+test("invalid: evidence with empty-string evidence_title is rejected (minLength 1)", () => {
+  const fixture = readJson(join(invalidDir, "evidence-empty-evidence-title.json"));
+  assert.equal(validateEvidenceItem(fixture), false);
+  const offenders = (validateEvidenceItem.errors || []).filter((e) => e.instancePath === "/evidence_title");
+  assert.ok(offenders.length > 0, `expected error on /evidence_title (got ${errs(validateEvidenceItem)})`);
+});
+
+test("invalid: evidence with null display_order is rejected (absence-only, no null branch)", () => {
+  const fixture = readJson(join(invalidDir, "evidence-null-display-order.json"));
+  assert.equal(validateEvidenceItem(fixture), false);
+  const offenders = (validateEvidenceItem.errors || []).filter((e) => e.instancePath === "/display_order");
+  assert.ok(offenders.length > 0, `expected error on /display_order (got ${errs(validateEvidenceItem)})`);
+});
+
+test("invalid: evidence with negative display_order is rejected (minimum 0)", () => {
+  const fixture = readJson(join(invalidDir, "evidence-negative-display-order.json"));
+  assert.equal(validateEvidenceItem(fixture), false);
+  const offenders = (validateEvidenceItem.errors || []).filter((e) => e.instancePath === "/display_order");
+  assert.ok(offenders.length > 0, `expected error on /display_order (got ${errs(validateEvidenceItem)})`);
+});
+
+test("invalid: evidence with non-integer display_order is rejected (type integer)", () => {
+  const fixture = readJson(join(invalidDir, "evidence-non-integer-display-order.json"));
+  assert.equal(validateEvidenceItem(fixture), false);
+  const offenders = (validateEvidenceItem.errors || []).filter((e) => e.instancePath === "/display_order");
+  assert.ok(offenders.length > 0, `expected error on /display_order (got ${errs(validateEvidenceItem)})`);
+});
+
+test("invalid: matter with out-of-enum litigation_position is rejected", () => {
+  const fixture = readJson(join(invalidDir, "matter-bad-litigation-position.json"));
+  assert.equal(validateMatter(fixture), false);
+  const offenders = (validateMatter.errors || []).filter((e) => e.instancePath === "/litigation_position");
+  assert.ok(offenders.length > 0, `expected enum error on /litigation_position (got ${errs(validateMatter)})`);
+});
+
+test("T3 S0 fields are OPTIONAL: schemas' required lists do not include them", () => {
+  for (const f of ["evidence_title", "proof_statement", "display_order"]) {
+    assert.ok(!evidenceItemSchema.required.includes(f), `${f} must not be required`);
+  }
+  assert.ok(!matterSchema.required.includes("litigation_position"), "litigation_position must not be required");
+});
+
+test("T3 S0 guard: no T4/T5 proof-model fields leaked into the contract schemas", () => {
+  const evidenceProps = Object.keys(evidenceItemSchema.properties);
+  const matterProps = Object.keys(matterSchema.properties);
+  for (const forbidden of ["proof_target", "three_properties", "san_xing", "cross_exam_position", "proof_gap", "contradiction_links"]) {
+    assert.ok(!evidenceProps.includes(forbidden), `evidence schema must not contain T4/T5 field ${forbidden}`);
+    assert.ok(!matterProps.includes(forbidden), `matter schema must not contain T4/T5 field ${forbidden}`);
+  }
+});

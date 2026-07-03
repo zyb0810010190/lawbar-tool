@@ -72,6 +72,7 @@ export const CREATE_MATTER_FORBIDDEN_FIELDS = Object.freeze([
   "external_ocr_authorized",
   "sync_grant_present",
   "llm_extraction_opt_in",
+  "litigation_position",
 ] as const);
 
 

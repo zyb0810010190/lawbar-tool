@@ -130,3 +130,138 @@ test("Sqlite-B8: accepted → superseded persists supersedes_evidence_id column 
   assert.equal(row.status, "superseded");
   assert.equal(row.supersedes_evidence_id, evidenceB);
 });
+
+// ---------------------------------------------------------------------------
+// T3 S0 catalog fields (FORMS-T3-S0-SCHEMA-00 §4 Option A) — payload-only
+// additive optional properties. NO DDL: these tests also pin that the SQLite
+// schema version did not move and no new evidence columns appeared.
+// ---------------------------------------------------------------------------
+
+test("T3-S0: evidence_title + proof_statement + display_order round-trip via SQL persistence (payload-only)", async () => {
+  const { makeEvidenceItemInput, DEFAULT_EVIDENCE_ID } = await import("./conformance/fixtures.mjs");
+  const { persistence, db } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-07-03T09:00:00.000Z"),
+    generateId: makeIdGenerator("t3a"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  const proof = "1、证明原告与被告存在劳动关系；2、证明原告的工龄情况。";
+  const appended = await persistence.appendEvidenceItem(makeEvidenceItemInput({
+    source_document_id: null,
+    evidence_title: "劳动合同",
+    proof_statement: proof,
+    display_order: 3,
+  }));
+  assert.equal(appended.evidence_title, "劳动合同");
+  assert.equal(appended.proof_statement, proof); // verbatim — no trimming/normalizing of content
+  assert.equal(appended.display_order, 3);
+  const got = await persistence.getEvidenceItem({
+    tenant_id: "tenant-local-v1",
+    matter_id: DEFAULT_MATTER_ID,
+    evidence_id: DEFAULT_EVIDENCE_ID,
+  });
+  assert.equal(got.evidence_title, "劳动合同");
+  assert.equal(got.proof_statement, proof);
+  assert.equal(got.display_order, 3);
+  // Payload-only: the fields live in payload_json, NOT in lifted columns.
+  const cols = db.prepare("PRAGMA table_info(case_box_evidence_items)").all().map((c) => c.name);
+  for (const f of ["evidence_title", "proof_statement", "display_order"]) {
+    assert.ok(!cols.includes(f), `${f} must NOT be a lifted SQLite column (Option A payload-only)`);
+  }
+});
+
+test("T3-S0: whitespace-only proof_statement is normalized to ABSENT at append (never stored empty)", async () => {
+  const { makeEvidenceItemInput, DEFAULT_EVIDENCE_ID } = await import("./conformance/fixtures.mjs");
+  const { persistence, db } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-07-03T09:00:00.000Z"),
+    generateId: makeIdGenerator("t3b"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  const input = makeEvidenceItemInput({ source_document_id: null, proof_statement: "   " });
+  const appended = await persistence.appendEvidenceItem(input);
+  assert.ok(!("proof_statement" in appended), "whitespace-only proof_statement must normalize to absent");
+  assert.equal(input.proof_statement, "   ", "caller input must not be mutated");
+  const raw = db.prepare("SELECT payload_json FROM case_box_evidence_items WHERE id = ?").get(DEFAULT_EVIDENCE_ID);
+  assert.ok(!Object.prototype.hasOwnProperty.call(JSON.parse(raw.payload_json), "proof_statement"),
+    "persisted payload_json must not contain an empty proof_statement");
+});
+
+test("T3-S0: legacy evidence input without the new fields stays valid and round-trips unchanged", async () => {
+  const { makeEvidenceItemInput, DEFAULT_EVIDENCE_ID } = await import("./conformance/fixtures.mjs");
+  const { persistence } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-07-03T09:00:00.000Z"),
+    generateId: makeIdGenerator("t3c"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  const appended = await persistence.appendEvidenceItem(makeEvidenceItemInput({ source_document_id: null }));
+  for (const f of ["evidence_title", "proof_statement", "display_order"]) {
+    assert.ok(!(f in appended), `legacy row must not grow a ${f} property`);
+  }
+  const got = await persistence.getEvidenceItem({
+    tenant_id: "tenant-local-v1",
+    matter_id: DEFAULT_MATTER_ID,
+    evidence_id: DEFAULT_EVIDENCE_ID,
+  });
+  for (const f of ["evidence_title", "proof_statement", "display_order"]) {
+    assert.ok(!(f in got), `legacy row must not grow a ${f} property on read`);
+  }
+});
+
+test("T3-S0: notes and document filename are NOT promoted into evidence_title/proof_statement", async () => {
+  const { makeDocumentInput, makeEvidenceItemInput, DEFAULT_EVIDENCE_ID } = await import("./conformance/fixtures.mjs");
+  const { persistence } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-07-03T09:00:00.000Z"),
+    generateId: makeIdGenerator("t3d"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  await persistence.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput());
+  const appended = await persistence.appendEvidenceItem(makeEvidenceItemInput({
+    notes: "a generic note that must not become display truth",
+  }));
+  assert.ok(!("evidence_title" in appended), "evidence_title must not be derived from notes/filename");
+  assert.ok(!("proof_statement" in appended), "proof_statement must not be derived from notes");
+  const got = await persistence.getEvidenceItem({
+    tenant_id: "tenant-local-v1",
+    matter_id: DEFAULT_MATTER_ID,
+    evidence_id: DEFAULT_EVIDENCE_ID,
+  });
+  assert.equal(got.notes, "a generic note that must not become display truth");
+  assert.ok(!("evidence_title" in got) && !("proof_statement" in got));
+});
+
+test("T3-S0: no DDL — CURRENT_SCHEMA_VERSION remains 12 and no migration ran past it", async () => {
+  const { CURRENT_SCHEMA_VERSION } = await import("../dist/index.js");
+  assert.equal(CURRENT_SCHEMA_VERSION, 12, "S0 Option A must not bump CURRENT_SCHEMA_VERSION");
+  const { db } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-07-03T09:00:00.000Z"),
+    generateId: makeIdGenerator("t3e"),
+  });
+  const max = db.prepare("SELECT MAX(version) AS v FROM schema_version").get();
+  assert.equal(max.v, 12);
+});
+
+test("T3-S0: no T4/T5 leakage — this WI adds no named proof-model properties and T3 round-trips do not synthesize them (schemas remain open; closed-schema rejection is NOT claimed)", async () => {
+  const { makeEvidenceItemInput, DEFAULT_EVIDENCE_ID } = await import("./conformance/fixtures.mjs");
+  const { persistence } = openSqliteCaseBoxPersistence({
+    now: makeClock("2026-07-03T09:00:00.000Z"),
+    generateId: makeIdGenerator("t3f"),
+  });
+  await persistence.createMatter(makeMatterInput());
+  // The evidence contract has no T4/T5 proof-model properties; this WI adds none.
+  // Round-trip a T3-S0 row and assert none of the T4/T5 field names appear.
+  // NOTE (audit L2): the contract schemas do not set additionalProperties:false,
+  // so unknown extra properties are not REJECTED by AJV — this guard pins only
+  // that no named T4/T5 property was introduced or synthesized by this WI.
+  const appended = await persistence.appendEvidenceItem(makeEvidenceItemInput({
+    source_document_id: null,
+    evidence_title: "工资条",
+    proof_statement: "证明被告存在拖欠原告工资差额的事实。",
+  }));
+  const got = await persistence.getEvidenceItem({
+    tenant_id: "tenant-local-v1",
+    matter_id: DEFAULT_MATTER_ID,
+    evidence_id: DEFAULT_EVIDENCE_ID,
+  });
+  for (const forbidden of ["proof_target", "three_properties", "cross_exam_position", "proof_gap", "contradiction_links"]) {
+    assert.ok(!(forbidden in appended) && !(forbidden in got), `T4/T5 field ${forbidden} must not exist`);
+  }
+});

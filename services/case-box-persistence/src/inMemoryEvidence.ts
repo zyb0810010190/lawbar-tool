@@ -63,6 +63,30 @@ function compareEvidenceChronological(
   return 0;
 }
 
+/**
+ * T3 S0 (FORMS-T3-S0-SCHEMA-00 §5): blank proof content is expressed by
+ * ABSENCE, never a stored empty string. A whitespace-only `proof_statement`
+ * on the append input is normalized to absent BEFORE schema validation (the
+ * schema's minLength 1 would otherwise reject it). Non-empty values are
+ * preserved VERBATIM (no trimming); non-string values are left in place for
+ * AJV to reject; the caller's input object is never mutated.
+ *
+ * "Blank" is defined by ECMAScript `String.prototype.trim()` (ASCII +
+ * Unicode WhiteSpace/LineTerminator, incl. ideographic space U+3000).
+ * Zero-width/invisible FORMAT characters (e.g. U+200B) are NOT whitespace
+ * and therefore persist verbatim — trim() is the deliberate boundary
+ * (audit L3, job audit-mr4iod7p-pju4hi).
+ */
+function normalizeAppendEvidenceInput(input: unknown): unknown {
+  if (input === null || typeof input !== "object") return input;
+  if (!Object.prototype.hasOwnProperty.call(input, "proof_statement")) return input;
+  const ps = (input as { proof_statement?: unknown }).proof_statement;
+  if (typeof ps !== "string" || ps.trim().length !== 0) return input;
+  const clone = structuredClone(input) as Record<string, unknown>;
+  delete clone.proof_statement;
+  return clone;
+}
+
 // ---------------------------------------------------------------------------
 // appendEvidenceItem (proposed-only)
 // ---------------------------------------------------------------------------
@@ -105,7 +129,7 @@ export function prepareAppendEvidenceItem(
     }
   }
 
-  const v = validateEvidenceItem(input);
+  const v = validateEvidenceItem(normalizeAppendEvidenceInput(input));
   if (!v.ok) {
     throw new CaseBoxPersistenceError("invalid_payload", `invalid evidence item: ${v.summary}`);
   }
