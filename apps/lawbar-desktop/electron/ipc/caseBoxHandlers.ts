@@ -33,6 +33,10 @@ import {
 // the same reason as the docket handlers above (handlers.ts barrel is outside
 // this WI's governed Allowed-files; CBW-601-BARREL follow-up).
 import { createFactHandler, transitionFactHandler } from "../../src/caseBox/factHandlers.js";
+// WI-FORMS-T3-S3 DOCX export handler — imported DIRECTLY from the per-entity module
+// for the same reason as the docket/fact handlers above (the handlers.ts barrel is
+// outside this WI's governed Allowed-files).
+import { exportT3DocxHandler, type T3ExportDocxDeps } from "../../src/caseBox/t3ExportHandlers.js";
 // WI-A3-LINK-IPC-T1 Evidence link write/read handlers — imported DIRECTLY from
 // the per-entity module for the same reason as the docket/fact handlers above
 // (the handlers.ts barrel is outside this WI's governed Allowed-files).
@@ -62,6 +66,10 @@ export interface RegisterCaseBoxIpcHandlersOptions {
   // if the runtime is the InMemory fallback (no SQLite), each link channel
   // returns a safe not_implemented boundary error instead of throwing.
   readonly linkPersistenceProvider?: LinkPersistenceProvider;
+  // Main-process save-dialog + file-write for the T3 DOCX export channel. Supplied by
+  // electron main; when absent (e.g. unit harness), the export channel returns a safe
+  // boundary error (mirrors the document-register misconfiguration safeguard).
+  readonly t3ExportDeps?: T3ExportDocxDeps;
 }
 
 // Safe boundary envelope returned by every link channel when the SQLite runtime
@@ -170,6 +178,20 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.t3PreviewCatalog, async (_evt, payload: unknown) => {
     return previewT3CatalogHandler(payload, provide);
+  });
+  ipcMain.handle(CHANNEL.t3ExportDocx, async (_evt, payload: unknown) => {
+    if (options.t3ExportDeps === undefined) {
+      // Misconfiguration safeguard: never proceed with a half-wired export path.
+      return {
+        ok: false,
+        error: {
+          kind: "case_box_persistence_error",
+          code: "not_implemented",
+          message: "T3 DOCX export is not available (save dialog not configured)",
+        },
+      };
+    }
+    return exportT3DocxHandler(payload, provide, options.t3ExportDeps);
   });
   ipcMain.handle(CHANNEL.linkCreate, async (_evt, payload: unknown) => {
     const linkProvide = resolveLinkProvider();

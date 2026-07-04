@@ -46,6 +46,8 @@ function stubWithT3(impl = {}) {
     previewT3Catalog:
       impl.previewT3Catalog ??
       (async () => ({ ok: true, value: { kind: "model", model: modelFixture() } })),
+    exportT3Docx:
+      impl.exportT3Docx ?? (async () => ({ ok: true, value: { written: true } })),
   };
 }
 
@@ -186,4 +188,97 @@ test("t3 preview: refusal success value renders the banner naming the code; no g
     assert.equal(findByTestId(root, "view-t3-table"), null);
     assert.equal(findByTestId(root, "view-t3-header"), null);
   }
+});
+
+// ---------- DOCX export trigger (WI-FORMS-T3-S3-DOCX-EXPORT-00) ----------
+
+async function clickExport(api) {
+  const root = await mountT3(api);
+  findByTestId(root, "view-t3-export-docx").dispatchEvent({ type: "click" });
+  await flush();
+  return root;
+}
+
+test("t3 export: the 导出 DOCX button is present and invokes exportT3Docx with the matterId", async () => {
+  let seen = null;
+  const api = stubWithT3({
+    exportT3Docx: async (dto) => {
+      seen = dto;
+      return { ok: true, value: { written: true } };
+    },
+  });
+  const root = await mountT3(api);
+  const button = findByTestId(root, "view-t3-export-docx");
+  assert.ok(button !== null, "export button present");
+  assert.equal(button.getAttribute("type"), "button");
+  button.dispatchEvent({ type: "click" });
+  await flush();
+  assert.deepEqual(seen, { matterId: VALID_ULID }, "export invoked with only the matterId");
+});
+
+test("t3 export: written:true renders the success note", async () => {
+  const api = stubWithT3({ exportT3Docx: async () => ({ ok: true, value: { written: true } }) });
+  const root = await clickExport(api);
+  assert.ok(findByTestId(root, "view-t3-export-written") !== null, "success note shown");
+  assert.equal(findByTestId(root, "view-t3-export-error"), null);
+});
+
+test("t3 export: written:false (cancel) renders the neutral cancelled note, not an error", async () => {
+  const api = stubWithT3({ exportT3Docx: async () => ({ ok: true, value: { written: false } }) });
+  const root = await clickExport(api);
+  assert.ok(findByTestId(root, "view-t3-export-cancelled") !== null, "cancelled note shown");
+  assert.equal(findByTestId(root, "view-t3-export-error"), null, "cancel is not an error");
+  assert.equal(findByTestId(root, "view-t3-export-written"), null);
+});
+
+test("t3 export: a refusal value renders the refusal banner naming the code (no document)", async () => {
+  const api = stubWithT3({
+    exportT3Docx: async () => ({ ok: true, value: { exported: false, refusal: { code: "submitter_selection_required" } } }),
+  });
+  const root = await clickExport(api);
+  const banner = findByTestId(root, "view-t3-refusal");
+  assert.ok(banner !== null, "refusal banner shown");
+  assert.equal(banner.getAttribute("role"), "alert");
+  assert.match(collectText(banner), /submitter_selection_required/);
+  assert.equal(findByTestId(root, "view-t3-export-written"), null);
+});
+
+test("t3 export: an error envelope renders role=alert with the safe message", async () => {
+  const api = stubWithT3({
+    exportT3Docx: async () => ({
+      ok: false,
+      error: { kind: "case_box_persistence_error", code: "unknown_matter", message: "unknown matter" },
+    }),
+  });
+  const root = await clickExport(api);
+  const err = findByTestId(root, "view-t3-export-error");
+  assert.ok(err !== null);
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err), "unknown matter");
+});
+
+test("t3 export: a REJECTED export call renders the inline error AND re-enables the button (M1)", async () => {
+  // The preload/IPC bridge throws instead of returning an envelope. The handler must
+  // catch it, render an i18n-backed generic error via role=alert, clear the working
+  // indicator, and re-enable the button (never leave the surface stuck disabled).
+  const api = stubWithT3({
+    exportT3Docx: async () => {
+      throw new Error("preload bridge exploded");
+    },
+  });
+  const root = await mountT3(api);
+  const button = findByTestId(root, "view-t3-export-docx");
+  button.dispatchEvent({ type: "click" });
+  await flush();
+
+  // an inline generic error is shown, role=alert; NO raw error text leaks
+  const err = findByTestId(root, "view-t3-export-error");
+  assert.ok(err !== null, "a rejected export renders the inline error");
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.doesNotMatch(collectText(err), /preload bridge exploded/, "raw error text is not leaked");
+  assert.match(collectText(err), /导出失败/, "the i18n generic export-failed message is shown");
+  // the working indicator is cleared
+  assert.equal(findByTestId(root, "view-t3-export-working"), null, "working indicator cleared");
+  // the button is re-enabled — not left disabled
+  assert.equal(button.hasAttribute("disabled"), false, "button re-enabled after a rejected export");
 });

@@ -230,6 +230,15 @@ export const CATALOG = {
   "viewT3.refusal.submitter_index_out_of_range": "所选提交人序号超出当事人范围，请重新选择。",
   "viewT3.refusal.submitter_not_client": "所选当事人不是委托人，请重新选择。",
   "viewT3.refusal.submitter_selection_stale": "所选提交人名称已变更，请重新选择。",
+  // DOCX export trigger (WI-FORMS-T3-S3-DOCX-EXPORT-00). Delivery is a main-process
+  // save dialog; the renderer only reports the status inline.
+  "viewT3.export.button": "导出 DOCX",
+  "viewT3.export.working": "正在生成 DOCX…",
+  "viewT3.export.written": "已保存 DOCX 文件。",
+  "viewT3.export.cancelled": "已取消保存。",
+  // Generic fallback when the export call REJECTS (preload/IPC threw instead of
+  // returning a structured envelope) — the renderer never surfaces raw error text.
+  "viewT3.export.failed": "导出失败，请重试。",
 } as const;
 
 export type CatalogId = keyof typeof CATALOG;

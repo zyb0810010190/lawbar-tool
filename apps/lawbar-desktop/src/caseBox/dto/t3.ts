@@ -49,3 +49,39 @@ export type T3PreviewCatalogValue =
 
 
 export type T3PreviewCatalogResult = IpcEnvelope<T3PreviewCatalogValue>;
+
+
+// ---------------------------------------------------------------------------
+// T3 DOCX export (WI-FORMS-T3-S3-DOCX-EXPORT-00). ONE main-process channel
+// (casebox:t3:exportDocx) that builds the SAME S1 model as the preview and
+// delivers a `.docx` via the Electron save dialog. The request DTO mirrors the
+// preview DTO (matter-scoped; server injects the active tenant). The renderer
+// NEVER receives raw `.docx` bytes — only the structured status value below.
+// ---------------------------------------------------------------------------
+
+export interface T3ExportDocxDto {
+  readonly matterId: string;
+  readonly submitterSelection?: T3SubmitterSelectionDto;
+}
+
+
+export const T3_EXPORT_DOCX_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "submitterSelection",
+] as const);
+
+
+export const T3_EXPORT_DOCX_FORBIDDEN_FIELDS = Object.freeze([
+  "tenant_id",
+  "actor_user_id",
+] as const);
+
+
+// Discriminated SUCCESS value: a save outcome (written true|false — cancel is a no-op
+// success) XOR a submitter-refusal (no document produced). NEVER carries raw bytes.
+export type T3ExportDocxValue =
+  | { readonly written: boolean }
+  | { readonly exported: false; readonly refusal: { readonly code: T3RefusalCode } };
+
+
+export type T3ExportDocxResult = IpcEnvelope<T3ExportDocxValue>;

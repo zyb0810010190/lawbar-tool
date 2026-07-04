@@ -539,3 +539,27 @@ export const RENDERER_T3_PREVIEW_DTO_FIELDS = Object.freeze([
   "matterId",
   "submitterSelection",
 ] as const);
+
+// ---------------------------------------------------------------------------
+// T3 DOCX export (WI-FORMS-T3-S3-DOCX-EXPORT-00). Renderer-side mirror of the
+// canonical T3ExportDocxDto in src/caseBox/dto/t3.ts. Field-name parity is
+// asserted by tests/renderer-dto-sync.test.mjs. The main process delivers the
+// `.docx` via a save dialog; the renderer receives ONLY the structured status
+// value below (a save outcome XOR a refusal) — NEVER raw `.docx` bytes.
+// ---------------------------------------------------------------------------
+
+export interface T3ExportDocxDto {
+  readonly matterId: string;
+  readonly submitterSelection?: { readonly partyIndex: number; readonly displayNameEcho: string };
+}
+
+// Discriminated success value returned by casebox:t3:exportDocx. `written: false` is a
+// no-op success (the user cancelled the save dialog); a refusal produces NO document.
+export type T3ExportDocxValue =
+  | { readonly written: boolean }
+  | { readonly exported: false; readonly refusal: { readonly code: T3RefusalCode } };
+
+export const RENDERER_T3_EXPORT_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "submitterSelection",
+] as const);

@@ -19,6 +19,7 @@ import type {
   T3PositionCell,
   T3CatalogModelView,
   T3PreviewCatalogValue,
+  T3ExportDocxValue,
   T3RefusalCode,
 } from "../types.js";
 import { el, setText } from "../dom.js";
@@ -172,6 +173,72 @@ async function loadCatalog(
   parent.appendChild(renderModel(doc, value.model));
 }
 
+// Run the main-process DOCX export and report the outcome inline. The renderer NEVER
+// handles raw `.docx` bytes — it only surfaces the structured status (written /
+// cancelled / refusal / error). The button is disabled while the export is in flight,
+// and is ALWAYS re-enabled + the working indicator ALWAYS cleared in `finally` — even
+// when the export call REJECTS (preload/IPC throws instead of returning an envelope),
+// so the surface is never left stuck disabled with no feedback.
+async function runExport(
+  status: HTMLElement,
+  button: HTMLElement,
+  doc: Document,
+  api: CaseBoxApi,
+  matterId: string,
+): Promise<void> {
+  button.setAttribute("disabled", "");
+  setText(status, "");
+  const working = el(
+    "span",
+    { "data-test-id": "view-t3-export-working" },
+    [t("viewT3.export.working")],
+    doc,
+  );
+  status.appendChild(working);
+
+  try {
+    const env = await api.exportT3Docx({ matterId });
+
+    if (!env.ok) {
+      status.appendChild(
+        el("span", { role: "alert", "data-test-id": "view-t3-export-error" }, [env.error.message], doc),
+      );
+      return;
+    }
+    const value = env.value as T3ExportDocxValue;
+    if ("refusal" in value) {
+      // Reuse the S2 refusal banner — a refusal produces NO document.
+      status.appendChild(renderRefusal(doc, value.refusal.code));
+      return;
+    }
+    if (value.written) {
+      status.appendChild(
+        el("span", { "data-test-id": "view-t3-export-written" }, [t("viewT3.export.written")], doc),
+      );
+    } else {
+      // Cancelling the save is a neutral no-op, NOT an error.
+      status.appendChild(
+        el("span", { "data-test-id": "view-t3-export-cancelled" }, [t("viewT3.export.cancelled")], doc),
+      );
+    }
+  } catch {
+    // The export call REJECTED (preload/IPC threw instead of returning an envelope).
+    // Surface an i18n-backed generic error inline; never leak raw error text.
+    status.appendChild(
+      el(
+        "span",
+        { role: "alert", "data-test-id": "view-t3-export-error" },
+        [t("viewT3.export.failed")],
+        doc,
+      ),
+    );
+  } finally {
+    // ALWAYS clear the working indicator + re-enable the button, on every path.
+    working.remove();
+    button.removeAttribute("disabled");
+  }
+}
+
 export function renderT3CatalogDisclosure(
   doc: Document,
   api: CaseBoxApi,
@@ -183,11 +250,27 @@ export function renderT3CatalogDisclosure(
     [],
     doc,
   );
+  const exportStatus = el(
+    "span",
+    { class: "view-t3-export-status", "data-test-id": "view-t3-export-status" },
+    [],
+    doc,
+  );
+  const exportButton = el(
+    "button",
+    { type: "button", class: "view-t3-export-button", "data-test-id": "view-t3-export-docx" },
+    [t("viewT3.export.button")],
+    doc,
+  );
+  exportButton.addEventListener("click", () => {
+    void runExport(exportStatus, exportButton, doc, api, matterId);
+  });
+  const exportBar = el("div", { class: "view-t3-export-bar" }, [exportButton, exportStatus], doc);
   const summary = el("summary", { "data-test-id": "view-t3-summary" }, [t("viewT3.summary")], doc);
   const details = el(
     "details",
     { class: "view-t3-details", "data-test-id": "view-t3-details" },
-    [summary, bodyContainer],
+    [summary, exportBar, bodyContainer],
     doc,
   );
 
