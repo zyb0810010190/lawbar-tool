@@ -44,6 +44,7 @@ export const CHANNEL = {
   linkRelink: "casebox:link:relink",
   linkList: "casebox:link:list",
   linkExport: "casebox:link:export",
+  t3PreviewCatalog: "casebox:t3:previewCatalog",
 } as const;
 
 export type PersistenceProvider = () => { readonly persistence: CaseBoxPersistence };

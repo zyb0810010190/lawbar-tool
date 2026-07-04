@@ -14,6 +14,7 @@ import {
   listDeadlinesHandler,
   transitionDeadlineHandler,
   listFactsHandler,
+  previewT3CatalogHandler,
   type PersistenceProvider,
   type ClockFn,
   type RegisterDocumentDeps,
@@ -166,6 +167,9 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.factTransition, async (_evt, payload: unknown) => {
     return transitionFactHandler(payload, provide, nowFn);
+  });
+  ipcMain.handle(CHANNEL.t3PreviewCatalog, async (_evt, payload: unknown) => {
+    return previewT3CatalogHandler(payload, provide);
   });
   ipcMain.handle(CHANNEL.linkCreate, async (_evt, payload: unknown) => {
     const linkProvide = resolveLinkProvider();

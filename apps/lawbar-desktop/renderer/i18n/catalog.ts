@@ -209,6 +209,27 @@ export const CATALOG = {
   "links.export.empty": "暂无可导出的引用。",
   "links.export.failed": "无法生成引用，请重试。",
   "links.export.summaryLabel": "按分类汇总",
+
+  // ---- T3 证据目录及说明 preview section (WI-FORMS-T3-S2-CATALOG-PREVIEW-00) ----
+  "viewT3.summary": "证据目录及说明（预览）",
+  "viewT3.loading": "加载证据目录…",
+  "viewT3.empty": "本案暂无已采纳证据可供目录展示。",
+  "viewT3.header.position": "提交人诉讼地位：",
+  "viewT3.header.submitter": "名称/姓名：",
+  "viewT3.caption": "证据目录及说明",
+  "viewT3.col.seq": "序号",
+  "viewT3.col.name": "证据名称",
+  "viewT3.col.proof": "证明内容",
+  "viewT3.col.page": "页码",
+  "viewT3.reviewNeeded": "⟨需复核⟩",
+  "viewT3.position.plaintiff": "原告",
+  "viewT3.position.defendant": "被告",
+  // refusal review states (T3RefusalCode); the banner also shows the raw code.
+  "viewT3.refusal.title": "需选择提交人：",
+  "viewT3.refusal.submitter_selection_required": "本案存在 0 个或多个当事人（委托人），请指定提交人后再预览。",
+  "viewT3.refusal.submitter_index_out_of_range": "所选提交人序号超出当事人范围，请重新选择。",
+  "viewT3.refusal.submitter_not_client": "所选当事人不是委托人，请重新选择。",
+  "viewT3.refusal.submitter_selection_stale": "所选提交人名称已变更，请重新选择。",
 } as const;
 
 export type CatalogId = keyof typeof CATALOG;

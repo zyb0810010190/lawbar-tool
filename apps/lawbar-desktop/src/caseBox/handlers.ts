@@ -26,3 +26,5 @@ export {
 export { listDeadlinesHandler, transitionDeadlineHandler } from "./deadlineHandlers.js";
 
 export { listFactsHandler } from "./factHandlers.js";
+
+export { previewT3CatalogHandler } from "./t3Handlers.js";

@@ -40,8 +40,10 @@ function extractCanonical() {
 
 // Match: export const NAME = Object.freeze([ "x", "y", ... ] as const);
 // Captures the array body. Tolerant of whitespace/newlines.
+// Name char-class includes digits so array names carrying a form number
+// (e.g. RENDERER_T3_PREVIEW_DTO_FIELDS / T3_PREVIEW_CATALOG_DTO_FIELDS) match.
 const FREEZE_BLOCK_RE =
-  /export\s+const\s+([A-Z_]+)\s*=\s*Object\.freeze\(\s*\[([\s\S]*?)\]\s*as\s+const\s*\)\s*;/g;
+  /export\s+const\s+([A-Z0-9_]+)\s*=\s*Object\.freeze\(\s*\[([\s\S]*?)\]\s*as\s+const\s*\)\s*;/g;
 
 function extractFieldArrays(filePath) {
   const text = readFileSync(filePath, "utf8");
@@ -85,6 +87,9 @@ const PAIRS = [
   ["RENDERER_RELINK_LINK_DTO_FIELDS", "RELINK_LINK_DTO_FIELDS"],
   ["RENDERER_LIST_LINKS_DTO_FIELDS", "LIST_LINKS_DTO_FIELDS"],
   ["RENDERER_EXPORT_LINK_CITATIONS_DTO_FIELDS", "EXPORT_LINK_CITATIONS_DTO_FIELDS"],
+  // WI-FORMS-T3-S2-CATALOG-PREVIEW: the renderer T3 preview bridge mirrors the
+  // canonical T3_PREVIEW_CATALOG_DTO_FIELDS in src/caseBox/dto/t3.ts.
+  ["RENDERER_T3_PREVIEW_DTO_FIELDS", "T3_PREVIEW_CATALOG_DTO_FIELDS"],
 ];
 
 test("DTO sync: parser extracts all renderer arrays", () => {

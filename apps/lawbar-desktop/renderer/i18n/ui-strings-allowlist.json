@@ -253,19 +253,19 @@
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 232,
+    "line": 233,
     "text": "${jurisdiction.value}${lockedMarker}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 252,
+    "line": 253,
     "text": "${p.role} — ${p.display_name} (${p.party_kind})",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 424,
+    "line": 426,
     "text": "§",
     "kind": "text"
   },
