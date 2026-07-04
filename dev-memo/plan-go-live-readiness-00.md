@@ -169,6 +169,36 @@ NOT touched by this plan-WI's commit:
 
 **v1 go-live is NOT close.** Closure of the OPEN gates is multi-WI work (estimated 10-15 plan-only WIs + impls). Closure of STOP-AND-ASK gates requires explicit user decisions that this blueprint does NOT pre-empt.
 
+### §1.R Refresh — as of `main` @ `febbaf2` (2026-07-04, WI-GOLIVE-READINESS-REFRESH-00)
+
+The gate rows above are the rev-4 baseline (authored before case-box Phase-B completion + the forms-T3 track). This refresh re-classifies all 21 gates against current `main`; the **authoritative current 21-gate matrix with per-gate evidence + next action lives in `docs/release/go-live-readiness-report.md` §1** (an EXPLICITLY-INTERIM snapshot — NOT a final GO/NO-GO verdict; gate 21 stays BLOCKED). Compact re-classification (material deltas vs rev-4 flagged **[Δ]**):
+
+| Gate | Refreshed status | Key delta / evidence |
+|---|---|---|
+| 1 | CLEARED | schema v12; persistence 573+273+288/0 |
+| 2 | PARTIAL (verify) | ocr-* packages present |
+| 3 | **PARTIAL [Δ]** (was NOT STARTED) | evidence inventory: 12 renderer screens + 26 case-box IPC channels + electron main/preload + forms-T3 preview/DOCX shipped; app still self-declares fixture/unsigned/not-for-distribution → release-incomplete, NOT unstarted |
+| 4 | STOP-AND-ASK | framework + public distribution + signing (user) |
+| 5 | **PARTIAL [Δ]** | contract 455/0 + persistence 573+273+288/0 + desktop 791/0; 1 pre-existing ocr-worker SIGINT flake to resolve/quarantine |
+| 6 | OPEN | full-scope audit sweep pending; batch closeouts all BATCH-PASS through batch-210 |
+| 7 | OPEN | robustness policy undecided |
+| 8 | **PARTIAL [Δ]** | 37 open deferred, ALL Low, ALL Safe=YES, 0 Medium+ |
+| 9 | CLEARED | WI-03d security sign-off |
+| 10 | OPEN | case-box security-boundary audit pending |
+| 11 | STOP-AND-ASK | 律师法 legal sign-off (user) |
+| 12 | PARTIAL | audit chain design complete; ops procedure pending |
+| 13 | OPEN | operator/runbook scaffold only |
+| 14 | OPEN | backup/recovery not started |
+| 15 | PARTIAL | rollback rule exists; drill pending |
+| 16 | **PARTIAL (verify) [Δ]** | brief READY; T4 brief-vs-PRD reconciliation RESOLVED (accepted divergence, ADR-forms-t4) |
+| 17 | OPEN | license/privacy not started |
+| 18 | OPEN | export-format certification not started |
+| 19 | **OPEN [Δ]** | deps now include `docx@9.7.1` (NEW; MIT/pure-JS; dep-review ACCEPTABLE) + native `better-sqlite3` |
+| 20 | PARTIAL | telemetry default-off per brief; verify Mac-client code |
+| 21 | OPEN — BLOCKED | final report is the LAST gate; the current report is INTERIM only |
+
+**Refreshed roll-up**: CLEARED 1,9 (2) · PARTIAL/residual 2,3,5,8,12,15,16,20 (8) · OPEN 6,7,10,13,14,17,18,19,21 (9) · STOP-AND-ASK 4,11 (2). Net: gate 3 OPEN→PARTIAL (real functional client exists); forms-T3 shipped as a new M0 case-box feature; `docx` added to the supply-chain surface. v1 go-live remains NOT close; the three STOP-AND-ASK hard-stops (4, 11, 21-verdict) remain the user's.
+
 ---
 
 ## §2 Authority hierarchy
