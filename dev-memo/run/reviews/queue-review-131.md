@@ -1,0 +1,32 @@
+# Queue review — WI-GATE10-CASEBOX-PERSISTENCE-SECURITY-BOUNDARY-AUDIT-00 (execution: security-boundary audit report)
+
+Lane: EXECUTION of the governed Type:EVIDENCE WI `WI-GATE10-CASEBOX-PERSISTENCE-SECURITY-BOUNDARY-AUDIT-00` — run the READ-ONLY security-boundary audit of the case-box persistence layer + its desktop server-authority reach, and produce the audit report. Docs/evidence-only: no code, no schema, no contract, no dependency change; no go-live GO/NO-GO decision.
+Date: 2026-07-04. Branch: `gate10-casebox-security-audit` (from synced `main` @ `3dc9808`). Batch: 1/3 since marker `edf4260` — no batch closeout this lane.
+
+## What this is
+Executes the governed WI by producing `docs/release/casebox-persistence-security-audit-00.md` — a read-only security-boundary audit (M0 go-live gate 10). The broker security audit (`/cc-suite:audit` security persona, adversarial "try to refute") ran over the case-box persistence boundary (`services/case-box-persistence/src/**`) + the desktop files that reach persistence / hold server authority (`*Handlers.ts`, `handlerShared.ts`, `errorMap.ts`, `dto/**`, `t3CatalogSource.ts`, `caseBoxRuntime.ts`, `security/activeTenant.ts`+`activeActor.ts`, `electron/ipc/caseBoxHandlers.ts` + the `electron/main.ts` registration slice). Findings **C0 H0 M2 L1**: two Medium forward-multi-tenant defense-in-depth gaps (M-1 child-entity list reads carry no row-level `tenant_id` predicate though a `requireMatterTenant` preflight IS present; M-2 id-addressed mutations `UPDATE … WHERE id = ?` with tenant asserted by the surrounding resolve/preflight, not in the statement) + one Low (L-1 tenant-mismatch tests cover only facts/deadlines). Neither Medium is v1-exploitable (single-tenant + matter-tenant preflight + write-time `child.tenant == matter.tenant` invariant + desktop preflight). Per the WI + `.claude/rules/cc-suite.md` §"Audit remediation policy" + `.claude/rules/security-boundary.md`, the two Mediums are ESCALATED as blockers-to-clearance → **gate 10 NOT CLEARED**; a bounded follow-up security WI (`WI-SEC-CASEBOX-TENANT-SCOPING-DEFENSE-00`) is PROPOSED for SEPARATE user authorization (not fixed, not queued, not self-authorized in this lane). Gate-10 clearance does not imply go-live; the final GO/NO-GO + the three STOP-AND-ASK hard-stops remain the user's.
+
+## cc-suite recording (per .claude/rules/cc-suite.md §"Required recording")
+Path 1 runner foreground, resolved runner path `/Users/zhongyibao/.claude/plugins/cache/xiaolai/cc-suite/0.2.18/scripts/codex-runner.mjs`. Security is a HIGH-RISK cc-suite category → the broker audit is REQUIRED (not self-review); it ran and is retrievable.
+
+### /cc-suite:audit (security persona, gpt-5.5/high/read-only) — the independent security review
+- `audit-mr6eouaf-p0k7yg` · **completed / retrievable YES** · FINDINGS C0 H0 M2 L1, BOUNDARY-FINDINGS · rawOutput sha256 `e995a91a9551a759f9f0e2fe759b53fb5a47d2f22d424dfff6e46eb67bf1a1d9`. All file:line citations independently re-verified against source before classification (a first-hand read of activeTenant/activeActor, handlerShared, errorMap, matterHandlers, dto/matter+shared, t3CatalogSource, resolveTarget, matterRepoQueries, caseBoxHandlers, caseBoxRuntime, evidence/docket/facts RepoQueries, sqliteBackedIdSet).
+
+### /cc-suite:review-plan (gpt-5.5/medium/read-only) — review of the produced report (docs-artifact soundness)
+- Attempt 1: `review-plan-mr6exzea-uhdmjx` · **FAILED — RUNNER_ERROR** (`spawnSync codex ENOBUFS`; runner stdout-buffer overflow, NOT a codex/timeout/reap fault; runner wrote a clean failed envelope). Re-run immediately.
+- Attempt 2: `review-plan-mr6eyp5q-0kfqzr` · **NEEDS-FIX** (0 Critical/High; 2 Medium report-quality defects; OVERCLAIM / SELF-AUTHORIZATION / CONSISTENCY dimensions confirmed sound) · rawOutput sha256 `a282595278c12c98fca8174877e6007fe50344cc99da308d44414554c6923a11`.
+  - **RQ-M1** §1 scope omitted `linkStatusResolverQueries.ts` + `exportCitationQueries.ts` (reached through the desktop link boundary at `linkHandlers.ts:45` via `resolveLinkStatuses`/`buildExportCitations`) → FIXED: both added to §1 with their tenant/matter-scope note; independently confirmed the import + that they surfaced no additional finding.
+  - **RQ-M2** M-1 overstated the failure mode ("nor a matter-tenant preflight in the read path") — factually wrong: `listEvidenceItemsSqlite:309` / `listDocketEntriesSqlite:441` / `listAuditEventsSqlite:64-80` DO call `requireMatterTenant` before the child SELECT → FIXED: M-1 rewritten to state the preflight IS present (foreign-`matter_id` is rejected, not id-guessable) and narrow the residual to the missing row-level `tenant_id` predicate (drift/direct-corruption only); M-2 text + the finding table + §3/§7 aligned. Findings kept at Medium (reviewer: "Medium remains defensible") and gate kept NOT CLEARED — the correction was NOT used as a lever to clear the gate.
+- Attempt 3 (re-review after fixes): `review-plan-mr6fmyv5-oyjtay` · **READY** (all five dimensions PASS — NOT-CLEARED verdict correct, no self-authorized fix, no missed critical surface, M-1/M-2 defensibly Medium defense-in-depth, table/FINDINGS/verdicts/conclusion agree) · rawOutput sha256 `8ab443564a5d557981f6a48eedc122afc7c302d1c218af31ea7816087b72f55d`.
+
+## Verdict: READY (security-boundary audit report; gate 10 NOT CLEARED; escalate-not-fix; go-live-independent)
+
+QUEUE_REVIEW_VERDICT=PASS
+
+## Gates (this execution lane)
+- `scripts/workflow/check-queue.sh` → PASS (queue.md unchanged — the governed WI-GATE10 remains; its report deliverable is now produced).
+- `scripts/workflow/check-contract-integrity.sh` → PASS (14 contract docs clean).
+- `CURRENT_SCHEMA_VERSION` unchanged (12); no app/service/native/schema/contract/persistence/dependency/test code touched — this lane commits ONLY the audit report + this review artifact (two-lane boundary; the authoring lane already governed the WI). No code fix, no go-live decision.
+
+## Deferred findings
+None deferred silently. The two Medium boundary findings are ESCALATED (not deferred) — recorded in the report §5/§6 and to be resolved by the PROPOSED `WI-SEC-CASEBOX-TENANT-SCOPING-DEFENSE-00` under a SEPARATE user authorization (full security-WI loop: review-plan → tests-first → implement → audit → verify). L-1 (test-coverage) folds into that same follow-up. Gate 10 stays NOT CLEARED until the Mediums are resolved; clearing gate 10 will still NOT imply go-live — the final verdict + the three STOP-AND-ASK hard-stops remain the user's.
