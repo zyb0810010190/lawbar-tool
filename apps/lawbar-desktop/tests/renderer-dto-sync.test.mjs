@@ -90,6 +90,9 @@ const PAIRS = [
   // WI-FORMS-T3-S2-CATALOG-PREVIEW: the renderer T3 preview bridge mirrors the
   // canonical T3_PREVIEW_CATALOG_DTO_FIELDS in src/caseBox/dto/t3.ts.
   ["RENDERER_T3_PREVIEW_DTO_FIELDS", "T3_PREVIEW_CATALOG_DTO_FIELDS"],
+  // WI-FORMS-T3-S3-DOCX-EXPORT: the renderer T3 export bridge mirrors the canonical
+  // T3_EXPORT_DOCX_DTO_FIELDS in src/caseBox/dto/t3.ts.
+  ["RENDERER_T3_EXPORT_DTO_FIELDS", "T3_EXPORT_DOCX_DTO_FIELDS"],
 ];
 
 test("DTO sync: parser extracts all renderer arrays", () => {

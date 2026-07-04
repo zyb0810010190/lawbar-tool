@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
 import path from "node:path";
+import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { closeCaseBoxRuntime, getCaseBoxRuntime } from "../src/caseBox/caseBoxRuntime.js";
@@ -126,6 +127,26 @@ void app.whenReady().then(async () => {
       if (result.canceled || result.filePaths.length === 0) return null;
       const sourcePath = result.filePaths[0];
       return { sourcePath, filename: path.basename(sourcePath) };
+    },
+    // T3 DOCX export delivery (WI-FORMS-T3-S3): main owns the save dialog + write; the
+    // renderer never handles raw `.docx` bytes. The OS dialog owns overwrite
+    // confirmation; the default filename ends in `.docx` and the filter is DOCX.
+    t3ExportDeps: {
+      showSaveDialog: async ({ defaultFileName }) => {
+        const win = mainWindow ?? undefined;
+        const options = {
+          defaultPath: defaultFileName,
+          filters: [{ name: "Word 文档", extensions: ["docx"] }],
+        };
+        const result =
+          win !== undefined
+            ? await dialog.showSaveDialog(win, options)
+            : await dialog.showSaveDialog(options);
+        return { canceled: result.canceled, filePath: result.filePath ?? null };
+      },
+      writeFile: async (filePath, data) => {
+        await writeFile(filePath, data);
+      },
     },
   });
 

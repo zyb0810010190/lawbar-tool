@@ -30,6 +30,7 @@ import type {
   ListLinksDto,
   ExportLinkCitationsDto,
   T3PreviewCatalogDto,
+  T3ExportDocxDto,
   CreateMatterResult,
   GetMatterResult,
   ListMattersResult,
@@ -55,6 +56,7 @@ import type {
   ListLinksResult,
   ExportLinkCitationsResult,
   T3PreviewCatalogResult,
+  T3ExportDocxResult,
 } from "../src/caseBox/dto.js";
 
 export interface ThemeApi {
@@ -103,6 +105,10 @@ export interface CaseBoxApi {
   // Matter-scoped; tenant injected server-side. A submitter refusal is an expected
   // review state carried in the success value, not an error.
   previewT3Catalog(dto: T3PreviewCatalogDto): Promise<T3PreviewCatalogResult>;
+  // WI-FORMS-T3-S3: export the merged S1 T3 catalog to `.docx` via the main-process
+  // save dialog. The renderer receives ONLY a structured status ({ written } / refusal
+  // / error) — never raw `.docx` bytes.
+  exportT3Docx(dto: T3ExportDocxDto): Promise<T3ExportDocxResult>;
 }
 
 const themeApi: ThemeApi = {
@@ -144,6 +150,7 @@ const caseBoxApi: CaseBoxApi = {
   listLinks: (dto) => ipcRenderer.invoke("casebox:link:list", dto),
   exportLinkCitations: (dto) => ipcRenderer.invoke("casebox:link:export", dto),
   previewT3Catalog: (dto) => ipcRenderer.invoke("casebox:t3:previewCatalog", dto),
+  exportT3Docx: (dto) => ipcRenderer.invoke("casebox:t3:exportDocx", dto),
 };
 
 contextBridge.exposeInMainWorld("lawbar", { theme: themeApi, caseBox: caseBoxApi });

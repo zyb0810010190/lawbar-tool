@@ -42,6 +42,7 @@ function makeMockClient() {
       listLinks: mk("listLinks"),
       exportLinkCitations: mk("exportLinkCitations"),
       previewT3Catalog: mk("previewT3Catalog"),
+      exportT3Docx: mk("exportT3Docx"),
     },
   };
 }
@@ -447,6 +448,28 @@ test("createCaseBoxApi: previewT3Catalog forwards matterId + submitterSelection,
   assert.deepEqual(m.calls[0].dto, {
     matterId: VALID_ULID,
     submitterSelection: { partyIndex: 0, displayNameEcho: "孙乐驰" },
+  });
+  assert.equal("tenant_id" in m.calls[0].dto, false);
+  assert.equal("actor_user_id" in m.calls[0].dto, false);
+});
+
+// --- T3 证据目录及说明 DOCX export channel (WI-FORMS-T3-S3-DOCX-EXPORT) ---
+
+test("createCaseBoxApi: exportT3Docx forwards matterId + submitterSelection, strips authority", async () => {
+  const m = makeMockClient();
+  const api = createCaseBoxApi(m.client);
+  await api.exportT3Docx({
+    matterId: VALID_ULID,
+    submitterSelection: { partyIndex: 1, displayNameEcho: "王二" },
+    // forbidden server-authority fields must be stripped before invoke:
+    tenant_id: "evil",
+    actor_user_id: "evil",
+  });
+  assert.equal(m.calls.length, 1);
+  assert.equal(m.calls[0].name, "exportT3Docx");
+  assert.deepEqual(m.calls[0].dto, {
+    matterId: VALID_ULID,
+    submitterSelection: { partyIndex: 1, displayNameEcho: "王二" },
   });
   assert.equal("tenant_id" in m.calls[0].dto, false);
   assert.equal("actor_user_id" in m.calls[0].dto, false);
