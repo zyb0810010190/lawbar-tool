@@ -21,6 +21,7 @@ import { renderDocumentsDisclosure } from "./viewMatterDocuments.js";
 import { renderDeadlinesDisclosure } from "./viewMatterDeadlines.js";
 import { renderFactsDisclosure } from "./viewMatterFacts.js";
 import { renderLinksDisclosure } from "./viewMatterLinks.js";
+import { renderT3CatalogDisclosure } from "./viewMatterT3Catalog.js";
 
 interface ViewMatterRow {
   readonly id: string;
@@ -404,12 +405,13 @@ function renderDetail(
   const deadlinesDetails = renderDeadlinesDisclosure(doc, deps.api, row.id);
   const factsDetails = renderFactsDisclosure(doc, deps.api, row.id);
   const linksDetails = renderLinksDisclosure(doc, deps.api, row.id);
+  const t3CatalogDetails = renderT3CatalogDisclosure(doc, deps.api, row.id);
   const chainHeadDetails = renderChainHeadDisclosure(doc, deps.api, row.id);
 
   const mainCol = el(
     "div",
     { class: "view-main" },
-    [infoCard, documentsDetails, deadlinesDetails, factsDetails, linksDetails],
+    [infoCard, documentsDetails, deadlinesDetails, factsDetails, linksDetails, t3CatalogDetails],
     doc,
   );
 

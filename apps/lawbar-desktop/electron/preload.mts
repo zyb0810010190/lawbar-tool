@@ -29,6 +29,7 @@ import type {
   RelinkLinkDto,
   ListLinksDto,
   ExportLinkCitationsDto,
+  T3PreviewCatalogDto,
   CreateMatterResult,
   GetMatterResult,
   ListMattersResult,
@@ -53,6 +54,7 @@ import type {
   RelinkLinkResult,
   ListLinksResult,
   ExportLinkCitationsResult,
+  T3PreviewCatalogResult,
 } from "../src/caseBox/dto.js";
 
 export interface ThemeApi {
@@ -97,6 +99,10 @@ export interface CaseBoxApi {
   relinkLink(dto: RelinkLinkDto): Promise<RelinkLinkResult>;
   listLinks(dto: ListLinksDto): Promise<ListLinksResult>;
   exportLinkCitations(dto: ExportLinkCitationsDto): Promise<ExportLinkCitationsResult>;
+  // WI-FORMS-T3-S2: read-only preview of the merged S1 T3 catalog model for a matter.
+  // Matter-scoped; tenant injected server-side. A submitter refusal is an expected
+  // review state carried in the success value, not an error.
+  previewT3Catalog(dto: T3PreviewCatalogDto): Promise<T3PreviewCatalogResult>;
 }
 
 const themeApi: ThemeApi = {
@@ -137,6 +143,7 @@ const caseBoxApi: CaseBoxApi = {
   relinkLink: (dto) => ipcRenderer.invoke("casebox:link:relink", dto),
   listLinks: (dto) => ipcRenderer.invoke("casebox:link:list", dto),
   exportLinkCitations: (dto) => ipcRenderer.invoke("casebox:link:export", dto),
+  previewT3Catalog: (dto) => ipcRenderer.invoke("casebox:t3:previewCatalog", dto),
 };
 
 contextBridge.exposeInMainWorld("lawbar", { theme: themeApi, caseBox: caseBoxApi });

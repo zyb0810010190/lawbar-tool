@@ -41,6 +41,7 @@ function makeMockClient() {
       relinkLink: mk("relinkLink"),
       listLinks: mk("listLinks"),
       exportLinkCitations: mk("exportLinkCitations"),
+      previewT3Catalog: mk("previewT3Catalog"),
     },
   };
 }
@@ -427,4 +428,26 @@ test("createCaseBoxApi: listLinks + exportLinkCitations forward only matterId", 
   assert.deepEqual(m.calls[0].dto, { matterId: VALID_ULID });
   assert.equal(m.calls[1].name, "exportLinkCitations");
   assert.deepEqual(m.calls[1].dto, { matterId: VALID_ULID });
+});
+
+// --- T3 证据目录及说明 preview channel (WI-FORMS-T3-S2-CATALOG-PREVIEW) ---
+
+test("createCaseBoxApi: previewT3Catalog forwards matterId + submitterSelection, strips authority", async () => {
+  const m = makeMockClient();
+  const api = createCaseBoxApi(m.client);
+  await api.previewT3Catalog({
+    matterId: VALID_ULID,
+    submitterSelection: { partyIndex: 0, displayNameEcho: "孙乐驰" },
+    // forbidden server-authority fields must be stripped before invoke:
+    tenant_id: "evil",
+    actor_user_id: "evil",
+  });
+  assert.equal(m.calls.length, 1);
+  assert.equal(m.calls[0].name, "previewT3Catalog");
+  assert.deepEqual(m.calls[0].dto, {
+    matterId: VALID_ULID,
+    submitterSelection: { partyIndex: 0, displayNameEcho: "孙乐驰" },
+  });
+  assert.equal("tenant_id" in m.calls[0].dto, false);
+  assert.equal("actor_user_id" in m.calls[0].dto, false);
 });

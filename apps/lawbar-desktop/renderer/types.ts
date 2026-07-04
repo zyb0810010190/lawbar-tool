@@ -478,3 +478,64 @@ export const RENDERER_LIST_LINKS_DTO_FIELDS = Object.freeze([
 export const RENDERER_EXPORT_LINK_CITATIONS_DTO_FIELDS = Object.freeze([
   "matterId",
 ] as const);
+
+// ---------------------------------------------------------------------------
+// T3 证据目录及说明 preview (WI-FORMS-T3-S2-CATALOG-PREVIEW-00). Renderer-side
+// structural MIRROR of the main-built T3CatalogModel
+// (src/caseBox/export/t3CatalogModel.ts). The renderer cannot import that module
+// (it imports node:crypto); these read-only shapes mirror the IPC-returned model
+// for rendering ONLY. No model logic is re-implemented here — S1 is the single
+// source of truth. The request DTO mirrors the canonical T3PreviewCatalogDto in
+// src/caseBox/dto/t3.ts.
+// ---------------------------------------------------------------------------
+
+export interface T3PreviewCatalogDto {
+  readonly matterId: string;
+  readonly submitterSelection?: { readonly partyIndex: number; readonly displayNameEcho: string };
+}
+
+// The four S1 submitter-refusal codes (T3CatalogRefusal). A refusal is an expected
+// review state surfaced in the success value, never an error.
+export type T3RefusalCode =
+  | "submitter_selection_required"
+  | "submitter_index_out_of_range"
+  | "submitter_not_client"
+  | "submitter_selection_stale";
+
+// A resolved display value XOR an explicit lawyer-review marker (never a fabricated
+// or substituted value). Mirrors T3TextCell / T3ReviewNeededCell / T3Cell.
+export interface T3TextCell {
+  readonly text: string;
+}
+export interface T3ReviewNeededCell {
+  readonly reviewNeeded: true;
+}
+export type T3Cell = T3TextCell | T3ReviewNeededCell;
+// 提交人诉讼地位: a procedural position XOR a needs-review marker.
+export type T3PositionCell = { readonly value: "plaintiff" | "defendant" } | T3ReviewNeededCell;
+
+export interface T3CatalogRow {
+  readonly sequence: number;
+  readonly evidenceId: string;
+  readonly evidenceName: T3Cell;
+  readonly proofStatement: T3Cell;
+  readonly pageRange: T3Cell;
+}
+
+export interface T3CatalogModelView {
+  readonly formType: string;
+  readonly matterId: string;
+  readonly litigationPosition: T3PositionCell;
+  readonly submitterName: T3TextCell;
+  readonly rows: ReadonlyArray<T3CatalogRow>;
+}
+
+// Discriminated success value returned by casebox:t3:previewCatalog (never null).
+export type T3PreviewCatalogValue =
+  | { readonly kind: "model"; readonly model: T3CatalogModelView; readonly modelSha256?: string }
+  | { readonly kind: "refusal"; readonly code: T3RefusalCode };
+
+export const RENDERER_T3_PREVIEW_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "submitterSelection",
+] as const);

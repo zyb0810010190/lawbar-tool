@@ -32,6 +32,7 @@ import type {
   RelinkLinkDto,
   ListLinksDto,
   ExportLinkCitationsDto,
+  T3PreviewCatalogDto,
 } from "./types.js";
 
 import {
@@ -59,6 +60,7 @@ import {
   RENDERER_RELINK_LINK_DTO_FIELDS,
   RENDERER_LIST_LINKS_DTO_FIELDS,
   RENDERER_EXPORT_LINK_CITATIONS_DTO_FIELDS,
+  RENDERER_T3_PREVIEW_DTO_FIELDS,
 } from "./types.js";
 
 // Shape of the preload-injected client (`window.lawbar.caseBox`).
@@ -87,6 +89,7 @@ export interface CaseBoxClient {
   relinkLink(dto: RelinkLinkDto): Promise<IpcEnvelope<unknown>>;
   listLinks(dto: ListLinksDto): Promise<IpcEnvelope<unknown>>;
   exportLinkCitations(dto: ExportLinkCitationsDto): Promise<IpcEnvelope<unknown>>;
+  previewT3Catalog(dto: T3PreviewCatalogDto): Promise<IpcEnvelope<unknown>>;
 }
 
 export interface CaseBoxApi {
@@ -114,6 +117,7 @@ export interface CaseBoxApi {
   relinkLink(dto: RelinkLinkDto): Promise<IpcEnvelope<unknown>>;
   listLinks(dto: ListLinksDto): Promise<IpcEnvelope<unknown>>;
   exportLinkCitations(dto: ExportLinkCitationsDto): Promise<IpcEnvelope<unknown>>;
+  previewT3Catalog(dto: T3PreviewCatalogDto): Promise<IpcEnvelope<unknown>>;
 }
 
 // Strip any DTO key not in the renderer-side allowlist. Drops with a
@@ -188,6 +192,8 @@ export function createCaseBoxApi(client: CaseBoxClient): CaseBoxApi {
       client.listLinks(stripDtoFields(dto, RENDERER_LIST_LINKS_DTO_FIELDS)),
     exportLinkCitations: (dto) =>
       client.exportLinkCitations(stripDtoFields(dto, RENDERER_EXPORT_LINK_CITATIONS_DTO_FIELDS)),
+    previewT3Catalog: (dto) =>
+      client.previewT3Catalog(stripDtoFields(dto, RENDERER_T3_PREVIEW_DTO_FIELDS)),
   };
 }
 
