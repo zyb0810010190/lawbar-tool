@@ -256,12 +256,15 @@ export function getEffectiveClassificationSqlite(
   // from the in-memory helper for the sort + level selection — single
   // source for the comparator semantics.
   const shadowState = createClassificationState();
+  // Row-level tenant predicate (M-1): re-assert each classification row's own
+  // tenant_id, not just the matter's, so a tenant-drifted row cannot enter the
+  // effective-level history.
   const rows = db
     .prepare(
       `SELECT payload_json FROM case_box_confidentiality_classifications
-       WHERE matter_id = ? AND target_type = ? AND target_id = ?`,
+       WHERE tenant_id = ? AND matter_id = ? AND target_type = ? AND target_id = ?`,
     )
-    .all(query.matter_id, query.target_type, query.target_id) as { payload_json: string }[];
+    .all(query.tenant_id, query.matter_id, query.target_type, query.target_id) as { payload_json: string }[];
   if (rows.length > 0) {
     shadowState.classificationsByMatter.set(
       query.matter_id,
@@ -312,8 +315,10 @@ export function listConfidentialityClassificationsSqlite(
       : null;
 
   // 5. SELECT with WHERE + ORDER BY set_at ASC, id ASC + seek pagination.
-  const params: unknown[] = [query.matter_id];
-  const whereParts: string[] = ["matter_id = ?"];
+  //    Row-level tenant predicate (M-1): re-assert the classification row's own
+  //    tenant_id alongside matter_id.
+  const params: unknown[] = [query.tenant_id, query.matter_id];
+  const whereParts: string[] = ["tenant_id = ?", "matter_id = ?"];
   if (query.target_type !== undefined) {
     whereParts.push("target_type = ?");
     params.push(query.target_type);

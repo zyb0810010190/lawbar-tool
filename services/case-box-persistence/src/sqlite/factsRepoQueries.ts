@@ -170,16 +170,28 @@ export function insertFactRow(db: Database, f: CaseBoxFact): void {
 }
 
 export function updateFactRow(db: Database, f: CaseBoxFact): void {
-  db.prepare(
-    `UPDATE case_box_facts
+  // Atomic-consistency hardening (M-2): scope to the resolved row's own
+  // tenant_id + matter_id and assert exactly one affected row.
+  const info = db
+    .prepare(
+      `UPDATE case_box_facts
        SET status = ?, supersedes_fact_id = ?, payload_json = ?
-     WHERE id = ?`,
-  ).run(
-    f.status,
-    (f as { supersedes_fact_id?: string | null }).supersedes_fact_id ?? null,
-    JSON.stringify(f),
-    f.id,
-  );
+     WHERE id = ? AND tenant_id = ? AND matter_id = ?`,
+    )
+    .run(
+      f.status,
+      (f as { supersedes_fact_id?: string | null }).supersedes_fact_id ?? null,
+      JSON.stringify(f),
+      f.id,
+      f.tenant_id,
+      f.matter_id,
+    );
+  if (info.changes !== 1) {
+    throw new CaseBoxPersistenceError(
+      "invalid_argument",
+      `fact scoped update affected ${info.changes} rows, expected 1 (tenant/matter scope drift for id=${f.id})`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

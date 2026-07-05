@@ -77,8 +77,11 @@ export function listAuditEventsSqlite(
       : null;
 
   // 4. SELECT walking idx_case_box_audit_events_by_matter (matter_id, sequence).
-  const params: unknown[] = [query.matter_id];
-  let where = "matter_id = ?";
+  //    Row-level tenant predicate (M-1): re-assert each event row's own
+  //    tenant_id alongside matter_id, not just the matter's (belt-and-
+  //    suspenders vs the requireMatterTenant preflight above).
+  const params: unknown[] = [query.tenant_id, query.matter_id];
+  let where = "tenant_id = ? AND matter_id = ?";
   if (cursor !== null) {
     const [tSeq] = cursor.last_sort_tuple as [number];
     where += " AND sequence > ?";

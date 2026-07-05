@@ -151,16 +151,31 @@ export function insertEvidenceItemRow(db: Database, e: CaseBoxEvidenceItem): voi
 }
 
 export function updateEvidenceItemRow(db: Database, e: CaseBoxEvidenceItem): void {
-  db.prepare(
-    `UPDATE case_box_evidence_items
+  // Atomic-consistency hardening (M-2): scope the mutating UPDATE to the
+  // resolved row's OWN tenant_id + matter_id and assert exactly one row was
+  // affected. A tenant/matter scope drift between the by-id resolve and the
+  // write (or out-of-band corruption) matches zero rows and RAISES rather than
+  // silently writing an audit event for an unmodified row.
+  const info = db
+    .prepare(
+      `UPDATE case_box_evidence_items
        SET status = ?, supersedes_evidence_id = ?, payload_json = ?
-     WHERE id = ?`,
-  ).run(
-    e.status,
-    (e as { supersedes_evidence_id?: string | null }).supersedes_evidence_id ?? null,
-    JSON.stringify(e),
-    e.id,
-  );
+     WHERE id = ? AND tenant_id = ? AND matter_id = ?`,
+    )
+    .run(
+      e.status,
+      (e as { supersedes_evidence_id?: string | null }).supersedes_evidence_id ?? null,
+      JSON.stringify(e),
+      e.id,
+      e.tenant_id,
+      e.matter_id,
+    );
+  if (info.changes !== 1) {
+    throw new CaseBoxPersistenceError(
+      "invalid_argument",
+      `evidence-item scoped update affected ${info.changes} rows, expected 1 (tenant/matter scope drift for id=${e.id})`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -333,8 +348,14 @@ export function listEvidenceItemsSqlite(
       ? decodeCursor((query as { cursor: string }).cursor, { kind: "evidence_items_by_matter", filters_hash })
       : null;
 
-  const params: unknown[] = [query.matter_id];
-  const whereParts: string[] = ["matter_id = ?"];
+  // Row-level tenant predicate (M-1): the requireMatterTenant preflight above
+  // proves the MATTER belongs to query.tenant_id, but the child SELECT must
+  // also filter evidence rows by their own tenant_id so a row whose tenant_id
+  // differs from its matter's (a data-integrity violation / forward
+  // multi-tenant drift) cannot leak. Matches getEvidenceItemSqlite +
+  // listFactsSqlite.
+  const params: unknown[] = [query.tenant_id, query.matter_id];
+  const whereParts: string[] = ["tenant_id = ?", "matter_id = ?"];
   if (filters.status !== undefined) {
     whereParts.push("status = ?");
     params.push(filters.status);

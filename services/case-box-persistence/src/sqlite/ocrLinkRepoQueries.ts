@@ -293,8 +293,11 @@ export function listOcrLinksSqlite(
       ? decodeCursor((query as { cursor: string }).cursor, { kind: "ocr_links_by_matter", filters_hash })
       : null;
 
-  const params: unknown[] = [query.matter_id];
-  const whereParts: string[] = ["matter_id = ?"];
+  // Row-level tenant predicate (M-1): the matter-tenant guard above proves the
+  // matter belongs to query.tenant_id; re-assert each link row's own tenant_id
+  // so a tenant-drifted link cannot leak.
+  const params: unknown[] = [query.tenant_id, query.matter_id];
+  const whereParts: string[] = ["tenant_id = ?", "matter_id = ?"];
   if (filters.status_snapshot !== undefined) {
     whereParts.push("status_snapshot = ?");
     params.push(filters.status_snapshot);
