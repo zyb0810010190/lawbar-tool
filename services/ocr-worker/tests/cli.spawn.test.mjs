@@ -4,19 +4,21 @@
 // from cli.test.mjs. They spawn `bin/ocr-worker.mjs` as a real Node
 // child process and observe its real stdout/stderr/exitCode/signals.
 //
-// NOTE on test runner concurrency (audit 019e3a4c D9 L):
-// `services/ocr-worker/package.json#scripts.test` runs `node --test`
-// with `--test-concurrency=1`. The SIGINT idle-loop test below uses a
-// `waitForLiveChild` liveness gate (`stableTicks * pollMs = 100ms`)
-// that is fragile under host load: when other heavy test files
-// (mkdtemp + writeFile + spawn) run concurrently with this one, the
-// bin's `installShutdownHandlers` can miss the `100ms` window before
-// SIGINT arrives, and Node's default SIGINT action terminates the
-// process before the worker's graceful exit fires. The deterministic
-// fix is sequential test execution. A real readiness-protocol fix
-// (worker bin emits a "READY" marker on stdout; test polls for it)
-// would let the suite run concurrently again — that's separate
-// bin-shaped work tracked outside ADR-11C.3b.
+// NOTE on the SIGINT idle-loop readiness protocol (WI-GATE5, was audit
+// 019e3a4c D9 L): the bin now emits a deterministic child-side readiness
+// marker on STDERR ("ocr-worker ready: signal-handlers-armed") right after
+// `installShutdownHandlers` arms the SIGINT/SIGTERM listeners (src/cli.ts).
+// The SIGINT test below waits for that marker via `waitForStderrMarker`
+// before sending SIGINT, so a signal can never precede handler-arm — once
+// the marker is observed, a SIGINT is guaranteed to flip the AbortController
+// and the worker exits gracefully (0 / stop_reason="stopped") instead of via
+// Node's default terminate action. This replaces the earlier
+// `waitForLiveChild` liveness poll, which was NOT a readiness protocol
+// (it only proved "alive + stable", not "handlers armed") and was fragile
+// under host load. The marker is on STDERR, never stdout, so the stdout
+// summary-JSON parse stays clean. `package.json#scripts.test` still runs
+// with `--test-concurrency=1`; the deterministic marker means that is now
+// belt-and-suspenders rather than the sole guard.
 //
 // The whole point of 10G is to prove:
 //   - real `process.argv` flows into config parsing,
@@ -123,72 +125,46 @@ function sleep(ms) {
 }
 
 /**
- * Bounded liveness gate before sending a signal to the child.
+ * Deterministic readiness gate (WI-GATE5). Resolves once the child has
+ * written the readiness marker to STDERR — emitted by the bin right after
+ * `installShutdownHandlers` arms the SIGINT/SIGTERM listeners (src/cli.ts).
  *
- * Sequence:
- *   1. wait for the child's `"spawn"` event (OS-level fork complete);
- *   2. poll briefly until the child has a numeric `pid`, has not yet
- *      exited (`exitCode === null && signalCode === null`), and has
- *      not been killed (`!killed`) — for a small number of consecutive
- *      stable ticks, so we are not racing the very first tick after
- *      `"spawn"`;
- *   3. if the child exits during the poll, throw with diagnostic;
- *   4. fail with diagnostic if the overall `timeoutMs` is exceeded.
+ * After this resolves, the child's SIGINT handler is provably armed, so a
+ * SIGINT is guaranteed to flip the AbortController and shut the worker down
+ * gracefully (exit 0 / stop_reason="stopped") — never Node's default
+ * terminate action. This closes the host-load race the earlier
+ * `waitForLiveChild` liveness poll could not (it only proved "alive +
+ * stable", not "handlers installed").
  *
- * This is **not** a formal readiness protocol. The worker has no
- * child-side ready signal (intentionally — adding one would be a
- * production change, out of scope for 10G), so this gate cannot prove
- * "signal handlers are installed." It only proves "the child process
- * is alive and stable" before the test sends a signal. A future
- * explicit readiness handshake on the worker side would let us drop
- * the stable-ticks padding entirely.
+ * Rejects on early child exit or on timeout, with stderr diagnostics.
  */
-async function waitForLiveChild(
+async function waitForStderrMarker(
   childWrap,
-  { timeoutMs = 3000, pollMs = 25, stableTicks = 4 } = {},
+  marker,
+  { timeoutMs = 5000, pollMs = 20 } = {},
 ) {
   const { child } = childWrap;
-  // (1) Wait for spawn or surface immediate spawn-failure / early exit.
-  if (child.pid === undefined) {
-    await new Promise((res, rej) => {
-      const cleanup = () => {
-        child.off("spawn", onSpawn);
-        child.off("error", onErr);
-        child.off("exit", onExit);
-      };
-      const onSpawn = () => { cleanup(); res(); };
-      const onErr = (e) => { cleanup(); rej(e); };
-      const onExit = (code, signal) =>
-        { cleanup(); rej(new Error(`child exited before spawn: code=${code}, signal=${signal}`)); };
-      child.once("spawn", onSpawn);
-      child.once("error", onErr);
-      child.once("exit", onExit);
-    });
-  }
-  // (2) Poll for stable liveness.
   const deadline = Date.now() + timeoutMs;
-  let stable = 0;
   while (Date.now() < deadline) {
+    if (childWrap.stderr().includes(marker)) return;
     if (child.exitCode !== null || child.signalCode !== null) {
       throw new Error(
-        `child exited before becoming live: code=${child.exitCode}, ` +
+        `child exited before emitting readiness marker: code=${child.exitCode}, ` +
         `signal=${child.signalCode}, stderr=${childWrap.stderr()}`,
       );
-    }
-    if (typeof child.pid === "number" && !child.killed) {
-      stable += 1;
-      if (stable >= stableTicks) return;
-    } else {
-      stable = 0;
     }
     await sleep(pollMs);
   }
   throw new Error(
-    `child did not become live within ${timeoutMs}ms; ` +
-    `pid=${child.pid}, killed=${child.killed}, exitCode=${child.exitCode}, ` +
-    `signalCode=${child.signalCode}, stderr=${childWrap.stderr()}`,
+    `child did not emit readiness marker "${marker}" within ${timeoutMs}ms; ` +
+    `exitCode=${child.exitCode}, signalCode=${child.signalCode}, ` +
+    `stderr=${childWrap.stderr()}`,
   );
 }
+
+// The bin's WI-GATE5 child-side readiness marker (src/cli.ts), written to
+// STDERR once the SIGINT/SIGTERM handlers are armed.
+const READY_MARKER = "ocr-worker ready: signal-handlers-armed";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -246,12 +222,14 @@ test("bin SIGINT during idle loop: exits 0 with stop_reason=stopped", async (t) 
     if (w.child.exitCode === null) w.child.kill("SIGKILL");
   });
 
-  // Bounded liveness gate: wait for `spawn`, then poll briefly until
-  // pid is stable and the child has not exited. This is *not* a formal
-  // readiness protocol — the worker has no child-side ready signal —
-  // but it replaces a fixed sleep with a bounded, diagnostic check that
-  // surfaces premature exits as test failures instead of as flakes.
-  await waitForLiveChild(w);
+  // Deterministic readiness gate (WI-GATE5): wait for the child's
+  // stderr readiness marker — emitted right after the bin arms its
+  // SIGINT/SIGTERM handlers — BEFORE sending SIGINT. Once observed, the
+  // handler is provably armed, so the SIGINT flips the AbortController
+  // and the worker exits gracefully instead of via Node's default
+  // terminate action. This removes the host-load race the old
+  // `waitForLiveChild` liveness poll could not close.
+  await waitForStderrMarker(w, READY_MARKER);
   w.child.kill("SIGINT");
 
   const { code, signal } = await w.exited;

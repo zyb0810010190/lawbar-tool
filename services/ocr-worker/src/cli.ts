@@ -217,6 +217,19 @@ export async function runOcrWorkerProcess(
   }
   const stopSignal = installed?.signal ?? new AbortController().signal;
 
+  // 2b. Deterministic child-side readiness marker (WI-GATE5). Once the
+  //     SIGINT/SIGTERM handlers above are armed, a signal flips the
+  //     AbortController and the loop shuts down gracefully (exit 0 /
+  //     stop_reason="stopped") — never Node's default terminate action.
+  //     Emit a marker on STDERR (never stdout — the stdout summary JSON
+  //     must stay clean) so a supervising process/test can wait for
+  //     readiness BEFORE sending SIGINT, closing the host-load race where
+  //     a signal could precede handler-arm. Only emitted when handlers
+  //     were actually installed (a signal-capable process was supplied).
+  if (installed !== undefined) {
+    writeErr("ocr-worker ready: signal-handlers-armed\n");
+  }
+
   // 3. Deps
   let deps: OcrWorkerProcessDeps;
   try {
