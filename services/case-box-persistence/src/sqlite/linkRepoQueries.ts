@@ -105,14 +105,29 @@ function loadLinkForUpdate(db: Database, linkId: string): CaseBoxLinkRow | undef
 function updateLinkMarkerRow(
   db: Database,
   linkId: string,
+  tenantId: string,
+  matterId: string,
   unlinkedAt: string | null,
   unlinkReason: string | null,
 ): void {
   // Marker columns ONLY — never status (resolver-owned), never payload_json,
   // never a DELETE.
-  db.prepare(
-    "UPDATE case_box_links SET unlinked_at = ?, unlink_reason = ? WHERE id = ?",
-  ).run(unlinkedAt, unlinkReason, linkId);
+  //
+  // Atomic-consistency hardening (M-2): scope the marker UPDATE to the resolved
+  // link row's own tenant_id + matter_id and assert exactly one affected row.
+  // (This private helper is NOT exported/public; adding tenant/matter params is
+  // an internal signature change only.)
+  const info = db
+    .prepare(
+      "UPDATE case_box_links SET unlinked_at = ?, unlink_reason = ? WHERE id = ? AND tenant_id = ? AND matter_id = ?",
+    )
+    .run(unlinkedAt, unlinkReason, linkId, tenantId, matterId);
+  if (info.changes !== 1) {
+    throw new CaseBoxPersistenceError(
+      "invalid_argument",
+      `link scoped update affected ${info.changes} rows, expected 1 (tenant/matter scope drift for id=${linkId})`,
+    );
+  }
 }
 
 /** The authoritative persisted link state hashed for before/after_state_hash.
@@ -385,7 +400,14 @@ function applyLink(
   // audit event — all in the caller's one BEGIN IMMEDIATE. No marker mutation
   // without a chain event, no chain event without a marker mutation.
   const prepared = prepare(row);
-  updateLinkMarkerRow(db, linkId, prepared.next.unlinked_at, prepared.next.unlink_reason);
+  updateLinkMarkerRow(
+    db,
+    linkId,
+    row.tenant_id,
+    row.matter_id,
+    prepared.next.unlinked_at,
+    prepared.next.unlink_reason,
+  );
   deps.writeAuditEventAndUpdateHead(prepared.audit, eventHashFn(prepared.audit.event));
   return prepared.next;
 }

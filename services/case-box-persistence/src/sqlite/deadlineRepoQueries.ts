@@ -100,11 +100,21 @@ function buildShadowTransitionState(db: Database, deadlineId: string): DeadlineS
 // ---------------------------------------------------------------------------
 
 export function updateDeadlineRow(db: Database, d: CaseBoxDeadline): void {
-  db.prepare(
-    `UPDATE case_box_deadlines
+  // Atomic-consistency hardening (M-2): scope to the resolved row's own
+  // tenant_id + matter_id and assert exactly one affected row.
+  const info = db
+    .prepare(
+      `UPDATE case_box_deadlines
        SET status = ?, payload_json = ?
-     WHERE id = ?`,
-  ).run(d.status, JSON.stringify(d), d.id);
+     WHERE id = ? AND tenant_id = ? AND matter_id = ?`,
+    )
+    .run(d.status, JSON.stringify(d), d.id, d.tenant_id, d.matter_id);
+  if (info.changes !== 1) {
+    throw new CaseBoxPersistenceError(
+      "invalid_argument",
+      `deadline scoped update affected ${info.changes} rows, expected 1 (tenant/matter scope drift for id=${d.id})`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

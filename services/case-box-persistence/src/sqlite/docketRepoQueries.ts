@@ -185,16 +185,28 @@ export function insertDocketEntryRow(db: Database, e: CaseBoxDocketEntry): void 
 }
 
 export function updateDocketEntryRow(db: Database, e: CaseBoxDocketEntry): void {
-  db.prepare(
-    `UPDATE case_box_docket_entries
+  // Atomic-consistency hardening (M-2): scope to the resolved row's own
+  // tenant_id + matter_id and assert exactly one affected row.
+  const info = db
+    .prepare(
+      `UPDATE case_box_docket_entries
        SET confirmation_state = ?, confirmed_deadline_id = ?, payload_json = ?
-     WHERE id = ?`,
-  ).run(
-    e.confirmation_state,
-    e.confirmed_deadline_id ?? null,
-    JSON.stringify(e),
-    e.id,
-  );
+     WHERE id = ? AND tenant_id = ? AND matter_id = ?`,
+    )
+    .run(
+      e.confirmation_state,
+      e.confirmed_deadline_id ?? null,
+      JSON.stringify(e),
+      e.id,
+      e.tenant_id,
+      e.matter_id,
+    );
+  if (info.changes !== 1) {
+    throw new CaseBoxPersistenceError(
+      "invalid_argument",
+      `docket-entry scoped update affected ${info.changes} rows, expected 1 (tenant/matter scope drift for id=${e.id})`,
+    );
+  }
 }
 
 /**
@@ -205,15 +217,27 @@ export function updateDocketEntryRow(db: Database, e: CaseBoxDocketEntry): void 
  * (confirm/dismiss) so neither path can touch the other's column set.
  */
 export function updateDocketEntryEditRow(db: Database, e: CaseBoxDocketEntry): void {
-  db.prepare(
-    `UPDATE case_box_docket_entries
+  // Atomic-consistency hardening (M-2): scope to the resolved row's own
+  // tenant_id + matter_id and assert exactly one affected row.
+  const info = db
+    .prepare(
+      `UPDATE case_box_docket_entries
        SET proposed_kind = ?, payload_json = ?
-     WHERE id = ?`,
-  ).run(
-    (e as { proposed_kind: string }).proposed_kind,
-    JSON.stringify(e),
-    e.id,
-  );
+     WHERE id = ? AND tenant_id = ? AND matter_id = ?`,
+    )
+    .run(
+      (e as { proposed_kind: string }).proposed_kind,
+      JSON.stringify(e),
+      e.id,
+      e.tenant_id,
+      e.matter_id,
+    );
+  if (info.changes !== 1) {
+    throw new CaseBoxPersistenceError(
+      "invalid_argument",
+      `docket-entry (edit) scoped update affected ${info.changes} rows, expected 1 (tenant/matter scope drift for id=${e.id})`,
+    );
+  }
 }
 
 export function insertDeadlineRow(
@@ -460,8 +484,11 @@ export function listDocketEntriesSqlite(
       ? decodeCursor((query as { cursor: string }).cursor, { kind: "docket_entries_by_matter", filters_hash })
       : null;
 
-  const params: unknown[] = [query.matter_id];
-  const whereParts: string[] = ["matter_id = ?"];
+  // Row-level tenant predicate (M-1): re-assert the child row's own tenant_id
+  // in the SELECT, not just the matter's (belt-and-suspenders vs the
+  // requireMatterTenant preflight above).
+  const params: unknown[] = [query.tenant_id, query.matter_id];
+  const whereParts: string[] = ["tenant_id = ?", "matter_id = ?"];
   if (filters.confirmation_state !== undefined) {
     whereParts.push("confirmation_state = ?");
     params.push(filters.confirmation_state);

@@ -176,11 +176,21 @@ export function insertPrivilegeMarkerRow(db: Database, row: CaseBoxPrivilegeMark
 }
 
 export function updatePrivilegeMarkerRow(db: Database, row: CaseBoxPrivilegeMarker): void {
-  db.prepare(
-    `UPDATE case_box_privilege_markers
+  // Atomic-consistency hardening (M-2): scope to the resolved row's own
+  // tenant_id + matter_id and assert exactly one affected row.
+  const info = db
+    .prepare(
+      `UPDATE case_box_privilege_markers
        SET status = ?, payload_json = ?
-     WHERE id = ?`,
-  ).run(row.status, JSON.stringify(row), row.id);
+     WHERE id = ? AND tenant_id = ? AND matter_id = ?`,
+    )
+    .run(row.status, JSON.stringify(row), row.id, row.tenant_id, row.matter_id);
+  if (info.changes !== 1) {
+    throw new CaseBoxPersistenceError(
+      "invalid_argument",
+      `privilege-marker scoped update affected ${info.changes} rows, expected 1 (tenant/matter scope drift for id=${row.id})`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -289,9 +299,12 @@ export function getPrivilegeStatusSqlite(
   });
 
   // 4. Load all markers for the matter (effectivePrivilegeStatus filters).
+  //    Row-level tenant predicate (M-1): re-assert each marker's own tenant_id,
+  //    not just the matter's, so a tenant-drifted marker cannot influence the
+  //    effective privilege status.
   const rows = db
-    .prepare("SELECT payload_json FROM case_box_privilege_markers WHERE matter_id = ?")
-    .all(query.matter_id) as { payload_json: string }[];
+    .prepare("SELECT payload_json FROM case_box_privilege_markers WHERE tenant_id = ? AND matter_id = ?")
+    .all(query.tenant_id, query.matter_id) as { payload_json: string }[];
   const markers = rows.map((r) => JSON.parse(r.payload_json) as CaseBoxPrivilegeMarker);
   return effectivePrivilegeStatus(query.target_type, query.target_id, markers);
 }
@@ -334,8 +347,10 @@ export function listPrivilegeMarkersSqlite(
       : null;
 
   // 5. SELECT with WHERE + ORDER BY proposed_at ASC, id ASC + seek.
-  const params: unknown[] = [query.matter_id];
-  const whereParts: string[] = ["matter_id = ?"];
+  //    Row-level tenant predicate (M-1): re-assert the marker row's own
+  //    tenant_id alongside matter_id.
+  const params: unknown[] = [query.tenant_id, query.matter_id];
+  const whereParts: string[] = ["tenant_id = ?", "matter_id = ?"];
   if (query.target_type !== undefined) {
     whereParts.push("target_type = ?");
     params.push(query.target_type);
