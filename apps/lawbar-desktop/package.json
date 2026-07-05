@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "productName": "lawbar",
-  "description": "First UI shell — Electron app + theme-token foundation. Token-compliance fixture only; NOT product UI; NOT signed; NOT for distribution.",
+  "description": "Lawbar — local-first, offline-first Mac desktop case-box client (v1). Functional case-management UI (matters, documents, deadlines, docket, facts, evidence links, audit trail, 证据目录/说明 T3 preview + DOCX export) over the local case-box persistence layer. Dev build: not yet code-signed or notarized, and public distribution is a pending release (gate-4) decision — not authorized for distribution until then.",
   "main": "dist/electron/main.js",
   "type": "module",
   "engines": {
