@@ -96,6 +96,11 @@ export const CATALOG = {
   // ---- shared keys ----
   "common.loadMore": "加载更多",
 
+  // ---- global overdue dashboard banner (WI-GATE3-R2-OVERDUE-DASHBOARD-BANNER-00;
+  //      brief §10 cross-matter overdue/due-soon banner at the app-open home) ----
+  "dashboard.overdue.summary": "{overdue} 项逾期 · {dueSoon} 项即将到期（7 天内）",
+  "dashboard.overdue.error": "无法检查案件期限，稍后再试。",
+
   // ---- shell chrome (WI-i18n-2; English -> zh-CN drift-closure per plan-i18n-00 §6.5) ----
   "shell.brand": "Lawbar · 案件盒",
   "shell.workspaceKind": "工作区",

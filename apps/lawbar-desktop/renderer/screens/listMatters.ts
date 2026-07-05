@@ -30,6 +30,7 @@ import { buildHash } from "../router.js";
 import { formatLocalDateTime } from "../format.js";
 import { matterTypeLabel, confidentialityLabel, statusLabel } from "../i18n/labels.js";
 import { t } from "../i18n/t.js";
+import { mountOverdueDashboardBanner } from "../overdueDashboardBanner.js";
 
 export const PAGE_SIZE = 20;
 
@@ -63,6 +64,17 @@ export async function mountListMatters(
   initialStatus: MatterStatus = "active",
 ): Promise<void> {
   const doc = deps.doc ?? document;
+
+  // Global overdue-deadline dashboard banner (brief §10) — mounts above the header
+  // so it is visible whenever the home surface opens. Its load is FIRE-AND-FORGET
+  // and independent of the matter-list load: a banner failure must not break the
+  // list, and a list failure must not break the banner.
+  const bannerContainer = el(
+    "div",
+    { class: "dashboard-overdue-banner-host", "data-test-id": "overdue-dashboard-banner-host" },
+    [],
+    doc,
+  );
 
   // Build static scaffold and attach to root.
   const title = el("h1", {}, [t("list.title")], doc);
@@ -142,6 +154,7 @@ export async function mountListMatters(
   );
 
   setText(root, "");
+  root.appendChild(bannerContainer);
   root.appendChild(header);
   root.appendChild(tabsNav);
   root.appendChild(body);
@@ -208,6 +221,9 @@ export async function mountListMatters(
       },
     );
   }
+
+  // Fire-and-forget: independent of the matter-list load below.
+  void mountOverdueDashboardBanner(bannerContainer, { api: deps.api, doc });
 
   setActiveTab(currentStatus);
   await loadAndRender(undefined);
