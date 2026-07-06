@@ -199,6 +199,18 @@ The gate rows above are the rev-4 baseline (authored before case-box Phase-B com
 
 **Refreshed roll-up**: CLEARED 1,9 (2) · PARTIAL/residual 2,3,5,8,12,15,16,20 (8) · OPEN 6,7,10,13,14,17,18,19,21 (9) · STOP-AND-ASK 4,11 (2). Net: gate 3 OPEN→PARTIAL (real functional client exists); forms-T3 shipped as a new M0 case-box feature; `docx` added to the supply-chain surface. v1 go-live remains NOT close; the three STOP-AND-ASK hard-stops (4, 11, 21-verdict) remain the user's.
 
+### §1.R2 Refresh — after the gate-5/gate-10/gate-3 work (2026-07-05, WI-RELEASE-READINESS-REFRESH-00)
+
+Supersedes §1.R for the gates that changed. The **authoritative current 21-gate matrix lives in `docs/release/go-live-readiness-report.md` §1** (refreshed by this WI; still EXPLICITLY-INTERIM — NOT a final GO/NO-GO; gate 21 stays BLOCKED). Only the three agent-remit gates that actually changed are re-classified here; every still-non-cleared gate is preserved (none dropped).
+
+| Gate | Refreshed status | Key delta / evidence |
+|---|---|---|
+| 5 | **CLEARED [Δ]** (was PARTIAL) | ocr-worker SIGINT idle-loop flake **deterministically resolved** (WI-GATE5-OCR-WORKER-SIGINT-FLAKE-00: child-side stderr readiness marker; 15/15 + 5/5 determinism; broker audit CLEAN `audit-mr7f42oq-jaqa51`). Desktop suite 791/0 → **801/0** (post-R2). contract 455/0 + persistence 573+273+288/0 + ocr-worker 472/0 |
+| 10 | **CLEARED pending user go-live approval [Δ]** (was OPEN) | case-box-persistence security-boundary audit shipped (`docs/release/casebox-persistence-security-audit-00.md`, `audit-mr6eouaf`, C0 H0 M2 L1); the two Medium defense-in-depth findings + the Low **FIXED** by WI-SEC-CASEBOX-TENANT-SCOPING-DEFENSE-00 (predicate-only; row-level tenant scoping) with a clean re-audit `audit-mr71e737` C0 H0 M0 L0. NOT go-live |
+| 3 | **PARTIAL** (unchanged status; residual reduced) | self-declaration corrected (WI-GATE3-CLIENT-RELEASE-HARDENING-00) + **R2 shipped** (WI-GATE3-R2-OVERDUE-DASHBOARD-BANNER-00: global overdue-deadline dashboard banner; audit H1 fixed → verify ALL CLOSED). Residual now = R1 (gate-4 signing/distribution STOP-AND-ASK) + R3 (bounded polish) |
+
+**Refreshed roll-up (all 21 gates, none dropped)**: CLEARED 1,5,9 (3) · CLEARED-pending-user-approval 10 (1) · PARTIAL/residual 2,3,8,12,15,16,20 (7) · OPEN 6,7,13,14,17,18,19 (7) · STOP-AND-ASK (user) 4,11,21 (3). Net vs §1.R: gate 5 PARTIAL→CLEARED; gate 10 OPEN→CLEARED-pending; gate 3 residual reduced (R2 shipped) but stays PARTIAL; gate 21 explicitly classified as the user STOP-AND-ASK final sign-off (the doc stays INTERIM). CURRENT_SCHEMA_VERSION stays 12. **No final GO/NO-GO is asserted; the three STOP-AND-ASK hard-stops (4, 11, 21) and the gate-6 full-project audit + gate-7 robustness policy + the release-doc gates (13/14/17/18/19) remain open — v1 go-live remains the user's decision.**
+
 ---
 
 ## §2 Authority hierarchy
