@@ -478,3 +478,15 @@ for a dedicated persistence-hardening WI.
 | Safe-to-proceed? | YES — the committed gate classifies correctly + is byte-stable on its complete oracle; this is stricter input validation, not a current failure. |
 | Status | **closed** — resolved by WI-EVIDENCE-A1T6-AUD-L1-DEFERRED-HARDENING-00. |
 | Resolution | `EvidenceCoreA1CitationGate.evaluate` (`native/evidence-core-swift/Sources/EvidenceCoreSmoke/A1CitationStabilityHarness.swift`) now enforces, before comparing outcomes: (1) **oracle-row validity** — each expected row names a known outcome (`clean`/`non_citable`/`ambiguous`) and carries `text` **iff** `clean` (a non-clean row with a stray `text`, or a clean row missing `text`, is `fixture_or_oracle_invalid`); (2) **oracle completeness** — the oracle's page-key set must EQUAL the derived page set with no duplicate keys (partial / over-covering / duplicate oracle is `fixture_or_oracle_invalid`, never a false-green subset pass). Regression tests added in `A1CitationStabilityHarnessTests.swift`: incomplete / over-covering / duplicate-key / non-clean-with-stray-text / clean-missing-text / unknown-outcome each → `fixture_or_oracle_invalid`; the committed complete+clean oracle still passes (`a1-citation-stability-cli` → `pass	ok	6`). No A1-T6 behavior changed outside oracle-input strictness; NOT folded into A10-T1 (stayed a standalone native-gate hardening). |
+
+## WI-RELEASE-G7-CRASH-RECOVERY-DRILL-00 batch-audit-227 — crash-recovery drill-evidence PASS-conclusion wording narrowing (doc precision)
+
+| Field | Value |
+|---|---|
+| Finding ID | G7-DRILL-AUD-L1 |
+| Severity | Low |
+| Source | Layer-B batch audit `audit-mra9ngvs-9xkohr` (BATCH-PASS C0 H0 M0 L1); study `dev-memo/study/2026-07-07-batch-audit-227.md`. |
+| Reason for deferral | Doc-precision only, NO active defect. `docs/release/gate7-crash-recovery-drill-00.md` PASS conclusion uses the phrase "no torn write", while the same doc's R-DRILL-2 caveat correctly discloses that `case-box.sqlite-wal` was `0` bytes at kill, so torn-WAL / persisted-uncommitted-frame / storage-power-loss were NOT exercised — the drill proves abrupt process-death recovery, not storage-level power loss. The finding is a wording narrowing on a residual the doc ALREADY discloses; non-behavioral; does not touch gate-7 clearance. Out-of-scope for the batch-227 closeout lane (a closeout lane is forbidden from release-doc implementation and cannot edit the already-merged drill doc). |
+| Target future WI/backlog | Optional future doc-precision WI: narrow the drill doc's "no torn write" → "no corruption / no partial committed state observed under this process-kill boundary." No functional follow-up required. |
+| Safe-to-proceed? | YES — the residual is disclosed (R-DRILL-2), the drill remains a valid PASS for the process-kill boundary it exercised, and gate 7 stays NOT CLEARED regardless. |
+| Status | **open** — deferred/accepted residual; drill-doc wording unchanged this lane. |
