@@ -1,0 +1,27 @@
+# Queue review — WI-RELEASE-G12-AUDIT-CHAIN-RECOVERY-00 (AUTHORING / governance lane)
+
+Lane: M0 gate-12 audit-chain operational recovery + tamper-evidence **authoring/governance** (Type: EVIDENCE, release-governance MEDIUM risk). Governs — does NOT execute — a FUTURE lane that runs the audit-chain recovery + tamper-evidence exercise on a disposable fixture + authors `docs/release/gate12-audit-chain-recovery-00.md`. Changes NO product source/test/contract/config; runs NO exercise; changes NO audit-chain implementation; renames NO error code; clears NO gate; decides NO user go-live hard-stop.
+Date: 2026-07-07. Branch: `release-g12-audit-chain-recovery-governance` (from synced `main` @ `96796ed`). Batch: window 1/3 since marker `ee1a027` (`96796ed` batch-233 closeout) — no batch closeout this lane.
+
+## What this is
+The authoring lane governs a FUTURE execution lane that runs the gate-12 operational audit-chain recovery + tamper-evidence exercise — the outstanding operational item on the gate-12 row. The exercise proves the EXISTING hash-chained audit trail (a) detects tampering and (b) recovers a verifying chain after a restore, on a DISPOSABLE `/tmp` fixture, WITHOUT changing the audit-chain implementation. Grounded in the real surface: `eventHashFn` SHA-256 of the contract `canonicalAuditEventHashInput` (`auditChain.ts`), `prev_event_hash` chaining, verification via the contract `verifyAuditChain` reused by `verifyAuditChainForMatterSqlite` (`auditRepoQueries.ts`) exposed as `verifyAuditChainForMatter → ChainVerifyOk | ChainVerifyErr{errorReason}`, tamper failure modes = the contract `ChainVerifyErrorReason` enum, invariant `event_count==COUNT==MAX(sequence)`. Cites gates 14/18/15/7 as supporting/adjacent context WITHOUT clearing them, defers gate 6 (later), keeps gate 12 `PARTIAL`.
+
+Deliverable of THIS lane: ONLY the queue governance (`queue.md` / `queue.linted` / `queue.reviewed` / `queue.governed`) + this review artifact.
+
+## cc-suite recording (per .claude/rules/cc-suite.md §"Required recording")
+Path 1 runner foreground, resolved runner path `/Users/zhongyibao/.claude/plugins/cache/xiaolai/cc-suite/0.2.18/scripts/codex-runner.mjs`, retrievable YES, no failure class, no fallback. The full WI (`queue.md`) was inlined into the prompt (timeout-avoidance convention). Completed first attempt, no timeout.
+
+### /cc-suite:review-plan (gpt-5.5/medium/read-only; on the queue WI)
+- `review-plan-mragb56f-rsf3sx` · **READY (Low-risk clarifications)** (no Critical/High/Medium). All 6 review questions answered YES: (1) scopes an audit-chain recovery + tamper-evidence EXERCISE on a disposable fixture, not an implementation change and not an execution in this lane; (2) grounded in the existing verifier (`verifyAuditChainForMatter` / contract `verifyAuditChain` → `ChainVerifyOk`/`ChainVerifyErr{errorReason}`) + the invariant, run not re-implemented; (3) gates 14/18/15/7 cited as supporting/adjacent context, not cleared; (4) gate 12 kept PARTIAL, gate 6 deferred; (5) fixture-only, no dependency, no source/test/contract/schema change; (6) no exercise execution, implementation change, error-code rename, product test, dependency, real data, or user hard-stop smuggled in. Two **Low** clarifications, both **applied**: (a) the future lane should verify the exact verifier import/API names + `ChainVerifyErrorReason` values against the real source/contract before authoring the transcript → applied to requirement 4 (explicit verify-before-author step citing `SqliteCaseBoxPersistence.ts` / `auditRepoQueries.ts` / `audit-log.ts`); (b) **Required clarification** — harden the gate-12 status language from "MAY move PARTIAL → a bounded status" to "**MUST remain `PARTIAL`** in this WI; add only a `[Δ]` marker; any `PARTIAL → CLEARED` belongs to a SEPARATE holistic readiness-refresh WI" → applied in all three places (target-files line + requirement 9 + exec-acceptance criterion 4). · rawOutput sha256 `60b107e3f222424f91db74277d264f74419508e390b03070e9d4c134498aefc2`.
+
+## Verdict: READY (governs a docs-only audit-chain recovery + tamper-evidence exercise WI; existing verifier run not changed; tamper must be DETECTED; dependent gates uncleared; gate 12 stays PARTIAL; go-live-independent)
+
+QUEUE_REVIEW_VERDICT=PASS
+
+## Gates (this authoring lane)
+- `scripts/workflow/check-queue.sh` → QUEUE LINT PASSED.
+- `scripts/workflow/check-contract-integrity.sh` → PASS (verified below).
+- `CURRENT_SCHEMA_VERSION` unchanged (12); no product source/test/package/schema/contract change — only the queue governance + this review artifact. No exercise run, no audit-chain implementation change, no error-code rename, no new dependency, no brief edit, no gate-6 run, no clearing of gates 14/18/15, no gate-7 clear implication, no go-live decision.
+
+## Deferred findings
+None deferred as open — both Lows were applied (verify-verifier-API-names-before-authoring + gate-12-MUST-remain-PARTIAL hardening in all three places). The FUTURE exec lane carries the exercise execution (disposable `/tmp` fixture, tamper → detected `ChainVerifyErr`, restore → `ChainVerifyOk`) and the verify-before-rely obligation (confirm the verifier API + the gate-14/7 citations). Gate 12's clearance is not this lane's to grant (stays PARTIAL) and does not imply go-live; gates 14/18/15/7 stay uncleared; gate 6 stays later; the final GO/NO-GO + the STOP-AND-ASK hard-stops (4/11/17/21) remain the user's.
