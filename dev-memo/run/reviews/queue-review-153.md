@@ -1,0 +1,32 @@
+# Queue review — WI-RELEASE-G12-AUDIT-CHAIN-RECOVERY-00 (EXECUTION lane)
+
+Lane: M0 gate-12 audit-chain operational recovery + tamper-evidence **execution** (Type: EVIDENCE, release-governance MEDIUM risk). Runs the governed drill against the REAL persistence layer on a DISPOSABLE fixture, records the transcript, updates the gate-12 evidence row. Changes NO product source/test/contract/config; changes NO audit-chain implementation; renames NO error code; clears NO gate; decides NO user go-live hard-stop.
+Date: 2026-07-07. Branch: `release-g12-audit-chain-recovery-exec` (from synced `main` @ `53811ec`). Batch: window 1/3 since marker `7b1cd7b` (`53811ec` batch-235 closeout) — no batch closeout this lane.
+
+## What this is
+The execution lane of governed WI-RELEASE-G12-AUDIT-CHAIN-RECOVERY-00 (governed commit `166da89` + fix-forwards, queue.governed sha256 `886bad38…`, PRs #202/#203/#204/#205). It ran the operational audit-chain recovery + tamper-evidence drill against the built `case-box-persistence` dist on a disposable `/tmp` fixture, and authored `docs/release/gate12-audit-chain-recovery-00.md` recording requirements 1–10. It used the EXISTING verifier `verifyAuditChainForMatter` (→ `verifyAuditChainForMatterSqlite` reusing the contract `verifyAuditChain` + `eventHashFn` verbatim); it changed NO audit-chain implementation/contract/schema and renamed NO `ChainVerifyErrorReason`.
+
+Drill **PASS**: seed 3 matters × 3 audit events → clean `verifyAuditChainForMatter` = `ChainVerifyOk` + invariant `event_count==COUNT==MAX(sequence)` `{3,3,3}` → backup-as-directory (gate-14 model, cited-not-cleared) → tamper a **mid-chain** event (matter `…001` sequence 2, `actor_user_id` mutated) → **DETECTED as `ChainVerifyErr(prev_event_hash_mismatch)` `errorIndex=2`** (matters `…002`/`…003` unaffected) → restore-from-backup → `ChainVerifyOk` + invariant. Honest nuance surfaced (not papered over): the count/sequence invariant HELD even under tamper (mutating `event_json` changes neither count nor sequence) — so it is structural-completeness, NOT tamper-evidence; the hash chain is the tamper detector.
+
+Deliverables (exactly two tracked files + this review artifact):
+1. NEW `docs/release/gate12-audit-chain-recovery-00.md` — the drill evidence (§1 fixture; §2 backup/restore; §3 invariant + the structural-vs-tamper nuance; §4 tamper-evidence via `verifyAuditChainForMatter`; §5 recovery; §6 transcript; §7 PASS; §8 mode; §9 feeds-gate-12-without-clearing-others; §10 residuals R-G12-1/2/3).
+2. `docs/release/go-live-readiness-report.md` — the gate-12 ROW ONLY: `PARTIAL` → `PARTIAL — audit-chain recovery + tamper-evidence PASS [Δ]` (existing status vocabulary; roll-up bucket unchanged — gate 12 was already PARTIAL). No other row / no roll-up line edited.
+
+## cc-suite recording (per .claude/rules/cc-suite.md §"Required recording")
+Path 1 runner foreground, resolved runner path `/Users/zhongyibao/.claude/plugins/cache/xiaolai/cc-suite/0.2.18/scripts/codex-runner.mjs`, retrievable YES, no failure class, no fallback. Docs-evidence convention: review-plan on the PRODUCED drill doc + the gate-12 row diff, both inlined. Completed first attempt, no timeout.
+
+### /cc-suite:review-plan (gpt-5.5/medium/read-only; on the produced drill evidence + gate-12 row diff)
+- `review-plan-mrarqwlc-6atola` · **READY (Low-risk clarifications)** (no Critical/High/Medium). All 6 confirmations PASS: (1) ran the EXISTING verifier on a disposable fixture, no implementation/contract/schema/error-code change; (2) tamper DETECTED (`ChainVerifyErr(prev_event_hash_mismatch)`, errorIndex 2), not a false `ChainVerifyOk`; (3) recovery via backup-as-directory restore → `ChainVerifyOk` + invariant; (4) the count-invariant-is-structural-not-tamper-evidence nuance is correctly stated, not over-claimed; (5) gates 14/18/15 not cleared, gate 7 not implied cleared, gate 6 deferred, gate 12 kept PARTIAL, no STOP-AND-ASK (4/11/17/21) decided, no GO/NO-GO, no brief/source/test/schema change; (6) fixture-only transcript, no real data, driver not committed, no dependency. One **Low**: R-G12-2 over-specified the last-event tamper as if drill-observed → **applied**: R-G12-2 now marks the last-event vector "NOT exercised in this drill" and cites the SOURCE fact (`auditRepoQueries.ts` step 4 head-anchor cross-check returns `errorReason: "prev_event_hash_mismatch"` on mismatch) as the basis for the "expected" behavior, rather than presenting it as observed. · rawOutput sha256 `0b9c79276fe45ffc12d2730758cfacdb1602b3379ac967411dcf64fc8d50f3a1`.
+
+## Verdict: READY (drill executed, PASS; existing verifier run not changed; tamper DETECTED; recovery proven; gates 14/18/15 uncleared; gate 7 not implied; gate 12 stays PARTIAL; go-live-independent)
+
+QUEUE_REVIEW_VERDICT=PASS
+
+## Gates (this execution lane)
+- Drill executed against the REAL dist on a disposable `/tmp` fixture → PASS (clean `ChainVerifyOk`+invariant; mid-chain tamper → `ChainVerifyErr(prev_event_hash_mismatch)`; restore → `ChainVerifyOk`+invariant). The `dist/` was rebuilt to run the drill (gitignored — no tracked change); the `/tmp` drill driver is NOT committed.
+- `scripts/workflow/check-queue.sh` → QUEUE LINT PASSED (queue.linted timestamp side-effect restored — this exec lane does NOT re-stage queue governance).
+- `scripts/workflow/check-contract-integrity.sh` → PASS.
+- `CURRENT_SCHEMA_VERSION` unchanged (12); no product source/test/package/schema/contract change — only the NEW drill doc + the gate-12 evidence row + this review artifact. No audit-chain implementation change, no error-code rename, no new dependency, no brief edit, no gate-6 run, no clearing of gates 14/18/15, no gate-7 clear implication, no go-live decision.
+
+## Deferred findings
+None deferred as open — the one Low was applied (R-G12-2 source-cited + marked not-exercised). Residual notes recorded in the drill doc §10 (documentary only, no source follow-up): R-G12-1 (the count invariant is not a tamper detector — pair it with the hash-chain verify wherever "integrity" is claimed); R-G12-2 (last-event tamper vector expected-via-head-anchor, not exercised here — optional follow-up drill row); R-G12-3 (WAL-level corruption is the gate-7 crash-recovery drill's `PRAGMA integrity_check` surface, PASS, cross-referenced). Gate 12's clearance is not this lane's to grant (stays PARTIAL) and does not imply go-live; gates 14/18/15/7 stay uncleared; gate 6 stays later; the final GO/NO-GO + the STOP-AND-ASK hard-stops (4/11/17/21) remain the user's.
