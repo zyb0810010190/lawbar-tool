@@ -205,3 +205,4 @@ Next: NONE. Per user: do not push until reviewed.
 2026-06-23T12:40:03Z override consumed: Authorized by user for ENA11-FIX1 implementation commit because the current batch window is BATCH-FAIL and cannot be closed until the ENA11 marker isMarker provenance defect is fixed. Override is limited to the isMarker bind/check fix and regression test only.
 2026-07-07T09:50:52Z override consumed: land batch-234 M1 fix: gate-12 Scope-field contradiction
 2026-07-07T11:14:56Z override consumed: land batch-234 M1 re-fix: review-152 self-referential trigger phrase + grep claim
+2026-07-07T14:24:00Z override consumed: land batch-234 log-completeness: commit both remediation override-consumption audit-trail lines
