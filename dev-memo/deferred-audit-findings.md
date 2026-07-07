@@ -490,3 +490,15 @@ for a dedicated persistence-hardening WI.
 | Target future WI/backlog | Optional future doc-precision WI: narrow the drill doc's "no torn write" → "no corruption / no partial committed state observed under this process-kill boundary." No functional follow-up required. |
 | Safe-to-proceed? | YES — the residual is disclosed (R-DRILL-2), the drill remains a valid PASS for the process-kill boundary it exercised, and gate 7 stays NOT CLEARED regardless. |
 | Status | **open** — deferred/accepted residual; drill-doc wording unchanged this lane. |
+
+## batch-audit-236 — study-235 STOP-AND-ASK gate framing wording (documentary)
+
+| Field | Value |
+|---|---|
+| Finding ID | G12-STUDY235-AUD-L1 |
+| Severity | Low |
+| Source | Layer-B batch audit `audit-mrarwb56-w0vyjf` (BATCH-PASS C0 H0 M0 L1); study `dev-memo/study/2026-07-07-batch-audit-236.md`. |
+| Reason for deferral | Documentary framing nit only, NO active defect. `dev-memo/study/2026-07-07-batch-audit-235.md` "State" section frames the go-live user decisions as "the 3 STOP-AND-ASK hard-stops (4/11/21) + gate-17 license/business (if legal)" rather than the flat "gates 4/11/17/21 remain user STOP-AND-ASK" used in the audit-prompt shorthand. Out-of-scope (the finding is in an already-CLOSED batch's study artifact, commit `53811ec`) + cleanup-only (a stylistic framing, not a correctness/scope/clearance defect). The readiness report's own roll-up places gate 17 in the OPEN bucket as a CONDITIONAL STOP-AND-ASK ("if license selection requires a legal/business decision"), so the "(4/11/21) + 17 (if legal)" framing is arguably the more precise one; gate 17 remains user-owned in every artifact. |
+| Target future WI/backlog | Future study packets use the canonical "gates 4/11/21 STOP-AND-ASK + gate 17 OPEN/conditional-user-decision" framing for precision. No functional follow-up; no source change. |
+| Safe-to-proceed? | YES — gate 17 is user-owned in all artifacts; this is a wording-precision nit in a closed batch's study doc, non-blocking. |
+| Status | **open** — deferred/accepted documentary residual; study-235 wording unchanged (closed batch). |
