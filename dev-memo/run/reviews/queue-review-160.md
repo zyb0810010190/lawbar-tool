@@ -1,0 +1,27 @@
+# Queue review — WI-RELEASE-G16-BRIEF-READY-RECONCILIATION-VERIFY-00 (AUTHORING / governance lane)
+
+Lane: M0 gate-16 brief-READY + reconciliation-log verification **authoring/governance** (Type: EVIDENCE, release-governance MEDIUM risk). Governs — does NOT execute — a FUTURE lane that runs a READ-ONLY verification of the brief + reconciliation log + the T4 ADR + authors `docs/release/gate16-brief-ready-reconciliation-verify-00.md`. Changes NO product source/test/config; edits NO brief/ADR; implements NO Forms; clears NO gate; decides NO user go-live hard-stop.
+Date: 2026-07-07. Branch: `release-g16-brief-ready-reconciliation-verify-governance` (from synced `main` @ `460c67a`; created BEFORE any edit per the pre-flight guardrail — verified off-main). Batch: window 1/3 since marker `5784ba8` (`460c67a` batch-244 closeout) — no batch closeout this lane.
+
+## What this is
+The authoring lane governs a FUTURE execution lane that runs the gate-16 verification — the outstanding "inspect the brief's reconciliation log for any residual unresolved entries". The exec lane reads (READ-ONLY) `docs/product/project-requirements-brief.md` (frontmatter `status: READY` rev 5 + `## Status banner` + the full `## Reconciliation log` incl. the R-1/R-2/R-3 grouped SYNC resolution + the promotion-safety checklist) and `docs/adr/ADR-forms-t4-proof-model-scope.md` (the T4 举证质证表 proof-model accepted-divergence record, Status DECIDED). It classifies EACH reconciliation-log entry (resolved / accepted-divergence / post-v1 / unresolved-M0-blocking), confirms no unresolved M0-blocking entry (STOP-and-escalate any that is), and confirms the accepted divergences (incl. T4) are documented — WITHOUT editing the brief (a brief amendment is a separate governed project-brief WI). Cites gate 6 (consumes the brief later) + gates 2/8/12/13/19/20 as related, NOT cleared.
+
+Deliverable of THIS lane: ONLY the queue governance (`queue.md` / `queue.linted` / `queue.reviewed` / `queue.governed`) + this review artifact.
+
+## cc-suite recording (per .claude/rules/cc-suite.md §"Required recording")
+Path 1 runner foreground, resolved runner path `/Users/zhongyibao/.claude/plugins/cache/xiaolai/cc-suite/0.2.18/scripts/codex-runner.mjs`, retrievable YES, no failure class, no fallback. The full WI (`queue.md`) was inlined into the prompt (timeout-avoidance convention). Completed first attempt, no timeout.
+
+### /cc-suite:review-plan (gpt-5.5/medium/read-only; on the queue WI)
+- `review-plan-mrbhn6pe-cumq7t` · **READY (Low-risk clarifications)** (no Critical/High/Medium). All 6 review questions answered YES: (1) scopes a governed future read-only verification, not execution and not a brief edit in this lane; (2) requires inspecting the brief `status:` + `## Status banner` + the FULL reconciliation log (incl. R-1/R-2/R-3 grouped SYNC + the promotion-safety checklist) + the T4 accepted-divergence ADR; (3) M0-blocking definition sound (unresolved v1-day-one conflict stops; post-v1 SYNC + accepted divergences do not); (4) gates 2/6/8/12/13/19/20 uncleared, gate 16 PARTIAL, roll-up/brief-amendment/gate-6/readiness-refresh forbidden; (5) STOP-AND-ASK gates 4/11/17/21 not decided; (6) no brief rewrite, ADR edit, Forms implementation, product source/test change, or readiness refresh smuggled in. Three **Low** clarifications, all **applied**: (a) require the exec lane to classify EACH reconciliation-log entry explicitly (resolved / accepted-divergence / post-v1 / unresolved-M0-blocking) so "no unresolved M0-blocking" is auditable → applied to requirement 5 (per-entry classification table); (b) record the `authoritative_after` condition-met from an EXISTING artifact (the prior promotion review-plan READY), not re-decided → applied to requirement 3; (c) require the exec lane to cite the exact gate-16 row before editing only that row (no adjacent roll-up text) → applied to exec-acceptance criterion 4. Pre-emptive process check (per the recurring Scope/target-files miss): repo-wide `grep` for the permissive status phrase → 0 in queue.md BEFORE governing; all four gate-16 status statements keep PARTIAL. · rawOutput sha256 `5aff8a885e42441a83051f52c60b09692013a415f5f4791955ff60dd14b1e9e9`.
+
+## Verdict: READY (governs a docs-only read-only brief-READY + reconciliation-log verification WI; brief read-only; per-entry classification; M0-blocking vs post-v1 defined; dependent gates uncleared; gate 16 stays PARTIAL; go-live-independent)
+
+QUEUE_REVIEW_VERDICT=PASS
+
+## Gates (this authoring lane)
+- `scripts/workflow/check-queue.sh` → QUEUE LINT PASSED.
+- `scripts/workflow/check-contract-integrity.sh` → PASS (verified below).
+- `CURRENT_SCHEMA_VERSION` unchanged (12); no product source/test/package/schema/contract change — only the queue governance + this review artifact. No brief/ADR edit, no Forms implementation, no dependency change, no gate-6 run, no readiness refresh, no clearing of gates 2/6/8/12/13/19/20, no go-live decision.
+
+## Deferred findings
+None deferred as open — all three Lows were applied (per-entry classification + authoritative_after-from-existing-artifact + exact-row-citation). The FUTURE exec lane carries the read-only verification (brief READY + reconciliation-log per-entry classification + T4 accepted-divergence confirmation; STOP-and-escalate any unresolved M0-blocking entry). Gate 16 stays PARTIAL — not cleared; gates 2/6/8/12/13/19/20 stay uncleared; the R-1/R-2/R-3 SYNC program is post-v1 (not M0-blocking); the final GO/NO-GO + the STOP-AND-ASK hard-stops (4/11/17/21) remain the user's.
