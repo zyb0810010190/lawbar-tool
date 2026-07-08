@@ -1,0 +1,25 @@
+Copyright (c) 2026 [COPYRIGHT HOLDER — to be confirmed]. All rights reserved.
+
+PROPRIETARY — INTERNAL USE ONLY
+
+This software (the "lawbar-tool" project, including its source code, documents,
+and build artifacts) is proprietary and is licensed for the copyright holder's
+own internal / personal use only. It is NOT open source and is NOT licensed for
+public or third-party distribution.
+
+The following are NOT granted by this license:
+  - public distribution, resale, sublicensing, or hosting of the software or its
+    build artifacts;
+  - use by any party other than the copyright holder for internal/personal use;
+  - removal or alteration of this notice or the accompanying third-party NOTICE.
+
+Third-party open-source components bundled or depended upon by this project
+remain under their own licenses; see the NOTICE file for their attributions.
+
+STATUS NOTE (2026-07-08): the copyright-holder line above is a deliberate
+placeholder to be replaced with the exact individual, firm, or company name
+BEFORE any external distribution. This project is currently designated
+internal-use-only (go-live readiness gate 4 = internal use; public
+distribution deferred; gate 11 律师法 confidentiality review and the final
+public go-live sign-off remain pending). No external-distribution readiness is
+claimed by the presence of this file.

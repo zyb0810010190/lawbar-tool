@@ -1,0 +1,38 @@
+NOTICE — third-party attributions
+
+Copyright (c) 2026 [COPYRIGHT HOLDER — to be confirmed]. All rights reserved.
+The lawbar-tool project itself is proprietary / internal-use-only (see LICENSE).
+
+This project depends on / bundles the following third-party open-source
+components, each under its own license. Their copyrights remain with their
+respective owners. This NOTICE is an attribution record; it is not a legal
+sufficiency review for external distribution (that review is deferred — see
+gate 17 in docs/release/go-live-readiness-report.md).
+
+v1 production runtime dependencies (per docs/release/gate19-supply-chain-posture-00.md §5):
+
+  - better-sqlite3            MIT   (native SQLite binding)
+  - docx                     MIT   (DOCX generation for the T3 证据目录及说明 export)
+  - @gutenye/ocr-node        MIT   (OCR engine; not wired into the v1 Mac client)
+  - @gutenye/ocr-common      MIT   (transitive of @gutenye/ocr-node)
+  - @gutenye/ocr-models      MIT   (transitive of @gutenye/ocr-node)
+
+v1 build / packaging / test tooling (development dependencies):
+
+  - electron                 MIT   (desktop runtime; v1 pinned ^39.8.5)
+  - electron-builder         MIT   (packaging)
+  - @playwright/test /
+    playwright               Apache-2.0  (Electron/E2E test driver)
+  - typescript               Apache-2.0  (build)
+  - @types/node              MIT   (types)
+
+First-party (in-repo) packages, NOT third-party:
+
+  - case-box-contract        first-party (docs/contracts/case-box-contract)
+  - case-box-persistence     first-party (services/case-box-persistence)
+
+The exact license texts for the MIT / Apache-2.0 components are available in
+each dependency's package under node_modules/<name>/LICENSE. Before any external
+distribution, confirm the full attribution set and any additional obligations
+(this NOTICE covers the direct production + primary build dependencies; a
+complete transitive attribution / SBOM is a deferred post-v1 item).
