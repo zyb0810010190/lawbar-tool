@@ -207,3 +207,4 @@ Next: NONE. Per user: do not push until reviewed.
 2026-07-07T11:14:56Z override consumed: land batch-234 M1 re-fix: review-152 self-referential trigger phrase + grep claim
 2026-07-07T14:24:00Z override consumed: land batch-234 log-completeness: commit both remediation override-consumption audit-trail lines
 2026-07-07T23:56:50Z override consumed: land batch-238 M1 fix: gate-20 Scope + target-files status-clause contradiction
+2026-07-08T05:59:41Z override consumed: land batch-253 H1 fix: require Electron run-dist packaging verification
