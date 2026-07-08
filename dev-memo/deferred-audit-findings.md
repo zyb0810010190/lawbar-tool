@@ -514,3 +514,15 @@ for a dedicated persistence-hardening WI.
 | Target future WI/backlog | Optional future doc-precision WI may harmonize R-7's label (e.g. "consistent-with-existing-posture / docs-only-non-blocking") across §2, §7, and the readiness row. No functional follow-up; no source change; gate-16 disposition unchanged. |
 | Safe-to-proceed? | YES — R-7 is non-blocking under either label, 0 unresolved M0-blocking reconciliation entries stands, gate 16 stays PARTIAL, and no go-live decision is affected. |
 | Status | **open** — deferred/accepted documentary residual; gate-16 verification-doc wording unchanged (merged doc). |
+
+## batch-audit-251 — gate-19 posture-doc §7 Electron-advisory undercount wording (documentary)
+
+| Field | Value |
+|---|---|
+| Finding ID | G19-DOC-AUD-L1 |
+| Severity | Low |
+| Source | Layer-B batch audit `audit-mrblkd4h-e7pwz2` (BATCH-PASS C0 H0 M0 L1); study `dev-memo/study/2026-07-08-batch-audit-251.md`. |
+| Reason for deferral | Documentary wording undercount only, NO active defect. `docs/release/gate19-supply-chain-posture-00.md` §7 item (c) says "the one High advisory affecting the shipped Electron runtime is surfaced + dispositioned", while §4 (Surfaced advisory) + the status banner + §9 R-G19-1 correctly record that `electron` 34.5.8 carries **2 HIGH advisories** (ASAR integrity bypass; macOS AppleScript injection). The §7 summary undercounts "2 HIGH" as "one High advisory" — a wording nit; it does NOT hide the issue (the doc records 2 HIGH in §4/§9), does NOT clear gate 19, and does NOT mutate any dependency. Out-of-scope (the posture doc is already merged at `e5a88b9`; a closeout lane is forbidden from re-opening release-doc text) + cleanup-only (a count-wording nit, not a correctness/scope/clearance defect). |
+| Target future WI/backlog | Fold into the R-G19-1 electron-bump WI (which revisits this doc) OR an optional doc-precision WI: reword §7(c) "the one High advisory" → "the surfaced Electron-runtime advisory item (two HIGH)". No functional follow-up. |
+| Safe-to-proceed? | YES — the 2-HIGH count is correct in §4/§9 + the status banner + the gate-19 row; the §7 summary undercount is non-blocking, clears no gate, and the surfaced advisory (R-G19-1) is intact + user-owned at gate 4. |
+| Status | **open** — deferred/accepted documentary residual; posture-doc §7 wording unchanged (merged doc). |
