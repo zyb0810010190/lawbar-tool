@@ -502,3 +502,15 @@ for a dedicated persistence-hardening WI.
 | Target future WI/backlog | Future study packets use the canonical "gates 4/11/21 STOP-AND-ASK + gate 17 OPEN/conditional-user-decision" framing for precision. No functional follow-up; no source change. |
 | Safe-to-proceed? | YES — gate 17 is user-owned in all artifacts; this is a wording-precision nit in a closed batch's study doc, non-blocking. |
 | Status | **open** — deferred/accepted documentary residual; study-235 wording unchanged (closed batch). |
+
+## batch-audit-246 — gate-16 verification R-7 disposition-label inconsistency (documentary)
+
+| Field | Value |
+|---|---|
+| Finding ID | G16-DOC-AUD-L1 |
+| Severity | Low |
+| Source | Layer-B batch audit `audit-mrbi4dqk-i1yx4n` (BATCH-PASS C0 H0 M0 L1); study `dev-memo/study/2026-07-07-batch-audit-246.md`. |
+| Reason for deferral | Documentary terminology nit only, NO active defect. `docs/release/gate16-brief-ready-reconciliation-verify-00.md` §2 classifies reconciliation entry **R-7** (original-file-retention invariant) as "accepted-divergence / non-blocking", while the same doc's §7 + the gate-16 readiness row group R-4/R-7 as "post-v1 / non-blocking" — two labels for one disposition. Substantively R-7 is brief-noted "None directly — consistent with existing posture" (resolution = a docs-only invariant-promotion WI), so it is non-blocking under either label; the auditor confirms it is NOT an M0 blocker, no gate is cleared, no go-live implied. Out-of-scope (the verification doc is already merged at `23cc25e`; a closeout lane is forbidden from re-opening release-doc text) + cleanup-only (a label-consistency nit, not a correctness/scope/clearance defect). |
+| Target future WI/backlog | Optional future doc-precision WI may harmonize R-7's label (e.g. "consistent-with-existing-posture / docs-only-non-blocking") across §2, §7, and the readiness row. No functional follow-up; no source change; gate-16 disposition unchanged. |
+| Safe-to-proceed? | YES — R-7 is non-blocking under either label, 0 unresolved M0-blocking reconciliation entries stands, gate 16 stays PARTIAL, and no go-live decision is affected. |
+| Status | **open** — deferred/accepted documentary residual; gate-16 verification-doc wording unchanged (merged doc). |
