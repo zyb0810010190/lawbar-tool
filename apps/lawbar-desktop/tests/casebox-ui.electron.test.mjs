@@ -162,9 +162,9 @@ test("case-box UI packaged flow: list → create → view → archive → chain 
     // Matter type radio: Litigation.
     await win.locator('input[name="matter_type"][value="litigation"]').check();
     await win.fill("#cm-jurisdiction-value", "test-jx");
-    await win.fill("#cm-party-0-role", "client");
+    await win.selectOption("#cm-party-0-role", "client");
     await win.fill("#cm-party-0-display-name", "syn-party-A");
-    await win.fill("#cm-party-0-party-kind", "individual");
+    await win.selectOption("#cm-party-0-party-kind", "individual");
     await win.locator('input[name="confidentiality_class"][value="normal"]').check();
 
     // 4) Submit.

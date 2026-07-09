@@ -45,6 +45,24 @@ interface FormState {
 
 const NAME_MAX_LENGTH = 200;
 
+// Party.role / Party.party_kind are controlled enums in case-box-matter.schema.json
+// (#/$defs/party). The form MUST only ever emit these values — a free-text input
+// let lawyers type natural words ("plaintiff", "company") that the persistence
+// schema rejects, surfacing as a generic "persistence schema violation" banner.
+// Rendering the enums as <select> options makes an out-of-enum value impossible.
+const PARTY_ROLE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "client", label: "Client" },
+  { value: "opposing", label: "Opposing" },
+  { value: "third_party", label: "Third party" },
+];
+const PARTY_KIND_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "individual", label: "Individual" },
+  { value: "organization", label: "Organization" },
+  { value: "government", label: "Government" },
+  { value: "court", label: "Court" },
+  { value: "other", label: "Other" },
+];
+
 export function mountCreateMatter(
   root: HTMLElement,
   deps: CreateMatterDeps,
@@ -200,10 +218,8 @@ export function mountCreateMatter(
         doc,
       );
 
-      const roleInput = el("input", { type: "text", value: p.role }, [], doc);
-      roleInput.addEventListener("input", (event) => {
-        const t = (event as Event & { target?: { value?: unknown } }).target;
-        p.role = String(t?.value ?? "");
+      const roleInput = makeEnumSelect(p.role, PARTY_ROLE_OPTIONS, doc, (v) => {
+        p.role = v;
       });
 
       const displayNameInput = el(
@@ -217,16 +233,14 @@ export function mountCreateMatter(
         p.display_name = String(t?.value ?? "");
       });
 
-      const partyKindInput = el(
-        "input",
-        { type: "text", value: p.party_kind },
-        [],
+      const partyKindInput = makeEnumSelect(
+        p.party_kind,
+        PARTY_KIND_OPTIONS,
         doc,
+        (v) => {
+          p.party_kind = v;
+        },
       );
-      partyKindInput.addEventListener("input", (event) => {
-        const t = (event as Event & { target?: { value?: unknown } }).target;
-        p.party_kind = String(t?.value ?? "");
-      });
 
       const notesTextarea = el("textarea", { rows: 2 }, [p.notes], doc);
       notesTextarea.addEventListener("input", (event) => {
@@ -591,6 +605,37 @@ export function mountCreateMatter(
   root.appendChild(statusRegion);
 
   focusEl(nameInput);
+}
+
+// Build an enum-constrained <select>. A leading empty-value placeholder keeps
+// the initial state "" (so the submit-time "required" check still fires when a
+// row is left unselected), and every real option is a schema-valid enum member.
+function makeEnumSelect(
+  current: string,
+  options: ReadonlyArray<{ value: string; label: string }>,
+  doc: Document,
+  setter: (v: string) => void,
+): HTMLElement {
+  const placeholder = el(
+    "option",
+    { value: "", ...(current === "" ? { selected: true } : {}) },
+    ["— Select —"],
+    doc,
+  );
+  const optionEls = options.map((o) =>
+    el(
+      "option",
+      { value: o.value, ...(current === o.value ? { selected: true } : {}) },
+      [o.label],
+      doc,
+    ),
+  );
+  const select = el("select", {}, [placeholder, ...optionEls], doc);
+  select.addEventListener("change", (event) => {
+    const t = (event as Event & { target?: { value?: unknown } }).target;
+    setter(String(t?.value ?? ""));
+  });
+  return select;
 }
 
 function makeOptionalInput(
