@@ -406,7 +406,8 @@ test("submit: API error envelope renders inline + form state preserved", async (
   await new Promise((r) => setImmediate(r));
   const err = findByTestId(root, "create-form-error");
   assert.ok(err !== null);
-  assert.equal(collectText(err), "duplicate identifier");
+  // Display is the zh-CN catalog value keyed by the stable code, not the English message.
+  assert.equal(collectText(err), CATALOG["error.duplicate_id"]);
   assert.equal(err.getAttribute("role"), "alert");
   // No navigation on error.
   assert.equal(navCalls.length, 0);
@@ -437,11 +438,13 @@ test("submit: HTML-shaped name passed verbatim to API + echoed safely", async ()
   fireClick(findByTestId(root, "create-submit"));
   await new Promise((r) => setImmediate(r));
   assert.equal(calls.length, 1);
-  // String survives verbatim in the DTO.
+  // DTO passthrough: string survives verbatim in the DTO (unchanged).
   assert.equal(calls[0].name, "<script>alert(1)</script> evil");
-  // Error message echoed via setText (text only; no element parsing).
   const err = findByTestId(root, "create-form-error");
-  assert.equal(collectText(err), "<not-a-tag> safe-message-fixture");
+  // Display is the FIXED zh-CN catalog value keyed by the stable code…
+  assert.equal(collectText(err), CATALOG["error.invalid_payload"]);
+  // …and the raw HTML-shaped server message detail is NOT exposed in the rendered error.
+  assert.doesNotMatch(collectText(err), /<not-a-tag> safe-message-fixture/);
 });
 
 test("submit: normal valid submit emits NO console.warn", async () => {

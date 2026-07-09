@@ -107,3 +107,15 @@ The two non-rendered English reservoirs identified above are gone:
 
 Net effect: the renderer no longer contains any English-label reservoir (rendered or dead). Contract enum
 VALUES remain English (schema-aligned); only display labels are Chinese via the catalog/facades.
+
+## Runtime error surfaces (WI-DESKTOP-ZH-CN-ERROR-SURFACES-04)
+
+The static allowlist / classifier see only *literals*; the English text a user saw on an IPC failure was a
+**runtime** value — `env.error.message`, produced main-side by `errorMap.ts` — invisible to the guard (which
+is why `user-facing = 0` held even though a failure banner rendered English). This is now localized at the
+DISPLAY layer: `renderer/i18n/errorMessage.ts` maps the stable `error.code` → a generic zh-CN `error.<code>`
+catalog message (fallback `error.unknown`); all ~30 renderer error banners/alerts/status lines call
+`errorMessage(env.error)` instead of `env.error.message`. The main process is unchanged — codes and the
+English `message` stay for `console.error` diagnostics; the renderer never surfaces the raw `message` (no
+SQL/path/identifier leak; proven by `renderer-error-message.test.mjs`). Contract enum VALUES and IPC channel
+names are untouched.

@@ -19,224 +19,218 @@
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 56,
+    "line": 57,
     "text": "client",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 57,
+    "line": 58,
     "text": "opposing",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 58,
+    "line": 59,
     "text": "third_party",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 61,
+    "line": 62,
     "text": "individual",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 62,
+    "line": 63,
     "text": "organization",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 63,
+    "line": 64,
     "text": "government",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 64,
+    "line": 65,
     "text": "court",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 65,
+    "line": 66,
     "text": "other",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 154,
+    "line": 155,
     "text": " *",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 160,
+    "line": 161,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 170,
+    "line": 171,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 209,
+    "line": 210,
     "text": " *",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 369,
+    "line": 370,
     "text": " *",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 373,
-    "text": " ",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/createMatter.ts",
-    "line": 379,
-    "text": " ",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/createMatter.ts",
-    "line": 382,
-    "text": " ",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 255,
-    "text": "§",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 239,
-    "text": "${jurisdiction.value}${lockedMarker}",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 259,
-    "text": "${partyRoleLabel(p.role)} — ${p.display_name} (${partyKindLabel(p.party_kind)})",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 432,
-    "text": "§",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterAudit.ts",
-    "line": 162,
-    "text": " ",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterAudit.ts",
-    "line": 169,
-    "text": " ",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterAudit.ts",
-    "line": 201,
-    "text": " ",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterAudit.ts",
-    "line": 232,
-    "text": " ",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterAudit.ts",
-    "line": 262,
-    "text": " ",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterAudit.ts",
-    "line": 279,
-    "text": "${auditEntityTypeLabel(ev.entity_type)} · ${ulidShort(ev.entity_id)}",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDeadlines.ts",
-    "line": 209,
-    "text": "filing",
-    "kind": "attr"
-  },
-  {
-    "file": "renderer/screens/viewMatterDeadlines.ts",
-    "line": 260,
-    "text": " ",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDeadlines.ts",
     "line": 374,
     "text": " ",
     "kind": "text"
   },
   {
+    "file": "renderer/screens/createMatter.ts",
+    "line": 380,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/createMatter.ts",
+    "line": 383,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/listMatters.ts",
+    "line": 256,
+    "text": "§",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatter.ts",
+    "line": 240,
+    "text": "${jurisdiction.value}${lockedMarker}",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatter.ts",
+    "line": 260,
+    "text": "${partyRoleLabel(p.role)} — ${p.display_name} (${partyKindLabel(p.party_kind)})",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatter.ts",
+    "line": 433,
+    "text": "§",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 163,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 170,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 202,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 233,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 263,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 280,
+    "text": "${auditEntityTypeLabel(ev.entity_type)} · ${ulidShort(ev.entity_id)}",
+    "kind": "text"
+  },
+  {
     "file": "renderer/screens/viewMatterDeadlines.ts",
-    "line": 394,
+    "line": 210,
+    "text": "filing",
+    "kind": "attr"
+  },
+  {
+    "file": "renderer/screens/viewMatterDeadlines.ts",
+    "line": 261,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDeadlines.ts",
-    "line": 398,
+    "line": 375,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDeadlines.ts",
+    "line": 395,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDeadlines.ts",
+    "line": 399,
     "text": "${deadlineKindLabel(d.kind)} · ${deadlineStatusLabel(d.status)}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 204,
+    "line": 205,
     "text": "${deadlineKindLabel(p.proposed_kind)} · ${docketSourceTypeLabel(p.source_type)}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 207,
+    "line": 208,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 266,
+    "line": 267,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 408,
+    "line": 409,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 435,
+    "line": 436,
     "text": "reminder_offsets",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 507,
-    "text": " ",
     "kind": "text"
   },
   {
@@ -247,355 +241,361 @@
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 627,
+    "line": 509,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 640,
+    "line": 628,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocketProposals.ts",
+    "line": 641,
     "text": "reminder_offsets",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 19,
+    "line": 20,
     "text": "pleading",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 20,
+    "line": 21,
     "text": "contract",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 21,
+    "line": 22,
     "text": "correspondence",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 22,
+    "line": 23,
     "text": "transcript",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 23,
+    "line": 24,
     "text": "exhibit",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 24,
+    "line": 25,
     "text": "other",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 27,
-    "text": "registered",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
     "line": 28,
-    "text": "ocr_pending",
+    "text": "registered",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
     "line": 29,
-    "text": "ocr_complete",
+    "text": "ocr_pending",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
     "line": 30,
-    "text": "ocr_failed",
+    "text": "ocr_complete",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
     "line": 31,
-    "text": "triaged",
+    "text": "ocr_failed",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
     "line": 32,
-    "text": "tagged",
+    "text": "triaged",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
     "line": 33,
+    "text": "tagged",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 34,
     "text": "reviewed",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 72,
+    "line": 73,
     "text": "pleading",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 73,
+    "line": 74,
     "text": "contract",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 74,
+    "line": 75,
     "text": "correspondence",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 75,
+    "line": 76,
     "text": "transcript",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 76,
+    "line": 77,
     "text": "exhibit",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 77,
+    "line": 78,
     "text": "other",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 179,
+    "line": 180,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 189,
+    "line": 190,
     "text": "${label}: ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 204,
+    "line": 205,
     "text": "${t(\"document.detail.contentHash\")}: ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 237,
-    "text": " ",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
     "line": 238,
-    "text": "${docTypeLabel(row.doc_type)} · ${docStatusLabel(row.status)}",
+    "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
     "line": 239,
-    "text": " ",
+    "text": "${docTypeLabel(row.doc_type)} · ${docStatusLabel(row.status)}",
     "kind": "text"
   },
   {
-    "file": "renderer/screens/viewMatterFacts.ts",
-    "line": 20,
-    "text": "claim",
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 240,
+    "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterFacts.ts",
     "line": 21,
-    "text": "defense",
+    "text": "claim",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterFacts.ts",
     "line": 22,
-    "text": "counterclaim",
+    "text": "defense",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterFacts.ts",
     "line": 23,
-    "text": "timeline_event",
+    "text": "counterclaim",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterFacts.ts",
     "line": 24,
-    "text": "work_order_result",
+    "text": "timeline_event",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterFacts.ts",
     "line": 25,
-    "text": "consultation_q",
+    "text": "work_order_result",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterFacts.ts",
     "line": 26,
-    "text": "consultation_a",
+    "text": "consultation_q",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterFacts.ts",
     "line": 27,
+    "text": "consultation_a",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterFacts.ts",
+    "line": 28,
     "text": "other",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterFacts.ts",
-    "line": 268,
+    "line": 269,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterFacts.ts",
-    "line": 312,
+    "line": 313,
     "text": "${factStatusLabel(f.status)} · ${factSourceTypeLabel(f.source_type)}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterFacts.ts",
-    "line": 315,
+    "line": 316,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterFacts.ts",
-    "line": 471,
+    "line": 472,
     "text": " ",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 36,
-    "text": "evidence",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
     "line": 37,
-    "text": "note",
+    "text": "evidence",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
     "line": 38,
-    "text": "question",
+    "text": "note",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
     "line": 39,
-    "text": "calcTerm",
+    "text": "question",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
     "line": 40,
+    "text": "calcTerm",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterLinks.ts",
+    "line": 41,
     "text": "claimElement",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 258,
+    "line": 259,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 275,
+    "line": 276,
     "text": "${linkSourceTypeLabel(link.source_type)} · ${link.source_id} → ${link.anchor_id}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 288,
+    "line": 289,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 292,
+    "line": 293,
     "text": "${t(\"links.row.created\")} ${formatLocalDateTime(link.created_at)}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 308,
+    "line": 309,
     "text": "${t(\"linkStatus.unlinked\")} · ${t(\"links.row.unlinkedAt\")} ${formatLocalDateTime(\n            link.unlinked_at ?? link.created_at,\n          )}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 325,
+    "line": 326,
     "text": "${t(\"links.row.reason\")}: ${link.unlink_reason}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 593,
+    "line": 594,
     "text": "AMBIGUOUS",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 593,
+    "line": 594,
     "text": "BROKEN",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 593,
+    "line": 594,
     "text": "CLEAN",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 593,
+    "line": 594,
     "text": "NEEDS_REVIEW",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 593,
+    "line": 594,
     "text": "NON_CITABLE",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 593,
+    "line": 594,
     "text": "UNLINKED",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 603,
+    "line": 604,
     "text": "${t(\"links.export.summaryLabel\")} — ${summaryParts.join(\" · \")}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 627,
+    "line": 628,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 628,
+    "line": 629,
     "text": "${linkSourceTypeLabel(c.sourceType)} · ${c.sourceId}",
     "kind": "text"
   }

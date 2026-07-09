@@ -12,6 +12,7 @@ import { el, setText } from "../dom.js";
 import { formatLocalDateTime } from "../format.js";
 import { t } from "../i18n/t.js";
 import type { CatalogId } from "../i18n/catalog.js";
+import { errorMessage } from "../i18n/errorMessage.js";
 
 // R-5 fact purposes (case-box-fact.schema.json). The select offers all eight;
 // the server validates the enum. Default selection is "other". The underlying
@@ -248,7 +249,7 @@ function renderAddFactControl(
       try {
         const env = await api.createFact(withAsOf);
         if (!env.ok) {
-          showError(env.error.message);
+          showError(errorMessage(env.error));
           return;
         }
         setText(status, t("fact.added"));
@@ -400,7 +401,7 @@ function renderReviewControls(
       try {
         const env = await api.transitionFact(dto);
         if (!env.ok) {
-          showError(env.error.message);
+          showError(errorMessage(env.error));
           return;
         }
         setText(status, t("fact.saved"));
@@ -524,7 +525,7 @@ async function loadFacts(
     }
     if (!env.ok) {
       parent.appendChild(
-        el("p", { role: "alert", "data-test-id": "view-facts-error" }, [env.error.message], doc),
+        el("p", { role: "alert", "data-test-id": "view-facts-error" }, [errorMessage(env.error)], doc),
       );
       return;
     }

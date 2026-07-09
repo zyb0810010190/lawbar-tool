@@ -33,6 +33,7 @@ import { el, setText } from "../dom.js";
 import { renderDocketProposalsSection } from "./viewMatterDocketProposals.js";
 import { t } from "../i18n/t.js";
 import { deadlineKindLabel, deadlineStatusLabel } from "../i18n/labels.js";
+import { errorMessage } from "../i18n/errorMessage.js";
 import {
   classifyDeadlineUrgency,
   formatLocalDateTime,
@@ -308,7 +309,7 @@ function renderAddDeadlineControl(
       try {
         const env = await api.createDocketEntry(dto);
         if (!env.ok) {
-          addError(env.error.message);
+          addError(errorMessage(env.error));
           return;
         }
         const entry = env.value as { id?: string; proposed_kind?: string; proposed_due_at?: string };
@@ -352,7 +353,7 @@ function renderAddDeadlineControl(
         const env = await api.confirmDocketEntry(dto);
         if (!env.ok) {
           // Fail-closed: keep the proposed row, do NOT refresh the deadline list.
-          confirmError(env.error.message);
+          confirmError(errorMessage(env.error));
           return;
         }
         // Success: clear the proposed state and refresh the list in place.
@@ -508,7 +509,7 @@ function renderDeadlineTransitionControls(
       return;
     }
     if (!env.ok) {
-      showError(env.error.message);
+      showError(errorMessage(env.error));
       reEnable();
       return;
     }
@@ -711,7 +712,7 @@ async function loadDeadlines(
     if (!env.ok) {
       loading.remove();
       parent.appendChild(
-        el("p", { role: "alert", "data-test-id": "view-deadlines-error" }, [env.error.message], doc),
+        el("p", { role: "alert", "data-test-id": "view-deadlines-error" }, [errorMessage(env.error)], doc),
       );
       return;
     }

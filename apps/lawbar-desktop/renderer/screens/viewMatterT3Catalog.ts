@@ -24,6 +24,7 @@ import type {
 } from "../types.js";
 import { el, setText } from "../dom.js";
 import { t } from "../i18n/t.js";
+import { errorMessage } from "../i18n/errorMessage.js";
 
 // A visible, non-fabricated needs-review marker with accessible text (not
 // color-only). Used for any reviewNeeded cell + an absent/out-of-enum position.
@@ -161,7 +162,7 @@ async function loadCatalog(
 
   if (!env.ok) {
     parent.appendChild(
-      el("p", { role: "alert", "data-test-id": "view-t3-error" }, [env.error.message], doc),
+      el("p", { role: "alert", "data-test-id": "view-t3-error" }, [errorMessage(env.error)], doc),
     );
     return;
   }
@@ -201,7 +202,7 @@ async function runExport(
 
     if (!env.ok) {
       status.appendChild(
-        el("span", { role: "alert", "data-test-id": "view-t3-export-error" }, [env.error.message], doc),
+        el("span", { role: "alert", "data-test-id": "view-t3-export-error" }, [errorMessage(env.error)], doc),
       );
       return;
     }

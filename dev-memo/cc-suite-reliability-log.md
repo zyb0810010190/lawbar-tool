@@ -187,3 +187,9 @@ When a new error class is observed (anything not in the §"Error class taxonomy"
 - review-plan attempt 2 (Path 1, COMPACT packet — the `## Review packet (compact)` section only, ~12 KB): returned promptly with `ERROR: Selected model is at capacity` again (the capacity outage persisted for a few minutes). No verdict.
 - review-plan attempt 3 (Path 1, COMPACT packet, retried after a ~20 s pause): **READY**. job review-plan-mrbq8hyz-bz6jo0, rawOutput sha 03d8b105… One Low applied (gate-3-row edit strictly the R3 disposition text; gate 6 not auto-authorized).
 - Class: **MODEL_API_ERROR** (gpt-5.5 at capacity). Resolution: the capacity outage was transient — a compact-packet retry after a short pause succeeded on Path 1 (no Path 2/3 fallback; Path 2 would hit the same at-capacity model, so a brief wait + retry is the correct response, per §"Timeout / failure classification" MODEL_API_ERROR = "surface / do not retry blindly" — here a single paced retry cleared it and it is surfaced in this log + review-169). NOTE: this is the first MODEL_API_ERROR (capacity) entry in this log; prior entries were all TIMEOUT. Distinguishing signal: a capacity stall shows NO `spawnSync ETIMEDOUT` and the error string is `Selected model is at capacity`.
+
+## audit-mrcxqk87-clyhpu — WI-DESKTOP-ZH-CN-ERROR-SURFACES-04 audit — TIMEOUT
+- Kind: audit. Path 1 (codex-runner.mjs 0.2.18), gpt-5.5/high/read-only.
+- Outcome: FAILED `spawnSync codex ETIMEDOUT`. Class: TIMEOUT (terminal envelope; not HARNESS_REAP).
+- Context: fired right after 5 parallel implementer subagents + earlier audits; Codex unresponsive.
+- Resolution: recorded self-review in dev-memo/plan-desktop-zh-cn-error-surfaces-04.md (non-high-risk WI; safe-message property directly unit-tested).

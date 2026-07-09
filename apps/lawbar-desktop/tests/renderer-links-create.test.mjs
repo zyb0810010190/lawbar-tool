@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import {
   VALID_ULID,
   MockDoc,
@@ -111,7 +112,7 @@ test("create link: backend error envelope → inline role=alert with server mess
   await flush();
   const err = findByTestId(root, "view-links-create-error");
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "unknown anchor: anc-x");
+  assert.equal(collectText(err), CATALOG["error.invalid_argument"]);
   assert.equal(listCalls, 1, "list NOT refreshed on error");
   assert.equal(btn.hasAttribute("disabled"), false);
 });

@@ -574,3 +574,15 @@ for a dedicated persistence-hardening WI.
 | Target future WI/backlog | Fixed-forward in `WI-DESKTOP-ZH-CN-I18N-COMPLETE-01` (the very next commit) — both keys removed from the catalog. |
 | Safe-to-proceed? | YES — advisory strings only; removal is a pure cleanup, build stays green. |
 | Status | **closed** — removed in WI-DESKTOP-ZH-CN-I18N-COMPLETE-01. |
+
+## WI-DESKTOP-ZH-CN-ERROR-SURFACES-04 — main-process error messages (WI-01 M4 out-of-scope) resolved
+
+| Field | Value |
+|---|---|
+| Finding ID | I18N-ERROR-SURFACES-M4 |
+| Severity | Low (deferred UX i18n, not a defect) |
+| Source | WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00 review-plan M4 (main-process errorMap.ts safe messages declared out-of-scope at the time). |
+| Reason | The renderer displayed the English `env.error.message` (main-side errorMap safe string) on rare IPC failures — reachable user-visible English the static i18n guard could not see (it is a runtime value, not a literal). Declared out-of-scope for the earlier i18n lane. |
+| Target future WI/backlog | `WI-DESKTOP-ZH-CN-ERROR-SURFACES-04` (this WI) — added `renderer/i18n/errorMessage.ts` mapping the stable `error.code` → zh-CN `error.<code>` catalog message (fallback `error.unknown`), rewired all ~30 renderer error display sites. Main process unchanged (codes + English message stay for logs). |
+| Safe-to-proceed? | YES — display-layer only; safe-message contract strengthened (raw message never surfaced; `renderer-error-message.test.mjs`). |
+| Status | **closed** — resolved in WI-DESKTOP-ZH-CN-ERROR-SURFACES-04; user-visible IPC error copy is now zh-CN. |

@@ -169,7 +169,7 @@ test("review: backend illegal_transition -> inline role=alert, no list refresh",
   const err = findByTestId(root, "view-facts-review-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "candidate cannot transition directly to accepted");
+  assert.equal(collectText(err), CATALOG["error.illegal_transition"]);
   assert.equal(listCalls, 1, "list NOT refreshed on error");
 });
 

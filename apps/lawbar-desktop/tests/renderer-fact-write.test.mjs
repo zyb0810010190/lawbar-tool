@@ -180,7 +180,7 @@ test("add fact: backend error envelope → inline role=alert, no refresh, button
   const err = findByTestId(root, "view-facts-add-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "statement_text must be a non-empty string");
+  assert.equal(collectText(err), CATALOG["error.invalid_payload"]);
   assert.equal(listCalls, 1, "list NOT refreshed on error");
   assert.equal(addBtn.hasAttribute("disabled"), false);
 });
@@ -256,5 +256,5 @@ test("add fact: unknown_matter envelope → inline role=alert with server messag
   const err = findByTestId(root, "view-facts-add-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "matter not found");
+  assert.equal(collectText(err), CATALOG["error.unknown_matter"]);
 });

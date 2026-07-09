@@ -20,6 +20,7 @@ import { el, setText } from "../dom.js";
 import { formatLocalDateTime } from "../format.js";
 import { t } from "../i18n/t.js";
 import { deadlineKindLabel, docketSourceTypeLabel, reminderKindLabel } from "../i18n/labels.js";
+import { errorMessage } from "../i18n/errorMessage.js";
 
 // A reminder offset on the projected row (renderer-safe; passthrough in DPE5).
 interface ReminderOffset {
@@ -137,7 +138,7 @@ export function renderDocketProposalsSection(
           el(
             "p",
             { role: "alert", "data-test-id": "view-docket-proposals-error" },
-            [env.error.message],
+            [errorMessage(env.error)],
             doc,
           ),
         );
@@ -389,7 +390,7 @@ function renderDismissControl(
           // error inline, and re-enable so the lawyer can retry/cancel. Do NOT
           // refresh here — a reload would rebuild the section and wipe the inline
           // alert (mirrors the confirm-deadline error path, which keeps state).
-          showError(env.error.message);
+          showError(errorMessage(env.error));
           setDisabled(false);
           return;
         }
@@ -605,7 +606,7 @@ function renderEditControl(
           // re-enable so the lawyer can retry/cancel. Do NOT refresh (a reload would wipe
           // the inline alert — mirrors the dismiss + confirm-deadline error paths).
           saving = false;
-          showError(env.error.message);
+          showError(errorMessage(env.error));
           setDisabled(false);
           return;
         }

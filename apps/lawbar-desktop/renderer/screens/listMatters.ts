@@ -31,6 +31,7 @@ import { formatLocalDateTime } from "../format.js";
 import { matterTypeLabel, confidentialityLabel, statusLabel } from "../i18n/labels.js";
 import { t } from "../i18n/t.js";
 import { mountOverdueDashboardBanner } from "../overdueDashboardBanner.js";
+import { errorMessage } from "../i18n/errorMessage.js";
 
 export const PAGE_SIZE = 20;
 
@@ -200,7 +201,7 @@ export async function mountListMatters(
     if (cursor !== undefined) dto.cursor = cursor;
     const env = await deps.api.listMatters(dto);
     if (!env.ok) {
-      renderError(body, env.error.message, doc);
+      renderError(body, errorMessage(env.error), doc);
       return;
     }
     const page = env.value as ListMattersPage;

@@ -5,6 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import {
   VALID_ULID,
   MockDoc,
@@ -76,7 +77,7 @@ test("relink: backend error envelope → inline role=alert with server message, 
   await flush();
   const err = findByTestId(root, "view-links-action-error");
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "link already active");
+  assert.equal(collectText(err), CATALOG["error.illegal_transition"]);
   assert.equal(listCalls, 1, "list NOT refreshed on error");
 });
 

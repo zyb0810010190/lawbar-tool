@@ -545,6 +545,23 @@ export const CATALOG = {
   "auditEntityType.docket_entry": "立案条目",
   "auditEntityType.link": "链接",
 
+  // ---- IPC error surfaces (WI-DESKTOP-ZH-CN-ERROR-SURFACES-04) ----
+  // Generic, safe zh-CN display messages keyed by the STABLE English error CODE.
+  // The English error.message (main-side, for logs) is never shown to the user.
+  "error.duplicate_id": "记录已存在（标识符重复）。",
+  "error.unknown_matter": "未找到该案件。",
+  "error.unknown_document": "未找到该文档。",
+  "error.tenant_mismatch": "无权访问该数据。",
+  "error.matter_id_mismatch": "案件编号不匹配。",
+  "error.illegal_transition": "当前状态不允许该操作。",
+  "error.local_only_external_flag_rejected": "本地模式下不可启用外部选项。",
+  "error.invalid_payload": "输入无效，请检查后重试。",
+  "error.invalid_initial_state": "初始状态无效。",
+  "error.invalid_argument": "参数无效。",
+  "error.anchor_referenced": "该锚点已被引用，无法执行此操作。",
+  "error.not_implemented": "操作暂不可用，请稍后重试。",
+  "error.unknown": "发生错误，请稍后重试。",
+
 } as const;
 
 export type CatalogId = keyof typeof CATALOG;
