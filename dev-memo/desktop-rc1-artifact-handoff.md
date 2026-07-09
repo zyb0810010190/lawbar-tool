@@ -9,10 +9,10 @@ Repeatable handoff for the macOS desktop build: what to build, what it produces,
 
 ```
 cd <repo root>
-git status --short                                   # only .mcp.json + pre-existing untracked clutter
-npm --prefix apps/lawbar-desktop test                # unit/renderer/electron-in-list suite
-npm --prefix apps/lawbar-desktop run test:smoke-matrix# packaged M1-M9 smoke (launches the built .app)
-npm --prefix apps/lawbar-desktop run dist            # electron-builder → release/
+git status --short                                     # only .mcp.json + pre-existing untracked clutter
+npm --prefix apps/lawbar-desktop test                  # unit/renderer/electron-in-list suite
+npm --prefix apps/lawbar-desktop run dist              # electron-builder → release/  (build first)
+npm --prefix apps/lawbar-desktop run test:smoke-matrix # packaged M1-M9 smoke against the fresh release/
 ```
 
 **Recorded results (this RC):** unit **819 pass / 0 fail**; smoke matrix **1 pass** (M1–M9, ~2.5 s); `dist` **success** (arm64 + x64; `postdist` restored the arm64 host binding). user-facing English = **0** (i18n guard). No product behavior changed.

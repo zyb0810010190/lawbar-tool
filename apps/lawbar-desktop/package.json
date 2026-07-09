@@ -46,6 +46,9 @@
     "dev": "npm run build && electron .",
     "dist": "npm run build && electron-builder",
     "postdist": "electron-builder install-app-deps",
+    "dist:release": "bash scripts/release-preflight.sh && npm run build && electron-builder --config electron-builder.signed.cjs",
+    "postdist:release": "electron-builder install-app-deps",
+    "verify:signing": "bash scripts/verify-macos-signing.sh",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
