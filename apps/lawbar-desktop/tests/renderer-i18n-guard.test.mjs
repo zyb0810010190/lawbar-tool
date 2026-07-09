@@ -9,7 +9,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { scanAll, scanSource, classifyLiteral, APP_ROOT } from "./_i18n-ui-scan.mjs";
+import {
+  scanAll,
+  scanSource,
+  scanReturnAll,
+  scanReturnLiterals,
+  classifyLiteral,
+  APP_ROOT,
+} from "./_i18n-ui-scan.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ALLOWLIST_PATH = path.join(APP_ROOT, "renderer", "i18n", "ui-strings-allowlist.json");
@@ -90,7 +97,12 @@ test("guard EXEMPTS non-UI attribute values (class/data-*/href) -- no false posi
 // separators, and single code tokens (enum VALUES kept English per contract,
 // field identifiers, data-lookup keys, brand glyphs).
 test("NO user-facing English literal remains in the renderer scan set (fully-zh-CN guard)", () => {
-  const offenders = scanAll().filter((c) => classifyLiteral(c.text) === "user-facing");
+  // Idiom-position occurrences (el children / setText / textContent / aria) AND
+  // helper-return literals (WI-02, I18N-GUARD-H2) — a helper that returns English
+  // UI copy, rendered at its call site, is now covered too.
+  const offenders = [...scanAll(), ...scanReturnAll()].filter(
+    (c) => classifyLiteral(c.text) === "user-facing",
+  );
   assert.deepEqual(
     offenders,
     [],
@@ -98,6 +110,27 @@ test("NO user-facing English literal remains in the renderer scan set (fully-zh-
       `Offending literals (class=user-facing):\n` +
       offenders.map((o) => `  ${o.file}:${o.line} [${o.kind}] ${JSON.stringify(o.text)}`).join("\n"),
   );
+});
+
+test("guard BITES: a helper RETURNING English UI copy is caught (I18N-GUARD-H2)", () => {
+  // Virtual source — never written to a real renderer file. Mirrors the H2 gap:
+  // English produced by a helper's return, invisible to the idiom-position scan.
+  const virtual = `
+    export function fmtRow(x) {
+      if (x.empty) return "No rows to display";     // user-facing -> must be caught
+      return \`Row \${x.id} pending\`;               // user-facing (prose around interp)
+    }
+    function routeName(h) { return "not-found"; }    // kebab token -> exempt
+    function tz() { return "UTC"; }                   // token -> exempt
+  `;
+  const found = scanReturnLiterals("renderer/screens/_virtual_ret.ts", virtual);
+  const userFacing = found
+    .filter((c) => classifyLiteral(c.text) === "user-facing")
+    .map((c) => c.text);
+  assert.ok(userFacing.includes("No rows to display"), "must catch a returned English string literal");
+  assert.ok(userFacing.includes("Row ${x.id} pending"), "must catch a returned English template literal");
+  assert.ok(!userFacing.includes("not-found"), "kebab route token must NOT be flagged");
+  assert.ok(!userFacing.includes("UTC"), "code token must NOT be flagged");
 });
 
 test("every allowlisted occurrence classifies as exempt (never user-facing)", () => {

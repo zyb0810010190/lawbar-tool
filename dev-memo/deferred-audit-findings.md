@@ -549,7 +549,19 @@ for a dedicated persistence-hardening WI.
 | Reason | The i18n anti-drift scanner (`tests/_i18n-ui-scan.mjs`) flags literals only in the recognized renderer idioms (el children / `setText` / `textContent` / aria-label|title|placeholder). UI copy returned by a helper OUTSIDE those idioms (e.g. `return "..."` later passed to `el`) is not scanned, so the `classifyLiteral` guard cannot see it. This is a guard-PRECISION limit, not a gap in the migration: all display text is routed through `t()`/label facades, the `user-facing` scan class is empty, and the packaged smoke is Chinese end-to-end. High #1 (English inside `${…}` interpolations) was FIXED in-WI. |
 | Target future WI/backlog | `WI-DESKTOP-I18N-SCANNER-SCOPE-02` — extend the scanner to cover UI-copy helper returns (with false-positive controls to avoid flagging non-UI string returns like error codes / keys). |
 | Safe-to-proceed? | YES — the deliverable (fully-Chinese UI) is verified independently of the guard; the guard already catches the common regression (hardcoded English in the scanned idioms + interpolation literals), and scan==allowlist exactness backstops any new literal. |
-| Status | **open** — tracked guard-precision enhancement; does not block the Chinese-UI deliverable. |
+| Status | **closed** — resolved in WI-DESKTOP-I18N-SCANNER-SCOPE-02: `scanReturnAll()` covers helper-return literals across the DOM-constructing scan set, the "no user-facing English" guard now checks `scanAll() union scanReturnAll()` (0 user-facing), and a bite test proves a helper returning English fails the build. Whole-file investigation found no live leak. |
+
+## WI-DESKTOP-I18N-SCANNER-SCOPE-02 — dead English label reservoirs (non-rendered cleanup)
+
+| Field | Value |
+|---|---|
+| Finding ID | I18N-DEAD-LABELS-03 |
+| Severity | Low (non-rendered dead code; not a leak) |
+| Source | Whole-file literal investigation during WI-DESKTOP-I18N-SCANNER-SCOPE-02. |
+| Reason | Two English reservoirs remain in renderer files but are NOT rendered: (a) `renderer/format.ts` pre-i18n label helpers (matterTypeLabel/confidentialityLabel/statusLabel/deadlineUrgencyLabel/ledgerCategoryLabel -> "Litigation matter"/"Normal"/"Overdue"/...), dead — no screen imports them (screens use `renderer/i18n/labels.ts`); (b) `renderer/screens/auditEventLabels.ts` EVENT_KIND_LABELS values, used only as a key-membership set (never read for display). Both retained under existing unit tests. Not user-visible. Cleanup-only. |
+| Target future WI/backlog | `WI-DESKTOP-I18N-DEAD-LABELS-03` — delete the dead format.ts label helpers (update renderer-format-ledger.test.mjs) and reduce EVENT_KIND_LABELS to a key set (update renderer-audit-labels.test.mjs). Kept out of scope here to keep WI-02 scanner/test/doc-only per its charter. |
+| Safe-to-proceed? | YES — non-rendered; removing them is a pure cleanup with no user-visible effect. |
+| Status | **open** — low-priority dead-code cleanup; does not affect the zero-user-facing invariant. |
 
 ## batch-audit (ec270ef..d369e36) — leaked _note/_proposed_helper catalog keys (cleanup)
 
