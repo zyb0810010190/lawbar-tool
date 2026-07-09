@@ -104,7 +104,7 @@ function persistenceFiles(rootDir) {
   return out.sort();
 }
 
-test("case-box UI packaged flow: list → create → view → archive → chain head", async (t) => {
+test("release smoke matrix: launch → nav → create → list → detail → sub-screen → archive → settings → localized-error (M1-M9)", async (t) => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "lawbar-ui-test-"));
   t.after(() => {
     try {
@@ -151,90 +151,95 @@ test("case-box UI packaged flow: list → create → view → archive → chain 
     const emptyText = await win.locator('[data-test-id="list-empty"]').textContent();
     assert.match(emptyText, /仅保存在本机/);
 
-    // 2) Click + New matter → create form.
+    // ===== Release smoke matrix (WI-DESKTOP-RELEASE-SMOKE-MATRIX-05) =====
+    // M1 (app launches in zh-CN) is asserted above: h1 "案件台账" + empty-state copy.
+
+    // M2: sidebar nav — 新建案件 (New matter).
     await win.locator("button.list-new-btn").click();
     await win.waitForSelector('[data-test-id="create-form"]');
-    const newTitle = await win.locator("h1").first().textContent();
-    assert.equal(newTitle, "新建案件");
+    assert.equal(await win.locator("h1").first().textContent(), "新建案件");
 
-    // 3) Fill form.
+    // M9: localized error path — submit the New Matter form EMPTY. A zh-CN
+    // validation banner appears; NO English and NO raw error detail leaks.
+    await win.locator('[data-test-id="create-submit"]').click();
+    await win.locator('[data-test-id="create-form-error"]').waitFor({ state: "visible", timeout: 5000 });
+    const validationText = await win.locator('[data-test-id="create-form-error"]').textContent();
+    assert.match(validationText, /[\u4e00-\u9fff]/, "validation banner must render Chinese");
+    assert.doesNotMatch(
+      validationText,
+      /required|invalid|persistence|schema|undefined|Error/i,
+      `validation banner must not leak English/raw detail; got: ${validationText}`,
+    );
+
+    // M3: create a matter using the enum <select> dropdowns (role / party_kind).
     await win.fill("#cm-name", "matter-fixture-A");
-    // Matter type radio: Litigation.
     await win.locator('input[name="matter_type"][value="litigation"]').check();
     await win.fill("#cm-jurisdiction-value", "test-jx");
     await win.selectOption("#cm-party-0-role", "client");
     await win.fill("#cm-party-0-display-name", "syn-party-A");
     await win.selectOption("#cm-party-0-party-kind", "individual");
     await win.locator('input[name="confidentiality_class"][value="normal"]').check();
-
-    // 4) Submit.
     await win.locator('[data-test-id="create-submit"]').click();
 
-    // 5) View detail rendered.
+    // M5: matter detail opens with zh-CN labels.
     await win.waitForSelector('[data-test-id="view-title"]', { timeout: 5000 });
-    const viewTitle = await win.locator('[data-test-id="view-title"]').textContent();
-    assert.equal(viewTitle, "matter-fixture-A");
-    // Status pill present + active modifier.
+    assert.equal(await win.locator('[data-test-id="view-title"]').textContent(), "matter-fixture-A");
     await win.waitForSelector(".status-pill--active");
-
-    // Detail fields contain the matter type label.
     const fieldsText = await win.locator('[data-test-id="view-fields"]').textContent();
     assert.match(fieldsText, /诉讼/);
     assert.match(fieldsText, /test-jx/);
     assert.match(fieldsText, /普通/);
 
-    // 6) Click Archive… → archive form.
+    // M6: at least one matter sub-screen renders (deadlines disclosure).
+    await win.waitForSelector('[data-test-id="view-deadlines-details"]', { timeout: 5000 });
+
+    // M2 (案件) + M4: navigate back to the matter list; the created matter appears.
+    await win.locator('a.sidebar-link[data-nav="list"]').click();
+    await win.waitForSelector("a.matter-name", { timeout: 5000 });
+    const listNames = await win.locator("a.matter-name").allTextContents();
+    assert.ok(
+      listNames.includes("matter-fixture-A"),
+      `created matter must appear in the list; got ${JSON.stringify(listNames)}`,
+    );
+    // list → detail navigation.
+    await win.locator("a.matter-name", { hasText: "matter-fixture-A" }).first().click();
+    await win.waitForSelector('[data-test-id="view-title"]', { timeout: 5000 });
+
+    // M7: archive flow.
     await win.locator('[data-test-id="view-archive"]').click();
     await win.waitForSelector('[data-test-id="archive-form"]');
-    const archiveTitle = await win.locator('[data-test-id="archive-title"]').textContent();
-    assert.match(archiveTitle, /归档案件 — matter-fixture-A/);
-
-    // 7) Fill reason + submit.
+    assert.match(
+      await win.locator('[data-test-id="archive-title"]').textContent(),
+      /归档案件 — matter-fixture-A/,
+    );
     await win.fill("#am-reason", "synthetic-archive-reason-fixture");
     await win.locator('[data-test-id="archive-submit"]').click();
-
-    // 8) Back on view; status now archived.
     await win.waitForSelector(".status-pill--archived", { timeout: 5000 });
-    const fieldsAfterArchive = await win
-      .locator('[data-test-id="view-fields"]')
-      .textContent();
-    assert.match(fieldsAfterArchive, /原因记录于审计日志。/);
-    // Archive button absent in archived state.
-    const archiveBtnCount = await win.locator('[data-test-id="view-archive"]').count();
-    assert.equal(archiveBtnCount, 0);
+    assert.match(
+      await win.locator('[data-test-id="view-fields"]').textContent(),
+      /原因记录于审计日志。/,
+    );
+    assert.equal(await win.locator('[data-test-id="view-archive"]').count(), 0);
 
-    // 9) Expand audit chain head disclosure.
+    // Extra sub-screen evidence: audit chain head disclosure.
     await win.locator('[data-test-id="view-chain-summary"]').click();
     await win.waitForSelector('[data-test-id="view-chain-headhash"]', { timeout: 5000 });
-    const headHashText = await win
-      .locator('[data-test-id="view-chain-headhash-truncated"]')
-      .textContent();
-    // Truncated form contains "..." per §6.5 rule.
-    assert.match(headHashText, /\.\.\./);
-    const countText = await win
-      .locator('[data-test-id="view-chain-count"]')
-      .textContent();
+    assert.match(
+      await win.locator('[data-test-id="view-chain-headhash-truncated"]').textContent(),
+      /\.\.\./,
+    );
     assert.ok(
-      Number(countText) >= 1,
-      `expected chain count >= 1; got ${countText}`,
+      Number(await win.locator('[data-test-id="view-chain-count"]').textContent()) >= 1,
     );
 
-    // 9b) Settings entry (WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00): the 设置 sidebar
-    // link routes to #/settings and the screen renders the read-only app:info
-    // bridge (version from app.getVersion() over ipcMain.handle("app:info")).
+    // M8: 设置 (Settings) renders app info through the real app:info preload/IPC boundary.
     await win.locator('a.sidebar-link[data-nav="settings"]').click();
     await win.waitForSelector('[data-test-id="settings-title"]', { timeout: 5000 });
     await win.waitForSelector('[data-test-id="settings-section-app"]', { timeout: 5000 });
-    const settingsTitle = await win
-      .locator('[data-test-id="settings-title"]')
-      .textContent();
-    assert.equal(settingsTitle, "设置");
-    const settingsBody = await win
-      .locator('[data-test-id="settings-body"]')
-      .textContent();
+    assert.equal(await win.locator('[data-test-id="settings-title"]').textContent(), "设置");
+    const settingsBody = await win.locator('[data-test-id="settings-body"]').textContent();
     // Version resolves through the app:info IPC → preload → renderer boundary.
     assert.match(settingsBody, /0\.1\.0/);
-    // zh-CN privacy + FileVault copy present (deterministic across machines).
     assert.match(settingsBody, /不收集遥测数据/);
     assert.match(settingsBody, /FileVault/);
   } finally {
