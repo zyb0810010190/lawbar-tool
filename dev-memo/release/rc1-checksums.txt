@@ -16,5 +16,6 @@
   .app bundle size: 328M
 
 # To produce a transferable, checksummed archive for handoff:
-#   ditto -c -k --keepParent release/mac-arm64/lawbar.app /tmp/lawbar-arm64.app.zip
+#   ditto -c -k --keepParent apps/lawbar-desktop/release/mac-arm64/lawbar.app /tmp/lawbar-arm64.app.zip
 #   shasum -a 256 /tmp/lawbar-arm64.app.zip
+#   (paths are repo-root-relative, matching desktop-rc1-artifact-handoff.md §1)
