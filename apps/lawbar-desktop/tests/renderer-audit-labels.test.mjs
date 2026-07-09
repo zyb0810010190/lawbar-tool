@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CASE_BOX_AUDIT_EVENT_KINDS } from "case-box-contract";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
-import { auditEventLabel, EVENT_KIND_LABELS } from "../dist/renderer/screens/auditEventLabels.js";
+import { isKnownAuditEventKind } from "../dist/renderer/i18n/labels.js";
 // zh-CN migration: the rendered audit row resolves its label via the eventKind.* catalog
 // (renderer/i18n/labels.ts eventKindLabel), so the integration assertion below derives its
 // expected text from the live catalog rather than a hard-coded literal.
@@ -25,35 +25,31 @@ import {
   EVENT_ULID,
 } from "./_view-matter-dom.mjs";
 
-// --- 1. unit: auditEventLabel ---
+// --- 1. unit: isKnownAuditEventKind membership guard ---
+// (Supersedes the former English EVENT_KIND_LABELS map / auditEventLabel helper, deleted in
+// WI-DESKTOP-I18N-DEAD-LABELS-03. The humanized-label path is exercised end-to-end in section 3,
+// which asserts the rendered zh-CN catalog label; the raw-action fallback is asserted there too.)
 
-test("auditEventLabel: a known event_kind returns the humanized label", () => {
-  assert.equal(auditEventLabel({ action: "update", event_kind: "DEADLINE_MET" }), "Deadline marked met");
-  assert.equal(auditEventLabel({ action: "update", event_kind: "DEADLINE_MISSED" }), "Deadline marked missed");
-  assert.equal(auditEventLabel({ action: "create", event_kind: "DOCKET_ENTRY_PROPOSED" }), "Docket proposal created");
-  assert.equal(auditEventLabel({ action: "create", event_kind: "DOCUMENT_REGISTERED" }), "Document registered");
+test("isKnownAuditEventKind: true for a known contract event_kind", () => {
+  assert.equal(isKnownAuditEventKind("DEADLINE_MET"), true);
+  assert.equal(isKnownAuditEventKind("DOCUMENT_REGISTERED"), true);
+  assert.equal(isKnownAuditEventKind("DOCKET_ENTRY_PROPOSED"), true);
 });
 
-test("auditEventLabel: null / missing event_kind falls back to the raw action", () => {
-  assert.equal(auditEventLabel({ action: "update" }), "update");
-  assert.equal(auditEventLabel({ action: "create", event_kind: undefined }), "create");
-  assert.equal(auditEventLabel({ action: "export", event_kind: null }), "export");
+test("isKnownAuditEventKind: false for an unknown / future event_kind", () => {
+  assert.equal(isKnownAuditEventKind("SOME_FUTURE_KIND"), false);
+  assert.equal(isKnownAuditEventKind(""), false);
 });
 
-test("auditEventLabel: an unknown (future) event_kind falls back to the raw action", () => {
-  assert.equal(auditEventLabel({ action: "update", event_kind: "SOME_FUTURE_KIND" }), "update");
-});
+// --- 2. membership set stays in sync with the contract kinds ---
 
-// --- 2. map sync with the contract kinds ---
-
-test("EVENT_KIND_LABELS covers exactly the CASE_BOX_AUDIT_EVENT_KINDS keys", () => {
-  const labelKeys = Object.keys(EVENT_KIND_LABELS).sort();
-  const contractKeys = Object.keys(CASE_BOX_AUDIT_EVENT_KINDS).sort();
-  assert.deepEqual(labelKeys, contractKeys);
+test("isKnownAuditEventKind accepts EXACTLY the CASE_BOX_AUDIT_EVENT_KINDS keys", () => {
+  const contractKeys = Object.keys(CASE_BOX_AUDIT_EVENT_KINDS);
   for (const k of contractKeys) {
-    assert.equal(typeof EVENT_KIND_LABELS[k], "string");
-    assert.ok(EVENT_KIND_LABELS[k].length > 0, `empty label for ${k}`);
+    assert.equal(isKnownAuditEventKind(k), true, `known kind ${k} must be accepted`);
   }
+  // A value that is not a contract kind must be rejected (no over-broad membership).
+  assert.equal(isKnownAuditEventKind("NOT_A_REAL_KIND"), false);
 });
 
 // --- 3. integration: the row renders the label / fallback in the accessible action span ---

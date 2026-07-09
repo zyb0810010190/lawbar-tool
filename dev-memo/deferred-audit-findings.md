@@ -561,7 +561,7 @@ for a dedicated persistence-hardening WI.
 | Reason | Two English reservoirs remain in renderer files but are NOT rendered: (a) `renderer/format.ts` pre-i18n label helpers (matterTypeLabel/confidentialityLabel/statusLabel/deadlineUrgencyLabel/ledgerCategoryLabel -> "Litigation matter"/"Normal"/"Overdue"/...), dead — no screen imports them (screens use `renderer/i18n/labels.ts`); (b) `renderer/screens/auditEventLabels.ts` EVENT_KIND_LABELS values, used only as a key-membership set (never read for display). Both retained under existing unit tests. Not user-visible. Cleanup-only. |
 | Target future WI/backlog | `WI-DESKTOP-I18N-DEAD-LABELS-03` — delete the dead format.ts label helpers (update renderer-format-ledger.test.mjs) and reduce EVENT_KIND_LABELS to a key set (update renderer-audit-labels.test.mjs). Kept out of scope here to keep WI-02 scanner/test/doc-only per its charter. |
 | Safe-to-proceed? | YES — non-rendered; removing them is a pure cleanup with no user-visible effect. |
-| Status | **open** — low-priority dead-code cleanup; does not affect the zero-user-facing invariant. |
+| Status | **closed** — resolved in WI-DESKTOP-I18N-DEAD-LABELS-03: deleted the dead format.ts English label helpers + auditEventLabels.ts (EVENT_KIND_LABELS), replaced the audit key-membership map with labels.ts `isKnownAuditEventKind` (backed by the exhaustive EVENT_KIND_ID). Behavior-neutral (cc-suite audit `audit-mrcw9tqg-670o1k` PASS; packaged smoke green). Renderer now holds no English-label reservoir. |
 
 ## batch-audit (ec270ef..d369e36) — leaked _note/_proposed_helper catalog keys (cleanup)
 
