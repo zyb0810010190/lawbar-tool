@@ -133,116 +133,122 @@
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 70,
+    "line": 88,
     "text": "New matter",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 134,
+    "line": 152,
     "text": "Matter type *",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 140,
+    "line": 158,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 141,
+    "line": 159,
     "text": "Litigation",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 150,
+    "line": 168,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 151,
+    "line": 169,
     "text": "Counsel",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 180,
+    "line": 198,
     "text": "Parties",
     "kind": "attr"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 189,
+    "line": 207,
     "text": "Parties *",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 268,
+    "line": 282,
     "text": "Remove party",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 288,
+    "line": 302,
     "text": "Add party",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 346,
+    "line": 360,
     "text": "Confidentiality *",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 350,
+    "line": 364,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 350,
+    "line": 364,
     "text": "Normal",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 356,
+    "line": 370,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 356,
+    "line": 370,
     "text": "Heightened",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 359,
+    "line": 373,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 359,
+    "line": 373,
     "text": "Sealed",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 413,
+    "line": 427,
     "text": "Create matter",
     "kind": "text"
   },
   {
     "file": "renderer/screens/createMatter.ts",
-    "line": 423,
+    "line": 437,
     "text": "Cancel",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/createMatter.ts",
+    "line": 622,
+    "text": "— Select —",
     "kind": "text"
   },
   {

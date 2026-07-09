@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountCreateMatter } from "../dist/renderer/screens/createMatter.js";
+import { validateMatter } from "case-box-contract";
 
 const NEW_ULID = "01jznewmatter0123456789abc";
 
@@ -188,9 +189,9 @@ function fillValidForm(root) {
   const firstRow = findAll(root, (n) =>
     n.getAttribute("data-test-id") === "party-row",
   )[0];
-  fire(findInputById(firstRow, "cm-party-0-role"), "input", "client");
+  fire(findInputById(firstRow, "cm-party-0-role"), "change", "client");
   fire(findInputById(firstRow, "cm-party-0-display-name"), "input", "syn-party-A");
-  fire(findInputById(firstRow, "cm-party-0-party-kind"), "input", "individual");
+  fire(findInputById(firstRow, "cm-party-0-party-kind"), "change", "individual");
   fireClick(findOne(root, (n) =>
     n.getAttribute("name") === "confidentiality_class" &&
     n.getAttribute("value") === "normal",
@@ -323,9 +324,9 @@ test("submit: empty Name blocks the IPC call + shows inline error + focuses Name
     n.getAttribute("value") === "litigation",
   ));
   fire(findInputById(root, "cm-jurisdiction-value"), "input", "test-jx");
-  fire(findInputById(root, "cm-party-0-role"), "input", "client");
+  fire(findInputById(root, "cm-party-0-role"), "change", "client");
   fire(findInputById(root, "cm-party-0-display-name"), "input", "syn-A");
-  fire(findInputById(root, "cm-party-0-party-kind"), "input", "individual");
+  fire(findInputById(root, "cm-party-0-party-kind"), "change", "individual");
   fireClick(findOne(root, (n) =>
     n.getAttribute("name") === "confidentiality_class" &&
     n.getAttribute("value") === "normal",
@@ -347,9 +348,9 @@ test("submit: missing matter_type radio blocks submit", async () => {
   mountCreateMatter(root, { api, navigate: () => {}, doc });
   fire(findInputById(root, "cm-name"), "input", "matter-fixture-A");
   fire(findInputById(root, "cm-jurisdiction-value"), "input", "test-jx");
-  fire(findInputById(root, "cm-party-0-role"), "input", "client");
+  fire(findInputById(root, "cm-party-0-role"), "change", "client");
   fire(findInputById(root, "cm-party-0-display-name"), "input", "syn-A");
-  fire(findInputById(root, "cm-party-0-party-kind"), "input", "individual");
+  fire(findInputById(root, "cm-party-0-party-kind"), "change", "individual");
   fireClick(findOne(root, (n) =>
     n.getAttribute("name") === "confidentiality_class" &&
     n.getAttribute("value") === "normal",
@@ -484,10 +485,10 @@ test("parties: Remove party drops the target row + preserves sibling values", ()
   fireClick(findByTestId(root, "party-add"));
   fireClick(findByTestId(root, "party-add"));
   // Now 3 rows: keys 0, 1, 2.
-  // Fill row 1's role.
-  fire(findInputById(root, "cm-party-0-role"), "input", "first-role");
-  fire(findInputById(root, "cm-party-1-role"), "input", "second-role");
-  fire(findInputById(root, "cm-party-2-role"), "input", "third-role");
+  // Fill each row's role (enum <select>).
+  fire(findInputById(root, "cm-party-0-role"), "change", "client");
+  fire(findInputById(root, "cm-party-1-role"), "change", "opposing");
+  fire(findInputById(root, "cm-party-2-role"), "change", "third_party");
   // Remove the middle row (key=1).
   const removes = findAll(root, (n) => n.getAttribute("data-test-id") === "party-remove");
   // Two remove buttons (key=1 and key=2).
@@ -498,9 +499,16 @@ test("parties: Remove party drops the target row + preserves sibling values", ()
   // Remaining row keys 0 and 2.
   const keys = rows.map((r) => r.getAttribute("data-party-key"));
   assert.deepEqual(keys, ["0", "2"]);
-  // Values preserved: row 0 still has "first-role"; row 2 still has "third-role".
-  assert.equal(findInputById(root, "cm-party-0-role").getAttribute("value"), "first-role");
-  assert.equal(findInputById(root, "cm-party-2-role").getAttribute("value"), "third-role");
+  // Values preserved: on re-render the select marks the stored enum option
+  // `selected`. Row 0 still has "client"; row 2 still has "third_party".
+  const selectedValue = (sel) => {
+    const opt = sel.children.find(
+      (c) => c.tagName === "OPTION" && c.hasAttribute("selected"),
+    );
+    return opt === undefined ? null : opt.getAttribute("value");
+  };
+  assert.equal(selectedValue(findInputById(root, "cm-party-0-role")), "client");
+  assert.equal(selectedValue(findInputById(root, "cm-party-2-role")), "third_party");
 });
 
 test("submit: form 'submit' event (Enter-in-input) triggers handleSubmit + preventDefault", async () => {
@@ -551,4 +559,120 @@ test("submit: optional free-text fields included when non-empty after trim", asy
   assert.equal(dto.retainer_scope, "scope-text");
   assert.equal(dto.case_type_text, "litigation-A");
   assert.equal("court_contact_text" in dto, false);
+});
+
+// --- Regression: persistence-schema-violation bug (free-text enum mismatch) ---
+
+// The New Matter screen must not surface any persistence/schema error before the
+// user submits. formError starts hidden + empty.
+test("mount: no error banner on initial render (before any input/submit)", () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  mountCreateMatter(root, { api: makeStubApi(), navigate: () => {}, doc });
+  const err = findByTestId(root, "create-form-error");
+  assert.ok(err !== null, "form-error region should exist");
+  assert.ok(err.hasAttribute("hidden"), "form-error must be hidden on mount");
+  assert.equal(collectText(err), "", "form-error must be empty on mount");
+});
+
+// Root cause guard: party role + party_kind are schema enums, so the inputs MUST
+// be <select> menus of the allowed values — never free-text (which let users type
+// natural words the persistence schema rejects as a generic "schema violation").
+test("parties: role + party_kind render as enum <select>, not free-text", () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  mountCreateMatter(root, { api: makeStubApi(), navigate: () => {}, doc });
+
+  const roleSel = findInputById(root, "cm-party-0-role");
+  const kindSel = findInputById(root, "cm-party-0-party-kind");
+  assert.equal(roleSel.tagName, "SELECT", "role must be a <select>");
+  assert.equal(kindSel.tagName, "SELECT", "party_kind must be a <select>");
+
+  const roleValues = roleSel.children
+    .filter((c) => c.tagName === "OPTION")
+    .map((o) => o.getAttribute("value"));
+  const kindValues = kindSel.children
+    .filter((c) => c.tagName === "OPTION")
+    .map((o) => o.getAttribute("value"));
+  // Placeholder "" + the exact schema enums, nothing else.
+  assert.deepEqual(roleValues, ["", "client", "opposing", "third_party"]);
+  assert.deepEqual(kindValues, [
+    "",
+    "individual",
+    "organization",
+    "government",
+    "court",
+    "other",
+  ]);
+});
+
+// Missing required party enum → client-side block, persistence NOT called, a
+// clear field-level message (never the generic "persistence schema violation").
+test("submit: unselected party role blocks persistence with a clear message", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let called = false;
+  const api = makeStubApi({
+    createMatter: async () => {
+      called = true;
+      return { ok: true, value: { id: NEW_ULID } };
+    },
+  });
+  mountCreateMatter(root, { api, navigate: () => {}, doc });
+  fire(findInputById(root, "cm-name"), "input", "matter-fixture-A");
+  fireClick(findOne(root, (n) =>
+    n.getAttribute("name") === "matter_type" &&
+    n.getAttribute("value") === "litigation",
+  ));
+  fire(findInputById(root, "cm-jurisdiction-value"), "input", "test-jx");
+  // Fill display_name + kind but leave role unselected ("").
+  fire(findInputById(root, "cm-party-0-display-name"), "input", "syn-A");
+  fire(findInputById(root, "cm-party-0-party-kind"), "change", "individual");
+  fireClick(findOne(root, (n) =>
+    n.getAttribute("name") === "confidentiality_class" &&
+    n.getAttribute("value") === "normal",
+  ));
+  fireClick(findByTestId(root, "create-submit"));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(called, false, "persistence must not be called with an invalid party");
+  const err = findByTestId(root, "create-form-error");
+  assert.match(collectText(err), /At least one party with role, display name, and party kind is required/);
+  assert.doesNotMatch(collectText(err), /schema violation/);
+});
+
+// End-to-end schema guard: the DTO a valid submit emits, once combined with the
+// server-injected fields the create handler adds, MUST pass the real matter
+// schema — i.e. the form can only produce schema-valid matters.
+test("submit: valid form emits a DTO that passes the real matter schema", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const calls = [];
+  const api = makeStubApi({
+    createMatter: async (dto) => {
+      calls.push(dto);
+      return { ok: true, value: { id: NEW_ULID } };
+    },
+  });
+  mountCreateMatter(root, { api, navigate: () => {}, doc });
+  fillValidForm(root);
+  fireClick(findByTestId(root, "create-submit"));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls.length, 1);
+  // Mirror createMatterHandler's server-side field injection.
+  const fullMatter = {
+    id: NEW_ULID,
+    tenant_id: "default-tenant",
+    actor_user_id: "local-user",
+    created_at: new Date("2026-07-08T00:00:00Z").toISOString(),
+    status: "active",
+    external_ocr_authorized: false,
+    sync_grant_present: false,
+    llm_extraction_opt_in: false,
+    ...calls[0],
+  };
+  const result = validateMatter(fullMatter);
+  assert.ok(
+    result.ok,
+    `form DTO must be schema-valid, got: ${result.ok ? "" : JSON.stringify(result.errors[0])}`,
+  );
 });
