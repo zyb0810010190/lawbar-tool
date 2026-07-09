@@ -264,3 +264,12 @@ const EVENT_KIND_ID: Record<CaseBoxAuditEventKind, CatalogId> = {
 export function eventKindLabel(kind: CaseBoxAuditEventKind): string {
   return t(EVENT_KIND_ID[kind]);
 }
+
+// Membership predicate over the audit event-kind set (WI-DESKTOP-I18N-DEAD-LABELS-03).
+// `EVENT_KIND_ID` is compile-time exhaustive over `CaseBoxAuditEventKind`, so it IS the
+// canonical kind set — callers use this to guard `eventKindLabel(kind)` (which throws on an
+// unknown key) without a second English label map. Supersedes the former
+// `EVENT_KIND_LABELS` English map in screens/auditEventLabels.ts (deleted).
+export function isKnownAuditEventKind(kind: string): kind is CaseBoxAuditEventKind {
+  return Object.prototype.hasOwnProperty.call(EVENT_KIND_ID, kind);
+}

@@ -1,4 +1,4 @@
-// classifyDeadlineUrgency + deadlineUrgencyLabel unit tests (brief §18 overdue /
+// classifyDeadlineUrgency unit tests (brief §18 overdue /
 // due-within-7-days surfacing). Pure-Node; clock injected, so deterministic.
 //
 // Rules:
@@ -12,7 +12,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   classifyDeadlineUrgency,
-  deadlineUrgencyLabel,
   DEADLINE_DUE_SOON_WINDOW_MS,
 } from "../dist/renderer/format.js";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
@@ -80,12 +79,6 @@ test("unparseable due_at → none (no throw)", () => {
 });
 
 // --- labels ---
-
-test("deadlineUrgencyLabel maps each urgency", () => {
-  assert.equal(deadlineUrgencyLabel("overdue"), "Overdue");
-  assert.equal(deadlineUrgencyLabel("due-soon"), "Due soon");
-  assert.equal(deadlineUrgencyLabel("none"), "");
-});
 
 // --- DOM: eager-load so the urgency banner is complete (moved from renderer-view-matter) ---
 

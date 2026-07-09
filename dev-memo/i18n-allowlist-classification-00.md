@@ -87,5 +87,23 @@ English leak**. The English-shaped strings found are all NON-rendered:
   helper-return leak.
 - Class lists / `data-test-id` / selectors / import paths / an `Error()` message — non-UI code strings.
 
-These two English reservoirs are non-rendered; a low-priority cleanup to delete them is tracked as
-`WI-DESKTOP-I18N-DEAD-LABELS-03` (not done here, to keep this a scanner/test/doc-only WI per its scope).
+These two English reservoirs were non-rendered; `WI-DESKTOP-I18N-DEAD-LABELS-03` (below) **removed them**.
+
+## Dead English reservoirs — removed (WI-DESKTOP-I18N-DEAD-LABELS-03)
+
+The two non-rendered English reservoirs identified above are gone:
+
+- `renderer/format.ts` — deleted the dead pre-i18n label helpers `matterTypeLabel` / `confidentialityLabel`
+  / `statusLabel` / `deadlineUrgencyLabel` / `ledgerCategoryLabel` (no screen imported them; the live
+  zh-CN labels are the `renderer/i18n/labels.ts` facades). Kept the pure `ledgerCategory` token classifier
+  (no English) + the used formatters (`formatLocalDateTime` / `hashTruncate` / `ulidShort` /
+  `classifyDeadlineUrgency`). Their orphaned unit tests were removed; the `ledgerCategory` mapping tests
+  stay.
+- `renderer/screens/auditEventLabels.ts` — **deleted**. Its English `EVENT_KIND_LABELS` map was used only
+  as a key-membership set; replaced by `isKnownAuditEventKind(kind)` in `renderer/i18n/labels.ts` (backed
+  by the already-exhaustive `EVENT_KIND_ID` record). `viewMatterAudit.ts` uses the predicate (which also
+  narrows the type, removing an `as` cast). Behavior is identical — known kind → zh-CN `eventKindLabel`,
+  null/unknown → raw `action`; cc-suite audit `audit-mrcw9tqg-670o1k` = PASS.
+
+Net effect: the renderer no longer contains any English-label reservoir (rendered or dead). Contract enum
+VALUES remain English (schema-aligned); only display labels are Chinese via the catalog/facades.

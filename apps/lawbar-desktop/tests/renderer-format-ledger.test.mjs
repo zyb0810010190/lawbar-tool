@@ -1,4 +1,6 @@
-// ledgerCategory + ledgerCategoryLabel unit tests.
+// ledgerCategory (pure MatterType -> LedgerCategory classifier) unit tests.
+// The English ledgerCategoryLabel was removed in WI-DESKTOP-I18N-DEAD-LABELS-03 (dead;
+// the live zh-CN label is renderer/i18n/labels.ts ledgerCategoryLabel via the catalog).
 // Per dev-memo/plan-casebox-ui-design-hardening-00.md S5 + handoff §03 Task 5.
 //
 // Pure-Node; no DOM, no IPC, no fixtures from outside the renderer compiled
@@ -9,10 +11,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  ledgerCategory,
-  ledgerCategoryLabel,
-} from "../dist/renderer/format.js";
+import { ledgerCategory } from "../dist/renderer/format.js";
 
 // --- ledgerCategory mapping (6 inputs × expected outputs) ---
 
@@ -40,20 +39,6 @@ test("ledgerCategory: other → non_litigation", () => {
   assert.equal(ledgerCategory("other"), "non_litigation");
 });
 
-// --- ledgerCategoryLabel display strings (English at S5; Chinese at S6 per plan) ---
-
-test("ledgerCategoryLabel: litigation → 'Litigation'", () => {
-  assert.equal(ledgerCategoryLabel("litigation"), "Litigation");
-});
-
-test("ledgerCategoryLabel: counsel → 'Counsel'", () => {
-  assert.equal(ledgerCategoryLabel("counsel"), "Counsel");
-});
-
-test("ledgerCategoryLabel: non_litigation → 'Non-litigation'", () => {
-  assert.equal(ledgerCategoryLabel("non_litigation"), "Non-litigation");
-});
-
 // --- Coverage cross-check: every MatterType value resolves cleanly ---
 
 test("ledgerCategory: every MatterType from the contract enum returns a defined LedgerCategory", () => {
@@ -74,17 +59,6 @@ test("ledgerCategory: every MatterType from the contract enum returns a defined 
     assert.ok(
       c === "litigation" || c === "counsel" || c === "non_litigation",
       `ledgerCategory(${t}) returned ${c}; expected one of litigation/counsel/non_litigation`,
-    );
-  }
-});
-
-test("ledgerCategoryLabel: every LedgerCategory has a non-empty string label", () => {
-  const ALL = ["litigation", "counsel", "non_litigation"];
-  for (const c of ALL) {
-    const label = ledgerCategoryLabel(c);
-    assert.ok(
-      typeof label === "string" && label.length > 0,
-      `ledgerCategoryLabel(${c}) returned ${label}; expected non-empty string`,
     );
   }
 });

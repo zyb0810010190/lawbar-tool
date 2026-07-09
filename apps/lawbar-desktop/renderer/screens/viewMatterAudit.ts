@@ -5,24 +5,25 @@
 // click. The renderer never imports the service; only the human-rendered
 // fields are read, and main is the authoritative validator.
 
-import type { CaseBoxAuditEventKind } from "case-box-contract";
 import type { CaseBoxApi } from "../api.js";
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime, hashTruncate, ulidShort } from "../format.js";
 import { t } from "../i18n/t.js";
-import { auditEntityTypeLabel, eventKindLabel } from "../i18n/labels.js";
-import { EVENT_KIND_LABELS } from "./auditEventLabels.js";
+import {
+  auditEntityTypeLabel,
+  eventKindLabel,
+  isKnownAuditEventKind,
+} from "../i18n/labels.js";
 
-// Humanized zh-CN label for an audit row (audit-screen migration WI; the fallback the
-// ../i18n/labels.ts note anticipates lands here). A known event_kind resolves via the shared
-// eventKindLabel facade (catalog eventKind.* keys); a null / missing / unknown kind falls back to
-// the raw `action` (the row's entity detail supplies the "· entity_type" half). EVENT_KIND_LABELS is
-// used ONLY as the known-kind membership set — its English values are never displayed. Never infers a
-// transition kind from action/entity_type.
+// Humanized zh-CN label for an audit row. A known event_kind resolves via the shared eventKindLabel
+// facade (catalog eventKind.* keys); a null / missing / unknown kind falls back to the raw `action`
+// (the row's entity detail supplies the "· entity_type" half). isKnownAuditEventKind is the membership
+// guard over the audit event-kind set (renderer/i18n/labels.ts) — it also narrows `kind` to
+// CaseBoxAuditEventKind so eventKindLabel is called safely. Never infers a transition kind.
 function auditEventLabel(ev: { readonly action: string; readonly event_kind?: string }): string {
   const kind = ev.event_kind;
-  if (kind !== undefined && kind !== null && Object.prototype.hasOwnProperty.call(EVENT_KIND_LABELS, kind)) {
-    return eventKindLabel(kind as CaseBoxAuditEventKind);
+  if (kind !== undefined && kind !== null && isKnownAuditEventKind(kind)) {
+    return eventKindLabel(kind);
   }
   return ev.action;
 }
