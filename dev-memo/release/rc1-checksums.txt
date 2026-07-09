@@ -1,0 +1,20 @@
+# Lawbar desktop RC1 — build artifact checksums
+# WI-DESKTOP-RC1-ARTIFACT-HANDOFF-06. main @ 16a8f85. app version 0.1.0 (io.lawbar.desktop).
+# Build: electron-builder target=dir, arch=[arm64,x64], identity=null (adhoc/linker-signed; NOT notarized).
+# NOTE: a fresh 'npm run dist' produces DIFFERENT hashes (adhoc signature + asar/bundle timestamps);
+#       these verify THIS specific RC build's transfer integrity, not a reproducible build.
+# SHA256 of the single-file, content-bearing artifacts per arch (the .app is a directory bundle):
+
+## mac-arm64 — arm64 (Apple Silicon) — release/mac-arm64/lawbar.app
+  app.asar   ee07d7c0c8aa47b105813ee4d4dd0fdd5ad95d5013c18eb787c9524853c5ed89  (40387041 bytes)   # the bundled app code (renderer+main)
+  MacOS/lawbar 352199cc20deb0c84a9df2974a56c56a1f0eab6211fc082477c8a42ad344200b  (33968 bytes)   # electron launcher stub (arch-specific)
+  .app bundle size: 318M
+
+## mac — x86_64 (Intel) — release/mac/lawbar.app
+  app.asar   322f0c82a9ee03b24dbea9f0b4e150a454782c24499c8a794dfc624e76b9e00d  (40387041 bytes)   # the bundled app code (renderer+main)
+  MacOS/lawbar 607071219f0067889495994eeed1c63ed621d63763be45c990a7d790e7a21a04  (13076 bytes)   # electron launcher stub (arch-specific)
+  .app bundle size: 328M
+
+# To produce a transferable, checksummed archive for handoff:
+#   ditto -c -k --keepParent release/mac-arm64/lawbar.app /tmp/lawbar-arm64.app.zip
+#   shasum -a 256 /tmp/lawbar-arm64.app.zip
