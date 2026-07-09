@@ -27,6 +27,7 @@ import { el, setText } from "../dom.js";
 import { formatLocalDateTime } from "../format.js";
 import { t } from "../i18n/t.js";
 import { linkSourceTypeLabel } from "../i18n/labels.js";
+import { errorMessage } from "../i18n/errorMessage.js";
 
 // The 5 source kinds (case_box_links CHECK enum). The select offers exactly these;
 // the server re-validates. Rendered as the raw enum value (a loop variable, not a
@@ -240,7 +241,7 @@ function renderCreateLinkControl(
       try {
         const env = await api.createLink(dto);
         if (!env.ok) {
-          showError(env.error.message);
+          showError(errorMessage(env.error));
           return;
         }
         setText(status, t("links.create.success"));
@@ -438,7 +439,7 @@ function renderLinkActions(
         try {
           const env = await api.unlinkLink(dto);
           if (!env.ok) {
-            showError(env.error.message);
+            showError(errorMessage(env.error));
             return;
           }
           setText(status, t("links.unlink.success"));
@@ -468,7 +469,7 @@ function renderLinkActions(
         try {
           const env = await api.relinkLink({ matterId, linkId: link.id });
           if (!env.ok) {
-            showError(env.error.message);
+            showError(errorMessage(env.error));
             return;
           }
           setText(status, t("links.relink.success"));
@@ -522,7 +523,7 @@ async function loadLinks(
   loading.remove();
   if (!env.ok) {
     parent.appendChild(
-      el("p", { role: "alert", "data-test-id": "view-links-error" }, [env.error.message], doc),
+      el("p", { role: "alert", "data-test-id": "view-links-error" }, [errorMessage(env.error)], doc),
     );
     return;
   }
@@ -576,7 +577,7 @@ async function loadExport(
   loading.remove();
   if (!env.ok) {
     panel.appendChild(
-      el("p", { role: "alert", "data-test-id": "view-links-export-error" }, [env.error.message], doc),
+      el("p", { role: "alert", "data-test-id": "view-links-export-error" }, [errorMessage(env.error)], doc),
     );
     return;
   }

@@ -9,6 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import {
   VALID_ULID,
   MockDoc,
@@ -129,7 +130,7 @@ test("links list: backend error envelope → inline role=alert with server safe 
   const err = findByTestId(root, "view-links-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "matter not found", "renders the server safe message verbatim");
+  assert.equal(collectText(err), CATALOG["error.unknown_matter"], "renders the zh-CN code-mapped safe message");
 });
 
 test("links list: transport rejection → generic LOAD-failure copy (not the create copy)", async () => {

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { mountListMatters, PAGE_SIZE } from "../dist/renderer/screens/listMatters.js";
 import { mountOverdueDashboardBanner } from "../dist/renderer/overdueDashboardBanner.js";
 import { t } from "../dist/renderer/i18n/t.js";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 
 const LIST_SRC = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "renderer", "screens", "listMatters.ts"),
@@ -338,7 +339,10 @@ test("mount: error envelope renders inline error with role=alert and safe messag
   const err = findByTestId(root, "list-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectTextContent(err), "invalid payload");
+  // "safe message only": the zh-CN catalog message keyed by the stable error CODE,
+  // never the raw English env.error.message.
+  assert.equal(collectTextContent(err), CATALOG["error.invalid_payload"]);
+  assert.doesNotMatch(collectTextContent(err), /invalid payload/);
 });
 
 test("mount: + New matter button calls navigate with the new-matter hash", async () => {

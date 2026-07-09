@@ -16,6 +16,7 @@ import { announce, el, field, focusEl, setText } from "../dom.js";
 import { buildHash } from "../router.js";
 import { t } from "../i18n/t.js";
 import { partyKindLabel, partyRoleLabel } from "../i18n/labels.js";
+import { errorMessage } from "../i18n/errorMessage.js";
 
 export interface CreateMatterDeps {
   readonly api: CaseBoxApi;
@@ -546,8 +547,8 @@ export function mountCreateMatter(
     const env = await deps.api.createMatter(dto);
     if (!env.ok) {
       formError.removeAttribute("hidden");
-      setText(formError, env.error.message);
-      announce(statusRegion, t("matterCreate.status.error", { message: env.error.message }));
+      setText(formError, errorMessage(env.error));
+      announce(statusRegion, t("matterCreate.status.error", { message: errorMessage(env.error) }));
       return;
     }
     const value = env.value as { id: string };

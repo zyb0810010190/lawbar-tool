@@ -9,6 +9,7 @@ import type { CaseBoxApi } from "../api.js";
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime, hashTruncate, ulidShort } from "../format.js";
 import { t } from "../i18n/t.js";
+import { errorMessage } from "../i18n/errorMessage.js";
 
 // Known doc_type / document status enum values whose zh-CN labels live in the
 // catalog (docs/contracts/case-box-contract/schemas/case-box-document.schema.json).
@@ -161,7 +162,7 @@ function renderAddControl(
       if (!env.ok) {
         status.setAttribute("role", "alert");
         status.setAttribute("data-test-id", "view-docs-add-error");
-        setText(status, env.error.message);
+        setText(status, errorMessage(env.error));
         return;
       }
       if (env.value === null) {
@@ -258,7 +259,7 @@ function renderDocumentRow(
       setText(detailBody, "");
       if (!env.ok) {
         detailBody.appendChild(
-          el("p", { role: "alert", "data-test-id": "view-docs-detail-error" }, [env.error.message], doc),
+          el("p", { role: "alert", "data-test-id": "view-docs-detail-error" }, [errorMessage(env.error)], doc),
         );
         return;
       }
@@ -317,7 +318,7 @@ async function loadDocuments(
     }
     if (!env.ok) {
       parent.appendChild(
-        el("p", { role: "alert", "data-test-id": "view-docs-error" }, [env.error.message], doc),
+        el("p", { role: "alert", "data-test-id": "view-docs-error" }, [errorMessage(env.error)], doc),
       );
       return;
     }

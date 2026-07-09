@@ -7,6 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import {
   VALID_ULID,
   MockDoc,
@@ -123,7 +124,7 @@ test("export: backend error envelope → inline role=alert with server message",
   await flush();
   const err = findByTestId(root, "view-links-export-error");
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "matter not found");
+  assert.equal(collectText(err), CATALOG["error.unknown_matter"]);
 });
 
 test("export: list rows never carry an export flag (contract: flags only in the panel)", async () => {

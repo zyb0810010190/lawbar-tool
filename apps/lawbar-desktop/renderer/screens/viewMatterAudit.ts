@@ -9,6 +9,7 @@ import type { CaseBoxApi } from "../api.js";
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime, hashTruncate, ulidShort } from "../format.js";
 import { t } from "../i18n/t.js";
+import { errorMessage } from "../i18n/errorMessage.js";
 import {
   auditEntityTypeLabel,
   eventKindLabel,
@@ -105,7 +106,7 @@ async function loadChainHead(
       el(
         "p",
         { role: "alert", "data-test-id": "view-chain-error" },
-        [env.error.message],
+        [errorMessage(env.error)],
         doc,
       ),
     );
@@ -356,7 +357,7 @@ async function loadAuditEvents(
         el(
           "p",
           { role: "alert", "data-test-id": "view-audit-error" },
-          [env.error.message],
+          [errorMessage(env.error)],
           doc,
         ),
       );

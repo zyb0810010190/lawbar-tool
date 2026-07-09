@@ -28,6 +28,7 @@ import { renderDeadlinesDisclosure } from "./viewMatterDeadlines.js";
 import { renderFactsDisclosure } from "./viewMatterFacts.js";
 import { renderLinksDisclosure } from "./viewMatterLinks.js";
 import { renderT3CatalogDisclosure } from "./viewMatterT3Catalog.js";
+import { errorMessage } from "../i18n/errorMessage.js";
 
 interface ViewMatterRow {
   readonly id: string;
@@ -107,7 +108,7 @@ export async function mountViewMatter(
 
   const env = await deps.api.getMatter({ matterId });
   if (!env.ok) {
-    renderEnvelopeError(root, doc, deps, env.error.message);
+    renderEnvelopeError(root, doc, deps, errorMessage(env.error));
     return;
   }
   if (env.value === null) {

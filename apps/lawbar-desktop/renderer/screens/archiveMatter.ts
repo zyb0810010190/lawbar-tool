@@ -11,6 +11,7 @@ import type { MatterStatus, MatterType } from "../types.js";
 import { announce, el, focusEl, setText } from "../dom.js";
 import { buildHash, parseHash } from "../router.js";
 import { t } from "../i18n/t.js";
+import { errorMessage } from "../i18n/errorMessage.js";
 
 interface ArchiveMatterRow {
   readonly id: string;
@@ -77,7 +78,7 @@ export async function mountArchiveMatter(
 
   const env = await deps.api.getMatter({ matterId });
   if (!env.ok) {
-    renderEnvelopeError(root, doc, deps, matterId, env.error.message);
+    renderEnvelopeError(root, doc, deps, matterId, errorMessage(env.error));
     return;
   }
   if (env.value === null) {
@@ -359,8 +360,8 @@ function renderConfirmation(
 
     if (!envSubmit.ok) {
       formError.removeAttribute("hidden");
-      setText(formError, envSubmit.error.message);
-      announce(statusRegion, t("matterArchive.status.error", { message: envSubmit.error.message }));
+      setText(formError, errorMessage(envSubmit.error));
+      announce(statusRegion, t("matterArchive.status.error", { message: errorMessage(envSubmit.error) }));
       return;
     }
     announce(statusRegion, t("matterArchive.status.archived"));

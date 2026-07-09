@@ -66,7 +66,10 @@ test("envelope error: renders safe message inline with role=alert + back link", 
   const err = findByTestId(root, "view-envelope-error");
   assert.ok(err !== null);
   const alert = findOne(err, (n) => n.getAttribute("role") === "alert");
-  assert.equal(collectText(alert), "invalid payload");
+  // Displayed text is the zh-CN catalog message keyed by the stable error CODE,
+  // never the raw English env.error.message (logs only).
+  assert.equal(collectText(alert), CATALOG["error.invalid_payload"]);
+  assert.doesNotMatch(collectText(alert), /invalid payload/);
   const link = findByTestId(root, "view-back-link");
   assert.ok(link !== null);
   assert.equal(doc._focused, link);
@@ -396,7 +399,8 @@ test("chain head: envelope error renders inline with role=alert", async () => {
   findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
   await new Promise((r) => setImmediate(r));
   const err = findByTestId(root, "view-chain-error");
-  assert.equal(collectText(err), "unknown matter");
+  assert.equal(collectText(err), CATALOG["error.unknown_matter"]);
+  assert.doesNotMatch(collectText(err), /unknown matter/);
   assert.equal(err.getAttribute("role"), "alert");
 });
 
@@ -564,7 +568,8 @@ test("audit events: envelope error renders inline role=alert; head summary intac
   const err = findByTestId(root, "view-audit-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "audit list failed");
+  assert.equal(collectText(err), CATALOG["error.invalid_payload"]);
+  assert.doesNotMatch(collectText(err), /audit list failed/);
   // chain head summary still shown (count rendered)
   assert.equal(collectText(findByTestId(root, "view-chain-count")), "1");
 });
@@ -691,7 +696,8 @@ test("documents: list envelope error renders inline role=alert", async () => {
   const err = findByTestId(root, "view-docs-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "docs failed");
+  assert.equal(collectText(err), CATALOG["error.invalid_payload"]);
+  assert.doesNotMatch(collectText(err), /docs failed/);
 });
 
 test("documents: next_cursor → Show more appends next page then disappears", async () => {
@@ -830,7 +836,8 @@ test("add document: registration error renders inline role=alert", async () => {
   const err = findByTestId(root, "view-docs-add-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "register failed");
+  assert.equal(collectText(err), CATALOG["error.not_implemented"]);
+  assert.doesNotMatch(collectText(err), /register failed/);
 });
 
 // --- Deadlines section (B7 read-only) ---
@@ -914,7 +921,8 @@ test("deadlines: envelope error renders inline role=alert", async () => {
   const err = findByTestId(root, "view-deadlines-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "deadlines failed");
+  assert.equal(collectText(err), CATALOG["error.invalid_payload"]);
+  assert.doesNotMatch(collectText(err), /deadlines failed/);
 });
 
 // --- Facts section (B6 read-only) ---
@@ -1013,7 +1021,8 @@ test("facts: envelope error renders inline role=alert", async () => {
   const err = findByTestId(root, "view-facts-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "facts failed");
+  assert.equal(collectText(err), CATALOG["error.invalid_payload"]);
+  assert.doesNotMatch(collectText(err), /facts failed/);
 });
 
 test("facts: next_cursor → Show more appends then disappears", async () => {

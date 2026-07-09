@@ -8,6 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import {
   VALID_ULID,
   MockDoc,
@@ -166,7 +167,7 @@ test("t3 preview: envelope error renders role=alert view-t3-error with the safe 
   const err = findByTestId(root, "view-t3-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "unknown matter");
+  assert.equal(collectText(err), CATALOG["error.unknown_matter"]);
 });
 
 test("t3 preview: refusal success value renders the banner naming the code; no guessed name", async () => {
@@ -254,7 +255,7 @@ test("t3 export: an error envelope renders role=alert with the safe message", as
   const err = findByTestId(root, "view-t3-export-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "unknown matter");
+  assert.equal(collectText(err), CATALOG["error.unknown_matter"]);
 });
 
 test("t3 export: a REJECTED export call renders the inline error AND re-enables the button (M1)", async () => {

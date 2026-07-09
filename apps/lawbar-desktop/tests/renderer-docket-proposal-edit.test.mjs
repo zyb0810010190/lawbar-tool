@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { renderDocketProposalsSection } from "../dist/renderer/screens/viewMatterDocketProposals.js";
 import { createCaseBoxApi } from "../dist/renderer/api.js";
 import { RENDERER_EDIT_DOCKET_DTO_FIELDS } from "../dist/renderer/types.js";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import { MockDoc, findByTestId, findAllByTestId, flush } from "./_view-matter-dom.mjs";
 
 const MATTER = "01jzmatter0000000000000000";
@@ -230,7 +231,9 @@ test("UI: an IPC error keeps the form open, shows a normalized inline alert, re-
   const err = findByTestId(section.element, "view-docket-edit-error");
   assert.ok(err, "inline error shown");
   assert.equal(err.getAttribute("role"), "alert");
-  assert.ok(err.textContent.includes("tenant mismatch"));
+  // Normalized inline alert: display text is the zh-CN catalog value for the STABLE
+  // error code (tenant_mismatch), NOT the English env.error.message ("tenant mismatch").
+  assert.ok(err.textContent.includes(CATALOG["error.tenant_mismatch"]));
   assert.ok(!err.textContent.includes(ENTRY), "no id disclosure");
   assert.equal(findByTestId(section.element, "view-docket-edit-form").hasAttribute("hidden"), false, "form stays open");
   assert.equal(findByTestId(section.element, "view-docket-edit-save").hasAttribute("disabled"), false, "Save re-enabled");

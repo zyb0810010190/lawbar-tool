@@ -7,6 +7,10 @@ import { mountArchiveMatter } from "../dist/renderer/screens/archiveMatter.js";
 // zh-CN migration: assert user-facing copy against the live catalog / resolver so the
 // tests stay wording-robust (they follow the catalog rather than hard-coding literals).
 import { t } from "../dist/renderer/i18n/t.js";
+// zh-CN error DISPLAY migration: IPC error envelopes now render CATALOG["error.<code>"]
+// (mapping the STABLE error.code), NOT the English env.error.message (which stays for
+// main-side logs). Assert the displayed text against the catalog value.
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 
 // Reason length bounds mirrored from archiveMatter.ts (REASON_MIN/MAX_LENGTH), used to
 // resolve the parameterized zh-CN validation copy exactly as the screen renders it.
@@ -210,7 +214,11 @@ test("getMatter envelope error: safe message inline + back-to-view link + no arc
   await mountArchiveMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
   const err = findByTestId(root, "archive-envelope-error");
   assert.ok(err !== null);
-  assert.match(collectText(err), /invalid payload/);
+  // Display is the zh-CN catalog value keyed by the stable code, not the English message.
+  // (err is a container with the title + back link, so match on inclusion, as the
+  // original /invalid payload/ assertion did.)
+  assert.ok(collectText(err).includes(CATALOG["error.invalid_payload"]));
+  assert.doesNotMatch(collectText(err), /invalid payload/);
   assert.equal(archCalls, 0);
   const back = findByTestId(root, "archive-back-link-view");
   assert.equal(doc._focused, back);
@@ -359,7 +367,8 @@ test("submit: archive API error preserves form + shows safe message + no navigat
   fireClick(findByTestId(root, "archive-submit"));
   await new Promise((r) => setImmediate(r));
   const err = findByTestId(root, "archive-form-error");
-  assert.equal(collectText(err), "illegal transition");
+  // Display is the zh-CN catalog value keyed by the stable code, not the English message.
+  assert.equal(collectText(err), CATALOG["error.illegal_transition"]);
   assert.equal(err.getAttribute("role"), "alert");
   assert.equal(navCalls.length, 0);
   // Form still present with the user's reason captured in state (no DOM rebuild).
@@ -409,9 +418,13 @@ test("HTML-shaped reason passed verbatim to API + echoed safely on error", async
   fireClick(findByTestId(root, "archive-submit"));
   await new Promise((r) => setImmediate(r));
   assert.equal(calls.length, 1);
+  // DTO passthrough: the raw name/reason reaches the API verbatim (unchanged).
   assert.equal(calls[0].reason, "<img src=x onerror=evil> synthetic-reason");
   const err = findByTestId(root, "archive-form-error");
-  assert.equal(collectText(err), "<not-a-tag> safe-message-fixture");
+  // Display is the FIXED zh-CN catalog value keyed by the stable code…
+  assert.equal(collectText(err), CATALOG["error.invalid_payload"]);
+  // …and the raw HTML-shaped server message detail is NOT exposed in the rendered error.
+  assert.doesNotMatch(collectText(err), /<not-a-tag> safe-message-fixture/);
 });
 
 test("normal valid archive emits NO console.warn", async () => {

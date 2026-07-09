@@ -326,7 +326,9 @@ test("transition: error keeps the row + inline alert, does NOT refresh", async (
   const err = findByTestId(root, "view-deadlines-transition-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "nope");
+  // Normalized inline alert: display text is the zh-CN catalog value for the STABLE
+  // error code (illegal_transition), NOT the English env.error.message ("nope").
+  assert.equal(collectText(err), CATALOG["error.illegal_transition"]);
   assert.ok(findByTestId(root, "view-deadlines-row") !== null); // row kept
   assert.equal(listCalls, 1); // NOT refreshed (no wipe)
   assert.equal(missedBtn.hasAttribute("disabled"), false); // re-enabled for retry
