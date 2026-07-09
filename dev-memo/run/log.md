@@ -210,3 +210,4 @@ Next: NONE. Per user: do not push until reviewed.
 2026-07-08T05:59:41Z override consumed: land batch-253 H1 fix: require Electron run-dist packaging verification
 2026-07-08T07:29:12Z override consumed: land batch-256 M1 fix: correct gate-3 R3 assessment screen count (12 -> 11 screens + label map)
 2026-07-08T14:47:13Z override consumed: land batch-265 M1 fix: reconcile readiness-report §3 items 2/3 (gate 7 + gate 17 CLEARED)
+2026-07-09T09:01:51Z override consumed: WI-07 remediation: land WI-06 RC1-handoff doc fixes (M1 smoke-matrix#/ordering, L1 ditto path) + completed WI-DESKTOP-MACOS-SIGNING-NOTARIZATION-07; one-time override for the batch-FAIL deadlock
