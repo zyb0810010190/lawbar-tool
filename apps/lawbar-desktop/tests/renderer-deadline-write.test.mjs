@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
 import { findUniqueInstant } from "../dist/renderer/screens/viewMatterDeadlines.js";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import {
   VALID_ULID,
   MockDoc,
@@ -144,7 +145,9 @@ test("deadline propose: forwards host-local ISO + host tz; proposed row shown", 
     proposed_due_at_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   });
   assert.equal(findByTestId(root, "view-deadlines-proposed").hasAttribute("hidden"), false);
-  assert.ok(collectText(findByTestId(root, "view-deadlines-proposed-row")).includes("Proposed (unconfirmed)"));
+  // zh-CN proposed-row prefix: everything before the "：{kind}，到期 {due}" params.
+  const proposedPrefix = CATALOG["deadline.proposedRow"].split("：")[0]; // "已提议（未确认）"
+  assert.ok(collectText(findByTestId(root, "view-deadlines-proposed-row")).includes(proposedPrefix));
 });
 
 test("deadline propose: missing kind -> inline error, createDocketEntry NOT called", async () => {
@@ -222,7 +225,7 @@ test("deadline confirm: ok clears proposed, refreshes list, materialized deadlin
   confirmBtn.dispatchEvent({ type: "click" });
   await flush();
   assert.equal(confirmEntryId, PROPOSED_ID, "confirm uses the entryId from the create response");
-  assert.equal(collectText(findByTestId(root, "view-deadlines-confirm-status")), "Confirmed.");
+  assert.equal(collectText(findByTestId(root, "view-deadlines-confirm-status")), CATALOG["deadline.status.confirmed"]);
   assert.equal(findByTestId(root, "view-deadlines-proposed").hasAttribute("hidden"), true);
   assert.ok(listCalls > listAfterOpen, "confirm refreshed the deadline list");
   assert.equal(findAllByTestId(root, "view-deadlines-row").length, 1);
@@ -285,7 +288,11 @@ test("docket proposals: a durable proposed entry renders after disclosure (reloa
   const { root } = await mountDeadlinesWithAdd(api);
   assert.equal(findByTestId(root, "view-docket-proposals").hasAttribute("hidden"), false);
   assert.equal(findAllByTestId(root, "view-docket-proposal-row").length, 1);
-  assert.ok(collectText(findByTestId(root, "view-docket-proposals-heading")).includes("Pending proposals (1)"));
+  assert.ok(
+    collectText(findByTestId(root, "view-docket-proposals-heading")).includes(
+      CATALOG["docket.heading"].replace("{total}", "1"), // "待处理立案提议（1）"
+    ),
+  );
 });
 
 test("docket proposals: empty -> group hidden, no rows", async () => {

@@ -15,6 +15,7 @@ import { mountListMatters } from "./screens/listMatters.js";
 import { mountCreateMatter } from "./screens/createMatter.js";
 import { mountViewMatter } from "./screens/viewMatter.js";
 import { mountArchiveMatter } from "./screens/archiveMatter.js";
+import { mountSettings } from "./screens/settings.js";
 
 type ThemePreference = "system" | "light" | "dark";
 type ResolvedTheme = "light" | "dark";
@@ -53,6 +54,7 @@ function navigate(hash: string): void {
 function parseRouteName(hash: string): ParsedRoute["name"] {
   if (hash === "#/matters" || hash === "" || hash === "#") return "list";
   if (hash === "#/matters/new") return "new";
+  if (hash === "#/settings") return "settings";
   if (/^#\/matters\/[0-9a-z]{26}$/.test(hash)) return "view";
   if (/^#\/matters\/[0-9a-z]{26}\/archive$/.test(hash)) return "archive";
   return "not-found";
@@ -75,7 +77,7 @@ async function renderRoute(route: ParsedRoute): Promise<void> {
   try {
     api = getDefaultApi();
   } catch (err) {
-    app.textContent = `Bootstrap error: ${(err as Error).message}`;
+    app.textContent = t("bootstrap.error", { message: (err as Error).message });
     return;
   }
 
@@ -100,17 +102,19 @@ async function renderRoute(route: ParsedRoute): Promise<void> {
       }
       await mountArchiveMatter(app, { api, navigate }, route.params.id);
       return;
+    case "settings":
+      await mountSettings(app, { navigate });
+      return;
     case "not-found":
     default:
       app.textContent = "";
       const h1 = document.createElement("h1");
-      h1.textContent = "Not found";
+      h1.textContent = t("notFound.title");
       const p = document.createElement("p");
-      p.textContent =
-        "The requested screen does not exist or the matter ID is malformed.";
+      p.textContent = t("notFound.body");
       const a = document.createElement("a");
       a.setAttribute("href", "#/matters");
-      a.textContent = "Back to matters";
+      a.textContent = t("notFound.back");
       app.appendChild(h1);
       app.appendChild(p);
       app.appendChild(a);

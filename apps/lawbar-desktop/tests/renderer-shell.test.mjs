@@ -70,12 +70,20 @@ test("sidebar nav links target only real routes", () => {
   }
 });
 
+test("sidebar exposes a Settings entry (data-nav=settings → #/settings)", () => {
+  // WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00: a visible 设置 entry reachable without DevTools.
+  assert.match(HTML, /href="#\/settings"/, "missing Settings link");
+  assert.match(HTML, /href="#\/settings"[^>]*data-nav="settings"/, "Settings link needs data-nav=settings");
+  assert.match(HTML, /data-i18n="shell\.navSettings"/, "Settings label must resolve via the i18n catalog");
+});
+
 test("static shell does NOT hardcode aria-current (UISHELL-L1); links carry data-nav", () => {
   // aria-current is driven dynamically by renderer/nav.ts; the static markup
   // must not pin it (that was the UISHELL-L1 a11y bug).
   assert.ok(!/aria-current/.test(HTML), "static shell must not hardcode aria-current");
   assert.match(HTML, /href="#\/matters"[^>]*data-nav="list"/, "Matters link needs data-nav=list");
   assert.match(HTML, /href="#\/matters\/new"[^>]*data-nav="new"/, "New-matter link needs data-nav=new");
+  assert.match(HTML, /href="#\/settings"[^>]*data-nav="settings"/, "Settings link needs data-nav=settings");
 });
 
 test("traffic-light dots are tokenised, not raw hex", () => {

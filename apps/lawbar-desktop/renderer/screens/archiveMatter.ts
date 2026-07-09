@@ -10,6 +10,7 @@ import type { CaseBoxApi } from "../api.js";
 import type { MatterStatus, MatterType } from "../types.js";
 import { announce, el, focusEl, setText } from "../dom.js";
 import { buildHash, parseHash } from "../router.js";
+import { t } from "../i18n/t.js";
 
 interface ArchiveMatterRow {
   readonly id: string;
@@ -41,7 +42,7 @@ function backLink(
     target === "list"
       ? buildHash("list")
       : buildHash("view", { id: matterId });
-  const text = target === "list" ? "← Back to matters" : "← Back to matter";
+  const text = target === "list" ? t("matterArchive.backToMatters") : t("matterArchive.backToMatter");
   const link = el(
     "a",
     {
@@ -105,11 +106,11 @@ function renderInvalidId(
       "section",
       { class: "archive-error", "data-test-id": "archive-invalid-id" },
       [
-        el("h1", {}, ["Matter not found"], doc),
+        el("h1", {}, [t("matterArchive.notFoundTitle")], doc),
         el(
           "p",
           { role: "alert" },
-          ["The matter ID is malformed or unknown."],
+          [t("matterArchive.invalidIdBody")],
           doc,
         ),
         link,
@@ -132,7 +133,7 @@ function renderLoading(
     el(
       "p",
       { class: "archive-loading", "data-test-id": "archive-loading" },
-      ["Loading matter…"],
+      [t("matterArchive.loading")],
       doc,
     ),
   );
@@ -152,7 +153,7 @@ function renderEnvelopeError(
       "section",
       { class: "archive-error", "data-test-id": "archive-envelope-error" },
       [
-        el("h1", {}, ["Matter unavailable"], doc),
+        el("h1", {}, [t("matterArchive.unavailableTitle")], doc),
         el("p", { role: "alert" }, [safeMessage], doc),
         link,
       ],
@@ -174,12 +175,12 @@ function renderNotFound(
       "section",
       { class: "archive-error", "data-test-id": "archive-not-found" },
       [
-        el("h1", {}, ["Matter not found"], doc),
+        el("h1", {}, [t("matterArchive.notFoundTitle")], doc),
         el(
           "p",
           {},
           [
-            "The link may be out of date.",
+            t("matterArchive.staleLinkBody"),
           ],
           doc,
         ),
@@ -210,14 +211,14 @@ function renderAlreadyArchived(
         el(
           "h1",
           { "data-test-id": "archive-already-title" },
-          [`Already archived — ${row.name}`],
+          [t("matterArchive.alreadyTitle", { name: row.name })],
           doc,
         ),
         el(
           "p",
           {},
           [
-            "This matter is already archived. No further archive action is required.",
+            t("matterArchive.alreadyBody"),
           ],
           doc,
         ),
@@ -241,14 +242,14 @@ function renderConfirmation(
   const title = el(
     "h1",
     { class: "archive-title", "data-test-id": "archive-title" },
-    [`Archive matter — ${row.name}`],
+    [t("matterArchive.title", { name: row.name })],
     doc,
   );
   const warning = el(
     "p",
     { class: "archive-warning" },
     [
-      "Archiving moves the matter to the Archived tab. The matter remains readable. The action records an audit event.",
+      t("matterArchive.warning"),
     ],
     doc,
   );
@@ -292,7 +293,7 @@ function renderConfirmation(
   const reasonLabel = el(
     "label",
     { for: "am-reason" },
-    [`Reason * (${REASON_MIN_LENGTH}–${REASON_MAX_LENGTH} characters)`],
+    [t("matterArchive.reasonLabel", { min: REASON_MIN_LENGTH, max: REASON_MAX_LENGTH })],
     doc,
   );
 
@@ -303,7 +304,7 @@ function renderConfirmation(
       class: "button button--danger archive-submit-btn",
       "data-test-id": "archive-submit",
     },
-    ["Archive"],
+    [t("matterArchive.submit")],
     doc,
   );
   const cancelBtn = el(
@@ -313,7 +314,7 @@ function renderConfirmation(
       class: "button archive-cancel-btn",
       "data-test-id": "archive-cancel",
     },
-    ["Cancel"],
+    [t("matterArchive.cancel")],
     doc,
   );
   cancelBtn.addEventListener("click", () => {
@@ -330,7 +331,7 @@ function renderConfirmation(
       formError.removeAttribute("hidden");
       setText(
         formError,
-        `Reason is required and must be at least ${REASON_MIN_LENGTH} characters.`,
+        t("matterArchive.error.reasonTooShort", { min: REASON_MIN_LENGTH }),
       );
       focusEl(reasonTextarea);
       return;
@@ -339,7 +340,7 @@ function renderConfirmation(
       formError.removeAttribute("hidden");
       setText(
         formError,
-        `Reason must be ${REASON_MAX_LENGTH} characters or fewer.`,
+        t("matterArchive.error.reasonTooLong", { max: REASON_MAX_LENGTH }),
       );
       focusEl(reasonTextarea);
       return;
@@ -347,7 +348,7 @@ function renderConfirmation(
 
     submitting = true;
     submitBtn.setAttribute("disabled", "");
-    announce(statusRegion, "Archiving…");
+    announce(statusRegion, t("matterArchive.status.archiving"));
 
     const envSubmit = await deps.api.archiveMatter({
       matterId: row.id,
@@ -359,10 +360,10 @@ function renderConfirmation(
     if (!envSubmit.ok) {
       formError.removeAttribute("hidden");
       setText(formError, envSubmit.error.message);
-      announce(statusRegion, `Error: ${envSubmit.error.message}`);
+      announce(statusRegion, t("matterArchive.status.error", { message: envSubmit.error.message }));
       return;
     }
-    announce(statusRegion, "Archived");
+    announce(statusRegion, t("matterArchive.status.archived"));
     deps.navigate(buildHash("view", { id: row.id }));
   }
 

@@ -31,9 +31,9 @@ import type {
 } from "../types.js";
 import { el, setText } from "../dom.js";
 import { renderDocketProposalsSection } from "./viewMatterDocketProposals.js";
+import { t } from "../i18n/t.js";
 import {
   classifyDeadlineUrgency,
-  deadlineUrgencyLabel,
   formatLocalDateTime,
   ulidShort,
   type DeadlineUrgency,
@@ -168,7 +168,7 @@ export function renderDeadlinesDisclosure(
   const summary = el(
     "summary",
     { "data-test-id": "view-deadlines-summary" },
-    ["Show deadlines"],
+    [t("deadline.summary")],
     doc,
   );
   const details = el(
@@ -205,20 +205,20 @@ function renderAddDeadlineControl(
 
   const kindInput = el(
     "input",
-    { type: "text", class: "view-deadlines-add-kind", "data-test-id": "view-deadlines-add-kind", "aria-label": "Deadline kind", placeholder: "filing" },
+    { type: "text", class: "view-deadlines-add-kind", "data-test-id": "view-deadlines-add-kind", "aria-label": t("deadline.aria.kind"), placeholder: "filing" },
     [],
     doc,
   );
   const dueInput = el(
     "input",
-    { type: "datetime-local", class: "view-deadlines-add-due", "data-test-id": "view-deadlines-add-due", "aria-label": "Due date and time" },
+    { type: "datetime-local", class: "view-deadlines-add-due", "data-test-id": "view-deadlines-add-due", "aria-label": t("deadline.aria.due") },
     [],
     doc,
   );
   // Timezone is the host zone and non-editable for this slice.
   const tzField = el(
     "input",
-    { type: "text", class: "view-deadlines-add-tz", "data-test-id": "view-deadlines-add-tz", "aria-label": "Timezone", value: HOST_TZ, readonly: "", disabled: "" },
+    { type: "text", class: "view-deadlines-add-tz", "data-test-id": "view-deadlines-add-tz", "aria-label": t("deadline.aria.timezone"), value: HOST_TZ, readonly: "", disabled: "" },
     [],
     doc,
   );
@@ -231,7 +231,7 @@ function renderAddDeadlineControl(
   const proposeBtn = el(
     "button",
     { type: "button", class: "view-deadlines-add-btn", "data-test-id": "view-deadlines-add" },
-    ["Propose deadline"],
+    [t("deadline.propose")],
     doc,
   );
 
@@ -244,7 +244,7 @@ function renderAddDeadlineControl(
   const confirmBtn = el(
     "button",
     { type: "button", class: "view-deadlines-confirm-btn", "data-test-id": "view-deadlines-confirm" },
-    ["Confirm deadline"],
+    [t("deadline.confirm")],
     doc,
   );
   const proposedRow = el(
@@ -278,21 +278,21 @@ function renderAddDeadlineControl(
       addStatus.removeAttribute("role");
       addStatus.setAttribute("data-test-id", "view-deadlines-add-status");
       if (kind.length === 0) {
-        addError("A deadline kind is required.");
+        addError(t("deadline.error.kindRequired"));
         return;
       }
       if (dueLocal.length === 0) {
-        addError("A due date and time is required.");
+        addError(t("deadline.error.dueRequired"));
         return;
       }
       const components = parseLocalComponents(dueLocal);
       if (components === null) {
-        addError("The due date and time is not a valid date-time.");
+        addError(t("deadline.error.dueInvalid"));
         return;
       }
       const instantMs = findUniqueInstant(components, hostToInstant, hostToComponents);
       if (instantMs === null) {
-        addError("That local time does not exist or is ambiguous (a daylight-saving gap or overlap). Pick another time.");
+        addError(t("deadline.error.dueAmbiguous"));
         return;
       }
       const proposed_due_at = new Date(instantMs).toISOString();
@@ -303,7 +303,7 @@ function renderAddDeadlineControl(
         proposed_due_at_timezone: HOST_TZ,
       };
       proposeBtn.setAttribute("disabled", "true");
-      setText(addStatus, "Proposing…");
+      setText(addStatus, t("deadline.status.proposing"));
       try {
         const env = await api.createDocketEntry(dto);
         if (!env.ok) {
@@ -315,21 +315,24 @@ function renderAddDeadlineControl(
           // Defensive: a successful create must carry the entry id (confirm needs
           // it). A missing id means a backend/preload contract regression — surface
           // it instead of showing an unconfirmable proposed row.
-          addError("The deadline was proposed but its id is missing; cannot confirm. Please retry.");
+          addError(t("deadline.error.missingId"));
           return;
         }
         proposedEntryId = entry.id;
         setText(
           proposedRow,
-          `Proposed (unconfirmed): ${entry.proposed_kind ?? kind} due ${formatLocalDateTime(entry.proposed_due_at ?? proposed_due_at)}`,
+          t("deadline.proposedRow", {
+            kind: entry.proposed_kind ?? kind,
+            due: formatLocalDateTime(entry.proposed_due_at ?? proposed_due_at),
+          }),
         );
         proposedArea.removeAttribute("hidden");
         confirmStatus.removeAttribute("role");
         confirmStatus.setAttribute("data-test-id", "view-deadlines-confirm-status");
         setText(confirmStatus, "");
-        setText(addStatus, "Proposed — confirm to add it.");
+        setText(addStatus, t("deadline.status.proposed"));
       } catch {
-        addError("Could not propose the deadline. Please try again.");
+        addError(t("deadline.error.proposeFailed"));
       } finally {
         proposeBtn.removeAttribute("disabled");
       }
@@ -343,7 +346,7 @@ function renderAddDeadlineControl(
       confirmStatus.setAttribute("data-test-id", "view-deadlines-confirm-status");
       const dto: ConfirmDocketEntryDto = { matterId, entryId: proposedEntryId };
       confirmBtn.setAttribute("disabled", "true");
-      setText(confirmStatus, "Confirming…");
+      setText(confirmStatus, t("deadline.status.confirming"));
       try {
         const env = await api.confirmDocketEntry(dto);
         if (!env.ok) {
@@ -354,10 +357,10 @@ function renderAddDeadlineControl(
         // Success: clear the proposed state and refresh the list in place.
         proposedEntryId = null;
         proposedArea.setAttribute("hidden", "");
-        setText(confirmStatus, "Confirmed.");
+        setText(confirmStatus, t("deadline.status.confirmed"));
         await refresh();
       } catch {
-        confirmError("Could not confirm the deadline. Please try again.");
+        confirmError(t("deadline.error.confirmFailed"));
       } finally {
         confirmBtn.removeAttribute("disabled");
       }
@@ -404,7 +407,7 @@ function renderDeadlineRow(
           "data-test-id": "view-deadlines-urgency",
           "data-urgency": urgency,
         },
-        [deadlineUrgencyLabel(urgency)],
+        [t(`deadlineUrgency.${urgency}`)],
         doc,
       ),
     );
@@ -416,7 +419,7 @@ function renderDeadlineRow(
       el(
         "span",
         { class: "view-deadlines-rule", "data-test-id": "view-deadlines-rule" },
-        [`rule: ${d.source_rule_citation}`],
+        [t("deadline.rule", { citation: d.source_rule_citation })],
         doc,
       ),
     );
@@ -427,7 +430,7 @@ function renderDeadlineRow(
       el(
         "span",
         { class: "view-deadlines-owner" },
-        [`owner: ${ulidShort(d.owner_user_id)}`],
+        [t("deadline.owner", { id: ulidShort(d.owner_user_id) })],
         doc,
       ),
     );
@@ -499,7 +502,7 @@ function renderDeadlineTransitionControls(
     try {
       env = await api.transitionDeadline(dto);
     } catch {
-      showError("Could not update the deadline. Please try again.");
+      showError(t("deadline.transition.updateFailed"));
       reEnable();
       return;
     }
@@ -527,9 +530,9 @@ function renderDeadlineTransitionControls(
   const children: Array<HTMLElement | string> = [];
 
   if (d.status === "pending") {
-    const metBtn = mkBtn("Mark met", "view-deadlines-transition-met");
-    const missedBtn = mkBtn("Mark missed", "view-deadlines-transition-missed");
-    const withdrawBtn = mkBtn("Withdraw", "view-deadlines-transition-withdrawn");
+    const metBtn = mkBtn(t("deadline.transition.markMet"), "view-deadlines-transition-met");
+    const missedBtn = mkBtn(t("deadline.transition.markMissed"), "view-deadlines-transition-missed");
+    const withdrawBtn = mkBtn(t("deadline.transition.withdraw"), "view-deadlines-transition-withdrawn");
     const all = [metBtn, missedBtn, withdrawBtn];
     metBtn.addEventListener("click", () => void runSimple("met", all));
     missedBtn.addEventListener("click", () => void runSimple("missed", all));
@@ -537,14 +540,14 @@ function renderDeadlineTransitionControls(
     children.push(metBtn, " ", missedBtn, " ", withdrawBtn, " ", error);
   } else {
     // status === "missed": only missed -> met, with a required reason (two-step).
-    const metBtn = mkBtn("Mark met", "view-deadlines-transition-met");
+    const metBtn = mkBtn(t("deadline.transition.markMet"), "view-deadlines-transition-met");
     const reasonInput = el(
       "input",
       {
         type: "text",
         class: "view-deadlines-transition-reason",
         "data-test-id": "view-deadlines-transition-reason",
-        "aria-label": "Reason met after missed",
+        "aria-label": t("deadline.transition.reasonAria"),
         hidden: "",
       },
       [],
@@ -553,13 +556,13 @@ function renderDeadlineTransitionControls(
     const confirmBtn = el(
       "button",
       { type: "button", class: "view-deadlines-transition-confirm", "data-test-id": "view-deadlines-transition-confirm", hidden: "" },
-      ["Confirm"],
+      [t("deadline.transition.confirm")],
       doc,
     );
     const cancelBtn = el(
       "button",
       { type: "button", class: "view-deadlines-transition-cancel", "data-test-id": "view-deadlines-transition-cancel", hidden: "" },
-      ["Cancel"],
+      [t("deadline.transition.cancel")],
       doc,
     );
     const reveal = (): void => {
@@ -602,7 +605,7 @@ function renderDeadlineTransitionControls(
       const reason = ((reasonInput as unknown as { value?: string }).value ?? "").trim();
       if (reason.length === 0) {
         clearError();
-        showError("A reason is required to mark a missed deadline as met.");
+        showError(t("deadline.transition.reasonRequired"));
         return;
       }
       setBusy(true);
@@ -660,7 +663,7 @@ async function loadDeadlines(
     doc,
   );
   parent.appendChild(list);
-  const loading = el("p", { "data-test-id": "view-deadlines-loading" }, ["Loading deadlines…"], doc);
+  const loading = el("p", { "data-test-id": "view-deadlines-loading" }, [t("deadline.loading")], doc);
   parent.appendChild(loading);
 
   let overdue = 0;
@@ -678,8 +681,8 @@ async function loadDeadlines(
       overdue > 0 ? "view-deadlines-banner view-deadlines-banner--overdue" : "view-deadlines-banner",
     );
     const parts: string[] = [];
-    if (overdue > 0) parts.push(`${overdue} overdue`);
-    if (dueSoon > 0) parts.push(`${dueSoon} due within 7 days`);
+    if (overdue > 0) parts.push(t("deadline.banner.overdue", { count: overdue }));
+    if (dueSoon > 0) parts.push(t("deadline.banner.dueSoon", { count: dueSoon }));
     setText(banner, parts.join(" · "));
   }
 
@@ -727,7 +730,7 @@ async function loadDeadlines(
         el(
           "p",
           { role: "alert", "data-test-id": "view-deadlines-error" },
-          ["Deadline pagination did not advance (repeated cursor); load aborted."],
+          [t("deadline.error.paginationStuck")],
           doc,
         ),
       );
@@ -740,7 +743,7 @@ async function loadDeadlines(
   refreshBanner();
   if (total === 0) {
     parent.appendChild(
-      el("p", { "data-test-id": "view-deadlines-empty" }, ["No deadlines recorded for this matter."], doc),
+      el("p", { "data-test-id": "view-deadlines-empty" }, [t("deadline.empty")], doc),
     );
   }
 }

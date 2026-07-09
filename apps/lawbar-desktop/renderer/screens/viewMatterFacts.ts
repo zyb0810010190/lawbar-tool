@@ -10,9 +10,12 @@ import type { CaseBoxApi } from "../api.js";
 import type { CreateFactDto, FactPurpose, FactTransitionTarget, TransitionFactDto } from "../types.js";
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime } from "../format.js";
+import { t } from "../i18n/t.js";
+import type { CatalogId } from "../i18n/catalog.js";
 
 // R-5 fact purposes (case-box-fact.schema.json). The select offers all eight;
-// the server validates the enum. Default selection is "other".
+// the server validates the enum. Default selection is "other". The underlying
+// option VALUE stays the English enum member; only the visible LABEL is zh-CN.
 const FACT_PURPOSES: ReadonlyArray<FactPurpose> = [
   "claim",
   "defense",
@@ -23,6 +26,45 @@ const FACT_PURPOSES: ReadonlyArray<FactPurpose> = [
   "consultation_a",
   "other",
 ];
+
+// Visible label for a fact purpose (the option VALUE stays the English enum member).
+const FACT_PURPOSE_ID: Record<FactPurpose, CatalogId> = {
+  claim: "fact.factKind.claim",
+  defense: "fact.factKind.defense",
+  counterclaim: "fact.factKind.counterclaim",
+  timeline_event: "fact.factKind.timeline_event",
+  work_order_result: "fact.factKind.work_order_result",
+  consultation_q: "fact.factKind.consultation_q",
+  consultation_a: "fact.factKind.consultation_a",
+  other: "fact.factKind.other",
+};
+function factPurposeLabel(p: FactPurpose): string {
+  return t(FACT_PURPOSE_ID[p]);
+}
+
+// Visible label for a fact status / source_type. Both arrive as an open `string`
+// (persistence owns the state machine), so this maps the KNOWN values to zh-CN and
+// passes any unrecognized value through verbatim — never throwing on unknown data.
+const FACT_STATUS_ID: Readonly<Record<string, CatalogId>> = {
+  candidate: "fact.status.candidate",
+  reviewed: "fact.status.reviewed",
+  accepted: "fact.status.accepted",
+  rejected: "fact.status.rejected",
+};
+function factStatusLabel(status: string): string {
+  const id = FACT_STATUS_ID[status];
+  return id !== undefined ? t(id) : status;
+}
+const FACT_SOURCE_TYPE_ID: Readonly<Record<string, CatalogId>> = {
+  manual: "fact.sourceType.manual",
+  court_order_excerpt: "fact.sourceType.court_order_excerpt",
+  llm_extraction: "fact.sourceType.llm_extraction",
+  imported: "fact.sourceType.imported",
+};
+function factSourceTypeLabel(sourceType: string): string {
+  const id = FACT_SOURCE_TYPE_ID[sourceType];
+  return id !== undefined ? t(id) : sourceType;
+}
 
 // Display-only subset of CaseBoxFact.
 interface FactRow {
@@ -81,7 +123,7 @@ export function renderFactsDisclosure(
   const summary = el(
     "summary",
     { "data-test-id": "view-facts-summary" },
-    ["Show facts"],
+    [t("fact.showFacts")],
     doc,
   );
   const details = el(
@@ -115,21 +157,22 @@ function renderAddFactControl(
     {
       class: "view-facts-add-statement",
       "data-test-id": "view-facts-add-statement",
-      "aria-label": "Statement of fact",
-      placeholder: "Statement of fact",
+      "aria-label": t("fact.statementLabel"),
+      placeholder: t("fact.statementLabel"),
     },
     [],
     doc,
   );
   const purpose = el(
     "select",
-    { class: "view-facts-add-purpose", "data-test-id": "view-facts-add-purpose", "aria-label": "Purpose" },
+    { class: "view-facts-add-purpose", "data-test-id": "view-facts-add-purpose", "aria-label": t("fact.purposeLabel") },
     // Mark "other" the SELECTED default so an untouched select resolves to "other"
     // in a real browser (a <select> with no selected option defaults to its FIRST
     // option — here "claim" — which is NOT the intended default). The handler's
     // `|| "other"` fallback remains as defense-in-depth, not the primary mechanism.
+    // The option VALUE stays the English enum member; only the visible label is zh-CN.
     FACT_PURPOSES.map((p) =>
-      el("option", p === "other" ? { value: p, selected: "" } : { value: p }, [p], doc),
+      el("option", p === "other" ? { value: p, selected: "" } : { value: p }, [factPurposeLabel(p)], doc),
     ),
     doc,
   );
@@ -140,7 +183,7 @@ function renderAddFactControl(
       type: "date",
       class: "view-facts-add-asof",
       "data-test-id": "view-facts-add-asof",
-      "aria-label": "As-of date",
+      "aria-label": t("fact.asOfDateLabel"),
       hidden: "",
     },
     [],
@@ -170,7 +213,7 @@ function renderAddFactControl(
   const btn = el(
     "button",
     { type: "button", class: "view-facts-add-btn", "data-test-id": "view-facts-add" },
-    ["Add fact"],
+    [t("fact.addFact")],
     doc,
   );
   const showError = (msg: string): void => {
@@ -184,7 +227,7 @@ function renderAddFactControl(
       status.removeAttribute("role");
       status.setAttribute("data-test-id", "view-facts-add-status");
       if (statementText.length === 0) {
-        showError("Statement is required.");
+        showError(t("fact.error.statementRequired"));
         return;
       }
       const selectedPurpose =
@@ -193,7 +236,7 @@ function renderAddFactControl(
       // Client-side guard for the timeline_event date (the `required` attr is inert
       // on a type=button form). Server still re-validates; this is a fast UX path.
       if (selectedPurpose === "timeline_event" && asOfValue.length === 0) {
-        showError("An as-of date is required for a timeline event.");
+        showError(t("fact.error.asOfDateRequired"));
         return;
       }
       // Build the DTO off the CURRENT purpose — never forward a stale as_of_date.
@@ -201,19 +244,19 @@ function renderAddFactControl(
       const withAsOf: CreateFactDto =
         selectedPurpose === "timeline_event" ? { ...dto, as_of_date: asOfValue } : dto;
       btn.setAttribute("disabled", "true");
-      setText(status, "Adding…");
+      setText(status, t("fact.adding"));
       try {
         const env = await api.createFact(withAsOf);
         if (!env.ok) {
           showError(env.error.message);
           return;
         }
-        setText(status, "Added.");
+        setText(status, t("fact.added"));
         await refresh();
       } catch {
         // Transport / unexpected rejection — surface a safe generic alert rather
         // than leaving an unhandled rejection and a stuck disabled button.
-        showError("Could not add the fact. Please try again.");
+        showError(t("fact.error.addFailed"));
       } finally {
         btn.removeAttribute("disabled");
       }
@@ -234,14 +277,14 @@ function renderAddFactControl(
 function reviewActionsFor(status: string): ReadonlyArray<{ label: string; to: FactTransitionTarget }> {
   if (status === "candidate") {
     return [
-      { label: "Review", to: "reviewed" },
-      { label: "Reject", to: "rejected" },
+      { label: t("fact.action.review"), to: "reviewed" },
+      { label: t("fact.action.reject"), to: "rejected" },
     ];
   }
   if (status === "reviewed") {
     return [
-      { label: "Accept", to: "accepted" },
-      { label: "Reject", to: "rejected" },
+      { label: t("fact.action.accept"), to: "accepted" },
+      { label: t("fact.action.reject"), to: "rejected" },
     ];
   }
   return [];
@@ -266,7 +309,7 @@ function renderFactRow(
       // status carries a data-status attribute for testability; the visible text
       // label is the a11y substance (status is NOT conveyed by color alone).
       { class: "view-facts-status", "data-test-id": "view-facts-status", "data-status": f.status },
-      [`${f.status} · ${f.source_type}`],
+      [`${factStatusLabel(f.status)} · ${factSourceTypeLabel(f.source_type)}`],
       doc,
     ),
     " ",
@@ -283,7 +326,7 @@ function renderFactRow(
       el(
         "span",
         { class: "view-facts-confidence", "data-test-id": "view-facts-confidence" },
-        [`confidence: ${f.extraction_confidence}`],
+        [t("fact.confidence", { n: f.extraction_confidence })],
         doc,
       ),
     );
@@ -296,7 +339,7 @@ function renderFactRow(
       el(
         "div",
         { class: "view-facts-rejection-reason", "data-test-id": "view-facts-rejection-reason" },
-        [`Rejection reason: ${f.rejection_reason}`],
+        [t("fact.rejectionReasonPrefix", { reason: f.rejection_reason })],
         doc,
       ),
     );
@@ -353,17 +396,17 @@ function renderReviewControls(
           ? { matterId, factId: f.id, to, rejection_reason: rejectionReason }
           : { matterId, factId: f.id, to };
       setDisabled(true);
-      setText(status, "Saving…");
+      setText(status, t("fact.saving"));
       try {
         const env = await api.transitionFact(dto);
         if (!env.ok) {
           showError(env.error.message);
           return;
         }
-        setText(status, "Saved.");
+        setText(status, t("fact.saved"));
         await refresh();
       } catch {
-        showError("Could not update the fact. Please try again.");
+        showError(t("fact.error.updateFailed"));
       } finally {
         setDisabled(false);
       }
@@ -377,8 +420,8 @@ function renderReviewControls(
       type: "text",
       class: "view-facts-reject-reason",
       "data-test-id": "view-facts-reject-reason",
-      "aria-label": "Rejection reason",
-      placeholder: "Reason for rejection",
+      "aria-label": t("fact.rejectionReasonLabel"),
+      placeholder: t("fact.rejectionReasonPlaceholder"),
       hidden: "",
     },
     [],
@@ -387,7 +430,7 @@ function renderReviewControls(
   const confirmReject = el(
     "button",
     { type: "button", class: "view-facts-reject-confirm", "data-test-id": "view-facts-reject-confirm", hidden: "" },
-    ["Confirm reject"],
+    [t("fact.confirmReject")],
     doc,
   );
   const revealReject = (): void => {
@@ -398,7 +441,7 @@ function renderReviewControls(
   confirmReject.addEventListener("click", () => {
     const reason = ((reasonInput as unknown as { value?: string }).value ?? "").trim();
     if (reason.length === 0) {
-      showError("A rejection reason is required.");
+      showError(t("fact.error.rejectionReasonRequired"));
       return;
     }
     runTransition("rejected", reason);
@@ -452,7 +495,7 @@ async function loadFacts(
     doc,
   );
   parent.appendChild(list);
-  const loading = el("p", { "data-test-id": "view-facts-loading" }, ["Loading facts…"], doc);
+  const loading = el("p", { "data-test-id": "view-facts-loading" }, [t("fact.loading")], doc);
   parent.appendChild(loading);
 
   let cursor: string | null = null;
@@ -492,7 +535,7 @@ async function loadFacts(
     }
     if (total === 0) {
       parent.appendChild(
-        el("p", { "data-test-id": "view-facts-empty" }, ["No facts recorded for this matter."], doc),
+        el("p", { "data-test-id": "view-facts-empty" }, [t("fact.empty")], doc),
       );
       return;
     }
@@ -501,7 +544,7 @@ async function loadFacts(
       const btn = el(
         "button",
         { type: "button", class: "view-facts-more", "data-test-id": "view-facts-more" },
-        ["Show more"],
+        [t("common.loadMore")],
         doc,
       );
       btn.addEventListener("click", () => {

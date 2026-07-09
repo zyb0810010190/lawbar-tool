@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import {
   VALID_ULID,
   MockDoc,
@@ -64,7 +65,7 @@ test("review: candidate fact shows Review + Reject, NOT Accept; status text + da
   assert.equal(findByTestId(root, "view-facts-review-accepted"), null, "no Accept on candidate");
   const status = findByTestId(root, "view-facts-status");
   assert.equal(status.getAttribute("data-status"), "candidate");
-  assert.ok(collectText(status).includes("candidate"), "visible status text present (not color-only)");
+  assert.ok(collectText(status).includes(CATALOG["fact.status.candidate"]), "visible status text present (not color-only)");
 });
 
 test("review: reviewed fact shows Accept + Reject, NOT Review", async () => {

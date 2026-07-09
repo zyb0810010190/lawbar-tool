@@ -5,10 +5,27 @@
 // click. The renderer never imports the service; only the human-rendered
 // fields are read, and main is the authoritative validator.
 
+import type { CaseBoxAuditEventKind } from "case-box-contract";
 import type { CaseBoxApi } from "../api.js";
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime, hashTruncate, ulidShort } from "../format.js";
-import { auditEventLabel } from "./auditEventLabels.js";
+import { t } from "../i18n/t.js";
+import { eventKindLabel } from "../i18n/labels.js";
+import { EVENT_KIND_LABELS } from "./auditEventLabels.js";
+
+// Humanized zh-CN label for an audit row (audit-screen migration WI; the fallback the
+// ../i18n/labels.ts note anticipates lands here). A known event_kind resolves via the shared
+// eventKindLabel facade (catalog eventKind.* keys); a null / missing / unknown kind falls back to
+// the raw `action` (the row's entity detail supplies the "· entity_type" half). EVENT_KIND_LABELS is
+// used ONLY as the known-kind membership set — its English values are never displayed. Never infers a
+// transition kind from action/entity_type.
+function auditEventLabel(ev: { readonly action: string; readonly event_kind?: string }): string {
+  const kind = ev.event_kind;
+  if (kind !== undefined && kind !== null && Object.prototype.hasOwnProperty.call(EVENT_KIND_LABELS, kind)) {
+    return eventKindLabel(kind as CaseBoxAuditEventKind);
+  }
+  return ev.action;
+}
 
 interface AuditChainHead {
   readonly headHash: string | null;
@@ -53,8 +70,8 @@ export function renderChainHeadDisclosure(
   );
   const summary = el(
     "summary",
-    { "data-test-id": "view-chain-summary", "aria-label": "Audit chain head details" },
-    ["Show audit chain head"],
+    { "data-test-id": "view-chain-summary", "aria-label": t("audit.chainHead.summaryAria") },
+    [t("audit.chainHead.summary")],
     doc,
   );
   const details = el(
@@ -79,7 +96,7 @@ async function loadChainHead(
   api: CaseBoxApi,
   matterId: string,
 ): Promise<void> {
-  setText(body, "Loading audit chain head…");
+  setText(body, t("audit.chainHead.loading"));
   const env = await api.chainHead({ matterId });
   setText(body, "");
   if (!env.ok) {
@@ -103,7 +120,7 @@ async function loadChainHead(
       el(
         "p",
         { "data-test-id": "view-chain-empty" },
-        ["No audit events recorded yet."],
+        [t("audit.chainHead.empty")],
         doc,
       ),
     );
@@ -118,15 +135,15 @@ async function loadChainHead(
       type: "button",
       class: "view-chain-copy",
       "data-test-id": "view-chain-copy",
-      "aria-label": "Copy chain-head hash",
+      "aria-label": t("audit.copyHash.aria"),
       ...(copyAvail
         ? {}
         : {
             disabled: true,
-            title: "Copy unavailable in this context.",
+            title: t("audit.copyHash.unavailable"),
           }),
     },
-    ["Copy"],
+    [t("audit.copyHash.button")],
     doc,
   );
   if (copyAvail) {
@@ -140,7 +157,7 @@ async function loadChainHead(
     "div",
     { class: "view-chain-headhash", "data-test-id": "view-chain-headhash" },
     [
-      el("span", { class: "view-chain-label" }, ["Head hash:"], doc),
+      el("span", { class: "view-chain-label" }, [t("audit.chainHead.headHashLabel")], doc),
       " ",
       el(
         "code",
@@ -154,7 +171,7 @@ async function loadChainHead(
         "details",
         {},
         [
-          el("summary", {}, ["Show full hash"], doc),
+          el("summary", {}, [t("audit.chainHead.showFullHash")], doc),
           el(
             "code",
             { "data-test-id": "view-chain-headhash-full" },
@@ -177,7 +194,7 @@ async function loadChainHead(
             el(
               "span",
               { class: "view-chain-label" },
-              ["Last event:"],
+              [t("audit.chainHead.lastEventLabel")],
               doc,
             ),
             " ",
@@ -191,7 +208,7 @@ async function loadChainHead(
               "details",
               {},
               [
-                el("summary", {}, ["Show full event id"], doc),
+                el("summary", {}, [t("audit.chainHead.showFullEventId")], doc),
                 el(
                   "code",
                   { "data-test-id": "view-chain-lastevent-full" },
@@ -210,7 +227,7 @@ async function loadChainHead(
     "div",
     { class: "view-chain-count" },
     [
-      el("span", { class: "view-chain-label" }, ["Event count:"], doc),
+      el("span", { class: "view-chain-label" }, [t("audit.chainHead.countLabel")], doc),
       " ",
       el(
         "code",
@@ -268,7 +285,7 @@ function renderAuditEventRow(doc: Document, ev: AuditEventRow): HTMLElement {
       el(
         "span",
         { class: "view-audit-reason", "data-test-id": "view-audit-reason" },
-        [`reason: ${ev.reason}`],
+        [t("audit.events.reason", { reason: ev.reason })],
         doc,
       ),
     );
@@ -289,7 +306,7 @@ async function loadAuditEvents(
   matterId: string,
 ): Promise<void> {
   parent.appendChild(
-    el("div", { class: "view-audit-heading" }, ["Audit events"], doc),
+    el("div", { class: "view-audit-heading" }, [t("audit.events.heading")], doc),
   );
   const list = el(
     "ol",
@@ -301,7 +318,7 @@ async function loadAuditEvents(
   const loading = el(
     "p",
     { "data-test-id": "view-audit-loading" },
-    ["Loading audit events…"],
+    [t("audit.events.loading")],
     doc,
   );
   parent.appendChild(loading);
@@ -356,9 +373,9 @@ async function loadAuditEvents(
           type: "button",
           class: "view-audit-more",
           "data-test-id": "view-audit-more",
-          "aria-label": "Show more audit events",
+          "aria-label": t("audit.events.showMoreAria"),
         },
-        ["Show more"],
+        [t("common.loadMore")],
         doc,
       );
       btn.addEventListener("click", () => {

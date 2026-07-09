@@ -8,6 +8,42 @@
 import type { CaseBoxApi } from "../api.js";
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime, hashTruncate, ulidShort } from "../format.js";
+import { t } from "../i18n/t.js";
+
+// Known doc_type / document status enum values whose zh-CN labels live in the
+// catalog (docs/contracts/case-box-contract/schemas/case-box-document.schema.json).
+// The stored/wire VALUE stays English; only the visible LABEL is translated. An
+// unrecognized value falls back to its raw code so a future enum extension can
+// never make t() throw on a missing key at render time.
+const DOC_TYPE_VALUES: ReadonlySet<string> = new Set([
+  "pleading",
+  "contract",
+  "correspondence",
+  "transcript",
+  "exhibit",
+  "other",
+]);
+const DOC_STATUS_VALUES: ReadonlySet<string> = new Set([
+  "registered",
+  "ocr_pending",
+  "ocr_complete",
+  "ocr_failed",
+  "triaged",
+  "tagged",
+  "reviewed",
+]);
+
+function docTypeLabel(value: string): string {
+  return DOC_TYPE_VALUES.has(value)
+    ? t(`document.docType.${value}` as Parameters<typeof t>[0])
+    : value;
+}
+
+function docStatusLabel(value: string): string {
+  return DOC_STATUS_VALUES.has(value)
+    ? t(`document.status.${value}` as Parameters<typeof t>[0])
+    : value;
+}
 
 // Minimal structural shapes (display-only subset of CaseBoxDocument).
 interface DocumentRow {
@@ -66,7 +102,7 @@ export function renderDocumentsDisclosure(
   const summary = el(
     "summary",
     { "data-test-id": "view-docs-summary" },
-    ["Show documents"],
+    [t("document.disclosure.summary")],
     doc,
   );
   const details = el(
@@ -97,8 +133,8 @@ function renderAddControl(
 ): HTMLElement {
   const select = el(
     "select",
-    { class: "view-docs-add-type", "data-test-id": "view-docs-add-type", "aria-label": "Document type" },
-    DOC_TYPES.map((t) => el("option", { value: t }, [t], doc)),
+    { class: "view-docs-add-type", "data-test-id": "view-docs-add-type", "aria-label": t("document.add.typeAria") },
+    DOC_TYPES.map((value) => el("option", { value }, [docTypeLabel(value)], doc)),
     doc,
   );
   const status = el(
@@ -109,8 +145,8 @@ function renderAddControl(
   );
   const btn = el(
     "button",
-    { type: "button", class: "view-docs-add-btn", "data-test-id": "view-docs-add", "aria-label": "Add document" },
-    ["Add document"],
+    { type: "button", class: "view-docs-add-btn", "data-test-id": "view-docs-add", "aria-label": t("document.add.button") },
+    [t("document.add.button")],
     doc,
   );
   btn.addEventListener("click", () => {
@@ -119,7 +155,7 @@ function renderAddControl(
         ((select as unknown as { value?: string }).value as (typeof DOC_TYPES)[number]) || "other";
       btn.setAttribute("disabled", "true");
       status.removeAttribute("role");
-      setText(status, "Adding…");
+      setText(status, t("document.add.working"));
       const env = await api.registerDocument({ matterId, doc_type: docType });
       btn.removeAttribute("disabled");
       if (!env.ok) {
@@ -130,10 +166,10 @@ function renderAddControl(
       }
       if (env.value === null) {
         // User cancelled the file chooser — nothing registered.
-        setText(status, "Cancelled.");
+        setText(status, t("document.add.cancelled"));
         return;
       }
-      setText(status, "Added.");
+      setText(status, t("document.add.added"));
       await refresh();
     })();
   });
@@ -165,7 +201,7 @@ function renderDocumentDetail(doc: Document, d: DocumentDetail): HTMLElement {
         "div",
         { class: "view-docs-detail-field" },
         [
-          el("span", { class: "view-docs-detail-label" }, ["Content hash: "], doc),
+          el("span", { class: "view-docs-detail-label" }, [`${t("document.detail.contentHash")}: `], doc),
           el("code", { "data-test-id": "view-docs-detail-hash" }, [hashTruncate(d.content_hash)], doc),
         ],
         doc,
@@ -173,12 +209,12 @@ function renderDocumentDetail(doc: Document, d: DocumentDetail): HTMLElement {
     );
   }
   if (d.storage_uri !== undefined && d.storage_uri.length > 0) {
-    fields.push(metaField(doc, "Storage", d.storage_uri));
+    fields.push(metaField(doc, t("document.detail.storage"), d.storage_uri));
   }
-  if (d.page_count !== undefined) fields.push(metaField(doc, "Pages", String(d.page_count)));
-  if (d.language !== undefined && d.language.length > 0) fields.push(metaField(doc, "Language", d.language));
-  if (d.mime_type !== undefined && d.mime_type.length > 0) fields.push(metaField(doc, "MIME", d.mime_type));
-  if (d.byte_size !== undefined) fields.push(metaField(doc, "Bytes", String(d.byte_size)));
+  if (d.page_count !== undefined) fields.push(metaField(doc, t("document.detail.pages"), String(d.page_count)));
+  if (d.language !== undefined && d.language.length > 0) fields.push(metaField(doc, t("document.detail.language"), d.language));
+  if (d.mime_type !== undefined && d.mime_type.length > 0) fields.push(metaField(doc, t("document.detail.mime"), d.mime_type));
+  if (d.byte_size !== undefined) fields.push(metaField(doc, t("document.detail.bytes"), String(d.byte_size)));
   return el(
     "div",
     { class: "view-docs-detail", "data-test-id": "view-docs-detail" },
@@ -199,7 +235,7 @@ function renderDocumentRow(
     [
       el("span", { class: "view-docs-filename", "data-test-id": "view-docs-filename" }, [row.filename], doc),
       " ",
-      el("span", { class: "view-docs-type" }, [`${row.doc_type} · ${row.status}`], doc),
+      el("span", { class: "view-docs-type" }, [`${docTypeLabel(row.doc_type)} · ${docStatusLabel(row.status)}`], doc),
       " ",
       el("span", { class: "view-docs-received" }, [formatLocalDateTime(row.received_at)], doc),
     ],
@@ -217,7 +253,7 @@ function renderDocumentRow(
     if (loaded) return;
     loaded = true;
     void (async () => {
-      setText(detailBody, "Loading details…");
+      setText(detailBody, t("document.detail.loading"));
       const env = await api.getDocument({ matterId, documentId: row.id });
       setText(detailBody, "");
       if (!env.ok) {
@@ -228,7 +264,7 @@ function renderDocumentRow(
       }
       if (env.value === null) {
         detailBody.appendChild(
-          el("p", { "data-test-id": "view-docs-detail-empty" }, ["Document not found."], doc),
+          el("p", { "data-test-id": "view-docs-detail-empty" }, [t("document.detail.notFound")], doc),
         );
         return;
       }
@@ -254,7 +290,7 @@ async function loadDocuments(
     doc,
   );
   parent.appendChild(list);
-  const loading = el("p", { "data-test-id": "view-docs-loading" }, ["Loading documents…"], doc);
+  const loading = el("p", { "data-test-id": "view-docs-loading" }, [t("document.list.loading")], doc);
   parent.appendChild(loading);
 
   let cursor: string | null = null;
@@ -292,7 +328,7 @@ async function loadDocuments(
     }
     if (total === 0) {
       parent.appendChild(
-        el("p", { "data-test-id": "view-docs-empty" }, ["No documents in this matter yet."], doc),
+        el("p", { "data-test-id": "view-docs-empty" }, [t("document.list.empty")], doc),
       );
       return;
     }
@@ -301,7 +337,7 @@ async function loadDocuments(
       const btn = el(
         "button",
         { type: "button", class: "view-docs-more", "data-test-id": "view-docs-more" },
-        ["Show more"],
+        [t("common.loadMore")],
         doc,
       );
       btn.addEventListener("click", () => {

@@ -82,6 +82,45 @@ export function deadlineUrgencyLabel(u: DeadlineUrgency): string {
   }
 }
 
+// Party role / kind + link source-type are open `string` unions at the renderer
+// boundary (renderer/types.ts Party.role/party_kind are `string`), so these use a
+// lookup map with a raw-value fallback rather than an exhaustive switch: an
+// unrecognized enum value renders its raw code instead of throwing, so a future
+// schema enum extension can never crash the render.
+const PARTY_ROLE_ID: Readonly<Record<string, CatalogId>> = {
+  client: "party.role.client",
+  opposing: "party.role.opposing",
+  third_party: "party.role.third_party",
+};
+export function partyRoleLabel(role: string): string {
+  const id = PARTY_ROLE_ID[role];
+  return id === undefined ? role : t(id);
+}
+
+const PARTY_KIND_ID: Readonly<Record<string, CatalogId>> = {
+  individual: "party.kind.individual",
+  organization: "party.kind.organization",
+  government: "party.kind.government",
+  court: "party.kind.court",
+  other: "party.kind.other",
+};
+export function partyKindLabel(kind: string): string {
+  const id = PARTY_KIND_ID[kind];
+  return id === undefined ? kind : t(id);
+}
+
+const LINK_SOURCE_TYPE_ID: Readonly<Record<string, CatalogId>> = {
+  evidence: "links.sourceType.evidence",
+  note: "links.sourceType.note",
+  question: "links.sourceType.question",
+  calcTerm: "links.sourceType.calcTerm",
+  claimElement: "links.sourceType.claimElement",
+};
+export function linkSourceTypeLabel(type: string): string {
+  const id = LINK_SOURCE_TYPE_ID[type];
+  return id === undefined ? type : t(id);
+}
+
 export function ledgerCategoryLabel(c: LedgerCategory): string {
   switch (c) {
     case "litigation":

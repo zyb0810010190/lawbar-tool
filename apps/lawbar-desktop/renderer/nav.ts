@@ -12,7 +12,7 @@
 // isn't). Section-level highlighting for detail routes is a deliberate non-goal
 // for this fix.
 
-export type NavKey = "list" | "new";
+export type NavKey = "list" | "new" | "settings";
 
 // Which sidebar nav link (if any) is the current PAGE for a route name.
 export function activeNavKey(routeName: string): NavKey | null {
@@ -21,6 +21,8 @@ export function activeNavKey(routeName: string): NavKey | null {
       return "list";
     case "new":
       return "new";
+    case "settings":
+      return "settings";
     default:
       // view / archive / not-found: no sidebar link is the exact page.
       return null;

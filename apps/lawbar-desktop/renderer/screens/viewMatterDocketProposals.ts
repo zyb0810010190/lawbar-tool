@@ -18,6 +18,7 @@ import type { CaseBoxApi } from "../api.js";
 import type { DismissDocketEntryDto, EditDocketEntryDto, ListDocketEntriesDto } from "../types.js";
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime } from "../format.js";
+import { t } from "../i18n/t.js";
 
 // A reminder offset on the projected row (renderer-safe; passthrough in DPE5).
 interface ReminderOffset {
@@ -62,7 +63,7 @@ export function renderDocketProposalsSection(
     "section",
     {
       class: "view-docket-proposals",
-      "aria-label": "Pending proposals",
+      "aria-label": t("docket.section.aria"),
       "data-test-id": "view-docket-proposals",
       hidden: "",
     },
@@ -153,7 +154,7 @@ export function renderDocketProposalsSection(
       }
       section.removeAttribute("hidden");
       ensureMounted();
-      setText(heading, `Pending proposals (${total})`);
+      setText(heading, t("docket.heading", { total }));
       cursor = page.next_cursor;
       if (cursor !== null) {
         if (seenCursors.has(cursor)) {
@@ -161,7 +162,7 @@ export function renderDocketProposalsSection(
             el(
               "p",
               { role: "alert", "data-test-id": "view-docket-proposals-error" },
-              ["Proposal pagination did not advance (repeated cursor); load aborted."],
+              [t("docket.pagination.stalled")],
               doc,
             ),
           );
@@ -171,7 +172,7 @@ export function renderDocketProposalsSection(
         const btn = el(
           "button",
           { type: "button", class: "view-docket-proposals-more", "data-test-id": "view-docket-proposals-more" },
-          ["Show more"],
+          [t("common.loadMore")],
           doc,
         );
         btn.addEventListener("click", () => {
@@ -206,7 +207,7 @@ function renderProposalRow(
     el(
       "span",
       { class: "view-docket-proposal-due", "data-test-id": "view-docket-proposal-due" },
-      [`due ${formatLocalDateTime(p.proposed_due_at)}`],
+      [t("docket.row.due", { at: formatLocalDateTime(p.proposed_due_at) })],
       doc,
     ),
   ];
@@ -216,7 +217,7 @@ function renderProposalRow(
       el(
         "span",
         { class: "view-docket-proposal-proposed-at", "data-test-id": "view-docket-proposal-proposed-at" },
-        [`proposed ${formatLocalDateTime(p.proposed_at)}`],
+        [t("docket.row.proposedAt", { at: formatLocalDateTime(p.proposed_at) })],
         doc,
       ),
     );
@@ -232,10 +233,10 @@ function renderProposalRow(
         {
           class: "view-docket-proposal-edited",
           "data-test-id": "view-docket-proposal-edited",
-          "aria-label": "edited",
-          title: `edited ${formatLocalDateTime(p.revised_at)}`,
+          "aria-label": t("docket.row.editedAria"),
+          title: t("docket.row.editedTitle", { at: formatLocalDateTime(p.revised_at) }),
         },
-        ["(edited)"],
+        [t("docket.row.editedBadge")],
         doc,
       ),
     );
@@ -304,7 +305,7 @@ function renderDismissControl(
       type: "text",
       class: "view-docket-dismiss-reason",
       "data-test-id": "view-docket-dismiss-reason",
-      "aria-label": "Dismissal reason",
+      "aria-label": t("docket.dismiss.reasonAria"),
       hidden: "",
     },
     [],
@@ -313,19 +314,19 @@ function renderDismissControl(
   const dismissBtn = el(
     "button",
     { type: "button", class: "view-docket-dismiss-btn", "data-test-id": "view-docket-dismiss" },
-    ["Dismiss"],
+    [t("docket.dismiss.button")],
     doc,
   );
   const confirmBtn = el(
     "button",
     { type: "button", class: "view-docket-dismiss-confirm", "data-test-id": "view-docket-dismiss-confirm", hidden: "" },
-    ["Confirm dismiss"],
+    [t("docket.dismiss.confirm")],
     doc,
   );
   const cancelBtn = el(
     "button",
     { type: "button", class: "view-docket-dismiss-cancel", "data-test-id": "view-docket-dismiss-cancel", hidden: "" },
-    ["Cancel"],
+    [t("docket.cancel")],
     doc,
   );
 
@@ -374,12 +375,12 @@ function renderDismissControl(
       const reason = ((reasonInput as unknown as { value?: string }).value ?? "").trim();
       clearStatus();
       if (reason.length === 0) {
-        showError("A dismissal reason is required.");
+        showError(t("docket.dismiss.reasonRequired"));
         return;
       }
       const dto: DismissDocketEntryDto = { matterId, entryId: p.id, dismissal_reason: reason };
       setDisabled(true);
-      setText(status, "Dismissing…");
+      setText(status, t("docket.dismiss.working"));
       try {
         const env = await api.dismissDocketEntry(dto);
         if (!env.ok) {
@@ -394,7 +395,7 @@ function renderDismissControl(
         // Success: the entry left "proposed" -> a refresh drops it from the list.
         await refresh();
       } catch {
-        showError("Could not dismiss the proposal. Please try again.");
+        showError(t("docket.dismiss.failed"));
         setDisabled(false);
       }
     })();
@@ -439,7 +440,7 @@ function renderEditControl(
   const editBtn = el(
     "button",
     { type: "button", class: "view-docket-edit-btn", "data-test-id": "view-docket-edit" },
-    ["Edit"],
+    [t("docket.edit.button")],
     doc,
   );
   const mkField = (testId: string, label: string, value: string): HTMLElement => {
@@ -452,44 +453,44 @@ function renderEditControl(
     (input as unknown as { value: string }).value = value;
     return input;
   };
-  const kindInput = mkField("view-docket-edit-kind", "Kind", p.proposed_kind);
-  const dueInput = mkField("view-docket-edit-due", "Due (ISO-8601)", p.proposed_due_at);
+  const kindInput = mkField("view-docket-edit-kind", t("docket.edit.kindAria"), p.proposed_kind);
+  const dueInput = mkField("view-docket-edit-due", t("docket.edit.dueAria"), p.proposed_due_at);
   const dueKindSelect = el(
     "select",
-    { class: "view-docket-edit-input", "data-test-id": "view-docket-edit-due-kind", "aria-label": "Due kind" },
+    { class: "view-docket-edit-input", "data-test-id": "view-docket-edit-due-kind", "aria-label": t("docket.edit.dueKindAria") },
     [
-      el("option", { value: "datetime" }, ["datetime"], doc),
-      el("option", { value: "date_only" }, ["date_only"], doc),
+      el("option", { value: "datetime" }, [t("docket.dueKind.datetime")], doc),
+      el("option", { value: "date_only" }, [t("docket.dueKind.date_only")], doc),
     ],
     doc,
   );
   (dueKindSelect as unknown as { value: string }).value = p.proposed_due_at_kind ?? "datetime";
   const tzInput = mkField(
     "view-docket-edit-tz",
-    "Timezone (host zone)",
+    t("docket.edit.tzAria"),
     typeof p.proposed_due_at_timezone === "string" ? p.proposed_due_at_timezone : "",
   );
   const ownerInput = mkField(
     "view-docket-edit-owner",
-    "Owner",
+    t("docket.edit.ownerAria"),
     typeof p.proposed_owner_user_id === "string" ? p.proposed_owner_user_id : "",
   );
   const reminders = el(
     "span",
     { class: "view-docket-edit-reminders", "data-test-id": "view-docket-edit-reminders" },
-    [`reminders: ${formatReminders(retainedReminders)} (read-only)`],
+    [t("docket.edit.reminders", { list: formatReminders(retainedReminders) })],
     doc,
   );
   const saveBtn = el(
     "button",
     { type: "button", class: "view-docket-edit-save", "data-test-id": "view-docket-edit-save" },
-    ["Save changes"],
+    [t("docket.edit.save")],
     doc,
   );
   const cancelBtn = el(
     "button",
     { type: "button", class: "view-docket-edit-cancel", "data-test-id": "view-docket-edit-cancel" },
-    ["Cancel"],
+    [t("docket.cancel")],
     doc,
   );
   const status = el(
@@ -564,23 +565,23 @@ function renderEditControl(
       const tz = readVal(tzInput);
       const proposed_owner_user_id = readVal(ownerInput);
       if (proposed_kind.length === 0) {
-        showError("Kind is required.");
+        showError(t("docket.edit.err.kindRequired"));
         return;
       }
       if (proposed_due_at.length === 0 || Number.isNaN(Date.parse(proposed_due_at))) {
-        showError("A valid due date/time is required.");
+        showError(t("docket.edit.err.dueInvalid"));
         return;
       }
       if (proposed_due_at_kind !== "datetime" && proposed_due_at_kind !== "date_only") {
-        showError("Invalid due kind.");
+        showError(t("docket.edit.err.dueKindInvalid"));
         return;
       }
       if (proposed_due_at_kind === "datetime" && tz.length === 0) {
-        showError("A timezone is required for a datetime due.");
+        showError(t("docket.edit.err.tzRequired"));
         return;
       }
       if (proposed_owner_user_id.length === 0) {
-        showError("Owner is required.");
+        showError(t("docket.edit.err.ownerRequired"));
         return;
       }
       const dto: EditDocketEntryDto = {
@@ -595,7 +596,7 @@ function renderEditControl(
       };
       saving = true;
       setDisabled(true);
-      setText(status, "Saving…");
+      setText(status, t("docket.edit.saving"));
       try {
         const env = await api.editDocketEntry(dto);
         if (!env.ok) {
@@ -613,7 +614,7 @@ function renderEditControl(
         await refresh();
       } catch {
         saving = false;
-        showError("Could not save changes. Please try again.");
+        showError(t("docket.edit.failed"));
         setDisabled(false);
       }
     })();
@@ -637,7 +638,7 @@ function renderEditControl(
 function formatReminders(
   offsets: EditDocketEntryDto["reminder_offsets"],
 ): string {
-  if (offsets === null || offsets === undefined || offsets.length === 0) return "none";
+  if (offsets === null || offsets === undefined || offsets.length === 0) return t("docket.reminders.none");
   return offsets
     .map((o) => `${o.kind} ${o.offset_days >= 0 ? "−" : "+"}${Math.abs(o.offset_days)}d`)
     .join(", ");

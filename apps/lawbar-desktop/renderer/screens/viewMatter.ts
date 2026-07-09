@@ -14,7 +14,13 @@ import type {
 import { el, focusEl, setText } from "../dom.js";
 import { buildHash, parseHash } from "../router.js";
 import { formatLocalDateTime, ulidShort } from "../format.js";
-import { confidentialityLabel, matterTypeLabel, statusLabel } from "../i18n/labels.js";
+import {
+  confidentialityLabel,
+  matterTypeLabel,
+  partyKindLabel,
+  partyRoleLabel,
+  statusLabel,
+} from "../i18n/labels.js";
 import { t } from "../i18n/t.js";
 import { renderChainHeadDisclosure } from "./viewMatterAudit.js";
 import { renderDocumentsDisclosure } from "./viewMatterDocuments.js";
@@ -250,7 +256,7 @@ function renderParties(
       el(
         "div",
         { class: "party-role" },
-        [`${p.role} — ${p.display_name} (${p.party_kind})`],
+        [`${partyRoleLabel(p.role)} — ${p.display_name} (${partyKindLabel(p.party_kind)})`],
         doc,
       ),
     ];

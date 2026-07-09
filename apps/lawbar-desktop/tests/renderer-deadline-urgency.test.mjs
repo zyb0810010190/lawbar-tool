@@ -17,6 +17,7 @@ import {
 } from "../dist/renderer/format.js";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
 import { renderDeadlinesDisclosure } from "../dist/renderer/screens/viewMatterDeadlines.js";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import {
   MockDoc,
   makeStubApi,
@@ -30,6 +31,11 @@ import {
 
 const NOW = Date.parse("2026-06-03T12:00:00.000Z");
 const iso = (ms) => new Date(ms).toISOString();
+
+// zh-CN banner-part builders: reconstruct the catalog strings with the SAME
+// {count} the screen injects, so the assertions track the catalog, not a literal.
+const overduePart = (count) => CATALOG["deadline.banner.overdue"].replace("{count}", String(count));
+const dueSoonPart = (count) => CATALOG["deadline.banner.dueSoon"].replace("{count}", String(count));
 
 // --- classification ---
 
@@ -144,7 +150,7 @@ test("deadlines: a pending overdue deadline behind a page of settled ones is sti
   assert.equal(findAllByTestId(root, "view-deadlines-row").length, 3);
   const banner = findByTestId(root, "view-deadlines-banner");
   assert.equal(banner.hasAttribute("hidden"), false);
-  assert.equal(collectText(banner), "1 overdue");
+  assert.equal(collectText(banner), overduePart(1));
 });
 
 // --- DOM: deadline urgency surfacing (brief §18 overdue / due-within-7-days) ---
@@ -177,7 +183,10 @@ test("deadline urgency: overdue + due-soon rows get pills; a settled row does no
     pills.map((p) => p.getAttribute("data-urgency")),
     ["overdue", "due-soon"],
   );
-  assert.deepEqual(pills.map(collectText), ["Overdue", "Due soon"]);
+  assert.deepEqual(pills.map(collectText), [
+    CATALOG["deadlineUrgency.overdue"],
+    CATALOG["deadlineUrgency.due-soon"],
+  ]);
 });
 
 test("deadline urgency: banner summarises overdue + due-soon counts with overdue styling", async () => {
@@ -188,7 +197,7 @@ test("deadline urgency: banner summarises overdue + due-soon counts with overdue
   const banner = findByTestId(root, "view-deadlines-banner");
   assert.ok(banner !== null);
   assert.equal(banner.hasAttribute("hidden"), false);
-  assert.equal(collectText(banner), "1 overdue · 1 due within 7 days");
+  assert.equal(collectText(banner), `${overduePart(1)} · ${dueSoonPart(1)}`);
   assert.ok(banner.getAttribute("class").includes("view-deadlines-banner--overdue"));
   assert.equal(banner.getAttribute("role"), "status");
   assert.equal(banner.getAttribute("aria-live"), "polite");
@@ -200,7 +209,7 @@ test("deadline urgency: due-soon only → warning banner without the overdue mod
   ]);
   const banner = findByTestId(root, "view-deadlines-banner");
   assert.equal(banner.hasAttribute("hidden"), false);
-  assert.equal(collectText(banner), "1 due within 7 days");
+  assert.equal(collectText(banner), dueSoonPart(1));
   assert.equal(banner.getAttribute("class").includes("view-deadlines-banner--overdue"), false);
 });
 
