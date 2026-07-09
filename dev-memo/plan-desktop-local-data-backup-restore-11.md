@@ -47,6 +47,12 @@ not auto-scripted). No in-app UI, no cloud/remote, no schema change.
   validation, symlink `--out` bypass, thin tests, uncontrolled tar-missing. **All fixed in this WI.**
 - **Verify** `verify-mrdjehmy-itokbi` → **ALL CLOSED** (8/8). No deferred findings.
 
+**Superseded by FIX1.** A later Layer-B batch audit (`audit-mrdk82ad-vvfvvr`) flagged the running-app override
+and detector/reporting as H1 M2. `WI-BACKUP-HARDEN-11-FIX1`
+(`dev-memo/plan-desktop-backup-harden-11-fix1.md`) replaced `--allow-running` with a fail-closed model
+(positive open handle → non-overridable refuse; `lsof`-unavailable → refuse unless an explicit verbose flag;
+exception-safe reporting) and grew the suite to 16 cases. Refer to the FIX1 plan for current behavior.
+
 ## Requirements honored
 
 No cloud/remote; local-first not weakened; no schema touched; **never silently copies an open WAL DB** (refuses);

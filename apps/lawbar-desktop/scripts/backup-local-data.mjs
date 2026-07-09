@@ -1,31 +1,38 @@
 #!/usr/bin/env node
 // backup-local-data.mjs — safe local backup of the lawbar case-box data store
-// (WI-DESKTOP-LOCAL-DATA-BACKUP-RESTORE-11). Local-first: this only copies files
-// on this Mac into a timestamped archive. NO cloud, NO network, NO remote.
+// (WI-DESKTOP-LOCAL-DATA-BACKUP-RESTORE-11; hardened by WI-BACKUP-HARDEN-11-FIX1).
+// Local-first: this only copies files on this Mac into a timestamped archive.
+// NO cloud, NO network, NO remote.
 //
-// The DB is SQLite in WAL mode (journal_mode=WAL), so a consistent file-copy
-// requires that NOTHING holds the DB open — a live copy can capture a half-written
-// WAL. This script therefore REFUSES to run while the DB is in use, detected
-// (strongest first) by an OPEN-FILE-HANDLE check (`lsof`) on the DB / -wal / -shm
-// paths, falling back to an app-process match (`pgrep`); if NEITHER check can run
-// it FAILS CLOSED (refuses) rather than risk an inconsistent copy. An expert who
-// has otherwise quiesced the DB may override with --allow-running (which then emits
-// a loud warning). The -wal / -shm sidecars are included when present so SQLite can
-// recover a consistent snapshot on restore.
+// SAFETY MODEL (fail-closed). The DB is SQLite in WAL mode, so a consistent
+// file-copy requires that NOTHING holds it open:
+//   * lsof proves an OPEN handle on the DB / -wal / -shm  -> REFUSE (exit 2).
+//     This is NOT overridable — copying an open WAL DB risks an inconsistent,
+//     unusable backup of confidential data.
+//   * lsof proves the files are CLOSED                    -> proceed.
+//   * lsof cannot run / is inconclusive                   -> REFUSE (exit 2)
+//     unless the caller passes the explicit, deliberately-verbose acknowledgement
+//     flag AND no app process is detected. pgrep is ADVISORY ONLY: it can
+//     strengthen a refusal (app clearly running) but NEVER grants clearance
+//     (a quiet app list is not proof that the DB files are closed).
+//
+// The -wal / -shm sidecars are included when present so SQLite can recover a
+// consistent snapshot on restore.
 //
 // Confidentiality: it never prints document filenames or DB contents — only the
-// data-dir path, the archive path, file COUNTS, and sizes. On a tar failure it
-// prints a GENERIC message (tar's stderr, which can name archived files, is
-// suppressed).
+// data-dir path, the archive path, file COUNTS, and sizes. tar stderr is
+// suppressed (it can name archived files) and post-archive reporting is
+// exception-safe (a broken symlink / permission error can NOT leak a document
+// path through a Node stack trace).
 //
 // Usage:
 //   node scripts/backup-local-data.mjs [--data-dir <dir>] [--out <dir>]
-//       [--label <name>] [--allow-running]
+//       [--label <name>] [--i-understand-this-may-create-an-inconsistent-confidential-backup]
 //   npm run backup:local -- --out ~/Desktop
 //
 // Defaults: --data-dir = ~/Library/Application Support/lawbar ; --out = cwd.
 // --label must be filename-safe ([A-Za-z0-9._-]; no path separators).
-// Exit codes: 0 ok · 1 usage/data error · 2 refused (in use / unsafe out dir).
+// Exit codes: 0 ok · 1 usage/data error · 2 refused (open/unverifiable / unsafe out dir).
 
 import { existsSync, statSync, mkdirSync, readdirSync, rmSync, realpathSync } from "node:fs";
 import path from "node:path";
@@ -35,14 +42,17 @@ import { execFileSync } from "node:child_process";
 const DB_FILENAME = "case-box.sqlite";
 const DOCS_DIRNAME = "case-box-documents";
 const LABEL_RE = /^[A-Za-z0-9._-]+$/; // filename-safe; no "/" or ".." traversal
+// Deliberately verbose so it can never be added casually/habitually. It ONLY
+// applies when lsof cannot run (unverifiable state) — it can NEVER bypass a
+// positive open-handle finding.
+const UNSAFE_FLAG = "--i-understand-this-may-create-an-inconsistent-confidential-backup";
 
 function log(msg) { process.stdout.write(msg + "\n"); }
 function warn(msg) { process.stderr.write(msg + "\n"); }
 function errExit(code, msg) { process.stderr.write(msg + "\n"); process.exit(code); }
 
 // A value-taking flag must be followed by a real value (not the end of argv and
-// not another --flag). Prevents `--out --label x` silently eating "--label" and
-// `--data-dir` at the end silently becoming undefined.
+// not another --flag).
 function needVal(argv, i, name) {
   const v = argv[i];
   if (v === undefined || (typeof v === "string" && v.startsWith("--")))
@@ -51,13 +61,13 @@ function needVal(argv, i, name) {
 }
 
 function parseArgs(argv) {
-  const out = { dataDir: null, outDir: null, label: null, allowRunning: false };
+  const out = { dataDir: null, outDir: null, label: null, forceUnverified: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--data-dir") out.dataDir = needVal(argv, ++i, "--data-dir");
     else if (a === "--out") out.outDir = needVal(argv, ++i, "--out");
     else if (a === "--label") out.label = needVal(argv, ++i, "--label");
-    else if (a === "--allow-running") out.allowRunning = true;
+    else if (a === UNSAFE_FLAG) out.forceUnverified = true;
     else errExit(1, `backup: unknown argument ${JSON.stringify(a)}`);
   }
   return out;
@@ -68,11 +78,16 @@ function defaultDataDir() {
   return path.join(os.homedir(), "Library", "Application Support", "lawbar");
 }
 
-// Is any process holding one of the DB files open? Strongest signal for WAL
-// safety. Returns { checked, open }. `lsof <paths>`: exit 0 => a holder exists;
-// exit 1 => none; ENOENT/other => lsof unavailable (checked:false). Paths are
-// absolute (leading "/"), so there is no dash-injection risk without a "--".
+// AUTHORITATIVE open-handle check. Returns { checked, open }: checked=true means
+// lsof ran and its result is trustworthy (exit 0 => a holder exists; exit 1 =>
+// none); checked=false means lsof could not run (unavailable / usage error) and
+// the state is UNPROVEN. Paths are absolute, so no dash-injection risk.
+// LAWBAR_BACKUP_FORCE_LSOF=open|closed|unavailable forces a result (tests).
 function lsofOpen(files) {
+  const forced = process.env.LAWBAR_BACKUP_FORCE_LSOF;
+  if (forced === "open") return { checked: true, open: true };
+  if (forced === "closed") return { checked: true, open: false };
+  if (forced === "unavailable") return { checked: false, open: false };
   try {
     execFileSync("lsof", [...files], { stdio: "ignore" });
     return { checked: true, open: true }; // exit 0 => at least one open handle
@@ -82,8 +97,14 @@ function lsofOpen(files) {
   }
 }
 
-// Fallback signal: is a lawbar app process running? Returns { checked, running }.
+// ADVISORY ONLY. Returns { checked, running }. A "running" result strengthens a
+// refusal; a "not running" result is NEVER clearance (another process could hold
+// the DB open). LAWBAR_BACKUP_FORCE_PGREP=running|clear|unavailable forces (tests).
 function pgrepLawbar() {
+  const forced = process.env.LAWBAR_BACKUP_FORCE_PGREP;
+  if (forced === "running") return { checked: true, running: true };
+  if (forced === "clear") return { checked: true, running: false };
+  if (forced === "unavailable") return { checked: false, running: false };
   try {
     execFileSync("pgrep", ["-f", "lawbar.app/Contents/MacOS/lawbar"], { stdio: "ignore" });
     return { checked: true, running: true };
@@ -93,33 +114,25 @@ function pgrepLawbar() {
   }
 }
 
-// Decide whether the data store is in use. Fail CLOSED: if no check can run,
-// report in-use so the caller refuses (unless --allow-running). LAWBAR_BACKUP_
-// ASSUME_RUNNING=1 forces "in use" (used by the refusal test).
-function detectInUse(dbFiles) {
-  if (process.env.LAWBAR_BACKUP_ASSUME_RUNNING === "1")
-    return { inUse: true, reason: "forced (LAWBAR_BACKUP_ASSUME_RUNNING)" };
-  const l = lsofOpen(dbFiles);
-  if (l.checked)
-    return { inUse: l.open, reason: l.open ? "a process holds the database open" : null };
-  const p = pgrepLawbar();
-  if (p.checked)
-    return { inUse: p.running, reason: p.running ? "the lawbar app is running" : null };
-  return { inUse: true, reason: "cannot verify the app is closed (lsof and pgrep unavailable) — fail-closed" };
-}
-
+// Exception-safe recursive size. NEVER throws and NEVER includes a path/name in
+// any output — unreadable entries (broken symlinks, permission errors) are
+// counted as `skipped` without naming them.
 function dirSize(dir) {
-  let bytes = 0, files = 0;
+  let bytes = 0, files = 0, skipped = 0;
   const walk = (d) => {
-    for (const name of readdirSync(d)) {
+    let names;
+    try { names = readdirSync(d); } catch { skipped += 1; return; }
+    for (const name of names) {
       const p = path.join(d, name);
-      const st = statSync(p);
-      if (st.isDirectory()) walk(p);
-      else { bytes += st.size; files += 1; }
+      try {
+        const st = statSync(p);
+        if (st.isDirectory()) walk(p);
+        else { bytes += st.size; files += 1; }
+      } catch { skipped += 1; } // broken symlink / permission — skip, no name leaked
     }
   };
-  if (existsSync(dir)) walk(dir);
-  return { bytes, files };
+  try { if (existsSync(dir)) walk(dir); } catch { skipped += 1; }
+  return { bytes, files, skipped };
 }
 
 function human(bytes) {
@@ -163,12 +176,21 @@ const docsPath = path.join(dataDir, DOCS_DIRNAME);
 const hasDocs = existsSync(docsPath) && statSync(docsPath).isDirectory();
 if (hasDocs) entries.push(DOCS_DIRNAME);
 
-// --- refuse while the data store is in use (WAL-mode: a live copy can be inconsistent) ---
-const use = detectInUse(dbFiles);
-if (use.inUse && !args.allowRunning)
-  errExit(2, `backup: the case-box data store appears IN USE (${use.reason}). Quit lawbar first, then re-run — the DB is WAL-mode and a live file copy can be inconsistent. (Expert override: --allow-running, only if the app is quiesced.)`);
-if (use.inUse && args.allowRunning)
-  warn(`backup: WARNING --allow-running: proceeding while the data store appears IN USE (${use.reason}). The WAL-mode copy may be INCONSISTENT; only trust this backup if you have otherwise quiesced the DB.`);
+// --- WAL-safety gate (fail-closed) ------------------------------------------
+// 1. Positive open handle -> ALWAYS refuse (not overridable).
+const lsof = lsofOpen(dbFiles);
+if (lsof.checked && lsof.open)
+  errExit(2, `backup: the case-box data store is OPEN — a process is holding the database. Quit lawbar and retry. This is NOT overridable: copying an open WAL-mode DB risks an inconsistent, unusable backup of confidential data.`);
+// 2. lsof could NOT prove the files are closed -> unverifiable -> fail closed.
+if (!lsof.checked) {
+  const pg = pgrepLawbar(); // advisory only
+  if (pg.checked && pg.running)
+    errExit(2, `backup: cannot run the open-handle check (lsof unavailable) and the lawbar app appears to be RUNNING. Refusing. Quit lawbar and retry on a system with lsof.`);
+  if (!args.forceUnverified)
+    errExit(2, `backup: cannot verify the data store is closed (lsof unavailable; no open-handle proof). Refusing (fail-closed). Only if you have DEFINITELY quit lawbar, re-run with ${UNSAFE_FLAG}.`);
+  warn(`backup: WARNING ${UNSAFE_FLAG}: proceeding WITHOUT an open-handle check (lsof unavailable). The WAL-mode copy may be INCONSISTENT; only trust this backup if lawbar is definitely quit.`);
+}
+// else: lsof.checked && !lsof.open -> proven closed -> proceed.
 
 // --- output dir + realpath containment re-check (symlinked --out cannot escape into dataDir) ---
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
@@ -191,22 +213,33 @@ try {
   errExit(1, `backup: failed to create the archive (tar error). No archive was written; check permissions and free space. (Details suppressed to avoid leaking file names.)`);
 }
 
-// --- report (counts + sizes only; NO document filenames / DB contents) ---
-const dbBytes = statSync(dbPath).size;
-const walPath = path.join(dataDir, `${DB_FILENAME}-wal`);
-const walBytes = existsSync(walPath) ? statSync(walPath).size : 0;
-const docs = hasDocs ? dirSize(docsPath) : { bytes: 0, files: 0 };
-const archiveBytes = statSync(archive).size;
-let sha = "(shasum unavailable)";
-try { sha = execFileSync("shasum", ["-a", "256", archive]).toString().split(" ")[0]; } catch { /* optional */ }
+// --- report (counts + sizes only; NO document filenames / DB contents) -------
+// Fully exception-safe: the archive is already written, so a reporting failure
+// must NOT crash with a Node stack (which could name a document path).
+try {
+  const safeStat = (p) => { try { return existsSync(p) ? statSync(p).size : 0; } catch { return -1; } };
+  const dbBytes = safeStat(dbPath);
+  const walBytes = safeStat(path.join(dataDir, `${DB_FILENAME}-wal`));
+  const docs = hasDocs ? dirSize(docsPath) : { bytes: 0, files: 0, skipped: 0 };
+  const archiveBytes = safeStat(archive);
+  let sha = "(shasum unavailable)";
+  try { sha = execFileSync("shasum", ["-a", "256", archive]).toString().split(" ")[0]; } catch { /* optional */ }
 
-log("");
-log("lawbar local backup — OK");
-log(`  data dir : ${dataDir}`);
-log(`  database : ${DB_FILENAME} (${human(dbBytes)})${walBytes ? ` + WAL (${human(walBytes)})` : ""}`);
-log(`  documents: ${docs.files} file(s), ${human(docs.bytes)}`);
-log(`  archive  : ${archive} (${human(archiveBytes)})`);
-log(`  sha256   : ${sha}`);
+  const size = (b) => (b < 0 ? "(size unavailable)" : human(b));
+  const skippedNote = docs.skipped > 0 ? ` (${docs.skipped} unreadable, skipped)` : "";
+  log("");
+  log("lawbar local backup — OK");
+  log(`  data dir : ${dataDir}`);
+  log(`  database : ${DB_FILENAME} (${size(dbBytes)})${walBytes > 0 ? ` + WAL (${size(walBytes)})` : ""}`);
+  log(`  documents: ${docs.files} file(s), ${size(docs.bytes)}${skippedNote}`);
+  log(`  archive  : ${archive} (${size(archiveBytes)})`);
+  log(`  sha256   : ${sha}`);
+} catch {
+  // Never leak a path in a reporting error; the archive is already on disk.
+  log("");
+  log("lawbar local backup — archive written; summary unavailable.");
+  log(`  archive  : ${archive}`);
+}
 log("");
 log("Restore: quit lawbar, back up the current data dir, then extract this archive");
 log(`  into ${dataDir} (see dev-memo/desktop-local-data-backup-restore.md §Restore).`);
