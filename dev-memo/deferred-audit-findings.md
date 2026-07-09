@@ -526,3 +526,15 @@ for a dedicated persistence-hardening WI.
 | Target future WI/backlog | Fold into the R-G19-1 electron-bump WI (which revisits this doc) OR an optional doc-precision WI: reword §7(c) "the one High advisory" → "the surfaced Electron-runtime advisory item (two HIGH)". No functional follow-up. |
 | Safe-to-proceed? | YES — the 2-HIGH count is correct in §4/§9 + the status banner + the gate-19 row; the §7 summary undercount is non-blocking, clears no gate, and the surfaced advisory (R-G19-1) is intact + user-owned at gate 4. |
 | Status | **open** — deferred/accepted documentary residual; posture-doc §7 wording unchanged (merged doc). |
+
+## batch-audit (70c6600..ec270ef) — create-matter local party enum labels drift (cleanup)
+
+| Field | Value |
+|---|---|
+| Finding ID | BATCH-70c6600-L1 |
+| Severity | Low |
+| Source | Layer-B batch audit `audit-mrctjfia-qel222` (BATCH-PASS C0 H0 M0 L1); study `dev-memo/study/2026-07-09-batch-audit-235.md`. |
+| Reason for deferral | Cleanup-only drift, NO active defect. The create-matter party-enum fix (`renderer/screens/createMatter.ts`) introduced local hardcoded party role/kind labels+values for the new `<select>`s. Functionally correct (schema-valid DTOs, covered by tests), but the display labels sat outside the i18n/catalog + labels-facade pattern — drift pressure if enum/labels change. Not a correctness/scope/security defect. |
+| Target future WI/backlog | `WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00` (the very next commit) — sources party display labels from the catalog via `partyRoleLabel`/`partyKindLabel` in `renderer/i18n/labels.ts`; the enum VALUES stay English (contract-aligned). |
+| Safe-to-proceed? | YES — the already-committed bug fix is correct; the label-sourcing burn-down lands immediately in the following WI. |
+| Status | **closed** — superseded by WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00 (party labels now catalog-sourced via the labels facade). |

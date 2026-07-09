@@ -7,6 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import {
   VALID_ULID,
   MockDoc,
@@ -109,7 +110,7 @@ test("add fact: success forwards DTO and refreshes the list in place", async () 
   addBtn.dispatchEvent({ type: "click" });
   await flush();
   assert.deepEqual(createDto, { matterId: VALID_ULID, statement_text: "Newly added.", purpose: "other" });
-  assert.equal(collectText(findByTestId(root, "view-facts-add-status")), "Added.");
+  assert.equal(collectText(findByTestId(root, "view-facts-add-status")), CATALOG["fact.added"]);
   assert.equal(listCalls, 2, "list refreshed in place");
   const statements = findAllByTestId(root, "view-facts-statement").map(collectText);
   assert.deepEqual(statements, ["Newly added."]);
@@ -208,7 +209,7 @@ test("add fact: createFact rejection → generic inline alert, button re-enabled
   const err = findByTestId(root, "view-facts-add-error");
   assert.ok(err !== null);
   assert.equal(err.getAttribute("role"), "alert");
-  assert.equal(collectText(err), "Could not add the fact. Please try again.");
+  assert.equal(collectText(err), CATALOG["fact.error.addFailed"]);
   assert.equal(addBtn.hasAttribute("disabled"), false, "button re-enabled in finally");
 });
 

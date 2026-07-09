@@ -155,7 +155,7 @@ test("case-box UI packaged flow: list → create → view → archive → chain 
     await win.locator("button.list-new-btn").click();
     await win.waitForSelector('[data-test-id="create-form"]');
     const newTitle = await win.locator("h1").first().textContent();
-    assert.equal(newTitle, "New matter");
+    assert.equal(newTitle, "新建案件");
 
     // 3) Fill form.
     await win.fill("#cm-name", "matter-fixture-A");
@@ -179,15 +179,15 @@ test("case-box UI packaged flow: list → create → view → archive → chain 
 
     // Detail fields contain the matter type label.
     const fieldsText = await win.locator('[data-test-id="view-fields"]').textContent();
-    assert.match(fieldsText, /Litigation matter/);
+    assert.match(fieldsText, /诉讼/);
     assert.match(fieldsText, /test-jx/);
-    assert.match(fieldsText, /Normal/);
+    assert.match(fieldsText, /普通/);
 
     // 6) Click Archive… → archive form.
     await win.locator('[data-test-id="view-archive"]').click();
     await win.waitForSelector('[data-test-id="archive-form"]');
     const archiveTitle = await win.locator('[data-test-id="archive-title"]').textContent();
-    assert.match(archiveTitle, /Archive matter — matter-fixture-A/);
+    assert.match(archiveTitle, /归档案件 — matter-fixture-A/);
 
     // 7) Fill reason + submit.
     await win.fill("#am-reason", "synthetic-archive-reason-fixture");
@@ -198,7 +198,7 @@ test("case-box UI packaged flow: list → create → view → archive → chain 
     const fieldsAfterArchive = await win
       .locator('[data-test-id="view-fields"]')
       .textContent();
-    assert.match(fieldsAfterArchive, /Reason recorded in audit log\./);
+    assert.match(fieldsAfterArchive, /原因记录于审计日志。/);
     // Archive button absent in archived state.
     const archiveBtnCount = await win.locator('[data-test-id="view-archive"]').count();
     assert.equal(archiveBtnCount, 0);
@@ -218,6 +218,25 @@ test("case-box UI packaged flow: list → create → view → archive → chain 
       Number(countText) >= 1,
       `expected chain count >= 1; got ${countText}`,
     );
+
+    // 9b) Settings entry (WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00): the 设置 sidebar
+    // link routes to #/settings and the screen renders the read-only app:info
+    // bridge (version from app.getVersion() over ipcMain.handle("app:info")).
+    await win.locator('a.sidebar-link[data-nav="settings"]').click();
+    await win.waitForSelector('[data-test-id="settings-title"]', { timeout: 5000 });
+    await win.waitForSelector('[data-test-id="settings-section-app"]', { timeout: 5000 });
+    const settingsTitle = await win
+      .locator('[data-test-id="settings-title"]')
+      .textContent();
+    assert.equal(settingsTitle, "设置");
+    const settingsBody = await win
+      .locator('[data-test-id="settings-body"]')
+      .textContent();
+    // Version resolves through the app:info IPC → preload → renderer boundary.
+    assert.match(settingsBody, /0\.1\.0/);
+    // zh-CN privacy + FileVault copy present (deterministic across machines).
+    assert.match(settingsBody, /不收集遥测数据/);
+    assert.match(settingsBody, /FileVault/);
   } finally {
     await app.close();
   }

@@ -44,8 +44,8 @@ function createWindow(): void {
       // sandbox: false is required for ESM preload in this WI.
       // Security boundary is preserved by contextIsolation + nodeIntegration:false +
       // the narrow contextBridge surface in preload.mts (currently
-      // window.lawbar.theme + window.lawbar.caseBox; each new surface is
-      // a separately authorized + audited WI).
+      // window.lawbar.theme + window.lawbar.caseBox + window.lawbar.appInfo
+      // [read-only]; each new surface is a separately authorized + audited WI).
       // A future WI may switch to a CommonJS-compiled preload + sandbox: true.
       sandbox: false,
       contextIsolation: true,
@@ -83,6 +83,22 @@ nativeTheme.on("updated", () => {
   mainWindow.webContents.send("theme:system-change", resolved, preference.mode);
 });
 
+// App-info bridge state (WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00). The FileVault
+// state and launch mode are captured ONCE at app.whenReady() below and cached
+// here; app:info NEVER re-spawns fdesetup (review-plan M1). version + dataDir
+// are cheap synchronous Electron calls. Read-only; no writes.
+let cachedFileVaultState: "on" | "off" | "unknown" | "non-macos" = "unknown";
+let cachedLaunchMode: "dev" | "production" = "production";
+
+ipcMain.handle("app:info", () => ({
+  version: app.getVersion(),
+  mode: cachedLaunchMode,
+  dataDir: app.getPath("userData"),
+  fileVaultState: cachedFileVaultState,
+  offline: true,
+  telemetry: false,
+}));
+
 // Tier 1 FileVault enforcement (per dev-memo/plan-encryption-at-rest-00.md
 // §4.1). Runs at app launch BEFORE the first BrowserWindow opens. In
 // production mode (default; LAWBAR_MODE unset or != "dev"), a missing or
@@ -93,6 +109,8 @@ void app.whenReady().then(async () => {
   const mode = resolveMode(process.env);
   const probe = await probeFileVault();
   const action = decideAction(probe.state, mode);
+  cachedLaunchMode = mode;
+  cachedFileVaultState = probe.state;
   if (action === "block") {
     const detail =
       `lawbar requires FileVault to be enabled before launch in production mode.\n\n` +

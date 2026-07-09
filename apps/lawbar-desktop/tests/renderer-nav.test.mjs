@@ -13,6 +13,9 @@ test("activeNavKey: list route → 'list'", () => {
 test("activeNavKey: new route → 'new'", () => {
   assert.equal(activeNavKey("new"), "new");
 });
+test("activeNavKey: settings route → 'settings'", () => {
+  assert.equal(activeNavKey("settings"), "settings");
+});
 test("activeNavKey: detail/archive/not-found → null (no exact sidebar page)", () => {
   assert.equal(activeNavKey("view"), null);
   assert.equal(activeNavKey("archive"), null);

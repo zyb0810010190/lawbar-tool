@@ -153,4 +153,23 @@ const caseBoxApi: CaseBoxApi = {
   exportT3Docx: (dto) => ipcRenderer.invoke("casebox:t3:exportDocx", dto),
 };
 
-contextBridge.exposeInMainWorld("lawbar", { theme: themeApi, caseBox: caseBoxApi });
+// Read-only app-info bridge (WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00). Additive; no
+// existing surface changed. Surfaces the app's own version / launch mode / data
+// directory / launch-time FileVault state to the Settings screen. No writes, no
+// PII beyond the app's own userData path, no raw probe error/output crosses.
+interface AppInfoApi {
+  get(): Promise<{
+    version: string;
+    mode: "dev" | "production";
+    dataDir: string;
+    fileVaultState: "on" | "off" | "unknown" | "non-macos";
+    offline: boolean;
+    telemetry: boolean;
+  }>;
+}
+
+const appInfoApi: AppInfoApi = {
+  get: () => ipcRenderer.invoke("app:info"),
+};
+
+contextBridge.exposeInMainWorld("lawbar", { theme: themeApi, caseBox: caseBoxApi, appInfo: appInfoApi });

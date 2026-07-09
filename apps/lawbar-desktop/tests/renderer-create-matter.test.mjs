@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountCreateMatter } from "../dist/renderer/screens/createMatter.js";
 import { validateMatter } from "case-box-contract";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 
 const NEW_ULID = "01jznewmatter0123456789abc";
 
@@ -206,7 +207,7 @@ test("mount: renders the New matter title + form scaffold", () => {
   const api = makeStubApi();
   mountCreateMatter(root, { api, navigate: () => {}, doc });
   const h1 = findOne(root, (n) => n.tagName === "H1");
-  assert.equal(collectText(h1), "New matter");
+  assert.equal(collectText(h1), CATALOG["matterCreate.title"]);
   const form = findByTestId(root, "create-form");
   assert.ok(form !== null);
   assert.equal(form.tagName, "FORM");
@@ -336,7 +337,7 @@ test("submit: empty Name blocks the IPC call + shows inline error + focuses Name
   assert.equal(called, false);
   const err = findByTestId(root, "create-form-error");
   assert.ok(err !== null);
-  assert.match(collectText(err), /Name is required/);
+  assert.equal(collectText(err), CATALOG["matterCreate.error.nameRequired"]);
   assert.equal(doc._focused, findInputById(root, "cm-name"));
 });
 
@@ -359,7 +360,7 @@ test("submit: missing matter_type radio blocks submit", async () => {
   await new Promise((r) => setImmediate(r));
   assert.equal(called, false);
   const err = findByTestId(root, "create-form-error");
-  assert.match(collectText(err), /Matter type is required/);
+  assert.equal(collectText(err), CATALOG["matterCreate.error.matterTypeRequired"]);
 });
 
 test("submit: zero valid parties blocks submit (all blank)", async () => {
@@ -382,7 +383,7 @@ test("submit: zero valid parties blocks submit (all blank)", async () => {
   await new Promise((r) => setImmediate(r));
   assert.equal(called, false);
   const err = findByTestId(root, "create-form-error");
-  assert.match(collectText(err), /At least one party with role, display name, and party kind is required/);
+  assert.equal(collectText(err), CATALOG["matterCreate.error.partiesRequired"]);
 });
 
 test("submit: API error envelope renders inline + form state preserved", async () => {
@@ -636,7 +637,7 @@ test("submit: unselected party role blocks persistence with a clear message", as
   await new Promise((r) => setImmediate(r));
   assert.equal(called, false, "persistence must not be called with an invalid party");
   const err = findByTestId(root, "create-form-error");
-  assert.match(collectText(err), /At least one party with role, display name, and party kind is required/);
+  assert.equal(collectText(err), CATALOG["matterCreate.error.partiesRequired"]);
   assert.doesNotMatch(collectText(err), /schema violation/);
 });
 

@@ -63,7 +63,15 @@ test("parseHash: archive with malformed id → not-found", () => {
 });
 
 test("parseHash: unknown top-level → not-found", () => {
-  assert.deepEqual(parseHash("#/settings"), { name: "not-found", params: {} });
+  assert.deepEqual(parseHash("#/nope"), { name: "not-found", params: {} });
+});
+
+test("parseHash: '#/settings' → settings", () => {
+  assert.deepEqual(parseHash("#/settings"), { name: "settings", params: {} });
+});
+
+test("parseHash: '#settings' (no slash) → settings", () => {
+  assert.deepEqual(parseHash("#settings"), { name: "settings", params: {} });
 });
 
 test("parseHash: extra segment after archive → not-found", () => {
@@ -79,6 +87,10 @@ test("buildHash: list → '#/matters'", () => {
 
 test("buildHash: new → '#/matters/new'", () => {
   assert.equal(buildHash("new"), "#/matters/new");
+});
+
+test("buildHash: settings → '#/settings'", () => {
+  assert.equal(buildHash("settings"), "#/settings");
 });
 
 test("buildHash: view → '#/matters/:id'", () => {

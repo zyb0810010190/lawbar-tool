@@ -4,6 +4,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mountArchiveMatter } from "../dist/renderer/screens/archiveMatter.js";
+// zh-CN migration: assert user-facing copy against the live catalog / resolver so the
+// tests stay wording-robust (they follow the catalog rather than hard-coding literals).
+import { t } from "../dist/renderer/i18n/t.js";
+
+// Reason length bounds mirrored from archiveMatter.ts (REASON_MIN/MAX_LENGTH), used to
+// resolve the parameterized zh-CN validation copy exactly as the screen renders it.
+const REASON_MIN = 10;
+const REASON_MAX = 500;
 
 const VALID_ULID = "01jzabcdef0123456789ghjkmn";
 
@@ -215,7 +223,7 @@ test("getMatter null: not-found copy + back-to-list", async () => {
   await mountArchiveMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
   const nf = findByTestId(root, "archive-not-found");
   assert.ok(nf !== null);
-  assert.match(collectText(nf), /link may be out of date/);
+  assert.match(collectText(nf), new RegExp(t("matterArchive.staleLinkBody")));
   assert.equal(doc._focused, findByTestId(root, "archive-back-link-list"));
 });
 
@@ -242,7 +250,7 @@ test("active matter: confirmation form rendered with matter name in title + reas
   const api = makeStubApi();
   await mountArchiveMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
   const title = findByTestId(root, "archive-title");
-  assert.equal(collectText(title), "Archive matter — matter-fixture-A");
+  assert.equal(collectText(title), t("matterArchive.title", { name: "matter-fixture-A" }));
   const form = findByTestId(root, "archive-form");
   assert.ok(form !== null);
   const ta = findOne(root, (n) => n.getAttribute("id") === "am-reason");
@@ -272,7 +280,7 @@ test("submit: empty reason blocks the archive IPC + shows inline error + focuses
   assert.equal(archCalls, 0);
   const err = findByTestId(root, "archive-form-error");
   assert.equal(err.hasAttribute("hidden"), false);
-  assert.match(collectText(err), /at least 10 characters/);
+  assert.equal(collectText(err), t("matterArchive.error.reasonTooShort", { min: REASON_MIN }));
   const ta = findOne(root, (n) => n.getAttribute("id") === "am-reason");
   assert.equal(doc._focused, ta);
 });
@@ -291,7 +299,7 @@ test("submit: reason shorter than 10 chars blocks", async () => {
   await new Promise((r) => setImmediate(r));
   assert.equal(archCalls, 0);
   const err = findByTestId(root, "archive-form-error");
-  assert.match(collectText(err), /at least 10 characters/);
+  assert.equal(collectText(err), t("matterArchive.error.reasonTooShort", { min: REASON_MIN }));
 });
 
 test("submit: reason longer than 500 chars blocks", async () => {
@@ -308,7 +316,7 @@ test("submit: reason longer than 500 chars blocks", async () => {
   await new Promise((r) => setImmediate(r));
   assert.equal(archCalls, 0);
   const err = findByTestId(root, "archive-form-error");
-  assert.match(collectText(err), /500 characters or fewer/);
+  assert.equal(collectText(err), t("matterArchive.error.reasonTooLong", { max: REASON_MAX }));
 });
 
 test("submit: valid reason calls api.archiveMatter with stripped DTO + navigates to view", async () => {
@@ -374,7 +382,7 @@ test("HTML-shaped matter name in title renders as text (no parsing)", async () =
   assert.ok(title.children[0] instanceof MockText);
   assert.equal(
     title.children[0].textContent,
-    "Archive matter — <script>alert(1)</script> matter-fixture-evil",
+    t("matterArchive.title", { name: "<script>alert(1)</script> matter-fixture-evil" }),
   );
 });
 

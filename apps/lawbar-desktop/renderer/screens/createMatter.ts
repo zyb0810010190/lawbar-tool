@@ -14,6 +14,8 @@ import type {
 } from "../types.js";
 import { announce, el, field, focusEl, setText } from "../dom.js";
 import { buildHash } from "../router.js";
+import { t } from "../i18n/t.js";
+import { partyKindLabel, partyRoleLabel } from "../i18n/labels.js";
 
 export interface CreateMatterDeps {
   readonly api: CaseBoxApi;
@@ -50,17 +52,17 @@ const NAME_MAX_LENGTH = 200;
 // let lawyers type natural words ("plaintiff", "company") that the persistence
 // schema rejects, surfacing as a generic "persistence schema violation" banner.
 // Rendering the enums as <select> options makes an out-of-enum value impossible.
-const PARTY_ROLE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: "client", label: "Client" },
-  { value: "opposing", label: "Opposing" },
-  { value: "third_party", label: "Third party" },
+const PARTY_ROLE_VALUES: ReadonlyArray<string> = [
+  "client",
+  "opposing",
+  "third_party",
 ];
-const PARTY_KIND_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: "individual", label: "Individual" },
-  { value: "organization", label: "Organization" },
-  { value: "government", label: "Government" },
-  { value: "court", label: "Court" },
-  { value: "other", label: "Other" },
+const PARTY_KIND_VALUES: ReadonlyArray<string> = [
+  "individual",
+  "organization",
+  "government",
+  "court",
+  "other",
 ];
 
 export function mountCreateMatter(
@@ -85,7 +87,7 @@ export function mountCreateMatter(
   };
 
   // Header.
-  const title = el("h1", {}, ["New matter"], doc);
+  const title = el("h1", {}, [t("matterCreate.title")], doc);
 
   // Form-level error region (above the form).
   const formError = el(
@@ -149,14 +151,14 @@ export function mountCreateMatter(
     "fieldset",
     { class: "fieldset matter-type-fieldset" },
     [
-      el("legend", {}, ["Matter type *"], doc),
+      el("legend", {}, [t("matterCreate.legend.matterType") + " *"], doc),
       el(
         "label",
         {},
         [
           litRadio,
           " ",
-          el("span", {}, ["Litigation"], doc),
+          el("span", {}, [t("matterType.litigation")], doc),
         ],
         doc,
       ),
@@ -166,7 +168,7 @@ export function mountCreateMatter(
         [
           advRadio,
           " ",
-          el("span", {}, ["Counsel"], doc),
+          el("span", {}, [t("matterType.advisory")], doc),
         ],
         doc,
       ),
@@ -195,7 +197,7 @@ export function mountCreateMatter(
     {
       class: "parties-section",
       "data-test-id": "parties-section",
-      "aria-label": "Parties",
+      "aria-label": t("matterCreate.parties.aria"),
     },
     [],
     doc,
@@ -204,7 +206,7 @@ export function mountCreateMatter(
   function renderPartiesSection(): void {
     setText(partiesSection, "");
     partiesSection.appendChild(
-      el("h2", { class: "parties-heading" }, ["Parties *"], doc),
+      el("h2", { class: "parties-heading" }, [t("matterCreate.parties.heading") + " *"], doc),
     );
     state.parties.forEach((p, idx) => {
       const row = el(
@@ -218,9 +220,15 @@ export function mountCreateMatter(
         doc,
       );
 
-      const roleInput = makeEnumSelect(p.role, PARTY_ROLE_OPTIONS, doc, (v) => {
-        p.role = v;
-      });
+      const roleInput = makeEnumSelect(
+        p.role,
+        PARTY_ROLE_VALUES,
+        partyRoleLabel,
+        doc,
+        (v) => {
+          p.role = v;
+        },
+      );
 
       const displayNameInput = el(
         "input",
@@ -235,7 +243,8 @@ export function mountCreateMatter(
 
       const partyKindInput = makeEnumSelect(
         p.party_kind,
-        PARTY_KIND_OPTIONS,
+        PARTY_KIND_VALUES,
+        partyKindLabel,
         doc,
         (v) => {
           p.party_kind = v;
@@ -249,24 +258,24 @@ export function mountCreateMatter(
       });
 
       row.appendChild(
-        field({ id: `cm-party-${p.key}-role`, label: "Role", required: true }, roleInput, doc),
+        field({ id: `cm-party-${p.key}-role`, label: t("matterCreate.party.role"), required: true }, roleInput, doc),
       );
       row.appendChild(
         field(
-          { id: `cm-party-${p.key}-display-name`, label: "Display name", required: true },
+          { id: `cm-party-${p.key}-display-name`, label: t("matterCreate.party.displayName"), required: true },
           displayNameInput,
           doc,
         ),
       );
       row.appendChild(
         field(
-          { id: `cm-party-${p.key}-party-kind`, label: "Party kind", required: true },
+          { id: `cm-party-${p.key}-party-kind`, label: t("matterCreate.party.kind"), required: true },
           partyKindInput,
           doc,
         ),
       );
       row.appendChild(
-        field({ id: `cm-party-${p.key}-notes`, label: "Notes" }, notesTextarea, doc),
+        field({ id: `cm-party-${p.key}-notes`, label: t("matterCreate.party.notes") }, notesTextarea, doc),
       );
 
       // Remove button: NOT on the first row.
@@ -279,7 +288,7 @@ export function mountCreateMatter(
             "data-test-id": "party-remove",
             "data-party-key": String(p.key),
           },
-          ["Remove party"],
+          [t("matterCreate.party.remove")],
           doc,
         );
         removeBtn.addEventListener("click", () => {
@@ -299,7 +308,7 @@ export function mountCreateMatter(
         class: "button button--secondary party-add-btn",
         "data-test-id": "party-add",
       },
-      ["Add party"],
+      [t("matterCreate.party.add")],
       doc,
     );
     addBtn.addEventListener("click", () => {
@@ -357,20 +366,20 @@ export function mountCreateMatter(
     "fieldset",
     { class: "fieldset confidentiality-fieldset" },
     [
-      el("legend", {}, ["Confidentiality *"], doc),
+      el("legend", {}, [t("matterCreate.legend.confidentiality") + " *"], doc),
       el(
         "label",
         {},
-        [normalRadio, " ", el("span", {}, ["Normal"], doc)],
+        [normalRadio, " ", el("span", {}, [t("confidentiality.normal")], doc)],
         doc,
       ),
       el(
         "label",
         {},
-        [heightenedRadio, " ", el("span", {}, ["Heightened"], doc)],
+        [heightenedRadio, " ", el("span", {}, [t("confidentiality.heightened")], doc)],
         doc,
       ),
-      el("label", {}, [sealedRadio, " ", el("span", {}, ["Sealed"], doc)], doc),
+      el("label", {}, [sealedRadio, " ", el("span", {}, [t("confidentiality.sealed")], doc)], doc),
     ],
     doc,
   );
@@ -378,7 +387,7 @@ export function mountCreateMatter(
   // Optional free-text fields. Each binds to state via `input` listener.
   const retainerScope = makeOptionalTextarea(
     "cm-retainer-scope",
-    "Retainer scope",
+    t("matterCreate.field.retainerScope"),
     (v) => {
       state.retainer_scope = v;
     },
@@ -386,7 +395,7 @@ export function mountCreateMatter(
   );
   const caseTypeText = makeOptionalInput(
     "cm-case-type-text",
-    "Case type",
+    t("matterCreate.field.caseType"),
     (v) => {
       state.case_type_text = v;
     },
@@ -394,7 +403,7 @@ export function mountCreateMatter(
   );
   const caseProgressText = makeOptionalTextarea(
     "cm-case-progress-text",
-    "Case progress",
+    t("matterCreate.field.caseProgress"),
     (v) => {
       state.case_progress_text = v;
     },
@@ -402,7 +411,7 @@ export function mountCreateMatter(
   );
   const courtContactText = makeOptionalInput(
     "cm-court-contact-text",
-    "Court contact",
+    t("matterCreate.field.courtContact"),
     (v) => {
       state.court_contact_text = v;
     },
@@ -410,7 +419,7 @@ export function mountCreateMatter(
   );
   const contentionSummaryText = makeOptionalTextarea(
     "cm-contention-summary-text",
-    "Contention summary",
+    t("matterCreate.field.contentionSummary"),
     (v) => {
       state.contention_summary_text = v;
     },
@@ -424,7 +433,7 @@ export function mountCreateMatter(
       class: "button button--primary create-submit-btn",
       "data-test-id": "create-submit",
     },
-    ["Create matter"],
+    [t("matterCreate.submit")],
     doc,
   );
   const cancelBtn = el(
@@ -434,7 +443,7 @@ export function mountCreateMatter(
       class: "button create-cancel-btn",
       "data-test-id": "create-cancel",
     },
-    ["Cancel"],
+    [t("matterCreate.cancel")],
     doc,
   );
   cancelBtn.addEventListener("click", () => {
@@ -448,19 +457,19 @@ export function mountCreateMatter(
     const trimmedJx = state.jurisdiction_value.trim();
     const issues: Array<{ message: string; focusOn: HTMLElement | null }> = [];
     if (trimmedName === "") {
-      issues.push({ message: "Name is required.", focusOn: nameInput });
+      issues.push({ message: t("matterCreate.error.nameRequired"), focusOn: nameInput });
     } else if (trimmedName.length > NAME_MAX_LENGTH) {
       issues.push({
-        message: `Name must be ${NAME_MAX_LENGTH} characters or fewer.`,
+        message: t("matterCreate.error.nameTooLong", { max: NAME_MAX_LENGTH }),
         focusOn: nameInput,
       });
     }
     if (state.matter_type === null) {
-      issues.push({ message: "Matter type is required.", focusOn: litRadio });
+      issues.push({ message: t("matterCreate.error.matterTypeRequired"), focusOn: litRadio });
     }
     if (trimmedJx === "") {
       issues.push({
-        message: "Jurisdiction value is required.",
+        message: t("matterCreate.error.jurisdictionRequired"),
         focusOn: jurisdictionValueInput,
       });
     }
@@ -476,14 +485,13 @@ export function mountCreateMatter(
       );
     if (validParties.length < 1) {
       issues.push({
-        message:
-          "At least one party with role, display name, and party kind is required.",
+        message: t("matterCreate.error.partiesRequired"),
         focusOn: null,
       });
     }
     if (state.confidentiality_class === null) {
       issues.push({
-        message: "Confidentiality is required.",
+        message: t("matterCreate.error.confidentialityRequired"),
         focusOn: normalRadio,
       });
     }
@@ -495,7 +503,7 @@ export function mountCreateMatter(
       return;
     }
 
-    announce(statusRegion, "Creating…");
+    announce(statusRegion, t("matterCreate.status.creating"));
 
     // Build DTO. Strip empty optional strings (don't send "" — schema treats
     // absence as the default).
@@ -539,11 +547,11 @@ export function mountCreateMatter(
     if (!env.ok) {
       formError.removeAttribute("hidden");
       setText(formError, env.error.message);
-      announce(statusRegion, `Error: ${env.error.message}`);
+      announce(statusRegion, t("matterCreate.status.error", { message: env.error.message }));
       return;
     }
     const value = env.value as { id: string };
-    announce(statusRegion, "Created");
+    announce(statusRegion, t("matterCreate.status.created"));
     deps.navigate(buildHash("view", { id: value.id }));
   }
 
@@ -561,15 +569,15 @@ export function mountCreateMatter(
       "data-test-id": "create-form",
     },
     [
-      field({ id: "cm-name", label: "Name", required: true }, nameInput, doc),
+      field({ id: "cm-name", label: t("matterCreate.field.name"), required: true }, nameInput, doc),
       matterTypeFieldset,
       field(
-        { id: "cm-jurisdiction-value", label: "Jurisdiction", required: true },
+        { id: "cm-jurisdiction-value", label: t("matterCreate.field.jurisdiction"), required: true },
         jurisdictionValueInput,
         doc,
       ),
       field(
-        { id: "cm-jurisdiction-locked", label: "Jurisdiction locked" },
+        { id: "cm-jurisdiction-locked", label: t("matterCreate.field.jurisdictionLocked") },
         jurisdictionLockedCheckbox,
         doc,
       ),
@@ -612,21 +620,22 @@ export function mountCreateMatter(
 // row is left unselected), and every real option is a schema-valid enum member.
 function makeEnumSelect(
   current: string,
-  options: ReadonlyArray<{ value: string; label: string }>,
+  values: ReadonlyArray<string>,
+  labelFor: (value: string) => string,
   doc: Document,
   setter: (v: string) => void,
 ): HTMLElement {
   const placeholder = el(
     "option",
     { value: "", ...(current === "" ? { selected: true } : {}) },
-    ["— Select —"],
+    [t("matterCreate.select.placeholder")],
     doc,
   );
-  const optionEls = options.map((o) =>
+  const optionEls = values.map((v) =>
     el(
       "option",
-      { value: o.value, ...(current === o.value ? { selected: true } : {}) },
-      [o.label],
+      { value: v, ...(current === v ? { selected: true } : {}) },
+      [labelFor(v)],
       doc,
     ),
   );

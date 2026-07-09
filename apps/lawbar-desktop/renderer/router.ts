@@ -6,9 +6,16 @@
 //   #/matters/new              → "new"
 //   #/matters/:id              → "view"   (id must match ULID regex)
 //   #/matters/:id/archive      → "archive" (id must match ULID regex)
+//   #/settings                 → "settings"
 //   anything else              → "not-found"
 
-export type RouteName = "list" | "new" | "view" | "archive" | "not-found";
+export type RouteName =
+  | "list"
+  | "new"
+  | "view"
+  | "archive"
+  | "settings"
+  | "not-found";
 
 export interface ParsedRoute {
   readonly name: RouteName;
@@ -31,6 +38,9 @@ export function parseHash(hash: string): ParsedRoute {
   }
   if (path === "matters/new") {
     return { name: "new", params: {} };
+  }
+  if (path === "settings") {
+    return { name: "settings", params: {} };
   }
 
   // matters/:id  OR  matters/:id/archive
@@ -59,6 +69,8 @@ export function buildHash(name: RouteName, params: { id?: string } = {}): string
       return "#/matters";
     case "new":
       return "#/matters/new";
+    case "settings":
+      return "#/settings";
     case "view":
       if (params.id === undefined) throw new Error("buildHash(view): id required");
       return `#/matters/${params.id}`;

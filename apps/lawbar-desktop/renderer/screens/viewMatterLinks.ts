@@ -26,6 +26,7 @@ import type {
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime } from "../format.js";
 import { t } from "../i18n/t.js";
+import { linkSourceTypeLabel } from "../i18n/labels.js";
 
 // The 5 source kinds (case_box_links CHECK enum). The select offers exactly these;
 // the server re-validates. Rendered as the raw enum value (a loop variable, not a
@@ -166,7 +167,7 @@ function renderCreateLinkControl(
       "aria-label": t("links.create.sourceTypeLabel"),
     },
     LINK_SOURCE_TYPES.map((s) =>
-      el("option", s === "evidence" ? { value: s, selected: "" } : { value: s }, [s], doc),
+      el("option", s === "evidence" ? { value: s, selected: "" } : { value: s }, [linkSourceTypeLabel(s)], doc),
     ),
     doc,
   );
@@ -271,7 +272,7 @@ function renderLinkRow(
   const ident = el(
     "div",
     { class: "view-links-ident", "data-test-id": "view-links-ident" },
-    [`${link.source_type} · ${link.source_id} → ${link.anchor_id}`],
+    [`${linkSourceTypeLabel(link.source_type)} · ${link.source_id} → ${link.anchor_id}`],
     doc,
   );
 
@@ -624,7 +625,7 @@ function renderExportCitation(doc: Document, c: RendererExportCitation): HTMLEle
       doc,
     ),
     " ",
-    el("span", { class: "view-links-export-source" }, [`${c.sourceType} · ${c.sourceId}`], doc),
+    el("span", { class: "view-links-export-source" }, [`${linkSourceTypeLabel(c.sourceType)} · ${c.sourceId}`], doc),
   ];
   // A clean citation (exportFlag null) carries the 卷X页Y citation text.
   if (c.exportFlag === null && c.citation !== null) {

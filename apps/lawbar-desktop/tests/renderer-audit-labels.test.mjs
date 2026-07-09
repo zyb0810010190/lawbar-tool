@@ -8,6 +8,10 @@ import assert from "node:assert/strict";
 import { CASE_BOX_AUDIT_EVENT_KINDS } from "case-box-contract";
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
 import { auditEventLabel, EVENT_KIND_LABELS } from "../dist/renderer/screens/auditEventLabels.js";
+// zh-CN migration: the rendered audit row resolves its label via the eventKind.* catalog
+// (renderer/i18n/labels.ts eventKindLabel), so the integration assertion below derives its
+// expected text from the live catalog rather than a hard-coded literal.
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import {
   MockDoc,
   makeStubApi,
@@ -73,7 +77,10 @@ test("audit row: a known event_kind renders the humanized label in view-audit-ac
     auditEvent({ action: "update", entity_type: "deadline", event_kind: "DEADLINE_MISSED" }),
   ]);
   const labels = findAllByTestId(root, "view-audit-action").map(collectText);
-  assert.deepEqual(labels, ["Deadline marked met", "Deadline marked missed"]);
+  assert.deepEqual(labels, [
+    CATALOG["eventKind.DEADLINE_MET"],
+    CATALOG["eventKind.DEADLINE_MISSED"],
+  ]);
 });
 
 test("audit row: a legacy/null event_kind falls back to the raw action (action·entity_type)", async () => {

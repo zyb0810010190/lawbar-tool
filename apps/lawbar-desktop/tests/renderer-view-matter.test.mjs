@@ -225,7 +225,8 @@ test("parties: each party row renders role / display_name / party_kind + optiona
   const parties = findByTestId(root, "view-parties");
   const items = findAll(parties, (n) => n.tagName === "LI");
   assert.equal(items.length, 2);
-  assert.match(collectText(items[0]), /client — syn-A \(individual\)/);
+  assert.match(collectText(items[0]), /委托人 — syn-A \(个人\)/);
+  // "counsel" and "firm" are not migrated enum values → they pass through raw (English).
   assert.match(collectText(items[1]), /counsel — syn-B \(firm\)/);
   // Notes appear on row 2 only.
   const notes = findAll(items[1], (n) => n.getAttribute("class") === "party-notes");
@@ -291,7 +292,7 @@ test("HTML-shaped matter name + party display_name render as text only", async (
   const parties = findByTestId(root, "view-parties");
   assert.match(
     collectText(parties),
-    /<script>x<\/script> — <img src=x onerror=evil> \(individual\)/,
+    /<script>x<\/script> — <img src=x onerror=evil> \(个人\)/,
   );
 });
 
@@ -327,7 +328,7 @@ test("chain head: count=0 renders 'No audit events recorded yet.'", async () => 
   await new Promise((r) => setImmediate(r));
   const empty = findByTestId(root, "view-chain-empty");
   assert.ok(empty !== null);
-  assert.equal(collectText(empty), "No audit events recorded yet.");
+  assert.equal(collectText(empty), "暂无审计事件记录。");
 });
 
 test("chain head: present hash renders truncated form via §6.5 rule + full hash inside <details>", async () => {
@@ -374,7 +375,7 @@ test("chain head: clipboard unavailable in Node → copy button disabled with to
   const copy = findByTestId(root, "view-chain-copy");
   assert.ok(copy !== null);
   assert.equal(copy.hasAttribute("disabled"), true);
-  assert.equal(copy.getAttribute("title"), "Copy unavailable in this context.");
+  assert.equal(copy.getAttribute("title"), "当前环境不支持复制。");
 });
 
 test("chain head: envelope error renders inline with role=alert", async () => {
@@ -512,7 +513,7 @@ test("audit events: disclosure renders ordered event list (count>0)", async () =
   assert.deepEqual(actions, ["matter.created", "matter.archived"]);
   // reason shown only when present
   const reasons = findAllByTestId(root, "view-audit-reason").map(collectText);
-  assert.deepEqual(reasons, ["reason: closed"]);
+  assert.deepEqual(reasons, ["原因：closed"]);
   // no "Show more" when next_cursor is null
   assert.equal(findByTestId(root, "view-audit-more"), null);
 });
@@ -648,7 +649,7 @@ test("documents: empty state shown when no documents", async () => {
   await flush();
   const empty = findByTestId(root, "view-docs-empty");
   assert.ok(empty !== null);
-  assert.equal(collectText(empty), "No documents in this matter yet.");
+  assert.equal(collectText(empty), "本案件暂无文档。");
   assert.equal(findAllByTestId(root, "view-docs-item").length, 0);
 });
 
@@ -784,7 +785,7 @@ test("add document: success registers (default doc_type) then refreshes the list
   addBtn.dispatchEvent({ type: "click" });
   await flush();
   assert.deepEqual(regDto, { matterId: VALID_ULID, doc_type: "other" });
-  assert.equal(collectText(findByTestId(root, "view-docs-add-status")), "Added.");
+  assert.equal(collectText(findByTestId(root, "view-docs-add-status")), "已添加。");
   // list refreshed → now shows the registered document
   assert.equal(findAllByTestId(root, "view-docs-item").length, 1);
   assert.equal(addBtn.hasAttribute("disabled"), false);
@@ -807,7 +808,7 @@ test("add document: cancelled (value null) shows Cancelled, does not refresh", a
   assert.equal(listCall, 1);
   findByTestId(root, "view-docs-add").dispatchEvent({ type: "click" });
   await flush();
-  assert.equal(collectText(findByTestId(root, "view-docs-add-status")), "Cancelled.");
+  assert.equal(collectText(findByTestId(root, "view-docs-add-status")), "已取消。");
   assert.equal(listCall, 1, "list not refreshed on cancel");
 });
 
@@ -862,7 +863,7 @@ test("deadlines: empty state when none", async () => {
   await flush();
   const empty = findByTestId(root, "view-deadlines-empty");
   assert.ok(empty !== null);
-  assert.equal(collectText(empty), "No deadlines recorded for this matter.");
+  assert.equal(collectText(empty), "本案暂无期限记录。");
   assert.equal(findAllByTestId(root, "view-deadlines-row").length, 0);
 });
 
@@ -888,7 +889,7 @@ test("deadlines: populated rows render due/kind/status (+rule)", async () => {
   const kinds = findAllByTestId(root, "view-deadlines-kind").map(collectText);
   assert.deepEqual(kinds, ["filing · pending", "hearing · met"]);
   const rules = findAllByTestId(root, "view-deadlines-rule").map(collectText);
-  assert.deepEqual(rules, ["rule: FRCP 12(a)"]);
+  assert.deepEqual(rules, ["依据：FRCP 12(a)"]);
   assert.equal(findByTestId(root, "view-deadlines-more"), null);
 });
 
@@ -951,7 +952,7 @@ test("facts: empty state when none", async () => {
   await flush();
   const empty = findByTestId(root, "view-facts-empty");
   assert.ok(empty !== null);
-  assert.equal(collectText(empty), "No facts recorded for this matter.");
+  assert.equal(collectText(empty), "本案暂无已记录的事实。");
   assert.equal(findAllByTestId(root, "view-facts-row").length, 0);
 });
 
@@ -983,9 +984,11 @@ test("facts: populated rows render statement + status·source (+confidence)", as
   const statements = findAllByTestId(root, "view-facts-statement").map(collectText);
   assert.deepEqual(statements, ["Fact A", "Fact B"]);
   const statuses = findAllByTestId(root, "view-facts-status").map(collectText);
-  assert.deepEqual(statuses, ["accepted · lawyer_authored", "candidate · llm_extraction"]);
+  // fact.status migrated (accepted→已采纳, candidate→待处理); source_type: llm_extraction→LLM 抽取
+  // is migrated, but "lawyer_authored" is not a catalog key so it passes through raw (English).
+  assert.deepEqual(statuses, ["已采纳 · lawyer_authored", "待处理 · LLM 抽取"]);
   const conf = findAllByTestId(root, "view-facts-confidence").map(collectText);
-  assert.deepEqual(conf, ["confidence: 0.82"]);
+  assert.deepEqual(conf, ["置信度：0.82"]);
   assert.equal(findByTestId(root, "view-facts-more"), null);
 });
 
@@ -1137,13 +1140,13 @@ test("a11y: document, audit, and copy controls expose aria-labels", async () => 
   await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
   findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
   await flush();
-  assert.equal(findByTestId(root, "view-docs-add-type").getAttribute("aria-label"), "Document type");
-  assert.equal(findByTestId(root, "view-docs-add").getAttribute("aria-label"), "Add document");
+  assert.equal(findByTestId(root, "view-docs-add-type").getAttribute("aria-label"), "文档类型");
+  assert.equal(findByTestId(root, "view-docs-add").getAttribute("aria-label"), "添加文档");
   findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
   await flush();
-  assert.equal(findByTestId(root, "view-chain-summary").getAttribute("aria-label"), "Audit chain head details");
-  assert.equal(findByTestId(root, "view-audit-more").getAttribute("aria-label"), "Show more audit events");
-  assert.equal(findByTestId(root, "view-chain-copy").getAttribute("aria-label"), "Copy chain-head hash");
+  assert.equal(findByTestId(root, "view-chain-summary").getAttribute("aria-label"), "审计链头详情");
+  assert.equal(findByTestId(root, "view-audit-more").getAttribute("aria-label"), "加载更多审计事件");
+  assert.equal(findByTestId(root, "view-chain-copy").getAttribute("aria-label"), "复制链头哈希");
 });
 
 test("audit events list is an aria-live polite region", async () => {
