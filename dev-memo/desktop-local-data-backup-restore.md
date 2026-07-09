@@ -87,6 +87,23 @@ Restore is a **deliberate, offline** operation (it overwrites live data), so it 
   without the documents) can lose data or orphan document references.
 - **Confidentiality** — the archive holds real case data; keep it encrypted; delete stale copies securely.
 
+## 5a. Restore drill (synthetic — CI-verified, NOT the production restore)
+
+An automated **restore drill** proves the backup→restore path end-to-end on **synthetic data only**, so the
+manual production procedure in §4 is known-restorable. It is deliberately separate from a real restore.
+
+- **Test:** `apps/lawbar-desktop/tests/backup-restore-drill.test.mjs` (in the `npm test` suite).
+- **What it does:** builds a synthetic app-data dir in a temp path — a real `case-box.sqlite` (WAL mode, one
+  `drill` row with a fake `SYNTHETIC-DRILL-ROW-0001` value) + `case-box-documents/synthetic-placeholder.txt` —
+  runs the **existing** backup script (`--data-dir`/`--out`, `LAWBAR_BACKUP_FORCE_LSOF=closed`), extracts the
+  archive into a **fresh** temp dir (simulating a second Mac / recovery), then asserts: the DB + documents dir
+  are present, **SQLite opens** and the synthetic row **round-trips** (verified with the `sqlite3` CLI, so it
+  doesn't depend on the packaged electron-ABI binding), the backup output leaks **no** document filename, and
+  **nothing is written into the repo tree or `~/Library`** (every path is under `os.tmpdir()`).
+- **What it is NOT:** it uses no real client data, touches neither `~/Library/Application Support/lawbar` nor the
+  ignored `dev-memo/run/intake/`, changes no product behavior, and does **not** weaken the §2 fail-closed gate
+  (it drives the script through its normal options). A real restore still follows the manual §4 procedure.
+
 ## 6. Scope decision (why this shape)
 
 Chosen: **docs + a guarded developer/manual backup script + a documented manual restore** — the smallest safe
