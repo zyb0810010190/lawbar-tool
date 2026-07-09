@@ -1,0 +1,62 @@
+name: Desktop release gates
+
+# CI/release governance (WI-DESKTOP-CI-RELEASE-GATES-10): prove the desktop
+# release path — unit/renderer/electron suite, unsigned packaged build, and the
+# packaged M1-M9 smoke matrix — before merge. NO Apple signing/notarization in CI
+# (default `dist` uses identity:null; no credentials are read or required). The
+# separate `check-ui-design-artifact` workflow is unchanged.
+
+on:
+  pull_request:
+    paths:
+      - "apps/lawbar-desktop/**"
+      - ".github/workflows/desktop-release-gates.yml"
+  workflow_dispatch: {}
+
+# No secrets are used. Least-privilege token.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same PR to save runner minutes.
+concurrency:
+  group: desktop-release-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop-release-gates:
+    # macOS is required: electron-builder produces the mac .app bundles and the
+    # packaged Electron smoke launches a real GUI app (GitHub macOS runners are
+    # GUI-capable). macos-14 = Apple Silicon (arm64), the primary v1 target.
+    runs-on: macos-14
+    timeout-minutes: 40
+    env:
+      # Belt-and-braces: the packaged-smoke wrapper enforces strict crash
+      # attribution + a 30s settle floor when CI=true; make CI explicit and keep
+      # the strict guard ON (never disabled in CI).
+      LAWBAR_CI: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/lawbar-desktop/package-lock.json
+
+      - name: Install desktop deps (committed internal tarballs; no bootstrap rebuild, no signing)
+        run: npm --prefix apps/lawbar-desktop ci
+
+      - name: Unit + renderer + electron suite (includes the i18n user-facing-English guard)
+        run: npm --prefix apps/lawbar-desktop test
+
+      - name: Package the app (UNSIGNED — identity:null; NO signing/notarization in CI)
+        run: npm --prefix apps/lawbar-desktop run dist
+
+      - name: Packaged release smoke matrix (M1-M9) against the fresh build
+        run: npm --prefix apps/lawbar-desktop run test:smoke-matrix
+
+      # Generated release/** artifacts are NOT uploaded or committed (300 MB+ per
+      # bundle, gitignored). This job proves the release path builds + smokes; it
+      # does not publish artifacts.
