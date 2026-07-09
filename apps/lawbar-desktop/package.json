@@ -37,6 +37,7 @@
     "test:ui-archive-matter": "npm run build && node --test tests/renderer-archive-matter.test.mjs",
     "test:ui-format-ledger": "npm run build && node --test tests/renderer-format-ledger.test.mjs",
     "test:ui-packaged": "LAWBAR_TEST_FILES=tests/casebox-ui.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
+    "test:smoke-matrix": "LAWBAR_TEST_FILES=tests/casebox-ui.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
     "lint:renderer-imports": "node scripts/check-renderer-imports.mjs",
     "check:no-real-data": "node scripts/check-no-real-data.mjs",
     "pack:internal": "node scripts/pack-internal-packages.mjs",
