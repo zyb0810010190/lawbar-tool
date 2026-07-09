@@ -57,3 +57,35 @@ a visible, reviewable allowlist regeneration for any NEW literal — nothing is 
 
 These are guard-precision limits, not gaps in the migration itself: the migration routes all display
 text through `t()` / label facades, and the `user-facing` class is currently **empty**.
+
+## Helper-return coverage (WI-DESKTOP-I18N-SCANNER-SCOPE-02 — closes I18N-GUARD-H2)
+
+The idiom scan sees literals only in el() children / `setText` / `textContent` / aria positions, so
+user-visible copy produced by a **helper that `return`s a string/template literal** (rendered at its
+call site as `[helper(x)]`) was previously invisible. A second pass — `scanReturnAll()` in
+`tests/_i18n-ui-scan.mjs` — now collects `return <literal>` occurrences across the same
+DOM-constructing scan set (`renderer/screens/**.ts` + `renderer/index.ts`) and feeds them to the same
+classifier; the guard asserts the union `scanAll() ∪ scanReturnAll()` has **0** user-facing. Current
+result: 7 return-literals, all exempt (route-name tokens `list`/`new`/`settings`/`view`/`archive`/
+`not-found`, and `UTC`). A helper returning English UI copy now fails the build (bite test in
+`renderer-i18n-guard.test.mjs`).
+
+### Investigation result (no live leak)
+
+A whole-file extract of every renderer string/template literal, classified, surfaced **no user-visible
+English leak**. The English-shaped strings found are all NON-rendered:
+
+- `renderer/format.ts` — pre-i18n English label helpers (`matterTypeLabel`→"Litigation matter",
+  `confidentialityLabel`→"Normal", `deadlineUrgencyLabel`→"Overdue", `ledgerCategoryLabel`→"Litigation",
+  …). **Dead**: no screen imports them (screens resolve labels via `renderer/i18n/labels.ts`; from
+  `format.ts` they import only `formatLocalDateTime` / `hashTruncate` / `ulidShort` / `deadlineUrgency`).
+  Retained under `renderer-format-ledger.test.mjs`. `format.ts` is a pure utility module, outside the
+  DOM-constructing scan set by the same rule the idiom scan uses.
+- `renderer/screens/auditEventLabels.ts` — `EVENT_KIND_LABELS` English map. Used **only for its keys**
+  (a `hasOwnProperty` membership check in `viewMatterAudit.ts`); the values are never read for display
+  (the screen renders `eventKindLabel(kind)` from the zh-CN catalog). Not a literal return, so not a
+  helper-return leak.
+- Class lists / `data-test-id` / selectors / import paths / an `Error()` message — non-UI code strings.
+
+These two English reservoirs are non-rendered; a low-priority cleanup to delete them is tracked as
+`WI-DESKTOP-I18N-DEAD-LABELS-03` (not done here, to keep this a scanner/test/doc-only WI per its scope).

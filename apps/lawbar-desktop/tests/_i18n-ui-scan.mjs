@@ -207,9 +207,16 @@ export function scanAll() {
 // code token (identifier / enum VALUE / dotted catalog-key / data-lookup key /
 // brand glyph) is exempt; catalog keys carry dots, so dots are allowed here.
 function classifyAtom(t) {
-  const residual = String(t).replace(/[\s§·•⟨⟩—–\-*|/()>:.,{}#…→←↔]|[0-9]/g, "");
+  const s = String(t).trim();
+  const residual = s.replace(/[\s§·•⟨⟩—–\-*|/()>:.,{}#…→←↔]|[0-9]/g, "");
   if (residual === "") return "interpolation-or-separator";
-  if (/^[A-Za-z][A-Za-z0-9_.]*$/.test(String(t).trim())) return "identifier-or-enum";
+  // Single code token / enum VALUE / dotted catalog key / brand glyph: no hyphen so
+  // ALL-CAPS enum consts ("MATTER_REGISTERED") and glyphs ("L") are allowed...
+  if (/^[A-Za-z][A-Za-z0-9_.]*$/.test(s)) return "identifier-or-enum";
+  // ...OR an all-lowercase kebab token (route/enum: "not-found", "due-soon",
+  // "non_litigation"). Hyphens are allowed ONLY when lowercase, so a hyphenated
+  // English label with a capital ("Non-litigation", "Due-diligence") still flags.
+  if (/^[a-z][a-z0-9_.-]*$/.test(s)) return "identifier-or-enum";
   return "user-facing";
 }
 
@@ -245,4 +252,48 @@ export function classifyLiteral(text) {
     }
   }
   return classifyAtom(s.replace(/\$\{[^}]*\}/g, ""));
+}
+
+// --- Helper-return-literal pass (WI-DESKTOP-I18N-SCANNER-SCOPE-02) ---
+// Closes the I18N-GUARD-H2 gap: the idiom scan above only sees literals in
+// el() children / setText / textContent / aria positions, so user-visible copy
+// produced by a HELPER that `return`s a string/template literal (then rendered
+// at a call site as `[helper(x)]`) was invisible to the guard. This pass finds
+// `return <string|template literal>` occurrences in the same DOM-constructing
+// scan set (renderer/screens/**.ts + renderer/index.ts) and hands them to the
+// user-facing-English classifier. It does NOT feed the flat allowlist (which
+// stays scoped to idiom-position occurrences); it is a second input to the
+// "no user-facing English" guard only.
+//
+// Scope note: pure utility modules that do not build DOM (renderer/format.ts,
+// dom.ts, nav.ts, router.ts, api.ts, i18n/**) are outside this pass by the SAME
+// rule the idiom scan uses — the scan set is the screens + the router bootstrap.
+// renderer/format.ts retains pre-i18n English label helpers that no screen
+// imports (verified: screens resolve labels via renderer/i18n/labels.ts); they
+// are dead + unit-tested, tracked for deletion separately, and never rendered.
+export function scanReturnLiterals(rel, content) {
+  const stripped = stripTsComments(content);
+  const out = new Map();
+  const re = /\breturn\s+("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g;
+  let m;
+  while ((m = re.exec(stripped)) !== null) {
+    const lit = m[1].slice(1, -1);
+    if (lit !== "" && HAS_LETTER_RE.test(lit)) {
+      pushUnique(out, { file: rel, line: lineAt(stripped, m.index), text: lit, kind: "return" });
+    }
+  }
+  return [...out.values()];
+}
+
+// Public: the return-literal pass over the whole DOM-constructing scan set.
+export function scanReturnAll() {
+  const rels = [...listScreenTs(), "renderer/index.ts"];
+  const out = [];
+  for (const rel of rels) {
+    const abs = path.join(APP_ROOT, rel);
+    if (!statSync(abs).isFile()) continue;
+    out.push(...scanReturnLiterals(rel, readFileSync(abs, "utf8")));
+  }
+  out.sort((a, b) => (a.file !== b.file ? a.file.localeCompare(b.file) : a.line - b.line || a.text.localeCompare(b.text)));
+  return out;
 }
