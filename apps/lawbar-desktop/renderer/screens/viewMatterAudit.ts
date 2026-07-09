@@ -10,7 +10,7 @@ import type { CaseBoxApi } from "../api.js";
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime, hashTruncate, ulidShort } from "../format.js";
 import { t } from "../i18n/t.js";
-import { eventKindLabel } from "../i18n/labels.js";
+import { auditEntityTypeLabel, eventKindLabel } from "../i18n/labels.js";
 import { EVENT_KIND_LABELS } from "./auditEventLabels.js";
 
 // Humanized zh-CN label for an audit row (audit-screen migration WI; the fallback the
@@ -275,7 +275,7 @@ function renderAuditEventRow(doc: Document, ev: AuditEventRow): HTMLElement {
     el(
       "span",
       { class: "view-audit-entity" },
-      [`${ev.entity_type} · ${ulidShort(ev.entity_id)}`],
+      [`${auditEntityTypeLabel(ev.entity_type)} · ${ulidShort(ev.entity_id)}`],
       doc,
     ),
   ];

@@ -170,73 +170,67 @@
   {
     "file": "renderer/screens/viewMatterAudit.ts",
     "line": 278,
-    "text": "${ev.entity_type} · ${ulidShort(ev.entity_id)}",
+    "text": "${auditEntityTypeLabel(ev.entity_type)} · ${ulidShort(ev.entity_id)}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDeadlines.ts",
-    "line": 208,
+    "line": 209,
     "text": "filing",
     "kind": "attr"
   },
   {
     "file": "renderer/screens/viewMatterDeadlines.ts",
-    "line": 259,
+    "line": 260,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDeadlines.ts",
-    "line": 373,
+    "line": 374,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDeadlines.ts",
-    "line": 393,
+    "line": 394,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDeadlines.ts",
-    "line": 397,
-    "text": "${d.kind} · ${d.status}",
+    "line": 398,
+    "text": "${deadlineKindLabel(d.kind)} · ${deadlineStatusLabel(d.status)}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 203,
-    "text": "${p.proposed_kind} · ${p.source_type}",
+    "line": 204,
+    "text": "${deadlineKindLabel(p.proposed_kind)} · ${docketSourceTypeLabel(p.source_type)}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 206,
+    "line": 207,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 265,
+    "line": 266,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 407,
+    "line": 408,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 434,
+    "line": 435,
     "text": "reminder_offsets",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 506,
-    "text": " ",
     "kind": "text"
   },
   {
@@ -247,13 +241,19 @@
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 626,
+    "line": 508,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 639,
+    "line": 627,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocketProposals.ts",
+    "line": 640,
     "text": "reminder_offsets",
     "kind": "text"
   },

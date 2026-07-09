@@ -32,6 +32,7 @@ import type {
 import { el, setText } from "../dom.js";
 import { renderDocketProposalsSection } from "./viewMatterDocketProposals.js";
 import { t } from "../i18n/t.js";
+import { deadlineKindLabel, deadlineStatusLabel } from "../i18n/labels.js";
 import {
   classifyDeadlineUrgency,
   formatLocalDateTime,
@@ -394,7 +395,7 @@ function renderDeadlineRow(
     el(
       "span",
       { class: "view-deadlines-kind", "data-test-id": "view-deadlines-kind" },
-      [`${d.kind} · ${d.status}`],
+      [`${deadlineKindLabel(d.kind)} · ${deadlineStatusLabel(d.status)}`],
       doc,
     ),
   ];

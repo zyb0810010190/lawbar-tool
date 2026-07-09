@@ -538,3 +538,27 @@ for a dedicated persistence-hardening WI.
 | Target future WI/backlog | `WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00` (the very next commit) — sources party display labels from the catalog via `partyRoleLabel`/`partyKindLabel` in `renderer/i18n/labels.ts`; the enum VALUES stay English (contract-aligned). |
 | Safe-to-proceed? | YES — the already-committed bug fix is correct; the label-sourcing burn-down lands immediately in the following WI. |
 | Status | **closed** — superseded by WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00 (party labels now catalog-sourced via the labels facade). |
+
+## WI-DESKTOP-ZH-CN-I18N-COMPLETE-01 — i18n guard scanner-scope limitation (guard precision)
+
+| Field | Value |
+|---|---|
+| Finding ID | I18N-GUARD-H2 |
+| Severity | High (guard precision; NOT a defect in the delivered UI) |
+| Source | cc-suite audit `audit-mrcur0ez-2ow96i` on WI-DESKTOP-ZH-CN-I18N-COMPLETE-01. |
+| Reason | The i18n anti-drift scanner (`tests/_i18n-ui-scan.mjs`) flags literals only in the recognized renderer idioms (el children / `setText` / `textContent` / aria-label|title|placeholder). UI copy returned by a helper OUTSIDE those idioms (e.g. `return "..."` later passed to `el`) is not scanned, so the `classifyLiteral` guard cannot see it. This is a guard-PRECISION limit, not a gap in the migration: all display text is routed through `t()`/label facades, the `user-facing` scan class is empty, and the packaged smoke is Chinese end-to-end. High #1 (English inside `${…}` interpolations) was FIXED in-WI. |
+| Target future WI/backlog | `WI-DESKTOP-I18N-SCANNER-SCOPE-02` — extend the scanner to cover UI-copy helper returns (with false-positive controls to avoid flagging non-UI string returns like error codes / keys). |
+| Safe-to-proceed? | YES — the deliverable (fully-Chinese UI) is verified independently of the guard; the guard already catches the common regression (hardcoded English in the scanned idioms + interpolation literals), and scan==allowlist exactness backstops any new literal. |
+| Status | **open** — tracked guard-precision enhancement; does not block the Chinese-UI deliverable. |
+
+## batch-audit (ec270ef..d369e36) — leaked _note/_proposed_helper catalog keys (cleanup)
+
+| Field | Value |
+|---|---|
+| Finding ID | BATCH-ec270ef-L1 |
+| Severity | Low |
+| Source | Layer-B batch audit `audit-mrcuym1e-flwhca` (BATCH-PASS C0 H0 M0 L1); study `dev-memo/study/2026-07-09-batch-audit-236.md`. |
+| Reason | Cleanup-only drift. Lane 2's catalog merge kept two non-key advisory fields (`_note`, `_proposed_helper`) from a subagent's proposed-keys JSON (the merge filtered `_reused` but not these), leaving stale prose in `renderer/i18n/catalog.ts` that widened `CatalogId`. Not user-visible; no defect. |
+| Target future WI/backlog | Fixed-forward in `WI-DESKTOP-ZH-CN-I18N-COMPLETE-01` (the very next commit) — both keys removed from the catalog. |
+| Safe-to-proceed? | YES — advisory strings only; removal is a pure cleanup, build stays green. |
+| Status | **closed** — removed in WI-DESKTOP-ZH-CN-I18N-COMPLETE-01. |

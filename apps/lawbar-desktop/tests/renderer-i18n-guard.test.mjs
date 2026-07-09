@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { scanAll, scanSource, APP_ROOT } from "./_i18n-ui-scan.mjs";
+import { scanAll, scanSource, classifyLiteral, APP_ROOT } from "./_i18n-ui-scan.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ALLOWLIST_PATH = path.join(APP_ROOT, "renderer", "i18n", "ui-strings-allowlist.json");
@@ -80,4 +80,46 @@ test("guard EXEMPTS non-UI attribute values (class/data-*/href) -- no false posi
   `;
   const found = scanSource("renderer/screens/_virtual2.ts", virtual);
   assert.deepEqual(found, [], `non-UI attribute values must not be flagged; got ${JSON.stringify(found)}`);
+});
+
+// --- User-facing-English hard guard (WI-DESKTOP-ZH-CN-I18N-COMPLETE-01) ---
+// The flat allowlist proves "no NEW literal", but it would happily absorb a
+// user-facing English *phrase* if someone regenerated it. This guard classifies
+// every scanned literal and FAILS if any is user-facing English (real words),
+// independent of the allowlist. Exempt classes: interpolation-only templates /
+// separators, and single code tokens (enum VALUES kept English per contract,
+// field identifiers, data-lookup keys, brand glyphs).
+test("NO user-facing English literal remains in the renderer scan set (fully-zh-CN guard)", () => {
+  const offenders = scanAll().filter((c) => classifyLiteral(c.text) === "user-facing");
+  assert.deepEqual(
+    offenders,
+    [],
+    `User-facing English must be moved into renderer/i18n/catalog.ts and resolved via t()/a label helper.\n` +
+      `Offending literals (class=user-facing):\n` +
+      offenders.map((o) => `  ${o.file}:${o.line} [${o.kind}] ${JSON.stringify(o.text)}`).join("\n"),
+  );
+});
+
+test("every allowlisted occurrence classifies as exempt (never user-facing)", () => {
+  const allowlist = JSON.parse(readFileSync(ALLOWLIST_PATH, "utf8"));
+  const userFacing = allowlist.filter((e) => classifyLiteral(e.text) === "user-facing");
+  assert.deepEqual(
+    userFacing,
+    [],
+    `Allowlist must not carry user-facing English. Offending rows:\n` +
+      userFacing.map((e) => `  ${e.file}:${e.line} ${JSON.stringify(e.text)}`).join("\n"),
+  );
+});
+
+test("classifier BITES: a hardcoded English phrase classifies user-facing; tokens/templates do not", () => {
+  assert.equal(classifyLiteral("Save changes"), "user-facing");
+  assert.equal(classifyLiteral("No documents yet."), "user-facing");
+  assert.equal(classifyLiteral("third_party"), "identifier-or-enum");
+  assert.equal(classifyLiteral("llm_extraction"), "identifier-or-enum");
+  assert.equal(classifyLiteral("${a} · ${b}"), "interpolation-or-separator");
+  assert.equal(classifyLiteral("${x} → ${y}"), "interpolation-or-separator");
+  // English hidden inside a template interpolation is still caught (audit High #1),
+  // while a dotted catalog key inside ${t("a.b.c")} stays exempt.
+  assert.equal(classifyLiteral('${cond ? "Save changes" : label}'), "user-facing");
+  assert.equal(classifyLiteral('${t("links.row.created")} ${x}'), "interpolation-or-separator");
 });

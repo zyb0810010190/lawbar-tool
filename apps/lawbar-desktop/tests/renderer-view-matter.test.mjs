@@ -2,6 +2,7 @@
 // Per dev-memo/plan-casebox-ui-plan-00.md rev-0.1 §6.3 + Slice 6 user scope.
 
 import { test } from "node:test";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -887,7 +888,12 @@ test("deadlines: populated rows render due/kind/status (+rule)", async () => {
   await flush();
   assert.equal(findAllByTestId(root, "view-deadlines-row").length, 2);
   const kinds = findAllByTestId(root, "view-deadlines-kind").map(collectText);
-  assert.deepEqual(kinds, ["filing · pending", "hearing · met"]);
+  // WI-DESKTOP-ZH-CN-I18N-COMPLETE-01: kind + status render via the zh-CN label
+  // facades (deadlineKindLabel/deadlineStatusLabel), not the raw contract enum.
+  assert.deepEqual(kinds, [
+    `${CATALOG["deadlineKind.filing"]} · ${CATALOG["deadlineStatus.pending"]}`,
+    `${CATALOG["deadlineKind.hearing"]} · ${CATALOG["deadlineStatus.met"]}`,
+  ]);
   const rules = findAllByTestId(root, "view-deadlines-rule").map(collectText);
   assert.deepEqual(rules, ["依据：FRCP 12(a)"]);
   assert.equal(findByTestId(root, "view-deadlines-more"), null);

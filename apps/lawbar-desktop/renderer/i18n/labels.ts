@@ -121,6 +121,74 @@ export function linkSourceTypeLabel(type: string): string {
   return id === undefined ? type : t(id);
 }
 
+// Row-display enum labels (WI-DESKTOP-ZH-CN-I18N-COMPLETE-01). Same open-string
+// lookup + raw-value fallback rationale as partyRoleLabel above — these values
+// arrive as service data typed `string` at the renderer boundary.
+const DEADLINE_KIND_ID: Readonly<Record<string, CatalogId>> = {
+  statute_of_limitations: "deadlineKind.statute_of_limitations",
+  court_order: "deadlineKind.court_order",
+  discovery: "deadlineKind.discovery",
+  filing: "deadlineKind.filing",
+  hearing: "deadlineKind.hearing",
+  internal: "deadlineKind.internal",
+  payment: "deadlineKind.payment",
+  evidence_submission: "deadlineKind.evidence_submission",
+  appeal: "deadlineKind.appeal",
+};
+// Shared by the deadline row (d.kind) AND the docket proposed_kind (same contract enum).
+export function deadlineKindLabel(kind: string): string {
+  const id = DEADLINE_KIND_ID[kind];
+  return id === undefined ? kind : t(id);
+}
+
+const DEADLINE_STATUS_ID: Readonly<Record<string, CatalogId>> = {
+  pending: "deadlineStatus.pending",
+  met: "deadlineStatus.met",
+  missed: "deadlineStatus.missed",
+  withdrawn: "deadlineStatus.withdrawn",
+};
+export function deadlineStatusLabel(status: string): string {
+  const id = DEADLINE_STATUS_ID[status];
+  return id === undefined ? status : t(id);
+}
+
+const DOCKET_SOURCE_TYPE_ID: Readonly<Record<string, CatalogId>> = {
+  manual: "docketSourceType.manual",
+  court_order_excerpt: "docketSourceType.court_order_excerpt",
+  llm_extraction: "docketSourceType.llm_extraction",
+  imported: "docketSourceType.imported",
+};
+export function docketSourceTypeLabel(sourceType: string): string {
+  const id = DOCKET_SOURCE_TYPE_ID[sourceType];
+  return id === undefined ? sourceType : t(id);
+}
+
+const REMINDER_KIND_ID: Readonly<Record<string, CatalogId>> = {
+  advance_notice: "reminderKind.advance_notice",
+  final_notice: "reminderKind.final_notice",
+};
+export function reminderKindLabel(kind: string): string {
+  const id = REMINDER_KIND_ID[kind];
+  return id === undefined ? kind : t(id);
+}
+
+const AUDIT_ENTITY_TYPE_ID: Readonly<Record<string, CatalogId>> = {
+  matter: "auditEntityType.matter",
+  document: "auditEntityType.document",
+  deadline: "auditEntityType.deadline",
+  evidence_item: "auditEntityType.evidence_item",
+  ocr_link: "auditEntityType.ocr_link",
+  fact: "auditEntityType.fact",
+  privilege_marker: "auditEntityType.privilege_marker",
+  confidentiality_classification: "auditEntityType.confidentiality_classification",
+  docket_entry: "auditEntityType.docket_entry",
+  link: "auditEntityType.link",
+};
+export function auditEntityTypeLabel(entityType: string): string {
+  const id = AUDIT_ENTITY_TYPE_ID[entityType];
+  return id === undefined ? entityType : t(id);
+}
+
 export function ledgerCategoryLabel(c: LedgerCategory): string {
   switch (c) {
     case "litigation":
