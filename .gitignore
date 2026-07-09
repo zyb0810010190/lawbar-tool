@@ -56,3 +56,11 @@ dev-memo/superseded/
 
 # A0.7 marker write — local-only run-state (WI-ENA11); markers/ledger are never committed.
 /dev-memo/run/evidence/
+
+# Local intake + run scratch (WI-13); never committed. `intake/` holds confidential
+# client legal documents; `reports/` holds generated cc-suite audit artifacts;
+# `override-reason.md` is consumed single-use override scratch (the reason is persisted
+# in the committed run log).
+/dev-memo/run/intake/
+/dev-memo/run/reports/
+/dev-memo/run/override-reason.md
