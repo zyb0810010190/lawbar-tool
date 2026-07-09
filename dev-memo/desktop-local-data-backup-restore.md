@@ -25,10 +25,15 @@ The DB is opened `journal_mode = WAL`, `synchronous = NORMAL` (`services/case-bo
 - **App CLOSED → safe.** Copy the DB **together with its `-wal`/`-shm` sidecars** (if present) and the
   documents dir; SQLite recovers a consistent snapshot from that set.
 - **App OPEN → NOT safe for a file copy.** The WAL is being written; a raw copy can capture a half-written log
-  → an inconsistent/corrupt backup. **The backup script REFUSES while the data store is IN USE** — detected
-  (strongest first) by an **open-file-handle check (`lsof`) on the DB / `-wal` / `-shm`**, falling back to an
-  app-process match (`pgrep`); if **neither** check can run it **fails closed** (refuses). (A consistent live
-  backup would need SQLite's online-backup API — a future in-app feature, out of this WI's scope.)
+  → an inconsistent/corrupt backup. The script's WAL-safety gate is **fail-closed**:
+  - `lsof` finds an **open handle** on the DB / `-wal` / `-shm` → **REFUSE** (exit 2). **Not overridable** —
+    copying an open WAL DB risks an inconsistent, unusable backup of confidential data.
+  - `lsof` proves the files are **closed** → proceed.
+  - `lsof` **cannot run** (unavailable/inconclusive) → the state is unproven → **REFUSE by default**. Only the
+    explicit, deliberately-verbose flag `--i-understand-this-may-create-an-inconsistent-confidential-backup`
+    proceeds — and even then it is vetoed if `pgrep` sees the app running. `pgrep` is **advisory only**: it can
+    strengthen a refusal, never grant clearance (a quiet process list is not proof the DB files are closed).
+  (A consistent live backup would need SQLite's online-backup API — a future in-app feature, out of scope.)
 
 ## 3. Backup — procedure
 
@@ -43,11 +48,14 @@ The DB is opened `journal_mode = WAL`, `synchronous = NORMAL` (`services/case-bo
 3. It writes `lawbar-backup-<timestamp>.tar.gz` and prints the path, size, file **counts**, and a SHA256
    (never document filenames or DB contents). Move the archive to encrypted storage.
 
-**Refusals (safe-by-default):** store in use → exit 2 (quit first; expert override `--allow-running` — which
-prints a loud WARNING — only if the DB is quiesced); no `case-box.sqlite` → exit 1; `--out` inside the data dir,
+**Refusals (fail-closed):** open handle → exit 2 (**not** overridable); `lsof` unavailable → exit 2 unless the
+verbose `--i-understand-this-may-create-an-inconsistent-confidential-backup` flag (which prints a loud WARNING
+and is still vetoed if `pgrep` sees the app running); no `case-box.sqlite` → exit 1; `--out` inside the data dir,
 textually **or** after resolving symlinks (`realpath`) → exit 2; data dir missing / dangling option value /
 existing archive / unsafe `--label` (must be `[A-Za-z0-9._-]`, no path separators) → exit 1. On a `tar` failure
-the script prints a **generic** message (tar's stderr, which can name archived files, is suppressed).
+the script prints a **generic** message (tar's stderr, which can name archived files, is suppressed); post-archive
+reporting is exception-safe (a broken symlink / permission error is counted as "unreadable, skipped" — never
+named), so a Node stack trace cannot leak a document path.
 
 ## 4. Restore — procedure (manual / offline)
 
