@@ -187,3 +187,62 @@ export function scanAll() {
   out.sort((a, b) => (a.file !== b.file ? a.file.localeCompare(b.file) : a.line - b.line || a.text.localeCompare(b.text)));
   return out;
 }
+
+// Classify a scanned literal as user-facing English vs an exempt token
+// (WI-DESKTOP-ZH-CN-I18N-COMPLETE-01). The anti-drift guard uses this to FAIL a
+// regression the flat allowlist would otherwise absorb: any NEW hardcoded
+// English *phrase* (prose with spaces/words) must be moved into the catalog.
+//
+// Classes:
+//   "interpolation-or-separator" — after removing ${...} interpolations, nothing
+//        but separators/punctuation/digits remains (e.g. "${a} · ${b}", " *", "§",
+//        "${label}: "). Exempt: the visible text comes from t()/label helpers.
+//   "identifier-or-enum" — a single code token, no spaces (enum VALUE kept English
+//        per the contract, a field identifier, a data-lookup key, or a brand glyph:
+//        "client", "third_party", "reminder_offsets", "AMBIGUOUS", "lawbar", "L").
+//   "user-facing" — anything else: real English words/phrases. The guard FAILS on
+//        these. This is the class that must stay empty.
+//
+// Residual set: separators/punctuation/digits that are never user copy. A single
+// code token (identifier / enum VALUE / dotted catalog-key / data-lookup key /
+// brand glyph) is exempt; catalog keys carry dots, so dots are allowed here.
+function classifyAtom(t) {
+  const residual = String(t).replace(/[\s§·•⟨⟩—–\-*|/()>:.,{}#…→←↔]|[0-9]/g, "");
+  if (residual === "") return "interpolation-or-separator";
+  if (/^[A-Za-z][A-Za-z0-9_.]*$/.test(String(t).trim())) return "identifier-or-enum";
+  return "user-facing";
+}
+
+// Classify a scanned literal as user-facing English vs an exempt token
+// (WI-DESKTOP-ZH-CN-I18N-COMPLETE-01). The anti-drift guard uses this to FAIL a
+// regression the flat allowlist would otherwise absorb: any NEW hardcoded
+// English *phrase* (prose with spaces/words) must be moved into the catalog.
+//
+// Two passes:
+//   1. Inner quoted literals inside ${...} interpolations are classified too —
+//      so English hidden in a template expression (e.g. `${cond ? "Save changes"
+//      : label}`) is still caught (audit finding, WI-01). Dotted catalog keys
+//      inside `${t("a.b.c")}` stay `identifier-or-enum` and are NOT flagged.
+//   2. The literal with interpolations stripped is classified as an atom.
+//
+// Classes: "interpolation-or-separator" (visible text comes from t()/labels),
+// "identifier-or-enum" (single code token / enum VALUE kept English / catalog
+// key / brand glyph), "user-facing" (real English words — the guard FAILS here).
+//
+// KNOWN RESIDUAL LIMITS (documented in dev-memo/i18n-allowlist-classification-00.md,
+// backstopped by the scan==allowlist exactness test which forces a visible,
+// reviewable allowlist regen for any NEW literal):
+//   - A lone single English WORD (no space) is indistinguishable from an enum
+//     value and classifies `identifier-or-enum`.
+//   - UI copy returned by a helper OUTSIDE the scanned idioms (el children /
+//     setText / textContent / aria-label/title/placeholder) is not scanned.
+export function classifyLiteral(text) {
+  const s = String(text);
+  for (const interp of s.match(/\$\{[^}]*\}/g) ?? []) {
+    for (const q of interp.match(/"[^"]*"|'[^']*'/g) ?? []) {
+      const inner = q.slice(1, -1);
+      if (inner !== "" && classifyAtom(inner) === "user-facing") return "user-facing";
+    }
+  }
+  return classifyAtom(s.replace(/\$\{[^}]*\}/g, ""));
+}

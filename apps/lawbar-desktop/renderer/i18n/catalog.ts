@@ -509,8 +509,42 @@ export const CATALOG = {
   "links.sourceType.question": "问题",
   "links.sourceType.calcTerm": "计算项",
   "links.sourceType.claimElement": "主张要素",
-  "_note": "NEW keys are PROPOSED, not applied. viewMatterLinks.ts was NOT edited: routing source_type through a t('links.sourceType.*') label is impossible within the allowed-files boundary (viewMatterLinks.ts only). t() is typed to keyof CATALOG and throws at runtime on unknown keys, so the new keys must first land in catalog.ts (forbidden here); and any literal-shifting edit forces regeneration of ui-strings-allowlist.json (forbidden here), because tests/renderer-i18n-guard.test.mjs asserts the allowlist equals the current scan exactly, including line numbers. The linkFlag.* keys are ALREADY reused correctly by the existing flagLabel() switch (lines 58-75) and byFlag iteration (line 592) — nothing to change there.",
-  "_proposed_helper": "Idiomatic path mirrors renderer/i18n/labels.ts: add linkSourceTypeLabel(type: LinkSourceType) with an exhaustive switch returning t('links.sourceType.<value>'), then call it in viewMatterLinks.ts at the select-option map (~line 168), the row ident template (~line 274), and the export-source template (~line 627). Enum VALUES stay English (option value attr, DTO sourceType).",
+  // ---- shared enum labels for row displays (WI-DESKTOP-ZH-CN-I18N-COMPLETE-01) ----
+  // deadline / docket proposed_kind (shared 9-value contract enum)
+  "deadlineKind.statute_of_limitations": "诉讼时效",
+  "deadlineKind.court_order": "法院命令",
+  "deadlineKind.discovery": "证据开示",
+  "deadlineKind.filing": "文件提交",
+  "deadlineKind.hearing": "庭审",
+  "deadlineKind.internal": "内部",
+  "deadlineKind.payment": "付款",
+  "deadlineKind.evidence_submission": "证据提交",
+  "deadlineKind.appeal": "上诉",
+  // deadline status (pending/met/missed/withdrawn) — distinct from matter status.*
+  "deadlineStatus.pending": "待处理",
+  "deadlineStatus.met": "已完成",
+  "deadlineStatus.missed": "已错过",
+  "deadlineStatus.withdrawn": "已撤回",
+  // docket entry source_type
+  "docketSourceType.manual": "手动",
+  "docketSourceType.court_order_excerpt": "法院命令摘录",
+  "docketSourceType.llm_extraction": "LLM 抽取",
+  "docketSourceType.imported": "导入",
+  // docket reminder kind
+  "reminderKind.advance_notice": "提前提醒",
+  "reminderKind.final_notice": "最终提醒",
+  // audit entity_type
+  "auditEntityType.matter": "案件",
+  "auditEntityType.document": "文档",
+  "auditEntityType.deadline": "期限",
+  "auditEntityType.evidence_item": "证据项",
+  "auditEntityType.ocr_link": "OCR 链接",
+  "auditEntityType.fact": "事实",
+  "auditEntityType.privilege_marker": "特权标记",
+  "auditEntityType.confidentiality_classification": "保密分级",
+  "auditEntityType.docket_entry": "立案条目",
+  "auditEntityType.link": "链接",
+
 } as const;
 
 export type CatalogId = keyof typeof CATALOG;

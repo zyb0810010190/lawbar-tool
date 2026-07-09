@@ -19,6 +19,7 @@ import type { DismissDocketEntryDto, EditDocketEntryDto, ListDocketEntriesDto } 
 import { el, setText } from "../dom.js";
 import { formatLocalDateTime } from "../format.js";
 import { t } from "../i18n/t.js";
+import { deadlineKindLabel, docketSourceTypeLabel, reminderKindLabel } from "../i18n/labels.js";
 
 // A reminder offset on the projected row (renderer-safe; passthrough in DPE5).
 interface ReminderOffset {
@@ -200,7 +201,7 @@ function renderProposalRow(
     el(
       "span",
       { class: "view-docket-proposal-kind", "data-test-id": "view-docket-proposal-kind" },
-      [p.source_type !== undefined && p.source_type.length > 0 ? `${p.proposed_kind} · ${p.source_type}` : p.proposed_kind],
+      [p.source_type !== undefined && p.source_type.length > 0 ? `${deadlineKindLabel(p.proposed_kind)} · ${docketSourceTypeLabel(p.source_type)}` : deadlineKindLabel(p.proposed_kind)],
       doc,
     ),
     " ",
@@ -640,6 +641,6 @@ function formatReminders(
 ): string {
   if (offsets === null || offsets === undefined || offsets.length === 0) return t("docket.reminders.none");
   return offsets
-    .map((o) => `${o.kind} ${o.offset_days >= 0 ? "−" : "+"}${Math.abs(o.offset_days)}d`)
+    .map((o) => `${reminderKindLabel(o.kind)} ${o.offset_days >= 0 ? "−" : "+"}${Math.abs(o.offset_days)}d`)
     .join(", ");
 }
