@@ -45,6 +45,18 @@ const BLOCKED_V6_SUBNETS: ReadonlyArray<{ readonly base: string; readonly prefix
   { base: "fc00::",   prefix: 7 },   // unique local
   { base: "ff00::",   prefix: 8 },   // multicast
   { base: "2001:db8::", prefix: 32 }, // documentation
+  // Additional IANA IPv6 special-use "Globally Reachable: False" ranges
+  // (WI-OCR-FETCHER-SECURITY-23 audit H1). All non-globally-routable, so blocking them
+  // cannot break a legitimate public fetch. NOTE: the well-known NAT64 prefix
+  // 64:ff9b::/96 (RFC 6052) is deliberately NOT blocked — it translates to GLOBAL IPv4
+  // (blocking it would break legitimate NAT64 fetches); only the LOCAL-use 64:ff9b:1::/48
+  // (RFC 8215) is blocked.
+  { base: "64:ff9b:1::", prefix: 48 }, // NAT64 local-use translation (RFC 8215)
+  { base: "100::",       prefix: 64 }, // discard-only (RFC 6666)
+  { base: "100:0:0:1::", prefix: 64 }, // dummy prefix (RFC 9780)
+  { base: "2001:2::",    prefix: 48 }, // benchmarking (RFC 5180)
+  { base: "3fff::",      prefix: 20 }, // documentation (RFC 9637)
+  { base: "5f00::",      prefix: 16 }, // SRv6 SIDs (RFC 9602)
 ];
 
 const blockList = (() => {
@@ -59,7 +71,12 @@ const blockList = (() => {
 })();
 
 export function isPrivateIp(address: string): boolean {
-  if (typeof address !== "string" || address.length === 0) return false;
+  // Fail CLOSED on empty / non-string, consistent with the malformed-literal case
+  // below: a fail-closed security predicate must treat "no valid address" as blocked,
+  // never allowed (WI-OCR-FETCHER-SECURITY-23). Reachability note: real callers pass a
+  // resolved DNS address and httpsTransport additionally gates on `net.isIP` first, so
+  // an empty value does not occur in practice — this is defense-in-depth uniformity.
+  if (typeof address !== "string" || address.length === 0) return true;
 
   // Step 1: detect IPv4-mapped IPv6 (`::ffff:a.b.c.d` dotted form OR
   // `::ffff:wwww:xxxx` hex form) and recurse on the embedded IPv4.
