@@ -18,6 +18,7 @@
 //   2 — config parse failure OR dep wiring failure (startup failure)
 
 import { statSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 import {
   InMemoryOcrPersistence,
@@ -48,6 +49,26 @@ import {
 import { WORKER_REGISTRY } from "./registry.js";
 import { makeRealPaddleEngine } from "./engines/real-paddleocr-engine.js";
 import type { OcrJobQueueBackend, OcrWorker } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Log-path redaction (WI-OCR-CONFIG-PATH-REDACTION-22)
+// ---------------------------------------------------------------------------
+
+/**
+ * Redact an operator-config filesystem path for LOG output to a `fp:<8-hex>`
+ * fingerprint of the full path — NO path components. This exposes zero identifying
+ * material (home directory, username, client/matter folder names, or even a
+ * client-named basename — a *directory's* basename can itself be a client folder),
+ * while remaining diagnostic: the fingerprint is stable per full path, so an
+ * operator can confirm which resource is in use (and correlate across log lines) by
+ * hashing their configured value. Only used for operator-config paths
+ * (`sqlite_path`, `fetcher_file_root`); document-derived and temp paths are never
+ * logged at all.
+ */
+function redactPathForLog(p: string | null | undefined): string | null {
+  if (p == null) return null;
+  return `fp:${createHash("sha256").update(p).digest("hex").slice(0, 8)}`;
+}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -191,11 +212,13 @@ export async function runOcrWorkerProcess(
       JSON.stringify({
         worker_id: config.worker_id,
         worker_kind: config.worker_kind,
-        fetcher_file_root: config.fetcher_file_root ?? null,
+        // Redacted to fp:<hash> so operator home-dir / username / client-folder
+        // names never reach the startup log (WI-OCR-CONFIG-PATH-REDACTION-22).
+        fetcher_file_root: redactPathForLog(config.fetcher_file_root),
         fetcher_https_hosts_count: config.fetcher_https_hosts?.size ?? 0,
         persistence: config.persistence,
         queue: config.queue,
-        sqlite_path: config.sqlite_path ?? null,
+        sqlite_path: redactPathForLog(config.sqlite_path),
         max_iterations: config.max_iterations ?? null,
       }) +
       "\n",
@@ -356,14 +379,18 @@ async function constructWorker(config: OcrWorkerConfig): Promise<OcrWorker> {
       try {
         st = statSync(config.fetcher_file_root);
       } catch (err) {
+        // Use the errno CODE only — the native statSync message re-includes the
+        // full path (e.g. "ENOENT ... stat '/…/client-folder'"), defeating the
+        // redaction (WI-OCR-CONFIG-PATH-REDACTION-22 audit H1).
+        const code = (err as NodeJS.ErrnoException).code ?? "unknown error";
         throw new OcrWorkerConfigError(
-          `fetcher_file_root ${JSON.stringify(config.fetcher_file_root)} ` +
-            `cannot be stat'd: ${(err as Error).message}`,
+          `fetcher_file_root ${JSON.stringify(redactPathForLog(config.fetcher_file_root))} ` +
+            `cannot be stat'd (${code})`,
         );
       }
       if (!st.isDirectory()) {
         throw new OcrWorkerConfigError(
-          `fetcher_file_root ${JSON.stringify(config.fetcher_file_root)} ` +
+          `fetcher_file_root ${JSON.stringify(redactPathForLog(config.fetcher_file_root))} ` +
             `is not a directory`,
         );
       }

@@ -7,9 +7,9 @@ confidentiality-conscious by design. One confidentiality **regression test** was
 boundary (no OCR text in the worker's output streams); otherwise docs-only.
 
 **Scope note (what this does NOT claim).** The guarantee is about **document-derived content** (OCR text / payload /
-OCR output). It is **not** an absolute "no paths ever printed" claim: the worker's startup config summary
-intentionally emits **deploy-config paths** (`sqlite_path`, `fetcher_file_root`) to stderr for operator visibility
-(see §"Config-path disclosure"). Those are operator-chosen configuration, not derived from client documents.
+OCR output). The one config-path emission the earlier revision disclosed (`sqlite_path`, `fetcher_file_root` in the
+startup log) is now **redacted to a `fp:<hash>` fingerprint** by `WI-OCR-CONFIG-PATH-REDACTION-22` — no path, dir,
+or basename is logged (see §"Config-path redaction").
 
 ## Confidentiality / retention inventory
 
@@ -18,7 +18,7 @@ intentionally emits **deploy-config paths** (`sqlite_path`, `fetcher_file_root`)
 | **Ad-hoc logging** in the 4 OCR services (`console.*`, `logger`) | **Zero** `console`/logger call-sites in `ocr-worker`/`ocr-persistence`/`ocr-ingestion`/`ocr-review` `src/` | ✓ no ad-hoc log leak |
 | **Observability events** (`toCoordinatorEvent` → worker stdout when `--log-outcomes`) | `observability.ts` §"No PII": events carry **only** `job_id`, counts (`statuses_persisted`), severity, outcome kind, and short error strings — **NOT** the submission payload or extracted OCR text | ✓ no text in events |
 | **Extracted OCR text** flow | Engine → `OcrResult.raw_text` → `persistence.saveOcrResultOnce(job_id, r)` → the **local SQLite store** (intended). It never enters the observability event or the worker's output streams | ✓ persisted locally only |
-| **Worker stdout/stderr** | Startup config summary (`worker_id`, `worker_kind`, `sqlite_path`, `fetcher_file_root` — deploy **config**, not document content), the observability event stream (ids + counts), and a JSON summary. **No document text.** Now **test-enforced** (see below) | ✓ no text in streams |
+| **Worker stdout/stderr** | Startup config summary (`worker_id`, `worker_kind`, `persistence`, `queue`; the `sqlite_path` / `fetcher_file_root` **paths are redacted to `fp:<hash>`** — WI-22), the observability event stream (ids + counts), and a JSON summary. **No document text; no config path components.** Text-absence is **test-enforced** (see below); redaction is test-enforced too | ✓ no text or path leak |
 | **Temp input files** (engine) | `paddleocr-onnx.ts` writes the page bytes to a **private** temp: `mkdtemp` (dir `0o700`) + `writeFile` (`0o600`) under `os.tmpdir()`, removed in a **`finally`** (`rm` recursive+force on success / failure / throw) | ✓ private + always cleaned up |
 | **Fetcher errors** (SSRF/TLS/DNS) | Surface **stable error codes** (`https_network_error`, `invalid_*`, …); the original error is preserved only via an **opt-in `cause`**, not emitted by default — so a source path/URL is not leaked in the public error | ✓ sanitized by default |
 | **`describeError`** (cli.ts) | Returns `err.message` (the coordinator's own short, controlled error strings) or `JSON.stringify(err)` — it doesn't fabricate paths; the upstream messages are the no-PII strings above | ✓ controlled |
@@ -36,17 +36,21 @@ intentionally emits **deploy-config paths** (`sqlite_path`, `fetcher_file_root`)
 - **Observability events / logs** → ids + counts + short error strings only. No document text, no payload.
 - **Failure records** → stable code + short message, no raw text.
 
-## Config-path disclosure (the one intentional path emission)
+## Config-path redaction (WI-OCR-CONFIG-PATH-REDACTION-22)
 
-The worker's startup config summary (`cli.ts`, `ocr-worker startup: {...}`) writes **`sqlite_path`** and
-**`fetcher_file_root`** to **stderr**, and a config error can echo `fetcher_file_root`. This is **intentional
-operator visibility** (ADR-11C.3c: operators must see which worker/store the bin chose, so a misconfigured deploy
-can't silently run the fake worker). These are **operator-chosen deploy configuration**, not values derived from
-client documents, and no OCR text/payload accompanies them. **Caveat:** if an operator sets those config paths to
-client-identifying locations (e.g. a matter-named directory), the path string would appear in the worker's stderr /
-CI logs. Operators should keep OCR deploy-config paths non-identifying. A future enhancement could redact/relativize
-these paths in the startup log if identifying deploy paths become a concern — **not** changed here (it is intended
-visibility, and no leak of document content exists).
+The worker's startup config summary (`cli.ts`, `ocr-worker startup: {...}`) and its runtime `fetcher_file_root`
+stat errors used to write the **full** `sqlite_path` / `fetcher_file_root` to stderr. They are now **redacted to a
+`fp:<8-hex>` fingerprint** (`redactPathForLog`, a short SHA-256 of the full path — **no** path, directory, or
+basename). Rationale: a directory's own basename can itself be a client/matter folder name, so fingerprint-only is
+the safe uniform choice; the fingerprint is stable per full path, so an operator can still confirm which resource
+is configured (and correlate across log lines) by hashing their configured value. This preserves the ADR-11C.3c
+diagnostic intent (which worker/persistence/queue the bin chose — those non-path fields are unchanged) without
+exposing home directories, usernames, or client folder names.
+
+**Retained (documented):** `config.ts`'s parse-time validation error `fetcher_file_root must be an absolute path
+(got <raw>)` still echoes the operator's own **non-absolute** input — it fires only when the value is NOT absolute
+(so it cannot contain a home dir), and the operator needs to see their invalid value to fix it. This is parse-time
+operator-input feedback, not an ongoing operational log.
 
 ## What was added
 
