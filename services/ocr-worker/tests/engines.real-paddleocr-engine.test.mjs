@@ -129,19 +129,14 @@ test("OPT-IN: real engine detects CJK text in bakeoff zh-02 PNG fixture", async 
     t.skip("set OCR_WORKER_REAL_ENGINE_TESTS=1 to run fixture-detect tests");
     return;
   }
-  const fixturePath = join(
-    here,
-    "..",
-    "..",
-    "ocr-worker-bakeoff",
-    "fixtures",
-    "synthetic",
-    "zh-02-court-heading.png",
+  // Vendored, committed synthetic fixture (self-contained — no cross-package bakeoff
+  // dependency, per the tests/fixtures/README.md D8 fix). Hard-fail (not skip) when
+  // real-engine mode is on: a missing fixture is a regression, not a reason to pass quietly.
+  const fixturePath = join(here, "fixtures", "zh-02-court-heading.png");
+  assert.ok(
+    existsSync(fixturePath),
+    `vendored synthetic fixture missing at ${fixturePath} — required when OCR_WORKER_REAL_ENGINE_TESTS=1`,
   );
-  if (!existsSync(fixturePath)) {
-    t.skip(`bakeoff fixture missing at ${fixturePath}`);
-    return;
-  }
   const real = await makeRealPaddleEngine();
   const lines = await real.engine.detect(fixturePath);
 
@@ -165,19 +160,14 @@ test("OPT-IN: engine.detect is deterministic across two calls on same input (aud
     t.skip("set OCR_WORKER_REAL_ENGINE_TESTS=1 to run fixture-detect tests");
     return;
   }
-  const fixturePath = join(
-    here,
-    "..",
-    "..",
-    "ocr-worker-bakeoff",
-    "fixtures",
-    "synthetic",
-    "zh-02-court-heading.png",
+  // Vendored, committed synthetic fixture (self-contained — no cross-package bakeoff
+  // dependency, per the tests/fixtures/README.md D8 fix). Hard-fail (not skip) when
+  // real-engine mode is on: a missing fixture is a regression, not a reason to pass quietly.
+  const fixturePath = join(here, "fixtures", "zh-02-court-heading.png");
+  assert.ok(
+    existsSync(fixturePath),
+    `vendored synthetic fixture missing at ${fixturePath} — required when OCR_WORKER_REAL_ENGINE_TESTS=1`,
   );
-  if (!existsSync(fixturePath)) {
-    t.skip(`bakeoff fixture missing at ${fixturePath}`);
-    return;
-  }
   const real = await makeRealPaddleEngine();
   const first = await real.engine.detect(fixturePath);
   const second = await real.engine.detect(fixturePath);

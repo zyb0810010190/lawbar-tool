@@ -1,7 +1,8 @@
 # OCR service-chain CI readiness
 
 **WI**: `WI-OCR-CHAIN-CI-READINESS-19`. Clean-room investigation of whether the OCR service chain can be gated in
-PR CI. **Outcome: YES — an `ocr-chain` job was added** to `.github/workflows/services-ci.yml`. Revisits the
+PR CI. **Outcome: YES — an `ocr-chain` job was added** in `.github/workflows/services-ci-ocr.yml` (a separate
+workflow from the case-box `services-ci.yml`, per the WI-19 audit). Revisits the
 `WI-SERVICES-CI-GATES-SIBLINGS-18` deferral, which was **over-cautious** (it assumed local passes were unreliable
 and the engine prohibitive; a clean-room fresh checkout shows the chain is fast, deterministic, and npm-cacheable).
 

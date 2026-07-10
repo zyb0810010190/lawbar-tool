@@ -11,13 +11,15 @@ name: Services CI — OCR chain
 # onnxruntime + sharp binaries bundled per-platform in the npm packages; NO external CDN),
 # so it is deterministic + npm-cacheable.
 #
-# Real-engine scope: the real OCR *inference* tests are OCR_WORKER_REAL_ENGINE_TESTS-gated
-# and stay SKIPPED (no OCR run on fixtures). The default suite DOES exercise native engine
-# LOAD/startup (the onnxruntime binding loads + a bin spawn against an empty queue) — this
-# is intentional and desirable: it gates that the native binding loads on the CI runner.
-# The fetcher SSRF/TLS/DNS tests use in-process loopback transport (no external network).
-# Clean-room proof (fresh checkout): ocr-worker 472 pass / 3 skipped, ocr-persistence 231,
-# ocr-ingestion 30, ocr-review 38.
+# Real-engine scope: the default ocr-worker suite leaves OCR_WORKER_REAL_ENGINE_TESTS unset,
+# so real OCR *inference* tests SKIP there (but native engine LOAD/startup is still exercised
+# — the onnxruntime binding loads + a bin spawn against an empty queue). A dedicated
+# "real-engine inference smoke" step (WI-OCR-REAL-ENGINE-SMOKE-20) then runs the gated tests
+# WITH the env set, against a synthetic committed fixture — real inference, ~5s, stable
+# assertions (CJK-presence + determinism). The fetcher SSRF/TLS/DNS tests use in-process
+# loopback transport (no external network). Clean-room proof (fresh checkout): ocr-worker
+# 472 pass / 3 skipped (default), ocr-persistence 231, ocr-ingestion 30, ocr-review 38; the
+# real-engine smoke adds 10 pass / 0 skipped in ~4.7s.
 #
 # Merge posture: required for merge BY POLICY (do not merge on a red run), technically
 # advisory — this repo lacks enforceable branch protection (see
@@ -93,6 +95,23 @@ jobs:
       # tests stay skipped (OCR_WORKER_REAL_ENGINE_TESTS unset); engine load/startup runs.
       - name: ocr-worker test suite (builds contracts + ocr-persistence + worker)
         run: npm --prefix services/ocr-worker test
+
+      # Real OCR INFERENCE smoke (WI-OCR-REAL-ENGINE-SMOKE-20). Runs the
+      # OCR_WORKER_REAL_ENGINE_TESTS-gated tests against a SYNTHETIC, committed 8 KB PNG
+      # (`tests/fixtures/zh-02-court-heading.png` + the tracked bakeoff copy; authored
+      # ground truth 上海市浦东新区人民法院 — no real client data). Assertions are stable:
+      # ≥1 BMP CJK char in the detected text (/[一-鿿]/, not exact text) + deep-equal
+      # determinism across two calls + an end-to-end persisted "succeeded" result. Reuses
+      # the dist built by the step above; ~5s local. Proves real paddleocr-onnx inference
+      # works on the runner, not just that the engine loads.
+      - name: ocr-worker real-engine inference smoke (synthetic fixture)
+        working-directory: services/ocr-worker
+        env:
+          OCR_WORKER_REAL_ENGINE_TESTS: "1"
+        # --test-concurrency=1: serialize the native-engine test files (matches the
+        # main ocr-worker suite) so concurrent cold-load/inference can't add nondeterminism.
+        run: node --test --test-concurrency=1 tests/engines.real-paddleocr-engine.test.mjs tests/pipeline.real-engine.e2e.test.mjs
+
       - name: ocr-persistence (ocr) test suite (better-sqlite3 abi-smoke + queue conformance)
         run: npm --prefix services/ocr-persistence test
       - name: ocr-ingestion test suite
