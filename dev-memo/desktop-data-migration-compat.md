@@ -36,20 +36,23 @@ runs `applySchema`, which upgrades old→current in one transaction."
 
 Test: `services/case-box-persistence/tests/data-migration-compat.test.mjs` (2 cases, in the persistence suite).
 
-It exercises the **real runtime entrypoint** with **synthetic data** in a temp file:
-1. Create a file DB at the current version and write synthetic data **through the persistence API**
-   (`createMatter` + `registerDocument` with a synthetic `storage_uri` + `appendDocketEntry`).
-2. **Simulate an earlier on-disk version** — drop the newest tables (v9–v12) and rewind the `schema_version`
-   marker to v8, reproducing what an older app left on disk while keeping the real early-table rows (the early
-   tables are schema-identical v8→v12).
+It exercises the **real runtime entrypoint** with **synthetic data** in temp files:
+1. Write synthetic data **through the persistence API** on a current DB (`createMatter` + `registerDocument` with a
+   synthetic `storage_uri` + `appendDocketEntry`) — the authentic-row source.
+2. **Build a frozen-DDL v8 store** (FIX1): a fresh DB whose schema is created from a **frozen v1–v8 DDL snapshot**
+   embedded in the test (a versioned fixture generated at test time, not a committed binary), populated with the
+   authentic API rows copied in via `ATTACH` (early-table columns are identical v8↔current, never altered). Self-
+   checks assert it is a v8 store (marker = 8, no v9+ table) holding the synthetic rows.
 3. **Reopen via `openSqliteCaseBoxPersistence`** and assert: the DB opens; schema reaches `CURRENT_SCHEMA_VERSION`;
-   the synthetic **matter** is readable through the API with fields intact; the **document + its `storage_uri`
-   directory reference** are intact; the **audit / deadline / docket** tables are **not dropped** and the docket +
-   audit rows survived; and the v9–v12 tables the old store lacked are re-created by the upgrade.
-   A second case proves reopening an already-current DB is an idempotent no-op with data stable.
+   the synthetic **matter** is readable through the API with deep fields intact; the **document + its `storage_uri`
+   directory reference + fields** are intact; the **audit / deadline / docket** tables are **not dropped**, the
+   docket row survives **by id**, and the **audit chain head + events** survive and stay consistent
+   (`event_count == COUNT`); and the v9–v12 tables the old store lacked are created by the upgrade.
+   A second case proves reopening an already-current DB is an idempotent no-op (stable `schema_version` rows + data).
 
-**Synthetic only.** Everything is a temp file under `os.tmpdir()`; nothing is written into the repo tree or
-`~/Library`, and no real client data / `dev-memo/run/intake/` is touched.
+**Synthetic only, and guarded.** An `assertSafeTempRoot()` **preflight** refuses to run if `os.tmpdir()` resolves
+inside the repo tree or `~/Library`. Everything is a temp file under `os.tmpdir()`; nothing is written into the repo
+tree or `~/Library`, and no real client data / `dev-memo/run/intake/` is touched.
 
 ## 4. Test-layer decision (why the persistence package, not `apps/lawbar-desktop`)
 
@@ -61,15 +64,15 @@ entrypoint, so a green test here **is** the desktop compatibility guarantee.
 
 ## 5. Honest gaps / follow-ups
 
-- **Fidelity bound of the "old version" simulation (audit M1, accepted scope).** The old store is created by the
-  *current* runtime and then rewound (drop v9–v12 tables + rewind the marker), so the test proves the migration
-  **runner** + additive v8→current upgrade + API round-trip over the **current schema history**. It is **not** a
-  substitute for a store written by an actual older app **binary**: if a future version altered a v1–v8 table, or
-  the persisted `payload_json` shape diverged, only a **pinned old-app fixture** would catch it. That is
-  deliberately not built here — the WI prefers generated fixtures over committed binary ones, and a real old-binary
-  dump is heavier than this WI's scope. Mitigation: a `V8_TABLES` **self-check** fails the test loudly if the
-  simulated store ever contains a post-v8 table the drop-set doesn't account for (so the simulation can't silently
-  rot as the schema grows). A pinned-fixture upgrade test is a reasonable future WI.
+- **Fidelity bound of the old-store fixture (FIX1; residual of audit M2 — tracked in
+  `dev-memo/deferred-audit-findings.md`).** FIX1 replaced the earlier "create-at-current-then-rewind" approach with a
+  **frozen v1–v8 DDL** fixture, so the store's schema is built from the historical v8 DDL, not derived from a current
+  DB. The remaining, deliberately-accepted limitation: the rows copied into it use the **current serialized
+  `payload_json` shape** (they come from the current API), so the test still does **not** prove compatibility with an
+  actual older app binary's persisted-JSON quirks. Fully closing that needs a **pinned old-app snapshot fixture**,
+  which the repo has chosen not to commit as a binary (WI guidance: prefer generated fixtures). Recorded as a
+  deferred finding with a "pinned old-app fixture" follow-up. A `V8_TABLES` self-check also fails the test loudly if
+  the fixture/schema drift (e.g. a post-v8 table appears), so it cannot silently rot.
 - **No CI runs the persistence package** today (only `apps/lawbar-desktop`, `evidence-core-swift`, and the UI-design
   gate have workflows). This test therefore runs locally / in `npm --prefix services/case-box-persistence test`,
   **not** in PR CI. Recommend a follow-up SCAFFOLD/CI WI to add a `case-box-persistence` (and sibling services) CI

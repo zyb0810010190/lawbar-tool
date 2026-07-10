@@ -586,3 +586,16 @@ for a dedicated persistence-hardening WI.
 | Target future WI/backlog | `WI-DESKTOP-ZH-CN-ERROR-SURFACES-04` (this WI) — added `renderer/i18n/errorMessage.ts` mapping the stable `error.code` → zh-CN `error.<code>` catalog message (fallback `error.unknown`), rewired all ~30 renderer error display sites. Main process unchanged (codes + English message stay for logs). |
 | Safe-to-proceed? | YES — display-layer only; safe-message contract strengthened (raw message never surfaced; `renderer-error-message.test.mjs`). |
 | Status | **closed** — resolved in WI-DESKTOP-ZH-CN-ERROR-SURFACES-04; user-visible IPC error copy is now zh-CN. |
+
+---
+
+## Migration-compat old-payload fidelity (WI-MIGRATION-COMPAT-FIX1, commit `<pending>`)
+
+FIX1 remediated the Layer-B BATCH-FAIL on the WI-16 migration-compat test: M1 (missing safe temp-root guard) was
+FIXED (`assertSafeTempRoot()` preflight), and M2 (old store was a current DB rewound to v8) was STRENGTHENED — the
+old store is now built from a **frozen v1–v8 DDL** fixture populated with authentic API rows via `ATTACH`. The row
+below tracks the deliberately-accepted **residual** of M2.
+
+| Finding ID | Audit job | Verify job | Severity | Reason for deferral / disposition | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|---|---|
+| MIGRATE-COMPAT-M2-residual | `audit-mre5099f-u48410` | `<fix1-verify>` | Medium | Explicit-accept: the frozen-DDL fixture proves schema-history upgrade + API round-trip, but the copied rows use the **current** `payload_json` shape, so old-app persisted-JSON/payload drift is not exercised. Full closure needs a **pinned old-app binary/snapshot fixture**, which the repo has chosen NOT to commit (WI guidance: prefer generated fixtures over committed binaries). | `WI-MIGRATE-PINNED-FIXTURE` (future; only if the repo accepts a committed old-app snapshot) | YES | escalated | Documented in `dev-memo/desktop-data-migration-compat.md` §5. Mitigations in place: frozen v1–v8 DDL fixture + `V8_TABLES` self-check (fails loudly on schema drift). Residual is a fidelity ceiling, not a correctness defect. |
