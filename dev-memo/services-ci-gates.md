@@ -55,7 +55,8 @@ deterministic), ocr-persistence **231**, ocr-ingestion **30**, ocr-review **38**
 install (cacheable) + ~16s test. The earlier "deferred" concerns (engine footprint, models, native binaries,
 network, stale-`dist` reliance, `@gutenye` lock omission) all resolved.
 
-The **`ocr-chain`** job (`.github/workflows/services-ci.yml`): ubuntu-latest, Node 22, `npm ci` each package, then
+The **`ocr-chain`** job (`.github/workflows/services-ci-ocr.yml` — a **separate** workflow from the case-box
+`services-ci.yml`): ubuntu-latest, Node 22, `npm ci` each package, then
 the four suites in dependency order (`ocr-worker` → `ocr-persistence` → `ocr-ingestion` → `ocr-review`), engine
 tests left skipped. Same by-policy/advisory merge posture as above.
 
