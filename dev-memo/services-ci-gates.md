@@ -50,5 +50,13 @@ with a clean `npm ci` + `test` first). The workflow is structured so adding a si
 
 ## Guardrails
 No product/schema/UI change. No secrets. No generated artifacts uploaded/committed (no DBs, no `dist/`, no
-`release/**`). The desktop `desktop-release-gates` and `check-ui-design-artifact` workflows are untouched. This
-gate is **required for merge** for PRs that touch its trigger paths.
+`release/**`). The desktop `desktop-release-gates` and `check-ui-design-artifact` workflows are untouched.
+
+**Merge posture — required by policy, technically advisory.** This `services-ci` gate is **required for merge by
+policy**: maintainers MUST NOT merge a PR (touching its trigger paths) while `services-ci` is red. It is **not**
+enforced by a required-status-check rule, because this repo currently lacks enforceable GitHub branch
+protection / rulesets (private repo under the current account — see `dev-memo/run/log.md` §"Workflow note — GitHub
+private-repo branch protection limitation"). So the check is technically **advisory**; the do-not-merge-on-red rule
+is a human policy, exactly mirroring the existing `desktop-release-gates` precedent
+(`dev-memo/desktop-ci-release-gates.md`). If enforceable branch protection becomes available, add `services-ci` as
+a required status check on `main`.

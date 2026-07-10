@@ -6,6 +6,12 @@ name: Services CI
 # Node on Linux; NO secrets, NO signing, NO generated artifacts. The desktop
 # (`desktop-release-gates`) and UI-design (`check-ui-design-artifact`) gates are
 # unchanged. Sibling ocr-* services are deferred (documented follow-up).
+#
+# Merge posture: required for merge BY POLICY (do not merge on a red run), but
+# technically advisory — this repo lacks enforceable branch protection / required
+# status checks (private repo under the current account; see dev-memo/run/log.md
+# §"Workflow note — GitHub private-repo branch protection limitation" and
+# dev-memo/services-ci-gates.md §Guardrails). Mirrors the desktop-release-gates posture.
 
 on:
   pull_request:
