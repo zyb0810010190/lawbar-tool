@@ -96,6 +96,60 @@ interface OcrStatusRow {
   transition_json: string;
 }
 
+/**
+ * Node system-error `.code` values realistically produced by local-store
+ * (SQLite file) operations. This is an explicit **allowlist**, not a shape
+ * match: a token is surfaced only if it is a known errno here or a
+ * `SQLITE_`-prefixed result code (see `sanitizeDriverErrorCode`). Anything
+ * else — including an enum-shaped but sensitive `.code` an unexpected error
+ * might carry (`CLIENTCONFIDENTIAL_2026`, `OCR_TEXT_…`) — collapses to
+ * `"unknown"`.
+ */
+const KNOWN_ERRNO_CODES: ReadonlySet<string> = new Set([
+  "ENOENT",
+  "EACCES",
+  "EPERM",
+  "EROFS",
+  "ENOSPC",
+  "EIO",
+  "EBUSY",
+  "EEXIST",
+  "ENOTDIR",
+  "EISDIR",
+  "EMFILE",
+  "ENFILE",
+  "ELOOP",
+  "EDQUOT",
+  "ENOMEM",
+  "EAGAIN",
+]);
+
+/**
+ * Extract a *stable, path-free* diagnostic token from an unexpected driver
+ * error for use in the wrapped `OcrPersistenceError` message.
+ *
+ * A better-sqlite3 `SqliteError` carries `.code` = a fixed SQLite result-code
+ * enum (`SQLITE_BUSY`, `SQLITE_CONSTRAINT_UNIQUE`, `SQLITE_CANTOPEN`, …); a
+ * Node system error carries `.code` = an errno enum (`ENOENT`, `EACCES`, …).
+ * Both are safe: they never embed a filesystem path, SQL text, schema
+ * identifier, or OCR content — unlike `.message`, which can embed all of
+ * those.
+ *
+ * The match is **identity-based (allowlist)**, not merely shape-based, so a
+ * rogue non-driver error whose `.code` is itself an enum-shaped sensitive
+ * string cannot smuggle free text past the boundary: only a known errno
+ * (`KNOWN_ERRNO_CODES`) or a `SQLITE_`-prefixed enum token survives; every
+ * other value — non-string, numeric, unknown enum, or a `SQLITE_` token
+ * carrying non-enum characters — collapses to the opaque `"unknown"`.
+ */
+export function sanitizeDriverErrorCode(err: unknown): string {
+  const code = (err as { code?: unknown } | null | undefined)?.code;
+  if (typeof code !== "string") return "unknown";
+  if (KNOWN_ERRNO_CODES.has(code)) return code;
+  if (/^SQLITE_[A-Z0-9_]+$/.test(code)) return code;
+  return "unknown";
+}
+
 export class SqliteOcrPersistence implements OcrPersistence {
   private readonly db: BetterSqlite3Database;
   private readonly now: () => Date;
@@ -126,9 +180,14 @@ export class SqliteOcrPersistence implements OcrPersistence {
    *    failure, undefined-column TypeError, etc.) is converted into an
    *    `OcrPersistenceError` prefixed with "internal db error: ".
    *
-   * This guarantees callers only ever see one error type from this class —
-   * raw driver internals (`SqliteError: SQLITE_*`, native error codes,
-   * connection state) cannot leak across the persistence boundary.
+   * This guarantees callers only ever see one error type from this class AND
+   * that raw driver internals cannot leak across the persistence boundary.
+   * The wrapped message carries ONLY the driver error's stable `.code`
+   * (`SQLITE_*` / errno enum), never its free-text `.message` — which can
+   * embed the DB *file path* (`unable to open database file '/…/matter.db'`),
+   * a *SQL fragment*, or a *schema identifier* (`no such table: ocr_jobs`).
+   * See `sanitizeDriverErrorCode` and
+   * `dev-memo/ocr-persistence-error-sanitization.md`.
    */
   private wrapErrors<T>(fn: () => T): T {
     try {
@@ -139,8 +198,9 @@ export class SqliteOcrPersistence implements OcrPersistence {
       // from the shared `enqueueOcrJobIntoConnection` helper, so atomic-
       // path callers can still discriminate by `OcrQueueError.code`.
       if (err instanceof OcrQueueError) throw err;
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new OcrPersistenceError(`internal db error: ${msg}`);
+      throw new OcrPersistenceError(
+        `internal db error: ${sanitizeDriverErrorCode(err)}`,
+      );
     }
   }
 
