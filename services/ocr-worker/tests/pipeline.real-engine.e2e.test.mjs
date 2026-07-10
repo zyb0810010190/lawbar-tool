@@ -397,6 +397,23 @@ test("E2E real engine: bin -> real paddle -> persisted succeeded result with CJK
 
       // Metadata round-trip per ADR-11C.3a §3 contract.
       assert.deepEqual(r.metadata, { trace_id: traceId });
+
+      // Confidentiality boundary (WI-OCR-CONFIDENTIALITY-RETENTION-21): the extracted
+      // OCR text is persisted to the LOCAL store ONLY. It must NEVER reach the worker's
+      // stdout/stderr (which flow to logs / CI). The observability event stream is
+      // job_id + counts + short error strings, no document text (observability.ts §"No
+      // PII"). Since the authored text + raw_text are CJK, the worker's output streams
+      // must contain no BMP CJK character.
+      assert.doesNotMatch(
+        result.stdout + result.stderr,
+        /[一-鿿]/,
+        // Redact the streams in the failure message: if this fails a CJK char DID leak,
+        // and reprinting the streams would amplify that leak into the test/CI log. Report
+        // lengths only.
+        `worker stdout/stderr must not contain OCR-extracted text (confidentiality): a BMP ` +
+          `CJK char appeared in the worker streams (stdout ${result.stdout.length} chars, ` +
+          `stderr ${result.stderr.length} chars) — content redacted to avoid amplifying a leak`,
+      );
     } finally {
       db.close();
     }
