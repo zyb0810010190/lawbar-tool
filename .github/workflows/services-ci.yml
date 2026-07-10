@@ -1,0 +1,69 @@
+name: Services CI
+
+# CI gate for service packages (WI-SERVICES-CI-GATES-17). Starts with
+# services/case-box-persistence so its migration/conformance/hardening suites gate
+# PRs (previously they ran only locally — see dev-memo/services-ci-gates.md). Headless
+# Node on Linux; NO secrets, NO signing, NO generated artifacts. The desktop
+# (`desktop-release-gates`) and UI-design (`check-ui-design-artifact`) gates are
+# unchanged. Sibling ocr-* services are deferred (documented follow-up).
+
+on:
+  pull_request:
+    paths:
+      # persistence source/tests + its lockfile
+      - "services/case-box-persistence/**"
+      # the contract it depends on (file:../../docs/contracts/case-box-contract);
+      # a contract change can break persistence build/tests
+      - "docs/contracts/case-box-contract/**"
+      # this workflow itself
+      - ".github/workflows/services-ci.yml"
+  workflow_dispatch: {}
+
+# No secrets are used. Least-privilege token.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same PR to save runner minutes.
+concurrency:
+  group: services-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  case-box-persistence:
+    # Linux is sufficient: the suite is headless Node + better-sqlite3 (native,
+    # builds on ubuntu). No GUI/Electron here (that is the desktop gate's job).
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # This job runs PR-controlled `npm ci`/`npm test` (install + test scripts).
+          # Don't leave the checkout token in .git/config during that untrusted code.
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          # persistence + its file:-linked contract both have lockfiles
+          cache-dependency-path: |
+            services/case-box-persistence/package-lock.json
+            docs/contracts/case-box-contract/package-lock.json
+
+      # The persistence `test` builds case-box-contract (tsc) — install the
+      # contract's own devDeps (typescript) so that build succeeds.
+      - name: Install case-box-contract deps
+        run: npm --prefix docs/contracts/case-box-contract ci
+
+      # Installs persistence deps incl. the native better-sqlite3 (node-ABI build)
+      # and the file: link to case-box-contract.
+      - name: Install case-box-persistence deps
+        run: npm --prefix services/case-box-persistence ci
+
+      # Runs the abi-smoke pretest (better-sqlite3 loads) + builds the contract +
+      # builds persistence + the full node --test suite: migration-compat,
+      # conformance, hardening, impl-parity, invariants, audit-chain.
+      - name: case-box-persistence test suite
+        run: npm --prefix services/case-box-persistence test
