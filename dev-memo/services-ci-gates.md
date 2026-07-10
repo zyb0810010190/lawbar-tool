@@ -42,11 +42,21 @@ the persistence package — and why this gate runs it on Linux under the **node-
 
 ## Sibling services — deferred (documented)
 `services/ocr-worker`, `services/ocr-persistence`, `services/ocr-ingestion`, `services/ocr-review` all have
-lockfiles + `test` scripts, but their CI setup is **not yet clearly low-risk** to add blindly: `ocr-worker` carries
-the SSRF/TLS/DNS security surface, `ocr-persistence` has its own native-binding/ABI concerns, and cross-service
-wiring is unverified for CI. Per the WI ("include siblings only if setup is clear and low-risk; otherwise document
-as follow-up"), they are **deferred** to a follow-up that extends this workflow one service at a time (each proven
-with a clean `npm ci` + `test` first). The workflow is structured so adding a sibling is a new job, not a rewrite.
+lockfiles + `test` scripts, but **WI-SERVICES-CI-GATES-SIBLINGS-18 investigated them and deferred all four** (see
+`dev-memo/plan-services-ci-gates-siblings-18.md` for the full inventory). Root cause: `services/ocr-worker` is the
+package named **`ocr-worker-adapter`**, a shared `file:` dependency of the other three (they all `import` it at
+runtime). It carries the **`@gutenye/ocr-node` OCR engine** — `onnxruntime-node` (native) + `sharp` (native) +
+16 MB of `.onnx` model binaries, a **326 MB** `node_modules`. So building/testing *any* sibling in clean CI
+requires that native OCR engine chain, which fails the WI bar ("no external OCR engine/service required",
+"reasonable runtime", clean/deterministic). `ocr-worker` additionally owns the SSRF/TLS/DNS fetcher surface + a
+`OCR_WORKER_REAL_ENGINE_TESTS`-gated real-engine path. Local `npm test` passes for ocr-persistence (231) and
+ocr-ingestion (30) are **not** a clean-CI signal — they reuse pre-built `dist/`.
+
+**Follow-up (recommended):** a dedicated *OCR-chain CI* WI that decides whether the 326 MB native engine is
+acceptable per-PR (and **caches** onnxruntime/sharp/models), builds the `docs/contracts` → `ocr-worker-adapter` →
+`ocr-persistence` chain once, then gates ocr-persistence / ocr-ingestion; `ocr-worker`'s network-surface tests are
+handled separately after confirming they are loopback-only. This workflow is structured so each future service is a
+new job, not a rewrite.
 
 ## Guardrails
 No product/schema/UI change. No secrets. No generated artifacts uploaded/committed (no DBs, no `dist/`, no
