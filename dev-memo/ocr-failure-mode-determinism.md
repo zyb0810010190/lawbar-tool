@@ -45,7 +45,10 @@ consolidated inventory.
 condition (e.g. `SQLITE_BUSY` / "database is locked"), not a path, and it is the WI-21-documented "short error
 string" surface — but it is **not** guaranteed path-free the way the fetcher `SANITIZED_FETCHER_MESSAGES` table is.
 A dedicated persistence-error-message sanitization pass (if any DB error is found to carry a path) is a reasonable
-follow-up; no concrete leak was confirmed here.
+follow-up; no concrete leak was confirmed here. **CLOSED by `WI-OCR-PERSISTENCE-ERROR-SANITIZATION-25`**
+(`dev-memo/ocr-persistence-error-sanitization.md`): the `SqliteOcrPersistence.wrapErrors` boundary was in fact
+forwarding the raw driver `err.message` (contradicting its own docstring) and is now sanitized to emit only the
+stable `.code`, so the obs event's persistence-error string is coded/path-free like the fetcher table.
 
 **Determinism:** codes + sanitized messages are static; `classifyFetcherError` is a pure membership check with a
 type-enforced exhaustive input (`retryClassification.test.mjs` "every code classifies"); the observability event is
