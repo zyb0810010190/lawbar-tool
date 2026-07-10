@@ -1,11 +1,13 @@
 name: Services CI
 
-# CI gate for service packages (WI-SERVICES-CI-GATES-17). Starts with
-# services/case-box-persistence so its migration/conformance/hardening suites gate
-# PRs (previously they ran only locally — see dev-memo/services-ci-gates.md). Headless
-# Node on Linux; NO secrets, NO signing, NO generated artifacts. The desktop
-# (`desktop-release-gates`) and UI-design (`check-ui-design-artifact`) gates are
-# unchanged. Sibling ocr-* services are deferred (documented follow-up).
+# CI gate for services/case-box-persistence (WI-SERVICES-CI-GATES-17) — its
+# migration/conformance/hardening suites gate PRs (previously they ran only locally —
+# see dev-memo/services-ci-gates.md). Headless Node on Linux; NO secrets, NO signing,
+# NO generated artifacts. The desktop (`desktop-release-gates`) and UI-design
+# (`check-ui-design-artifact`) gates are unchanged. The OCR service chain is gated by a
+# SEPARATE workflow (`.github/workflows/services-ci-ocr.yml`, `ocr-chain` job) so an
+# OCR-only PR does not pull the 332 MB OCR engine into this job, and vice-versa
+# (WI-OCR-CHAIN-CI-READINESS-19).
 #
 # Merge posture: required for merge BY POLICY (do not merge on a red run), but
 # technically advisory — this repo lacks enforceable branch protection / required

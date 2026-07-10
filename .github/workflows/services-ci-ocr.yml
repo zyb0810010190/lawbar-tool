@@ -1,0 +1,101 @@
+name: Services CI — OCR chain
+
+# CI gate for the OCR service chain (WI-OCR-CHAIN-CI-READINESS-19). Separate from
+# services-ci.yml so an OCR-only PR does not pull the 332 MB OCR engine into the
+# case-box job (and a case-box PR does not run this one). Headless Node on Linux; NO
+# secrets, NO signing, NO generated artifacts.
+#
+# services/ocr-worker is the package `ocr-worker-adapter`, a shared file: dependency of
+# the other three. Its install pulls @gutenye/ocr-node (onnxruntime-node + sharp + ONNX
+# models, ~332 MB) — but everything is npm-sourced (models bundled in @gutenye/ocr-models;
+# onnxruntime + sharp binaries bundled per-platform in the npm packages; NO external CDN),
+# so it is deterministic + npm-cacheable.
+#
+# Real-engine scope: the real OCR *inference* tests are OCR_WORKER_REAL_ENGINE_TESTS-gated
+# and stay SKIPPED (no OCR run on fixtures). The default suite DOES exercise native engine
+# LOAD/startup (the onnxruntime binding loads + a bin spawn against an empty queue) — this
+# is intentional and desirable: it gates that the native binding loads on the CI runner.
+# The fetcher SSRF/TLS/DNS tests use in-process loopback transport (no external network).
+# Clean-room proof (fresh checkout): ocr-worker 472 pass / 3 skipped, ocr-persistence 231,
+# ocr-ingestion 30, ocr-review 38.
+#
+# Merge posture: required for merge BY POLICY (do not merge on a red run), technically
+# advisory — this repo lacks enforceable branch protection (see
+# dev-memo/services-ci-gates.md §Guardrails). Mirrors the desktop-release-gates posture.
+
+on:
+  pull_request:
+    paths:
+      - "services/ocr-worker/**"
+      - "services/ocr-persistence/**"
+      - "services/ocr-ingestion/**"
+      - "services/ocr-review/**"
+      # the OCR contract hub (ocr-worker-contract = file:../../docs/contracts) — but NOT
+      # the case-box-contract sub-package (that gates the separate case-box workflow), so
+      # a case-box-only contract change does not pull the 332 MB OCR engine here.
+      - "docs/contracts/**"
+      - "!docs/contracts/case-box-contract/**"
+      # this workflow itself
+      - ".github/workflows/services-ci-ocr.yml"
+  workflow_dispatch: {}
+
+# No secrets are used. Least-privilege token.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same PR to save runner minutes.
+concurrency:
+  group: services-ci-ocr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ocr-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # This job runs PR-controlled `npm ci`/`npm test` (install + test scripts).
+          # Don't leave the checkout token in .git/config during that untrusted code.
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          # every package in the chain has a lockfile (the 332 MB engine is cached here)
+          cache-dependency-path: |
+            docs/contracts/package-lock.json
+            services/ocr-worker/package-lock.json
+            services/ocr-persistence/package-lock.json
+            services/ocr-ingestion/package-lock.json
+            services/ocr-review/package-lock.json
+
+      # Install each package's own deps. ocr-worker's install pulls the OCR engine
+      # (@gutenye/ocr-node); the others link ocr-worker-adapter via file: without
+      # re-installing the engine (their locks correctly omit @gutenye).
+      - name: Install ocr-worker-contract deps
+        run: npm --prefix docs/contracts ci
+      - name: Install ocr-worker (ocr-worker-adapter, incl. OCR engine) deps
+        run: npm --prefix services/ocr-worker ci
+      - name: Install ocr-persistence deps
+        run: npm --prefix services/ocr-persistence ci
+      - name: Install ocr-ingestion deps
+        run: npm --prefix services/ocr-ingestion ci
+      - name: Install ocr-review deps
+        run: npm --prefix services/ocr-review ci
+
+      # Run each suite in DEPENDENCY ORDER so each service's file: deps are built first
+      # (each test script builds what it needs; ocr-ingestion relies on the ocr-persistence
+      # + ocr-worker-adapter dist produced by the earlier steps). Real-engine INFERENCE
+      # tests stay skipped (OCR_WORKER_REAL_ENGINE_TESTS unset); engine load/startup runs.
+      - name: ocr-worker test suite (builds contracts + ocr-persistence + worker)
+        run: npm --prefix services/ocr-worker test
+      - name: ocr-persistence (ocr) test suite (better-sqlite3 abi-smoke + queue conformance)
+        run: npm --prefix services/ocr-persistence test
+      - name: ocr-ingestion test suite
+        run: npm --prefix services/ocr-ingestion test
+      - name: ocr-review test suite (in-memory pipeline E2E)
+        run: npm --prefix services/ocr-review test
