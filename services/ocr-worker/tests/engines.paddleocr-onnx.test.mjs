@@ -476,6 +476,29 @@ test("D2 M: sanitized partial_failure.message for fetcher errors (no path leak i
   });
 });
 
+// WI-OCR-FAILURE-MODE-DETERMINISM-24: file_not_found is the most COMMON path-carrying
+// failure — the raw fetcher error names the resolved (missing) document path. Extend the
+// D2 sanitization guarantee to it: the durable partial_failure carries the stable code +
+// a path-free message, never the missing document path or the allowed root.
+test("WI-24: file_not_found partial_failure message is sanitized (no missing-path leak)", async () => {
+  await withTempRoot(async (root) => {
+    const engine = { async detect() { throw new Error("should not be called"); } };
+    const outcome = await processPaddleOcrOnnxJob(
+      makeJob({
+        // relative path INSIDE the root (containment passes) but the file is never created
+        source: makeFileSource({ path: "missing-CLIENT-doc.png", mime_type: "image/png", byte_size: 1 }),
+      }),
+      { fetcher: { allowedFileRoot: root }, engine, engineVersion: baseEngineVersion },
+    );
+    assert.equal(outcome.terminal_state, "failed");
+    assert.equal(outcome.results[0].partial_failure.code, FETCHER_ERROR_CODES.FILE_NOT_FOUND);
+    const msg = outcome.results[0].partial_failure.message;
+    assert.equal(msg, "Source file not found.");
+    assert.equal(msg.includes("missing-CLIENT-doc"), false, "must not leak the (missing) document filename");
+    assert.equal(msg.includes(root), false, "must not leak the allowed-root path");
+  });
+});
+
 test("D7: full status-chain sequence validates as a chain (not just edge-by-edge)", async () => {
   await withTempRoot(async (root) => {
     await writeFile(join(root, "page.png"), PNG_HEADER);

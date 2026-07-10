@@ -46,7 +46,8 @@ stable error codes preserved; no cloud/remote; no accuracy work; no UI; no gener
 
 ## Acceptance (met; live on PR)
 
-Local: `fetcher.privateIp.test.mjs` 3/3; full fetcher suites 130/130; full ocr-worker suite; real-engine smoke;
+Local: `fetcher.privateIp.test.mjs` 4/4 (block / allow+boundary / fail-closed str / fail-closed non-string); full
+fetcher suites 130/130; full ocr-worker suite; real-engine smoke;
 `case-box-persistence` ci + test. Live: the `ocr-chain` job on this PR runs the new SSRF test + the existing
 DNS-seam SSRF tests.
 
