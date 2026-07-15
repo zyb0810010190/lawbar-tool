@@ -4,21 +4,21 @@
       "name": "case-box-contract",
       "sourceDir": "docs/contracts/case-box-contract",
       "tarball": "dist-tarballs/case-box-contract-0.1.0.tgz",
-      "sizeBytes": 70286,
-      "integrity": "sha512-ImpzvbVfTBvFiecNQFHlTFp8f/7WzV4u4HmcaSyFDmZc5iC712fWtTS1TjU/TK9jB84eoDbxtnzCej5fVVa5mw==",
+      "sizeBytes": 71687,
+      "integrity": "sha512-tM6FZ1WTQBoTubAEtjWqcGQHuvok0fobtzgdVCq0vycjvVqZ0PCtBlCUMkr6zvWb5qUoXr9KF4l8suoaaUBbtw==",
       "rewrites": {},
-      "packedAt": "2026-07-03T05:56:43.322Z"
+      "packedAt": "2026-07-15T08:17:48.462Z"
     },
     {
       "name": "case-box-persistence",
       "sourceDir": "services/case-box-persistence",
       "tarball": "dist-tarballs/case-box-persistence-0.1.0.tgz",
-      "sizeBytes": 252853,
-      "integrity": "sha512-YizYieJCWIDE4/LOQrzv//xvWCHv+GufPDVkxNXE+p0e5OOaV+8eBOJqOIp7ASNieCDAONkUYUHP8XVBjJ3F2g==",
+      "sizeBytes": 264130,
+      "integrity": "sha512-6EwbP0OU7BGASPu+blVg6GxJhWPtVH67gfr8YtpSsIbIDrsiCuMHl0QRpZuWNS9pRZQikyL8SG1zPG4cChgjoA==",
       "rewrites": {
         "case-box-contract": "0.1.0"
       },
-      "packedAt": "2026-07-03T05:56:43.611Z"
+      "packedAt": "2026-07-15T08:17:48.758Z"
     }
   ],
   "generator": "scripts/pack-internal-packages.mjs",
