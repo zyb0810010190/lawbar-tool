@@ -1,0 +1,19 @@
+{
+  "id": "01jrcasebox00000000000ct02",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "track_type": "counterclaim",
+  "claimant_party_id": "01jrcasebox0000000000000p2",
+  "respondent_party_id": "01jrcasebox0000000000000p1",
+  "our_role": "responding",
+  "title": "Counterclaim — alleged late payment (defense)",
+  "claim_summary": "",
+  "response_summary": "Our client disputes the counterparty's counterclaim: payment was tendered within the contractual grace window.",
+  "legal_basis": "Contract Law art. 590 — force majeure suspension of the payment deadline.",
+  "calculation_summary": "",
+  "status": "active",
+  "sort_order": 1,
+  "created_at": "2026-07-15T09:05:00.000Z",
+  "updated_at": "2026-07-15T09:05:00.000Z"
+}

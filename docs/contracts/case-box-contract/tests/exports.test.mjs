@@ -80,6 +80,8 @@ const expectedFns = [
   // WI-brief-matter-type (R-5)
   "assertValidDocumentSupersession",
   "assertValidMatterSuccessor",
+  // WI-PTA-04
+  "validateClaimTrack",
 ];
 
 const expectedArrays = [
@@ -125,6 +127,7 @@ const expectedObjects = [
   "confidentialityClassificationSchema",
   "LATTICE_ORDINAL",
   "docketEntrySchema",
+  "claimTrackSchema",
 ];
 
 const expectedConstants = [
