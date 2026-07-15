@@ -36,6 +36,10 @@ export const CASE_BOX_AUDIT_ENTITY_TYPES = Object.freeze([
   "confidentiality_classification",
   "docket_entry",
   "link",
+  "claim_track",
+  "evidence_preparation",
+  "cross_examination_opinion",
+  "legal_opinion_card",
 ] as const);
 
 export type CaseBoxAuditEntityType = (typeof CASE_BOX_AUDIT_ENTITY_TYPES)[number];
@@ -56,7 +60,8 @@ type AuditAction =
   | "export"
   | "print"
   | "share"
-  | "privilege-waive";
+  | "privilege-waive"
+  | "delete-hard";
 
 interface AuditKindMeta {
   readonly action: AuditAction;
@@ -122,6 +127,28 @@ export const CASE_BOX_AUDIT_EVENT_KINDS = Object.freeze({
   LINK_UNLINKED:                       { action: "update", entity_type: "link", reasonRequired: true  },
   LINK_RELINKED:                       { action: "update", entity_type: "link", reasonRequired: false },
   LINK_CREATED:                        { action: "create", entity_type: "link", reasonRequired: false },
+  // WI-PTA-03 (pre-trial/trial-mode addon) — additive vocabulary for the four future preparation models.
+  // `*_DELETED` uses the additive `delete-hard` action (distinct from `delete-soft`); reasonRequired:true for
+  // the destructive/legally-meaningful reversals (the four hard deletes + CLAIM_TRACK_WITHDRAWN), matching the
+  // treatment of DOCUMENT_SOFT_DELETED / LINK_UNLINKED / PRIVILEGE_MARKER_DISMISSED / classification downgrade.
+  CLAIM_TRACK_CREATED:                 { action: "create",      entity_type: "claim_track",               reasonRequired: false },
+  CLAIM_TRACK_UPDATED:                 { action: "update",      entity_type: "claim_track",               reasonRequired: false },
+  CLAIM_TRACK_WITHDRAWN:               { action: "update",      entity_type: "claim_track",               reasonRequired: true  },
+  CLAIM_TRACK_RESOLVED:                { action: "update",      entity_type: "claim_track",               reasonRequired: false },
+  CLAIM_TRACK_DELETED:                 { action: "delete-hard", entity_type: "claim_track",               reasonRequired: true  },
+  EVIDENCE_PREPARATION_CREATED:        { action: "create",      entity_type: "evidence_preparation",      reasonRequired: false },
+  EVIDENCE_PREPARATION_UPDATED:        { action: "update",      entity_type: "evidence_preparation",      reasonRequired: false },
+  EVIDENCE_PREPARATION_DELETED:        { action: "delete-hard", entity_type: "evidence_preparation",      reasonRequired: true  },
+  CROSS_EXAM_OPINION_CREATED:          { action: "create",      entity_type: "cross_examination_opinion", reasonRequired: false },
+  CROSS_EXAM_OPINION_UPDATED:          { action: "update",      entity_type: "cross_examination_opinion", reasonRequired: false },
+  CROSS_EXAM_OPINION_DELETED:          { action: "delete-hard", entity_type: "cross_examination_opinion", reasonRequired: true  },
+  LEGAL_OPINION_CARD_CREATED:          { action: "create",      entity_type: "legal_opinion_card",        reasonRequired: false },
+  LEGAL_OPINION_CARD_UPDATED:          { action: "update",      entity_type: "legal_opinion_card",        reasonRequired: false },
+  LEGAL_OPINION_CARD_DELETED:          { action: "delete-hard", entity_type: "legal_opinion_card",        reasonRequired: true  },
+  LEGAL_OPINION_CARD_USED_IN_TRIAL_SET:     { action: "update", entity_type: "legal_opinion_card",        reasonRequired: false },
+  LEGAL_OPINION_CARD_USED_IN_TRIAL_CLEARED: { action: "update", entity_type: "legal_opinion_card",        reasonRequired: false },
+  LEGAL_OPINION_CARD_FOLLOW_UP_SET:         { action: "update", entity_type: "legal_opinion_card",        reasonRequired: false },
+  LEGAL_OPINION_CARD_FOLLOW_UP_CLEARED:     { action: "update", entity_type: "legal_opinion_card",        reasonRequired: false },
 } as const satisfies Record<string, AuditKindMeta>);
 
 export type CaseBoxAuditEventKind = keyof typeof CASE_BOX_AUDIT_EVENT_KINDS;

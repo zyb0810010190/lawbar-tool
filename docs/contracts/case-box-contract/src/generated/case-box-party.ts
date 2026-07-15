@@ -9,6 +9,10 @@
  */
 export interface CaseBoxParty {
   /**
+   * Optional stable party ULID (WI-PTA-03). Absent on pre-feature/id-less parties; backfilled by ensureMatterPartyIds (deferred to WI-PTA-08/12). Referenced by ClaimTrack.claimant_party_id / respondent_party_id.
+   */
+  id?: string;
+  /**
    * Role of the party in the matter.
    */
   role: "client" | "opposing" | "third_party";

@@ -92,6 +92,24 @@ export const CATALOG = {
   "eventKind.LINK_CREATED": "证据链接已创建",
   "eventKind.LINK_UNLINKED": "证据链接已解除",
   "eventKind.LINK_RELINKED": "证据链接已重新链接",
+  "eventKind.CLAIM_TRACK_CREATED": "诉讼请求轨道已创建",
+  "eventKind.CLAIM_TRACK_UPDATED": "诉讼请求轨道已更新",
+  "eventKind.CLAIM_TRACK_WITHDRAWN": "诉讼请求轨道已撤回",
+  "eventKind.CLAIM_TRACK_RESOLVED": "诉讼请求轨道已了结",
+  "eventKind.CLAIM_TRACK_DELETED": "诉讼请求轨道已删除",
+  "eventKind.EVIDENCE_PREPARATION_CREATED": "证据准备已创建",
+  "eventKind.EVIDENCE_PREPARATION_UPDATED": "证据准备已更新",
+  "eventKind.EVIDENCE_PREPARATION_DELETED": "证据准备已删除",
+  "eventKind.CROSS_EXAM_OPINION_CREATED": "质证意见已创建",
+  "eventKind.CROSS_EXAM_OPINION_UPDATED": "质证意见已更新",
+  "eventKind.CROSS_EXAM_OPINION_DELETED": "质证意见已删除",
+  "eventKind.LEGAL_OPINION_CARD_CREATED": "法律意见卡已创建",
+  "eventKind.LEGAL_OPINION_CARD_UPDATED": "法律意见卡已更新",
+  "eventKind.LEGAL_OPINION_CARD_DELETED": "法律意见卡已删除",
+  "eventKind.LEGAL_OPINION_CARD_USED_IN_TRIAL_SET": "法律意见卡已标记庭审使用",
+  "eventKind.LEGAL_OPINION_CARD_USED_IN_TRIAL_CLEARED": "法律意见卡已取消庭审使用标记",
+  "eventKind.LEGAL_OPINION_CARD_FOLLOW_UP_SET": "法律意见卡已标记待跟进",
+  "eventKind.LEGAL_OPINION_CARD_FOLLOW_UP_CLEARED": "法律意见卡已取消待跟进标记",
 
   // ---- shared keys ----
   "common.loadMore": "加载更多",
@@ -544,6 +562,10 @@ export const CATALOG = {
   "auditEntityType.confidentiality_classification": "保密分级",
   "auditEntityType.docket_entry": "立案条目",
   "auditEntityType.link": "链接",
+  "auditEntityType.claim_track": "诉讼请求轨道",
+  "auditEntityType.evidence_preparation": "证据准备",
+  "auditEntityType.cross_examination_opinion": "质证意见",
+  "auditEntityType.legal_opinion_card": "法律意见卡",
 
   // ---- IPC error surfaces (WI-DESKTOP-ZH-CN-ERROR-SURFACES-04) ----
   // Generic, safe zh-CN display messages keyed by the STABLE English error CODE.

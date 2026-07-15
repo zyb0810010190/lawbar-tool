@@ -76,10 +76,12 @@ test("facade: eventKindLabel resolves a non-empty zh-CN label for every audit ev
   }
 });
 
-test("catalog: holds all 53 eventKind.* keys + the enum-label keys", () => {
+test("catalog: holds an eventKind.* key for every contract audit kind + the enum-label keys", () => {
   const keys = Object.keys(CATALOG);
   const eventKindKeys = keys.filter((k) => k.startsWith("eventKind."));
-  assert.equal(eventKindKeys.length, 53, "expected 53 eventKind.* catalog keys");
+  // Derived from the contract kind set (never a hardcoded count) so additive vocabulary growth
+  // (e.g. WI-PTA-03's 18 pre-trial kinds) cannot silently desync catalog ↔ contract.
+  assert.equal(eventKindKeys.length, ALL_EVENT_KINDS.length, "expected one eventKind.* catalog key per contract audit kind");
   for (const id of ["matterType.litigation", "confidentiality.sealed", "status.active",
     "deadlineUrgency.overdue", "ledgerCategory.counsel"]) {
     assert.ok(id in CATALOG, `missing catalog key ${id}`);

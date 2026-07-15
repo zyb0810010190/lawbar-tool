@@ -22,7 +22,8 @@ export type CaseBoxAuditEvent = {
     | "export"
     | "print"
     | "share"
-    | "privilege-waive";
+    | "privilege-waive"
+    | "delete-hard";
   /**
    * v1 case-box entity vocabulary. Tightened from free-string to enum in Step 4. Extended in Step 5 (confidentiality_classification), Step 6 (docket_entry), and WI-A3-UNLINK-AUDIT-KINDS (link — the A3 evidence anchor/link, for unlink/relink audit). Future entities require a coordinated schema update + TS CASE_BOX_AUDIT_ENTITY_TYPES update.
    */
@@ -36,7 +37,11 @@ export type CaseBoxAuditEvent = {
     | "privilege_marker"
     | "confidentiality_classification"
     | "docket_entry"
-    | "link";
+    | "link"
+    | "claim_track"
+    | "evidence_preparation"
+    | "cross_examination_opinion"
+    | "legal_opinion_card";
   entity_id: Ulid;
   /**
    * Null on create; non-null otherwise.
@@ -111,7 +116,25 @@ export type CaseBoxAuditEvent = {
     | "DOCKET_ENTRY_REVISED"
     | "LINK_UNLINKED"
     | "LINK_RELINKED"
-    | "LINK_CREATED";
+    | "LINK_CREATED"
+    | "CLAIM_TRACK_CREATED"
+    | "CLAIM_TRACK_UPDATED"
+    | "CLAIM_TRACK_WITHDRAWN"
+    | "CLAIM_TRACK_RESOLVED"
+    | "CLAIM_TRACK_DELETED"
+    | "EVIDENCE_PREPARATION_CREATED"
+    | "EVIDENCE_PREPARATION_UPDATED"
+    | "EVIDENCE_PREPARATION_DELETED"
+    | "CROSS_EXAM_OPINION_CREATED"
+    | "CROSS_EXAM_OPINION_UPDATED"
+    | "CROSS_EXAM_OPINION_DELETED"
+    | "LEGAL_OPINION_CARD_CREATED"
+    | "LEGAL_OPINION_CARD_UPDATED"
+    | "LEGAL_OPINION_CARD_DELETED"
+    | "LEGAL_OPINION_CARD_USED_IN_TRIAL_SET"
+    | "LEGAL_OPINION_CARD_USED_IN_TRIAL_CLEARED"
+    | "LEGAL_OPINION_CARD_FOLLOW_UP_SET"
+    | "LEGAL_OPINION_CARD_FOLLOW_UP_CLEARED";
   /**
    * Audit-event canonicalization version. v2 events set this to 2 (the value is hashed in the v2 canonicalization); absent on legacy v1 events. Present iff event_kind is present.
    */

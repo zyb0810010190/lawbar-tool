@@ -183,6 +183,10 @@ const AUDIT_ENTITY_TYPE_ID: Readonly<Record<string, CatalogId>> = {
   confidentiality_classification: "auditEntityType.confidentiality_classification",
   docket_entry: "auditEntityType.docket_entry",
   link: "auditEntityType.link",
+  claim_track: "auditEntityType.claim_track",
+  evidence_preparation: "auditEntityType.evidence_preparation",
+  cross_examination_opinion: "auditEntityType.cross_examination_opinion",
+  legal_opinion_card: "auditEntityType.legal_opinion_card",
 };
 export function auditEntityTypeLabel(entityType: string): string {
   const id = AUDIT_ENTITY_TYPE_ID[entityType];
@@ -257,6 +261,24 @@ const EVENT_KIND_ID: Record<CaseBoxAuditEventKind, CatalogId> = {
   LINK_CREATED: "eventKind.LINK_CREATED",
   LINK_UNLINKED: "eventKind.LINK_UNLINKED",
   LINK_RELINKED: "eventKind.LINK_RELINKED",
+  CLAIM_TRACK_CREATED: "eventKind.CLAIM_TRACK_CREATED",
+  CLAIM_TRACK_UPDATED: "eventKind.CLAIM_TRACK_UPDATED",
+  CLAIM_TRACK_WITHDRAWN: "eventKind.CLAIM_TRACK_WITHDRAWN",
+  CLAIM_TRACK_RESOLVED: "eventKind.CLAIM_TRACK_RESOLVED",
+  CLAIM_TRACK_DELETED: "eventKind.CLAIM_TRACK_DELETED",
+  EVIDENCE_PREPARATION_CREATED: "eventKind.EVIDENCE_PREPARATION_CREATED",
+  EVIDENCE_PREPARATION_UPDATED: "eventKind.EVIDENCE_PREPARATION_UPDATED",
+  EVIDENCE_PREPARATION_DELETED: "eventKind.EVIDENCE_PREPARATION_DELETED",
+  CROSS_EXAM_OPINION_CREATED: "eventKind.CROSS_EXAM_OPINION_CREATED",
+  CROSS_EXAM_OPINION_UPDATED: "eventKind.CROSS_EXAM_OPINION_UPDATED",
+  CROSS_EXAM_OPINION_DELETED: "eventKind.CROSS_EXAM_OPINION_DELETED",
+  LEGAL_OPINION_CARD_CREATED: "eventKind.LEGAL_OPINION_CARD_CREATED",
+  LEGAL_OPINION_CARD_UPDATED: "eventKind.LEGAL_OPINION_CARD_UPDATED",
+  LEGAL_OPINION_CARD_DELETED: "eventKind.LEGAL_OPINION_CARD_DELETED",
+  LEGAL_OPINION_CARD_USED_IN_TRIAL_SET: "eventKind.LEGAL_OPINION_CARD_USED_IN_TRIAL_SET",
+  LEGAL_OPINION_CARD_USED_IN_TRIAL_CLEARED: "eventKind.LEGAL_OPINION_CARD_USED_IN_TRIAL_CLEARED",
+  LEGAL_OPINION_CARD_FOLLOW_UP_SET: "eventKind.LEGAL_OPINION_CARD_FOLLOW_UP_SET",
+  LEGAL_OPINION_CARD_FOLLOW_UP_CLEARED: "eventKind.LEGAL_OPINION_CARD_FOLLOW_UP_CLEARED",
 };
 
 // Label for a KNOWN audit event kind. (Screen-side handling of null/unknown/missing kinds — the

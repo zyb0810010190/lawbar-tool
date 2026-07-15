@@ -126,6 +126,38 @@ test("v2: a consistent reasonRequired kind WITH a reason verifies", () => {
   assert.equal(r.ok, true);
 });
 
+// --- 5b. WI-PTA-03 additive preparation-model vocabulary (delete-hard + new kinds) ---
+
+test("v2 (WI-PTA-03): CLAIM_TRACK_CREATED (create/claim_track) verifies", () => {
+  const ev = v2Event({ entity_type: "claim_track", entity_id: ID_M, event_kind: "CLAIM_TRACK_CREATED" });
+  assert.equal(verifyAuditChain([ev], { eventHashFn }).ok, true);
+});
+
+test("v2 (WI-PTA-03): CLAIM_TRACK_DELETED uses delete-hard and REQUIRES a reason", () => {
+  // reasonRequired:true — no reason is rejected at the verify boundary.
+  const noReason = v2Event({
+    action: "delete-hard", entity_type: "claim_track", entity_id: ID_M,
+    event_kind: "CLAIM_TRACK_DELETED", before_state_hash: "sha256:prev",
+  });
+  assert.equal(verifyAuditChain([noReason], { eventHashFn }).ok, false);
+  // with a reason it verifies (delete-hard is a valid schema action).
+  const withReason = v2Event({
+    action: "delete-hard", entity_type: "claim_track", entity_id: ID_M,
+    event_kind: "CLAIM_TRACK_DELETED", before_state_hash: "sha256:prev",
+    reason: "clearing an empty claim track",
+  });
+  assert.equal(verifyAuditChain([withReason], { eventHashFn }).ok, true);
+});
+
+test("v2 (WI-PTA-03): a delete-hard event whose kind mismatches its action is rejected", () => {
+  // CLAIM_TRACK_UPDATED declares action:update; pairing it with delete-hard must fail the class check.
+  const bad = v2Event({
+    action: "delete-hard", entity_type: "claim_track", entity_id: ID_M,
+    event_kind: "CLAIM_TRACK_UPDATED", before_state_hash: "sha256:prev",
+  });
+  assert.equal(verifyAuditChain([bad], { eventHashFn }).ok, false);
+});
+
 // --- 6. event_kind tampering breaks verification for v2 rows (the load-bearing property) ---
 
 test("v2: tampering event_kind within the same {action,entity_type} class breaks chain verification", () => {

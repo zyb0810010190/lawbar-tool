@@ -21,6 +21,9 @@ bash "$ROOT/scripts/workflow/check-a07-gate.test.sh" || exit 1
 echo "Running internal-tarball drift guard (DESKTOP-DEPS-00)..."
 node "$ROOT/scripts/workflow/check-internal-tarballs.mjs" || exit 1
 
+echo "Running internal-lock-integrity refresh tool self-test (WI-INTERNAL-PACKAGE-LOCK-REFRESH)..."
+node --test "$ROOT/scripts/workflow/refresh-internal-lock-integrity.test.mjs" || exit 1
+
 echo "Running desktop app test suite..."
 npm --prefix apps/lawbar-desktop test || exit 1
 
