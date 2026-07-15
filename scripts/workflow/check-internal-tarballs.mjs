@@ -114,7 +114,7 @@ function checkLockIntegrity(lock, pkg, committedTgz) {
   if (!entry) { fail(`${pkg.name}: package-lock.json has no node_modules/${pkg.name} entry`); return; }
   const integ = sha512b64(fs.readFileSync(committedTgz));
   if (entry.integrity !== integ) {
-    fail(`${pkg.name}: package-lock.json integrity ${String(entry.integrity).slice(0, 24)}… != committed tarball ${integ.slice(0, 24)}… (run pack:internal + refresh the lock integrity, then npm ci)`);
+    fail(`${pkg.name}: package-lock.json integrity ${String(entry.integrity).slice(0, 24)}… != committed tarball ${integ.slice(0, 24)}… (run pack:internal, then 'npm run refresh:internal-tarballs', then npm ci)`);
   }
 }
 
@@ -189,7 +189,7 @@ function main() {
   if (failures.length > 0) {
     console.error("[check-internal-tarballs] DRIFT DETECTED — committed internal tarballs are stale vs current source:");
     for (const f of failures) console.error(`  - ${f}`);
-    console.error("Fix: `npm --prefix apps/lawbar-desktop run pack:internal`, refresh the two package-lock integrity entries, and re-commit the tarballs.");
+    console.error("Fix: `npm --prefix apps/lawbar-desktop run pack:internal && npm --prefix apps/lawbar-desktop run refresh:internal-tarballs`, then `npm --prefix apps/lawbar-desktop ci`, and re-commit the tarballs + lockfile.");
     process.exit(1);
   }
   console.log("[check-internal-tarballs] PASS — committed internal tarballs match current source payloads + manifest is self-consistent.");
