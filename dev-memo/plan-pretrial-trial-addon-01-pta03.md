@@ -139,3 +139,38 @@ exists; it will be discharged only when WI-PTA-03 is implemented and separately 
 *substantive scope* finding from passes 1–2 is resolved. On that basis the reviewed scope is **authorized for
 implementation by explicit human determination (user, 2026-07-14)**, despite the nominal NEEDS-FIX verdict. This
 scope commit contains **no implementation files** — only this governance/scope artifact.
+
+## Scope amendment (2026-07-15) — WI-PTA-03 narrowed to the contract-side deliverable
+
+This amendment records a narrowing of WI-PTA-03 discovered during implementation. It does **not** erase or rewrite
+the original reviewed scope above (which stands as the record of what was reviewed across the three preserved
+`review-plan` jobs `review-plan-mrkr4h6n-uzm0qp` / `review-plan-mrkrah33-ip3psr` / `review-plan-mrkrdpd9-zmvd9z`,
+all verdict **NEEDS-FIX**).
+
+- **Original scope** included the contract audit-vocabulary additions **plus** the desktop renderer
+  `labels.ts`/`catalog.ts` mappings **and** the renderer audit-label / catalog / i18n guard tests.
+- **Desktop delivery is blocked by the checked-in internal-package architecture.** The desktop consumes
+  `case-box-contract` as a tracked tarball (`apps/lawbar-desktop/dist-tarballs/case-box-contract-0.1.0.tgz` +
+  `manifest.json` + `package-lock.json` integrity + a `check-internal-tarballs` gate), not the live source — so the
+  reviewed renderer changes cannot compile without repacking that tarball.
+- **The `case-box-persistence` tarball and lockfile drift PRE-EXISTED WI-PTA-03.** The committed persistence tarball
+  was packed `2026-07-03`; persistence source changed `2026-07-04` (`3b644a7`, WI-SEC-CASEBOX-TENANT-SCOPING). So
+  `check-internal-tarballs` has been red at HEAD independent of WI-PTA-03.
+- **Correcting that drift would expand the artifact footprint beyond the reviewed contract change** (a persistence
+  tarball repack + `manifest.json` + `package-lock.json` churn).
+- **WI-PTA-03 is therefore narrowed to the contract-side deliverable**: the schema vocabulary additions
+  (`delete-hard`, 4 entity types, 18 event kinds, `reasonRequired` metadata), optional `Party.id` in both party
+  definitions, regenerated contract types, fixtures, and contract validators/guard tests. Verified green
+  (contract suite **459 pass / 0 fail**).
+- **Deferred to a separate proposed WI (currently drafted as WI-PTA-03b, pending its own `review-plan` approval):**
+  the desktop renderer mappings, the desktop guard tests, **both** required tarball reconciliations (contract
+  refresh + the pre-existing persistence staleness), the resulting `manifest.json` changes, and the resulting
+  `package-lock.json` changes.
+- **Supersession of the original sections for amended acceptance:** for amended WI-PTA-03 acceptance, the desktop
+  rows in the original §"Exact target files", §"Exact acceptance criteria", §"Tests to add / update", and
+  §"Verification" (i.e. `labels.ts` / `catalog.ts`, `renderer-audit-labels` / `renderer-i18n`, and
+  `npm --prefix apps/lawbar-desktop test`) are **deferred and are NOT closure gates for WI-PTA-03**. Only the
+  contract-side rows gate WI-PTA-03.
+- **The desktop portion is NOT complete** and MUST NOT be credited as WI-PTA-03 acceptance.
+- `dev-memo/plan-pretrial-trial-addon-01-pta03b.md` is an **unreviewed draft**; this amendment does **not** authorize
+  it. It requires its own `review-plan`.
