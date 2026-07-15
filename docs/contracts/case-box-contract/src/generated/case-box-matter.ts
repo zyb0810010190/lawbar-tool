@@ -99,6 +99,7 @@ export interface CaseBoxMatter {
  * via the `definition` "party".
  */
 export interface Party {
+  id?: Ulid;
   role: "client" | "opposing" | "third_party";
   display_name: string;
   party_kind: "individual" | "organization" | "government" | "court" | "other";

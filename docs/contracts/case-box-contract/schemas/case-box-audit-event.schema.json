@@ -29,11 +29,12 @@
         "export",
         "print",
         "share",
-        "privilege-waive"
+        "privilege-waive",
+        "delete-hard"
       ]
     },
     "entity_type": {
-      "enum": ["matter", "document", "deadline", "evidence_item", "ocr_link", "fact", "privilege_marker", "confidentiality_classification", "docket_entry", "link"],
+      "enum": ["matter", "document", "deadline", "evidence_item", "ocr_link", "fact", "privilege_marker", "confidentiality_classification", "docket_entry", "link", "claim_track", "evidence_preparation", "cross_examination_opinion", "legal_opinion_card"],
       "description": "v1 case-box entity vocabulary. Tightened from free-string to enum in Step 4. Extended in Step 5 (confidentiality_classification), Step 6 (docket_entry), and WI-A3-UNLINK-AUDIT-KINDS (link — the A3 evidence anchor/link, for unlink/relink audit). Future entities require a coordinated schema update + TS CASE_BOX_AUDIT_ENTITY_TYPES update."
     },
     "entity_id": { "$ref": "#/$defs/ulid" },
@@ -83,7 +84,11 @@
         "DOCUMENT_ACCESSED", "DOCUMENT_PRINTED", "DOCUMENT_SHARED",
         "CLASSIFICATION_SET", "CLASSIFICATION_UPGRADED", "CLASSIFICATION_DOWNGRADED", "CLASSIFICATION_RESET_TO_UNCLASSIFIED",
         "DOCKET_ENTRY_PROPOSED", "DOCKET_ENTRY_CONFIRMED", "DOCKET_ENTRY_DISMISSED", "DOCKET_ENTRY_REVISED",
-        "LINK_UNLINKED", "LINK_RELINKED", "LINK_CREATED"
+        "LINK_UNLINKED", "LINK_RELINKED", "LINK_CREATED",
+        "CLAIM_TRACK_CREATED", "CLAIM_TRACK_UPDATED", "CLAIM_TRACK_WITHDRAWN", "CLAIM_TRACK_RESOLVED", "CLAIM_TRACK_DELETED",
+        "EVIDENCE_PREPARATION_CREATED", "EVIDENCE_PREPARATION_UPDATED", "EVIDENCE_PREPARATION_DELETED",
+        "CROSS_EXAM_OPINION_CREATED", "CROSS_EXAM_OPINION_UPDATED", "CROSS_EXAM_OPINION_DELETED",
+        "LEGAL_OPINION_CARD_CREATED", "LEGAL_OPINION_CARD_UPDATED", "LEGAL_OPINION_CARD_DELETED", "LEGAL_OPINION_CARD_USED_IN_TRIAL_SET", "LEGAL_OPINION_CARD_USED_IN_TRIAL_CLEARED", "LEGAL_OPINION_CARD_FOLLOW_UP_SET", "LEGAL_OPINION_CARD_FOLLOW_UP_CLEARED"
       ]
     },
     "audit_schema_version": {

@@ -6,6 +6,11 @@
   "type": "object",
   "required": ["role", "display_name", "party_kind"],
   "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$",
+      "description": "Optional stable party ULID (WI-PTA-03). Absent on pre-feature/id-less parties; backfilled by ensureMatterPartyIds (deferred to WI-PTA-08/12). Referenced by ClaimTrack.claimant_party_id / respondent_party_id."
+    },
     "role": {
       "enum": ["client", "opposing", "third_party"],
       "description": "Role of the party in the matter."

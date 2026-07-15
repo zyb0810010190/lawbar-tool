@@ -34,6 +34,7 @@ import {
   // Step 4
   CASE_BOX_AUDIT_ENTITY_TYPES,
   CASE_BOX_AUDIT_EVENT_KINDS,
+  auditEventSchema,
   isKnownAuditEntityType,
   canonicalAuditEventHashInput,
   assertReasonForAuditEventKind,
@@ -95,6 +96,16 @@ test("validateDocument happy path returns ok=true with value", () => {
 test("validateParty happy path returns ok=true", () => {
   const r = validateParty(readJson(join(validDir, "party.valid.json")));
   assert.equal(r.ok, true);
+});
+
+test("validateParty accepts the optional party id (WI-PTA-03) and still accepts an id-less party", () => {
+  const base = readJson(join(validDir, "party.valid.json"));
+  // id-less party (the pre-feature shape) still validates.
+  assert.equal(validateParty(base).ok, true);
+  // a party carrying a valid ULID id validates.
+  assert.equal(validateParty({ ...base, id: "01jzabcdef0123456789ghjkmn" }).ok, true);
+  // a malformed id is rejected by the ULID pattern.
+  assert.equal(validateParty({ ...base, id: "NOT-A-ULID" }).ok, false);
 });
 
 test("validateDeadline happy path returns ok=true", () => {
@@ -842,9 +853,9 @@ test("verifyAuditChain: schema-invalid event in middle returns event_schema_inva
 // ---------------------------------------------------------------------------
 
 test("drift: every CASE_BOX_AUDIT_EVENT_KINDS[k].action is a valid schema action", () => {
-  const SCHEMA_ACTIONS = new Set([
-    "create", "update", "delete-soft", "access", "export", "print", "share", "privilege-waive",
-  ]);
+  // Derived from the schema enum (not hardcoded) so an additive schema `action`
+  // change cannot silently drift past this guard — WI-PTA-03 added `delete-hard`.
+  const SCHEMA_ACTIONS = new Set(auditEventSchema.properties.action.enum);
   for (const [k, meta] of Object.entries(CASE_BOX_AUDIT_EVENT_KINDS)) {
     assert.ok(SCHEMA_ACTIONS.has(meta.action), `${k} has invalid action ${meta.action}`);
   }
