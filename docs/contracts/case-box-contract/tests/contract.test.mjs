@@ -37,6 +37,7 @@ const factSchema         = readJson(join(schemasDir, "case-box-fact.schema.json"
 const privilegeMarkerSchema = readJson(join(schemasDir, "case-box-privilege-marker.schema.json"));
 const confidentialityClassificationSchema = readJson(join(schemasDir, "case-box-confidentiality-classification.schema.json"));
 const docketEntrySchema = readJson(join(schemasDir, "case-box-docket-entry.schema.json"));
+const claimTrackSchema = readJson(join(schemasDir, "case-box-claim-track.schema.json"));
 
 const validateMatter       = ajv.compile(matterSchema);
 const validateDocument     = ajv.compile(documentSchema);
@@ -49,6 +50,7 @@ const validateFact         = ajv.compile(factSchema);
 const validatePrivilegeMarker = ajv.compile(privilegeMarkerSchema);
 const validateConfidentialityClassification = ajv.compile(confidentialityClassificationSchema);
 const validateDocketEntry = ajv.compile(docketEntrySchema);
+const validateClaimTrack = ajv.compile(claimTrackSchema);
 
 const errs = (v) => (v.errors || []).map((e) => `${e.instancePath} ${e.message}`).join("; ");
 
@@ -850,4 +852,251 @@ test("T3 S0 guard: no T4/T5 proof-model fields leaked into the contract schemas"
     assert.ok(!evidenceProps.includes(forbidden), `evidence schema must not contain T4/T5 field ${forbidden}`);
     assert.ok(!matterProps.includes(forbidden), `matter schema must not contain T4/T5 field ${forbidden}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// WI-PTA-04 — ClaimTrack (pre-trial/trial-mode claim track, frozen spec §1/§9).
+// Contract-only: standalone entity fixtures, no matter embed, no collection
+// wrapper. All four track_type × our_role combinations (scenarios A-D) are
+// valid — our_role is independent of plaintiff/defendant (frozen §9). A matter
+// may hold one main_claim + any number of counterclaim tracks (no schema max).
+// ---------------------------------------------------------------------------
+
+test("valid: ClaimTrack scenario A — main_claim + our_role=asserting", () => {
+  const fixture = readJson(join(validDir, "claim-track-main-asserting.valid.json"));
+  assert.equal(validateClaimTrack(fixture), true, errs(validateClaimTrack));
+  assert.equal(fixture.track_type, "main_claim");
+  assert.equal(fixture.our_role, "asserting");
+  assert.equal(fixture.response_summary, "", "an asserting track may leave response_summary empty (key present, no null)");
+});
+
+test("valid: ClaimTrack scenario B — counterclaim + our_role=responding", () => {
+  const fixture = readJson(join(validDir, "claim-track-counterclaim-responding.valid.json"));
+  assert.equal(validateClaimTrack(fixture), true, errs(validateClaimTrack));
+  assert.equal(fixture.track_type, "counterclaim");
+  assert.equal(fixture.our_role, "responding");
+  assert.equal(fixture.claim_summary, "", "a responding track may leave claim_summary empty (key present, no null)");
+});
+
+test("valid: ClaimTrack scenario C — main_claim + our_role=responding (our side defends the principal claim)", () => {
+  const fixture = readJson(join(validDir, "claim-track-main-responding.valid.json"));
+  assert.equal(validateClaimTrack(fixture), true, errs(validateClaimTrack));
+  assert.equal(fixture.track_type, "main_claim");
+  assert.equal(fixture.our_role, "responding");
+});
+
+test("valid: ClaimTrack scenario D — counterclaim + our_role=asserting (our side brings a counterclaim)", () => {
+  const fixture = readJson(join(validDir, "claim-track-counterclaim-asserting.valid.json"));
+  assert.equal(validateClaimTrack(fixture), true, errs(validateClaimTrack));
+  assert.equal(fixture.track_type, "counterclaim");
+  assert.equal(fixture.our_role, "asserting");
+});
+
+test("valid: a matter holds a main_claim + a counterclaim (same matter_id) — main + counterclaim coexist", () => {
+  const mainA = readJson(join(validDir, "claim-track-main-asserting.valid.json"));
+  const counterB = readJson(join(validDir, "claim-track-counterclaim-responding.valid.json"));
+  assert.equal(validateClaimTrack(mainA), true, errs(validateClaimTrack));
+  assert.equal(validateClaimTrack(counterB), true, errs(validateClaimTrack));
+  assert.equal(mainA.matter_id, counterB.matter_id, "both tracks share one matter_id");
+  assert.equal(mainA.track_type, "main_claim");
+  assert.equal(counterB.track_type, "counterclaim");
+});
+
+test("valid: a matter holds MULTIPLE counterclaim tracks (no schema-level maximum)", () => {
+  const counterB = readJson(join(validDir, "claim-track-counterclaim-responding.valid.json"));
+  const counterD = readJson(join(validDir, "claim-track-counterclaim-asserting.valid.json"));
+  assert.equal(validateClaimTrack(counterB), true, errs(validateClaimTrack));
+  assert.equal(validateClaimTrack(counterD), true, errs(validateClaimTrack));
+  assert.equal(counterB.matter_id, counterD.matter_id, "both counterclaims share one matter_id");
+  assert.equal(counterB.track_type, "counterclaim");
+  assert.equal(counterD.track_type, "counterclaim");
+  // No maximum-counterclaim constraint appears in the schema.
+  assert.equal(claimTrackSchema.maxProperties, undefined);
+  assert.equal(JSON.stringify(claimTrackSchema).includes("maxItems"), false, "schema imposes no cardinality cap on counterclaims");
+});
+
+test("valid: ClaimTrack accepts an unexpected property (open/additive schema, mirrors sibling entities)", () => {
+  const fixture = readJson(join(validDir, "claim-track-unexpected-property.valid.json"));
+  assert.equal(validateClaimTrack(fixture), true, errs(validateClaimTrack));
+  assert.ok("future_reserved_field" in fixture);
+  assert.equal(claimTrackSchema.additionalProperties, undefined, "schema does not set additionalProperties (open, like evidence-item/matter/party)");
+});
+
+test("invalid: ClaimTrack with bad track_type enum is rejected", () => {
+  const fixture = readJson(join(invalidDir, "claim-track-bad-track-type.json"));
+  assert.equal(validateClaimTrack(fixture), false);
+  const offenders = (validateClaimTrack.errors || []).filter((e) => e.instancePath === "/track_type");
+  assert.ok(offenders.length > 0, `expected enum error on /track_type (got ${errs(validateClaimTrack)})`);
+});
+
+test("invalid: ClaimTrack with bad our_role enum is rejected", () => {
+  const fixture = readJson(join(invalidDir, "claim-track-bad-our-role.json"));
+  assert.equal(validateClaimTrack(fixture), false);
+  const offenders = (validateClaimTrack.errors || []).filter((e) => e.instancePath === "/our_role");
+  assert.ok(offenders.length > 0, `expected enum error on /our_role (got ${errs(validateClaimTrack)})`);
+});
+
+test("invalid: ClaimTrack with bad status enum is rejected", () => {
+  const fixture = readJson(join(invalidDir, "claim-track-bad-status.json"));
+  assert.equal(validateClaimTrack(fixture), false);
+  const offenders = (validateClaimTrack.errors || []).filter((e) => e.instancePath === "/status");
+  assert.ok(offenders.length > 0, `expected enum error on /status (got ${errs(validateClaimTrack)})`);
+});
+
+test("invalid: ClaimTrack missing required title is rejected", () => {
+  const fixture = readJson(join(invalidDir, "claim-track-missing-title.json"));
+  assert.equal(validateClaimTrack(fixture), false);
+  const offenders = (validateClaimTrack.errors || []).filter((e) => e.keyword === "required" && e.params.missingProperty === "title");
+  assert.ok(offenders.length > 0, `expected required error for title (got ${errs(validateClaimTrack)})`);
+});
+
+test("invalid: ClaimTrack with empty title is rejected (minLength 1)", () => {
+  const fixture = readJson(join(invalidDir, "claim-track-empty-title.json"));
+  assert.equal(validateClaimTrack(fixture), false);
+  const offenders = (validateClaimTrack.errors || []).filter((e) => e.instancePath === "/title");
+  assert.ok(offenders.length > 0, `expected minLength error on /title (got ${errs(validateClaimTrack)})`);
+});
+
+test("invalid: ClaimTrack missing required claimant_party_id is rejected", () => {
+  const fixture = readJson(join(invalidDir, "claim-track-missing-claimant.json"));
+  assert.equal(validateClaimTrack(fixture), false);
+  const offenders = (validateClaimTrack.errors || []).filter((e) => e.keyword === "required" && e.params.missingProperty === "claimant_party_id");
+  assert.ok(offenders.length > 0, `expected required error for claimant_party_id (got ${errs(validateClaimTrack)})`);
+});
+
+test("invalid: ClaimTrack with malformed matter_id (fails ULID pattern) is rejected", () => {
+  const fixture = readJson(join(invalidDir, "claim-track-bad-matter-id.json"));
+  assert.equal(validateClaimTrack(fixture), false);
+  const offenders = (validateClaimTrack.errors || []).filter((e) => e.instancePath === "/matter_id");
+  assert.ok(offenders.length > 0, `expected pattern error on /matter_id (got ${errs(validateClaimTrack)})`);
+});
+
+test("invalid: ClaimTrack with non-integer sort_order (wrong primitive type) is rejected", () => {
+  const fixture = readJson(join(invalidDir, "claim-track-non-integer-sort-order.json"));
+  assert.equal(validateClaimTrack(fixture), false);
+  const offenders = (validateClaimTrack.errors || []).filter((e) => e.instancePath === "/sort_order");
+  assert.ok(offenders.length > 0, `expected type error on /sort_order (got ${errs(validateClaimTrack)})`);
+});
+
+test("invalid: ClaimTrack with wrong primitive type for claim_summary (number) is rejected", () => {
+  const fixture = readJson(join(invalidDir, "claim-track-wrong-type-claim-summary.json"));
+  assert.equal(validateClaimTrack(fixture), false);
+  const offenders = (validateClaimTrack.errors || []).filter((e) => e.instancePath === "/claim_summary");
+  assert.ok(offenders.length > 0, `expected type error on /claim_summary (got ${errs(validateClaimTrack)})`);
+});
+
+test("ClaimTrack schema: all §1 fields are REQUIRED (frozen §1 'Required claim-track fields')", () => {
+  const req = new Set(claimTrackSchema.required);
+  for (const f of [
+    "id", "tenant_id", "actor_user_id", "matter_id", "track_type",
+    "claimant_party_id", "respondent_party_id", "our_role", "title",
+    "claim_summary", "response_summary", "legal_basis", "calculation_summary",
+    "status", "sort_order", "created_at", "updated_at",
+  ]) {
+    assert.ok(req.has(f), `${f} must be required`);
+  }
+});
+
+test("ClaimTrack schema: no cross-field invariant (no allOf/if/then coupling track_type to our_role)", () => {
+  assert.equal(claimTrackSchema.allOf, undefined, "no allOf coupling");
+  assert.equal(claimTrackSchema.if, undefined, "no if/then coupling");
+});
+
+// Table-driven required-field coverage: derive the list from the schema's own
+// `required` array (NOT a hardcoded copy) so a schema change to the required set
+// cannot silently escape this guard. Start from one valid fixture, delete each
+// required field in turn, and assert rejection cites that exact property.
+test("invalid: ClaimTrack rejects omission of EVERY required field (schema-derived, table-driven)", () => {
+  const base = readJson(join(validDir, "claim-track-main-asserting.valid.json"));
+  const required = claimTrackSchema.required;
+  assert.equal(required.length, 17, "expected 17 frozen §1 required fields");
+  // sanity: the pristine base is accepted before any mutation.
+  assert.equal(validateClaimTrack(base), true, errs(validateClaimTrack));
+  for (const field of required) {
+    const mutant = { ...base };
+    delete mutant[field];
+    assert.equal(validateClaimTrack(mutant), false, `omitting ${field} must be rejected`);
+    const offenders = (validateClaimTrack.errors || []).filter(
+      (e) => e.keyword === "required" && e.params.missingProperty === field,
+    );
+    assert.ok(offenders.length > 0, `expected a required-error naming ${field} (got ${errs(validateClaimTrack)})`);
+  }
+});
+
+// Table-driven malformed-identifier coverage across all four ULID fields.
+test("invalid: ClaimTrack rejects a malformed ULID for every identifier field (table-driven)", () => {
+  const base = readJson(join(validDir, "claim-track-main-asserting.valid.json"));
+  for (const field of ["id", "matter_id", "claimant_party_id", "respondent_party_id"]) {
+    const mutant = { ...base, [field]: "NOT-A-ULID" };
+    assert.equal(validateClaimTrack(mutant), false, `malformed ${field} must be rejected`);
+    const offenders = (validateClaimTrack.errors || []).filter(
+      (e) => e.instancePath === `/${field}` && e.keyword === "pattern",
+    );
+    assert.ok(offenders.length > 0, `expected a ULID pattern error on /${field} (got ${errs(validateClaimTrack)})`);
+  }
+});
+
+// Timestamp constraint coverage: created_at / updated_at must be RFC3339 date-time.
+test("invalid: ClaimTrack rejects a malformed timestamp for created_at and updated_at (table-driven)", () => {
+  const base = readJson(join(validDir, "claim-track-main-asserting.valid.json"));
+  for (const field of ["created_at", "updated_at"]) {
+    const mutant = { ...base, [field]: "2026-07-15 09:00:00" }; // space, no T/zone → not date-time
+    assert.equal(validateClaimTrack(mutant), false, `malformed ${field} must be rejected`);
+    const offenders = (validateClaimTrack.errors || []).filter(
+      (e) => e.instancePath === `/${field}` && e.keyword === "format",
+    );
+    assert.ok(offenders.length > 0, `expected a date-time format error on /${field} (got ${errs(validateClaimTrack)})`);
+  }
+});
+
+// Non-empty required string identity fields (tenant_id, actor_user_id, title):
+// reject empty string, null, and a non-string primitive. (Audit M1.)
+test("invalid: ClaimTrack rejects empty / null / non-string for tenant_id, actor_user_id, title (table-driven)", () => {
+  const base = readJson(join(validDir, "claim-track-main-asserting.valid.json"));
+  for (const field of ["tenant_id", "actor_user_id", "title"]) {
+    for (const bad of ["", null, 123]) {
+      const mutant = { ...base, [field]: bad };
+      assert.equal(validateClaimTrack(mutant), false, `${field}=${JSON.stringify(bad)} must be rejected`);
+      const offenders = (validateClaimTrack.errors || []).filter((e) => e.instancePath === `/${field}`);
+      assert.ok(offenders.length > 0, `expected an error on /${field} for ${JSON.stringify(bad)} (got ${errs(validateClaimTrack)})`);
+    }
+  }
+});
+
+// Wrong-primitive-type coverage for EVERY field (audit M2). A wrong primitive
+// for a string/ULID/timestamp/enum field is a number; for the integer field it
+// is a string. Each must be rejected with an error on that field's path.
+test("invalid: ClaimTrack rejects a wrong primitive type for every field (table-driven)", () => {
+  const base = readJson(join(validDir, "claim-track-main-asserting.valid.json"));
+  const wrongType = {
+    tenant_id: 123, actor_user_id: 123, title: 123,
+    claim_summary: 123, response_summary: 123, legal_basis: 123, calculation_summary: 123,
+    created_at: 123, updated_at: 123,
+    track_type: 123, our_role: 123, status: 123,
+    id: 123, matter_id: 123, claimant_party_id: 123, respondent_party_id: 123,
+    sort_order: "0",
+  };
+  // Every property in the schema must appear in this table (drift guard).
+  assert.deepEqual(
+    Object.keys(wrongType).sort(),
+    Object.keys(claimTrackSchema.properties).sort(),
+    "wrong-type table must cover every schema property",
+  );
+  for (const [field, bad] of Object.entries(wrongType)) {
+    const mutant = { ...base, [field]: bad };
+    assert.equal(validateClaimTrack(mutant), false, `${field}=${JSON.stringify(bad)} must be rejected`);
+    const offenders = (validateClaimTrack.errors || []).filter((e) => e.instancePath === `/${field}`);
+    assert.ok(offenders.length > 0, `expected an error on /${field} for wrong type (got ${errs(validateClaimTrack)})`);
+  }
+});
+
+// Negative-boundary coverage for sort_order >= 0 (audit L1).
+test("invalid: ClaimTrack rejects a negative sort_order (minimum 0)", () => {
+  const base = readJson(join(validDir, "claim-track-main-asserting.valid.json"));
+  const mutant = { ...base, sort_order: -1 };
+  assert.equal(validateClaimTrack(mutant), false);
+  const offenders = (validateClaimTrack.errors || []).filter(
+    (e) => e.instancePath === "/sort_order" && e.keyword === "minimum",
+  );
+  assert.ok(offenders.length > 0, `expected a minimum error on /sort_order (got ${errs(validateClaimTrack)})`);
 });

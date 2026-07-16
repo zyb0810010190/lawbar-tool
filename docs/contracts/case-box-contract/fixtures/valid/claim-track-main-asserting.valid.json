@@ -1,0 +1,19 @@
+{
+  "id": "01jrcasebox00000000000ct01",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "track_type": "main_claim",
+  "claimant_party_id": "01jrcasebox0000000000000p1",
+  "respondent_party_id": "01jrcasebox0000000000000p2",
+  "our_role": "asserting",
+  "title": "Principal claim — breach of supply contract",
+  "claim_summary": "Our client asserts the counterparty failed to deliver conforming goods under the supply agreement.",
+  "response_summary": "",
+  "legal_basis": "Contract Law arts. 577, 582 — liability for non-performance.",
+  "calculation_summary": "Direct loss 480000 plus lost profit 120000 equals 600000.",
+  "status": "active",
+  "sort_order": 0,
+  "created_at": "2026-07-15T09:00:00.000Z",
+  "updated_at": "2026-07-15T09:00:00.000Z"
+}

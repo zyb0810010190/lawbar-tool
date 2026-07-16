@@ -67,6 +67,8 @@ import {
   DocketEntryCreationError,
   DocketEntryConfirmationError,
   InvalidIanaTimezoneError,
+  // WI-PTA-04
+  validateClaimTrack,
 } from "../dist/index.js";
 import { createHash } from "node:crypto";
 
@@ -117,6 +119,20 @@ test("validateDeadline happy path returns ok=true", () => {
 test("validateEvidenceItem happy path returns ok=true", () => {
   const r = validateEvidenceItem(readJson(join(validDir, "evidence-item.valid.json")));
   assert.equal(r.ok, true);
+});
+
+test("validateClaimTrack happy path returns ok=true with typed value (scenario A)", () => {
+  const r = validateClaimTrack(readJson(join(validDir, "claim-track-main-asserting.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(r.value.track_type, "main_claim");
+  assert.equal(r.value.our_role, "asserting");
+});
+
+test("validateClaimTrack error path returns ok=false with summary + errors (bad our_role)", () => {
+  const r = validateClaimTrack(readJson(join(invalidDir, "claim-track-bad-our-role.json")));
+  assert.equal(r.ok, false);
+  assert.ok(r.summary.length > 0);
+  assert.ok(Array.isArray(r.errors) && r.errors.length > 0);
 });
 
 test("validateOcrLink happy path returns ok=true with direction=read-only", () => {

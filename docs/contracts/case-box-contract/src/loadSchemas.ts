@@ -13,6 +13,7 @@ import factSchema from "../schemas/case-box-fact.schema.json" with { type: "json
 import privilegeMarkerSchema from "../schemas/case-box-privilege-marker.schema.json" with { type: "json" };
 import confidentialityClassificationSchema from "../schemas/case-box-confidentiality-classification.schema.json" with { type: "json" };
 import docketEntrySchema from "../schemas/case-box-docket-entry.schema.json" with { type: "json" };
+import claimTrackSchema from "../schemas/case-box-claim-track.schema.json" with { type: "json" };
 
 export {
   matterSchema,
@@ -26,4 +27,5 @@ export {
   privilegeMarkerSchema,
   confidentialityClassificationSchema,
   docketEntrySchema,
+  claimTrackSchema,
 };

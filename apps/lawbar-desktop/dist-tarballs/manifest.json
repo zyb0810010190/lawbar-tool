@@ -4,10 +4,10 @@
       "name": "case-box-contract",
       "sourceDir": "docs/contracts/case-box-contract",
       "tarball": "dist-tarballs/case-box-contract-0.1.0.tgz",
-      "sizeBytes": 71687,
-      "integrity": "sha512-tM6FZ1WTQBoTubAEtjWqcGQHuvok0fobtzgdVCq0vycjvVqZ0PCtBlCUMkr6zvWb5qUoXr9KF4l8suoaaUBbtw==",
+      "sizeBytes": 75382,
+      "integrity": "sha512-9Zo+dLQ2TvKxQcwv5tQONEM8SHGGBfHyeQBqJLq6jROaBzMnP4KvnjdM2VKk6hKmyn7cEYwzXuFJSu8eNB2GwQ==",
       "rewrites": {},
-      "packedAt": "2026-07-15T08:17:48.462Z"
+      "packedAt": "2026-07-16T13:23:25.226Z"
     },
     {
       "name": "case-box-persistence",

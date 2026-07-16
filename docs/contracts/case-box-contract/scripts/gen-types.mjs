@@ -40,6 +40,7 @@ const items = [
   { schema: "case-box-privilege-marker.schema.json", name: "CaseBoxPrivilegeMarker", out: "case-box-privilege-marker.ts" },
   { schema: "case-box-confidentiality-classification.schema.json", name: "CaseBoxConfidentialityClassification", out: "case-box-confidentiality-classification.ts" },
   { schema: "case-box-docket-entry.schema.json", name: "CaseBoxDocketEntry", out: "case-box-docket-entry.ts" },
+  { schema: "case-box-claim-track.schema.json", name: "CaseBoxClaimTrack", out: "case-box-claim-track.ts" },
 ];
 
 for (const { schema, name, out } of items) {

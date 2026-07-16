@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-claim-track.schema.json",
+  "title": "CaseBoxClaimTrack",
+  "description": "Pre-trial/trial-mode claim track (frozen spec §1): the reasoning spine for one claim — a main claim OR a counterclaim. Records who is claimant/respondent and whether OUR side is asserting or responding (the our_role abstraction that supports all four plaintiff/defendant × asserting/responding scenarios A-D without hardcoded workflows). A matter may carry one main_claim plus one or more counterclaim tracks; this schema imposes no maximum-counterclaim constraint. Anchor/link, evidence-preparation, cross-examination and legal-opinion-card models attach to a claim track in later WIs (PTA-05+). This WI is contract-only: no persistence, IPC, renderer, or referential (party-in-matter) validation.",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "actor_user_id",
+    "matter_id",
+    "track_type",
+    "claimant_party_id",
+    "respondent_party_id",
+    "our_role",
+    "title",
+    "claim_summary",
+    "response_summary",
+    "legal_basis",
+    "calculation_summary",
+    "status",
+    "sort_order",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id":                  { "$ref": "#/$defs/ulid" },
+    "tenant_id":           { "type": "string", "minLength": 1 },
+    "actor_user_id":       { "type": "string", "minLength": 1 },
+    "matter_id":           { "$ref": "#/$defs/ulid" },
+    "track_type": {
+      "enum": ["main_claim", "counterclaim"],
+      "description": "Whether this track is the matter's main claim or a counterclaim. A matter may hold one main_claim and any number of counterclaim tracks (no schema-level maximum)."
+    },
+    "claimant_party_id": {
+      "$ref": "#/$defs/ulid",
+      "description": "The party asserting this claim (references a party ULID; referential existence against the matter's parties is a later handler preflight, NOT a schema constraint)."
+    },
+    "respondent_party_id": {
+      "$ref": "#/$defs/ulid",
+      "description": "The party defending this claim (references a party ULID; referential existence is a later handler preflight, NOT a schema constraint)."
+    },
+    "our_role": {
+      "enum": ["asserting", "responding"],
+      "description": "Whether OUR client's side is asserting (claimant) or responding (respondent) on this track. Independent of plaintiff/defendant: all four track_type × our_role combinations are valid (scenarios A-D)."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Lawyer-entered display name for the claim track. Non-empty."
+    },
+    "claim_summary": {
+      "type": "string",
+      "description": "The claim as stated. type string; empty string allowed so a responding track can leave this empty while the key stays present (no null, no cross-field invariant)."
+    },
+    "response_summary": {
+      "type": "string",
+      "description": "The response/defense as stated. type string; empty string allowed so an asserting track can leave this empty while the key stays present (no null, no cross-field invariant)."
+    },
+    "legal_basis": {
+      "type": "string",
+      "description": "The legal basis for the claim/response. type string; empty string allowed."
+    },
+    "calculation_summary": {
+      "type": "string",
+      "description": "Damages/relief calculation summary. type string; empty string allowed."
+    },
+    "status": {
+      "enum": ["active", "withdrawn", "resolved"],
+      "description": "Lifecycle status of the claim track."
+    },
+    "sort_order": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Lawyer-controlled display order within the matter's claim tracks."
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$"
+    }
+  }
+}
