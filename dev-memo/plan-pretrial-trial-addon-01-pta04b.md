@@ -1,8 +1,10 @@
 # WI-PTA-04b — Scope docket: publish committed ClaimTrack contract into the checked-in internal tarball
 
-**Status:** UNTRACKED pre-implementation scope docket. **NOT authorized for implementation** — requires its own
-cc-suite `review-plan` approval. **Type:** ASSET/packaging-integration, high-risk (mutates the desktop-consumed
-internal-package tarball + `package-lock.json` integrity → broker review required). **Branch:**
+**Status:** REVIEWED — **READY** (cc-suite `review-plan` `review-plan-mrm4vfwc-oqmisw`, after NEEDS-FIX
+`review-plan-mrm4pdez-hc951z`; see §"Review record"). **Authorized for implementation of exactly this docket's
+scope** — no scope beyond the authorized write set + sanctioned sequence below. **Type:** ASSET/packaging-integration,
+high-risk (mutates the desktop-consumed internal-package tarball + `package-lock.json` integrity → broker review
+required). **Branch:**
 `feature/pretrial-trial-addon-04` @ `bbf2a36` (ClaimTrack contract impl committed).
 **Parent:** `dev-memo/plan-pretrial-trial-addon-01.md` (READY umbrella). **Predecessor:**
 `dev-memo/plan-pretrial-trial-addon-01-pta04.md` (WI-PTA-04 contract impl, committed `bbf2a36`).
