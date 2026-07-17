@@ -69,6 +69,8 @@ import {
   InvalidIanaTimezoneError,
   // WI-PTA-04
   validateClaimTrack,
+  // WI-PTA-05
+  validateEvidencePreparation,
 } from "../dist/index.js";
 import { createHash } from "node:crypto";
 
@@ -130,6 +132,20 @@ test("validateClaimTrack happy path returns ok=true with typed value (scenario A
 
 test("validateClaimTrack error path returns ok=false with summary + errors (bad our_role)", () => {
   const r = validateClaimTrack(readJson(join(invalidDir, "claim-track-bad-our-role.json")));
+  assert.equal(r.ok, false);
+  assert.ok(r.summary.length > 0);
+  assert.ok(Array.isArray(r.errors) && r.errors.length > 0);
+});
+
+test("validateEvidencePreparation happy path returns ok=true with typed value (canonical)", () => {
+  const r = validateEvidencePreparation(readJson(join(validDir, "evidence-preparation-canonical.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(r.value.submitted_by_side, "our_side");
+  assert.equal(r.value.review_status, "confirmed");
+});
+
+test("validateEvidencePreparation error path returns ok=false with summary + errors (bad review_status)", () => {
+  const r = validateEvidencePreparation(readJson(join(invalidDir, "evidence-preparation-bad-review-status.json")));
   assert.equal(r.ok, false);
   assert.ok(r.summary.length > 0);
   assert.ok(Array.isArray(r.errors) && r.errors.length > 0);

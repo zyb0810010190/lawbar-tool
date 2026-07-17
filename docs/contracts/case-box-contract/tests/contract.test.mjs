@@ -38,6 +38,7 @@ const privilegeMarkerSchema = readJson(join(schemasDir, "case-box-privilege-mark
 const confidentialityClassificationSchema = readJson(join(schemasDir, "case-box-confidentiality-classification.schema.json"));
 const docketEntrySchema = readJson(join(schemasDir, "case-box-docket-entry.schema.json"));
 const claimTrackSchema = readJson(join(schemasDir, "case-box-claim-track.schema.json"));
+const evidencePreparationSchema = readJson(join(schemasDir, "case-box-evidence-preparation.schema.json"));
 
 const validateMatter       = ajv.compile(matterSchema);
 const validateDocument     = ajv.compile(documentSchema);
@@ -51,6 +52,7 @@ const validatePrivilegeMarker = ajv.compile(privilegeMarkerSchema);
 const validateConfidentialityClassification = ajv.compile(confidentialityClassificationSchema);
 const validateDocketEntry = ajv.compile(docketEntrySchema);
 const validateClaimTrack = ajv.compile(claimTrackSchema);
+const validateEvidencePreparation = ajv.compile(evidencePreparationSchema);
 
 const errs = (v) => (v.errors || []).map((e) => `${e.instancePath} ${e.message}`).join("; ");
 
@@ -1099,4 +1101,290 @@ test("invalid: ClaimTrack rejects a negative sort_order (minimum 0)", () => {
     (e) => e.instancePath === "/sort_order" && e.keyword === "minimum",
   );
   assert.ok(offenders.length > 0, `expected a minimum error on /sort_order (got ${errs(validateClaimTrack)})`);
+});
+
+// ---------------------------------------------------------------------------
+// EvidencePreparation (WI-PTA-05; frozen spec §2). Additive contract model that
+// links an EXISTING evidence record to a claim track for pre-trial preparation.
+// Contract-only: claim_track_id/evidence_id are ULID-SHAPE refs — referential
+// existence, (claim_track_id, evidence_id) DB uniqueness (test #6), and the
+// submitted_by_side read-time projection are DEFERRED to persistence/handler WIs
+// (PTA-08/11). Every declared key is required; submitted_by_side/key_page/
+// key_page_note are required-but-NULLABLE (null accepts, omission rejects).
+// ---------------------------------------------------------------------------
+
+const EP_VALID = "evidence-preparation-canonical.valid.json";
+
+test("valid: EvidencePreparation canonical (our_side, confirmed, key_page + note, multi facts)", () => {
+  const fixture = readJson(join(validDir, EP_VALID));
+  assert.equal(validateEvidencePreparation(fixture), true, errs(validateEvidencePreparation));
+  assert.equal(fixture.submitted_by_side, "our_side");
+  assert.equal(fixture.review_status, "confirmed");
+  assert.equal(fixture.key_page, 5);
+  assert.ok(Array.isArray(fixture.facts_to_prove) && fixture.facts_to_prove.length === 2);
+});
+
+test("valid: EvidencePreparation null submitted_by_side + null key_page/note + empty facts + empty narratives", () => {
+  const fixture = readJson(join(validDir, "evidence-preparation-null-side-empty.valid.json"));
+  assert.equal(validateEvidencePreparation(fixture), true, errs(validateEvidencePreparation));
+  assert.equal(fixture.submitted_by_side, null, "submitted_by_side null is a valid value (required key present)");
+  assert.equal(fixture.key_page, null, "key_page null accepted");
+  assert.equal(fixture.key_page_note, null, "key_page_note null accepted");
+  assert.deepEqual(fixture.facts_to_prove, [], "empty facts_to_prove array accepted");
+  assert.equal(fixture.evidence_purpose, "", "empty narrative string accepted");
+  assert.equal(fixture.trial_use_summary, "", "empty narrative string accepted");
+});
+
+test("valid: one evidence item has preparation records on MULTIPLE claim tracks (same evidence_id, different claim_track_id)", () => {
+  const a = readJson(join(validDir, "evidence-preparation-multi-track-a.valid.json"));
+  const b = readJson(join(validDir, "evidence-preparation-multi-track-b.valid.json"));
+  assert.equal(validateEvidencePreparation(a), true, errs(validateEvidencePreparation));
+  assert.equal(validateEvidencePreparation(b), true, errs(validateEvidencePreparation));
+  assert.equal(a.evidence_id, b.evidence_id, "both records reference the same evidence_id");
+  assert.notEqual(a.claim_track_id, b.claim_track_id, "on two different claim tracks");
+});
+
+test("valid: EvidencePreparation accepts an unexpected property (open/additive schema, mirrors sibling entities)", () => {
+  const fixture = readJson(join(validDir, "evidence-preparation-unexpected-property.valid.json"));
+  assert.equal(validateEvidencePreparation(fixture), true, errs(validateEvidencePreparation));
+  assert.ok("future_reserved_field" in fixture);
+  assert.equal(evidencePreparationSchema.additionalProperties, undefined, "schema does not set additionalProperties (open)");
+});
+
+// Test #5: contract-level evidence_id REFERENCE SHAPE only — proves the model
+// records a ULID-shaped evidence reference. It does NOT (and must not, this WI)
+// prove that the referenced evidence record EXISTS; existence is a later
+// handler/persistence preflight (PTA-08/11).
+test("valid: EvidencePreparation records a ULID-shaped evidence_id reference (frozen test #5 — shape only, not existence)", () => {
+  const fixture = readJson(join(validDir, EP_VALID));
+  assert.match(fixture.evidence_id, /^[0-9a-z]{26}$/, "evidence_id is a well-formed ULID reference");
+  assert.equal(validateEvidencePreparation(fixture), true, errs(validateEvidencePreparation));
+});
+
+// Table-driven VALID: submitted_by_side accepts every enum value AND null.
+test("valid: EvidencePreparation accepts every submitted_by_side value and null (table-driven)", () => {
+  const base = readJson(join(validDir, EP_VALID));
+  for (const v of ["our_side", "opposing_side", "third_party", "court_obtained", "unknown", null]) {
+    const mutant = { ...base, submitted_by_side: v };
+    assert.equal(validateEvidencePreparation(mutant), true, `submitted_by_side=${JSON.stringify(v)} must accept (${errs(validateEvidencePreparation)})`);
+  }
+});
+
+// Table-driven VALID: review_status accepts every frozen enum value.
+test("valid: EvidencePreparation accepts every review_status value (table-driven)", () => {
+  const base = readJson(join(validDir, EP_VALID));
+  for (const v of ["draft", "in_review", "confirmed"]) {
+    const mutant = { ...base, review_status: v };
+    assert.equal(validateEvidencePreparation(mutant), true, `review_status=${v} must accept (${errs(validateEvidencePreparation)})`);
+  }
+});
+
+// Table-driven VALID: facts_to_prove empty / single / multiple; key_page 1 / null.
+test("valid: EvidencePreparation accepts empty/single/multiple facts_to_prove and key_page 1/null (table-driven)", () => {
+  const base = readJson(join(validDir, EP_VALID));
+  for (const facts of [[], ["one fact"], ["fact a", "fact b", "fact c"]]) {
+    assert.equal(validateEvidencePreparation({ ...base, facts_to_prove: facts }), true, `facts length ${facts.length} must accept`);
+  }
+  for (const kp of [1, null]) {
+    assert.equal(validateEvidencePreparation({ ...base, key_page: kp }), true, `key_page=${JSON.stringify(kp)} must accept`);
+  }
+});
+
+test("invalid: EvidencePreparation with bad submitted_by_side enum is rejected", () => {
+  const fixture = readJson(join(invalidDir, "evidence-preparation-bad-submitted-by-side.json"));
+  assert.equal(validateEvidencePreparation(fixture), false);
+  const offenders = (validateEvidencePreparation.errors || []).filter((e) => e.instancePath === "/submitted_by_side");
+  assert.ok(offenders.length > 0, `expected enum error on /submitted_by_side (got ${errs(validateEvidencePreparation)})`);
+});
+
+test("invalid: EvidencePreparation with bad review_status enum is rejected", () => {
+  const fixture = readJson(join(invalidDir, "evidence-preparation-bad-review-status.json"));
+  assert.equal(validateEvidencePreparation(fixture), false);
+  const offenders = (validateEvidencePreparation.errors || []).filter((e) => e.instancePath === "/review_status");
+  assert.ok(offenders.length > 0, `expected enum error on /review_status (got ${errs(validateEvidencePreparation)})`);
+});
+
+test("invalid: EvidencePreparation facts_to_prove item over 500 chars is rejected (test #7 — short strings)", () => {
+  const fixture = readJson(join(invalidDir, "evidence-preparation-facts-over-length.json"));
+  assert.equal(fixture.facts_to_prove[0].length, 501);
+  assert.equal(validateEvidencePreparation(fixture), false);
+  const offenders = (validateEvidencePreparation.errors || []).filter((e) => e.instancePath === "/facts_to_prove/0" && e.keyword === "maxLength");
+  assert.ok(offenders.length > 0, `expected maxLength error on /facts_to_prove/0 (got ${errs(validateEvidencePreparation)})`);
+});
+
+test("invalid: EvidencePreparation facts_to_prove empty-string item is rejected (minLength 1 — non-empty short strings)", () => {
+  const base = readJson(join(validDir, EP_VALID));
+  const mutant = { ...base, facts_to_prove: [""] };
+  assert.equal(validateEvidencePreparation(mutant), false, "an empty-string fact item must be rejected");
+  const offenders = (validateEvidencePreparation.errors || []).filter((e) => e.instancePath === "/facts_to_prove/0" && e.keyword === "minLength");
+  assert.ok(offenders.length > 0, `expected minLength error on /facts_to_prove/0 (got ${errs(validateEvidencePreparation)})`);
+});
+
+test("invalid: EvidencePreparation facts_to_prove non-string item is rejected (test #7)", () => {
+  const fixture = readJson(join(invalidDir, "evidence-preparation-facts-non-string-item.json"));
+  assert.equal(validateEvidencePreparation(fixture), false);
+  const offenders = (validateEvidencePreparation.errors || []).filter((e) => e.instancePath === "/facts_to_prove/0");
+  assert.ok(offenders.length > 0, `expected type error on /facts_to_prove/0 (got ${errs(validateEvidencePreparation)})`);
+});
+
+test("invalid: EvidencePreparation facts_to_prove as a non-array (single blob) is rejected (test #7)", () => {
+  const fixture = readJson(join(invalidDir, "evidence-preparation-facts-not-array.json"));
+  assert.equal(validateEvidencePreparation(fixture), false);
+  const offenders = (validateEvidencePreparation.errors || []).filter((e) => e.instancePath === "/facts_to_prove" && e.keyword === "type");
+  assert.ok(offenders.length > 0, `expected array type error on /facts_to_prove (got ${errs(validateEvidencePreparation)})`);
+});
+
+test("invalid: EvidencePreparation key_page = 0 is rejected (minimum 1)", () => {
+  const fixture = readJson(join(invalidDir, "evidence-preparation-key-page-zero.json"));
+  assert.equal(validateEvidencePreparation(fixture), false);
+  const offenders = (validateEvidencePreparation.errors || []).filter((e) => e.instancePath === "/key_page" && e.keyword === "minimum");
+  assert.ok(offenders.length > 0, `expected minimum error on /key_page (got ${errs(validateEvidencePreparation)})`);
+});
+
+test("invalid: EvidencePreparation key_page negative is rejected (minimum 1)", () => {
+  const fixture = readJson(join(invalidDir, "evidence-preparation-key-page-negative.json"));
+  assert.equal(validateEvidencePreparation(fixture), false);
+  const offenders = (validateEvidencePreparation.errors || []).filter((e) => e.instancePath === "/key_page" && e.keyword === "minimum");
+  assert.ok(offenders.length > 0, `expected minimum error on /key_page (got ${errs(validateEvidencePreparation)})`);
+});
+
+// Table-driven required-field coverage: derive from the schema's own `required`
+// array (NOT a hardcoded copy). Deleting each required key — including the
+// required-but-nullable keys — must reject with a required-error naming it.
+test("invalid: EvidencePreparation rejects omission of EVERY required field, incl. required-nullable (schema-derived, table-driven)", () => {
+  const base = readJson(join(validDir, EP_VALID));
+  const required = evidencePreparationSchema.required;
+  assert.equal(required.length, 16, "expected 16 required fields");
+  assert.equal(validateEvidencePreparation(base), true, errs(validateEvidencePreparation));
+  for (const field of required) {
+    const mutant = { ...base };
+    delete mutant[field];
+    assert.equal(validateEvidencePreparation(mutant), false, `omitting ${field} must be rejected`);
+    const offenders = (validateEvidencePreparation.errors || []).filter(
+      (e) => e.keyword === "required" && e.params.missingProperty === field,
+    );
+    assert.ok(offenders.length > 0, `expected a required-error naming ${field} (got ${errs(validateEvidencePreparation)})`);
+  }
+});
+
+// The three required-but-nullable fields: null ACCEPTS, omission REJECTS.
+test("invalid/valid: EvidencePreparation required-nullable fields accept null but reject omission (table-driven)", () => {
+  const base = readJson(join(validDir, EP_VALID));
+  for (const field of ["submitted_by_side", "key_page", "key_page_note"]) {
+    assert.equal(validateEvidencePreparation({ ...base, [field]: null }), true, `${field}=null must accept (${errs(validateEvidencePreparation)})`);
+    const omitted = { ...base };
+    delete omitted[field];
+    assert.equal(validateEvidencePreparation(omitted), false, `omitting ${field} must reject`);
+    const offenders = (validateEvidencePreparation.errors || []).filter(
+      (e) => e.keyword === "required" && e.params.missingProperty === field,
+    );
+    assert.ok(offenders.length > 0, `expected required-error naming ${field} (got ${errs(validateEvidencePreparation)})`);
+  }
+});
+
+// Table-driven malformed-ULID coverage across all four ULID fields.
+test("invalid: EvidencePreparation rejects a malformed ULID for every identifier field (table-driven)", () => {
+  const base = readJson(join(validDir, EP_VALID));
+  for (const field of ["id", "matter_id", "claim_track_id", "evidence_id"]) {
+    const mutant = { ...base, [field]: "NOT-A-ULID" };
+    assert.equal(validateEvidencePreparation(mutant), false, `malformed ${field} must be rejected`);
+    const offenders = (validateEvidencePreparation.errors || []).filter(
+      (e) => e.instancePath === `/${field}` && e.keyword === "pattern",
+    );
+    assert.ok(offenders.length > 0, `expected a ULID pattern error on /${field} (got ${errs(validateEvidencePreparation)})`);
+  }
+});
+
+// Timestamp constraint coverage: created_at / updated_at must be RFC3339 date-time.
+test("invalid: EvidencePreparation rejects a malformed timestamp for created_at and updated_at (table-driven)", () => {
+  const base = readJson(join(validDir, EP_VALID));
+  for (const field of ["created_at", "updated_at"]) {
+    const mutant = { ...base, [field]: "2026-07-16 09:00:00" };
+    assert.equal(validateEvidencePreparation(mutant), false, `malformed ${field} must be rejected`);
+    const offenders = (validateEvidencePreparation.errors || []).filter(
+      (e) => e.instancePath === `/${field}` && e.keyword === "format",
+    );
+    assert.ok(offenders.length > 0, `expected a date-time format error on /${field} (got ${errs(validateEvidencePreparation)})`);
+  }
+});
+
+// Non-empty required identity fields (tenant_id, actor_user_id): reject empty,
+// null, and non-string.
+test("invalid: EvidencePreparation rejects empty / null / non-string for tenant_id, actor_user_id (table-driven)", () => {
+  const base = readJson(join(validDir, EP_VALID));
+  for (const field of ["tenant_id", "actor_user_id"]) {
+    for (const bad of ["", null, 123]) {
+      const mutant = { ...base, [field]: bad };
+      assert.equal(validateEvidencePreparation(mutant), false, `${field}=${JSON.stringify(bad)} must be rejected`);
+      const offenders = (validateEvidencePreparation.errors || []).filter((e) => e.instancePath === `/${field}`);
+      assert.ok(offenders.length > 0, `expected an error on /${field} for ${JSON.stringify(bad)} (got ${errs(validateEvidencePreparation)})`);
+    }
+  }
+});
+
+// Null on NON-nullable fields must be rejected (distinct from the nullable trio).
+test("invalid: EvidencePreparation rejects null on non-nullable fields (table-driven)", () => {
+  const base = readJson(join(validDir, EP_VALID));
+  for (const field of ["id", "matter_id", "claim_track_id", "evidence_id", "evidence_purpose", "facts_to_prove", "trial_use_summary", "review_status", "sort_order", "created_at", "updated_at"]) {
+    const mutant = { ...base, [field]: null };
+    assert.equal(validateEvidencePreparation(mutant), false, `${field}=null must be rejected (non-nullable)`);
+    const offenders = (validateEvidencePreparation.errors || []).filter((e) => e.instancePath === `/${field}`);
+    assert.ok(offenders.length > 0, `expected an error on /${field} for null (got ${errs(validateEvidencePreparation)})`);
+  }
+});
+
+// Wrong-primitive-type coverage for EVERY field, drift-guarded against the
+// schema's own properties.
+test("invalid: EvidencePreparation rejects a wrong primitive type for every field (table-driven, drift-guarded)", () => {
+  const base = readJson(join(validDir, EP_VALID));
+  const wrongType = {
+    id: 123, tenant_id: 123, actor_user_id: 123, matter_id: 123,
+    claim_track_id: 123, evidence_id: 123,
+    submitted_by_side: 123, evidence_purpose: 123, facts_to_prove: 123,
+    trial_use_summary: 123, key_page: "1", key_page_note: 123,
+    review_status: 123, sort_order: "0", created_at: 123, updated_at: 123,
+  };
+  assert.deepEqual(
+    Object.keys(wrongType).sort(),
+    Object.keys(evidencePreparationSchema.properties).sort(),
+    "wrong-type table must cover every schema property",
+  );
+  for (const [field, bad] of Object.entries(wrongType)) {
+    const mutant = { ...base, [field]: bad };
+    assert.equal(validateEvidencePreparation(mutant), false, `${field}=${JSON.stringify(bad)} must be rejected`);
+    const offenders = (validateEvidencePreparation.errors || []).filter((e) => e.instancePath === `/${field}`);
+    assert.ok(offenders.length > 0, `expected an error on /${field} for wrong type (got ${errs(validateEvidencePreparation)})`);
+  }
+});
+
+test("invalid: EvidencePreparation rejects a negative sort_order (minimum 0)", () => {
+  const base = readJson(join(validDir, EP_VALID));
+  const mutant = { ...base, sort_order: -1 };
+  assert.equal(validateEvidencePreparation(mutant), false);
+  const offenders = (validateEvidencePreparation.errors || []).filter(
+    (e) => e.instancePath === "/sort_order" && e.keyword === "minimum",
+  );
+  assert.ok(offenders.length > 0, `expected a minimum error on /sort_order (got ${errs(validateEvidencePreparation)})`);
+});
+
+test("EvidencePreparation schema shape: 16 required keys; open; no cross-field invariant; key_page nullable int>=1; facts items maxLength 500", () => {
+  const req = new Set(evidencePreparationSchema.required);
+  for (const f of [
+    "id", "tenant_id", "actor_user_id", "matter_id", "claim_track_id", "evidence_id",
+    "submitted_by_side", "evidence_purpose", "facts_to_prove", "trial_use_summary",
+    "key_page", "key_page_note", "review_status", "sort_order", "created_at", "updated_at",
+  ]) {
+    assert.ok(req.has(f), `${f} must be required`);
+  }
+  assert.equal(evidencePreparationSchema.required.length, 16);
+  assert.equal(evidencePreparationSchema.additionalProperties, undefined, "open schema");
+  assert.equal(evidencePreparationSchema.allOf, undefined, "no allOf coupling");
+  assert.equal(evidencePreparationSchema.if, undefined, "no if/then coupling");
+  const kp = evidencePreparationSchema.properties.key_page;
+  assert.deepEqual(kp.type, ["integer", "null"], "key_page nullable integer");
+  assert.equal(kp.minimum, 1, "key_page integer branch minimum 1");
+  assert.equal(evidencePreparationSchema.properties.facts_to_prove.items.maxLength, 500, "facts_to_prove item maxLength 500");
+  assert.equal(evidencePreparationSchema.properties.facts_to_prove.items.minLength, 1, "facts_to_prove item minLength 1 (non-empty short strings)");
+  const sbs = evidencePreparationSchema.properties.submitted_by_side.enum;
+  assert.deepEqual(sbs, ["our_side", "opposing_side", "third_party", "court_obtained", "unknown", null]);
 });

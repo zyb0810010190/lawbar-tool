@@ -18,6 +18,7 @@ export { validatePrivilegeMarker } from "./validatePrivilegeMarker.js";
 export { validateConfidentialityClassification } from "./validateConfidentialityClassification.js";
 export { validateDocketEntry } from "./validateDocketEntry.js";
 export { validateClaimTrack } from "./validateClaimTrack.js";
+export { validateEvidencePreparation } from "./validateEvidencePreparation.js";
 
 // --- State machines + transition helpers ---
 export {
@@ -199,6 +200,7 @@ export type { CaseBoxPrivilegeMarker } from "./generated/case-box-privilege-mark
 export type { CaseBoxConfidentialityClassification } from "./generated/case-box-confidentiality-classification.js";
 export type { CaseBoxDocketEntry } from "./generated/case-box-docket-entry.js";
 export type { CaseBoxClaimTrack } from "./generated/case-box-claim-track.js";
+export type { CaseBoxEvidencePreparation } from "./generated/case-box-evidence-preparation.js";
 
 // --- Deep-frozen public schemas ---
 //
@@ -219,6 +221,7 @@ import {
   confidentialityClassificationSchema as rawConfidentialityClassificationSchema,
   docketEntrySchema as rawDocketEntrySchema,
   claimTrackSchema as rawClaimTrackSchema,
+  evidencePreparationSchema as rawEvidencePreparationSchema,
 } from "./loadSchemas.js";
 
 function deepFreeze<T>(value: T): T {
@@ -243,3 +246,4 @@ export const privilegeMarkerSchema = deepFreeze(structuredClone(rawPrivilegeMark
 export const confidentialityClassificationSchema = deepFreeze(structuredClone(rawConfidentialityClassificationSchema));
 export const docketEntrySchema = deepFreeze(structuredClone(rawDocketEntrySchema));
 export const claimTrackSchema = deepFreeze(structuredClone(rawClaimTrackSchema));
+export const evidencePreparationSchema = deepFreeze(structuredClone(rawEvidencePreparationSchema));
