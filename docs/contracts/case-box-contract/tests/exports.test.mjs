@@ -82,6 +82,8 @@ const expectedFns = [
   "assertValidMatterSuccessor",
   // WI-PTA-04
   "validateClaimTrack",
+  // WI-PTA-05
+  "validateEvidencePreparation",
 ];
 
 const expectedArrays = [
@@ -128,6 +130,7 @@ const expectedObjects = [
   "LATTICE_ORDINAL",
   "docketEntrySchema",
   "claimTrackSchema",
+  "evidencePreparationSchema",
 ];
 
 const expectedConstants = [

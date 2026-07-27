@@ -1,0 +1,18 @@
+{
+  "id": "01jrcasebox00000000000ep04",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "claim_track_id": "01jrcasebox0000000000000t2",
+  "evidence_id": "01jrcasebox0000000000000e9",
+  "submitted_by_side": "court_obtained",
+  "evidence_purpose": "Same exhibit reused on the counterclaim track.",
+  "facts_to_prove": ["The same document supports the counterclaim's damages basis."],
+  "trial_use_summary": "Cross-reference from the counterclaim bundle.",
+  "key_page": 3,
+  "key_page_note": "Court seal on page 3.",
+  "review_status": "confirmed",
+  "sort_order": 0,
+  "created_at": "2026-07-16T09:15:00.000Z",
+  "updated_at": "2026-07-16T09:15:00.000Z"
+}

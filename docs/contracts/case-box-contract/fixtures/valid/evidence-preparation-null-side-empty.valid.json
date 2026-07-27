@@ -1,0 +1,18 @@
+{
+  "id": "01jrcasebox00000000000ep02",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "claim_track_id": "01jrcasebox0000000000000t1",
+  "evidence_id": "01jrcasebox0000000000000e2",
+  "submitted_by_side": null,
+  "evidence_purpose": "",
+  "facts_to_prove": [],
+  "trial_use_summary": "",
+  "key_page": null,
+  "key_page_note": null,
+  "review_status": "draft",
+  "sort_order": 1,
+  "created_at": "2026-07-16T09:05:00.000Z",
+  "updated_at": "2026-07-16T09:05:00.000Z"
+}

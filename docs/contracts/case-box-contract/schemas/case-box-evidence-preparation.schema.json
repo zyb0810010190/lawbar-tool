@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-evidence-preparation.schema.json",
+  "title": "CaseBoxEvidencePreparation",
+  "description": "Pre-trial/trial-mode evidence-preparation metadata (frozen spec §2): links an EXISTING evidence record to a claim track for preparation, WITHOUT replacing the evidence model or minting new evidence IDs. Records who submitted the evidence, its purpose, the facts it is meant to prove, how it is used at trial, a minimal page reference, and a review lifecycle. One evidence item may carry preparation records on multiple claim tracks (main claim + counterclaim) — expressed as distinct records sharing evidence_id. This WI (PTA-05) is contract-only: claim_track_id/evidence_id are validated for ULID SHAPE only — referential existence, the (claim_track_id, evidence_id) DB uniqueness, and the submitted_by_side read-time projection from CaseBoxEvidenceItem.party_side are all deferred to later persistence/handler WIs (PTA-08/11).",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "actor_user_id",
+    "matter_id",
+    "claim_track_id",
+    "evidence_id",
+    "submitted_by_side",
+    "evidence_purpose",
+    "facts_to_prove",
+    "trial_use_summary",
+    "key_page",
+    "key_page_note",
+    "review_status",
+    "sort_order",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id":            { "$ref": "#/$defs/ulid" },
+    "tenant_id":     { "type": "string", "minLength": 1 },
+    "actor_user_id": { "type": "string", "minLength": 1 },
+    "matter_id":     { "$ref": "#/$defs/ulid" },
+    "claim_track_id": {
+      "$ref": "#/$defs/ulid",
+      "description": "The claim track this preparation attaches to. Coarse by-value ULID ref; referential existence against the matter's claim tracks is a later handler preflight, NOT a schema constraint."
+    },
+    "evidence_id": {
+      "$ref": "#/$defs/ulid",
+      "description": "References an EXISTING CaseBoxEvidenceItem.id (frozen §2: use existing evidence IDs; do not mint new ones). Coarse by-value ULID ref; existence + matter/track membership are later handler preflights, NOT schema constraints."
+    },
+    "submitted_by_side": {
+      "enum": ["our_side", "opposing_side", "third_party", "court_obtained", "unknown", null],
+      "description": "Who submitted the evidence. Nullable (frozen §2 / decision #2): authoritative when explicitly set; when null, a read-time projection from CaseBoxEvidenceItem.party_side is applied downstream (persistence/handler) and NEVER written back into the payload. This schema stores the value verbatim including null; it does NOT implement the projection. Required key: null is a valid value but the key must be present."
+    },
+    "evidence_purpose": {
+      "type": "string",
+      "description": "What this evidence is intended to establish. type string; empty string allowed so a record may be created before the purpose is written (key stays present, no null)."
+    },
+    "facts_to_prove": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+      "description": "The facts this evidence supports, as an array of SHORT strings (frozen §2 / test #7) — never a single prose blob (preserves future Fact-model migration compatibility). Each item is a non-empty string of at most 500 characters. An empty array is allowed (a record may start with no facts)."
+    },
+    "trial_use_summary": {
+      "type": "string",
+      "description": "How this evidence should be used at trial. type string; empty string allowed."
+    },
+    "key_page": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "Optional 1-based page reference into the evidence document. Nullable (null = no reference / unknown); when present it is an integer >= 1, matching the source_page_number precedent (case-box-fact, case-box-docket-entry). Intentionally minimal — NOT a DocumentPage FK, anchor, bounding box, or OCR span."
+    },
+    "key_page_note": {
+      "type": ["string", "null"],
+      "description": "Optional free-text note about the key page (nullable string). Intentionally minimal, paired with key_page."
+    },
+    "review_status": {
+      "enum": ["draft", "in_review", "confirmed"],
+      "description": "Preparation review lifecycle (frozen §2)."
+    },
+    "sort_order": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Lawyer-controlled display order within the claim track's preparation records."
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$"
+    }
+  }
+}
