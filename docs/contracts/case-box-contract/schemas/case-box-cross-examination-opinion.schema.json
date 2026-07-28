@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://litigation-platform.local/case-box-contract/case-box-cross-examination-opinion.schema.json",
+  "title": "CaseBoxCrossExaminationOpinion",
+  "description": "Pre-trial/trial-mode cross-examination opinion (frozen spec §3): a lawyer's structured cross-examination position on one EXISTING evidence item within one claim track, in one of two directions — our_objection_to_their_evidence (we object to opposing evidence) or their_anticipated_objection_to_our_evidence (their anticipated objection to our evidence PLUS our prepared response). Captures the four courtroom dimensions (authenticity, legality, relevance, probative-force) each as a structured status + free-text reason, an overall opinion, a courtroom-ready short version, and (direction-2 only) our short response, under a preparation lifecycle. The cross-field rule 'our_response_short_version required iff direction=their_anticipated_objection_to_our_evidence' is enforced by a SEPARATE TS helper (src/cross-exam-invariants.ts, assertCrossExaminationOpinionInvariants), NOT by this schema — the schema stays flat (no if/then), mirroring the fact-invariants.ts precedent. This WI (PTA-06) is contract-only: claim_track_id/evidence_id are ULID SHAPE refs; referential existence, the (claim_track_id, evidence_id, direction) DB uniqueness, and audit emission are deferred to later WIs (PTA-09/11). No rebuttal_evidence_ids (rebuttal is a LegalOpinionCard concern, PTA-07); no authored_by_side (direction is the only side-expression).",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "actor_user_id",
+    "matter_id",
+    "claim_track_id",
+    "evidence_id",
+    "direction",
+    "authenticity_status",
+    "authenticity_reason",
+    "legality_status",
+    "legality_reason",
+    "relevance_status",
+    "relevance_reason",
+    "probative_force_status",
+    "probative_force_reason",
+    "overall_opinion",
+    "courtroom_short_version",
+    "our_response_short_version",
+    "preparation_status",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id":            { "$ref": "#/$defs/ulid" },
+    "tenant_id":     { "type": "string", "minLength": 1 },
+    "actor_user_id": { "type": "string", "minLength": 1 },
+    "matter_id":     { "$ref": "#/$defs/ulid" },
+    "claim_track_id": {
+      "$ref": "#/$defs/ulid",
+      "description": "The claim track this opinion attaches to. Coarse by-value ULID ref; referential existence is a later handler preflight, NOT a schema constraint."
+    },
+    "evidence_id": {
+      "$ref": "#/$defs/ulid",
+      "description": "References an EXISTING CaseBoxEvidenceItem.id. Coarse by-value ULID ref; existence + matter/track membership are later handler preflights, NOT schema constraints."
+    },
+    "direction": {
+      "enum": ["our_objection_to_their_evidence", "their_anticipated_objection_to_our_evidence"],
+      "description": "The cross-examination direction (frozen §3). our_objection_to_their_evidence: we object to opposing evidence. their_anticipated_objection_to_our_evidence: their anticipated objection to our evidence, for which our_response_short_version is required (enforced by the TS invariant). Frozen §3 forbids an ambiguous authored_by_side field — direction is the only side-expression."
+    },
+    "authenticity_status":    { "$ref": "#/$defs/dimensionStatus", "description": "Authenticity dimension status." },
+    "authenticity_reason":    { "type": "string", "description": "Authenticity reasoning. type string; empty string allowed (required key)." },
+    "legality_status":        { "$ref": "#/$defs/dimensionStatus", "description": "Legality dimension status." },
+    "legality_reason":        { "type": "string", "description": "Legality reasoning. type string; empty string allowed." },
+    "relevance_status":       { "$ref": "#/$defs/dimensionStatus", "description": "Relevance dimension status." },
+    "relevance_reason":       { "type": "string", "description": "Relevance reasoning. type string; empty string allowed." },
+    "probative_force_status": { "$ref": "#/$defs/dimensionStatus", "description": "Probative-force / evidentiary-purpose dimension status." },
+    "probative_force_reason": { "type": "string", "description": "Probative-force reasoning. type string; empty string allowed." },
+    "overall_opinion": {
+      "type": "string",
+      "description": "Overall cross-examination opinion. type string; empty string allowed (required key)."
+    },
+    "courtroom_short_version": {
+      "type": "string",
+      "description": "Courtroom-ready short version of the opinion. type string; empty string allowed."
+    },
+    "our_response_short_version": {
+      "type": ["string", "null"],
+      "description": "Our prepared short response to their anticipated objection against OUR evidence. Nullable (required key). CROSS-FIELD RULE (enforced by src/cross-exam-invariants.ts, NOT this schema): MUST be a non-empty string when direction=their_anticipated_objection_to_our_evidence, and MUST be null/empty otherwise (strict iff). Not applicable when we are objecting to their evidence."
+    },
+    "preparation_status": {
+      "enum": ["draft", "review_needed", "ready_for_trial"],
+      "description": "Preparation lifecycle (frozen §3; shared enum with LegalOpinionCard)."
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-z]{26}$"
+    },
+    "dimensionStatus": {
+      "enum": ["admitted", "denied", "conditional", "reserved", "not_applicable"]
+    }
+  }
+}

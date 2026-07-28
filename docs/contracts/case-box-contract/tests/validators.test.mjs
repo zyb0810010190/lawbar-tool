@@ -71,6 +71,10 @@ import {
   validateClaimTrack,
   // WI-PTA-05
   validateEvidencePreparation,
+  // WI-PTA-06
+  validateCrossExaminationOpinion,
+  assertCrossExaminationOpinionInvariants,
+  CrossExaminationInvariantError,
 } from "../dist/index.js";
 import { createHash } from "node:crypto";
 
@@ -149,6 +153,56 @@ test("validateEvidencePreparation error path returns ok=false with summary + err
   assert.equal(r.ok, false);
   assert.ok(r.summary.length > 0);
   assert.ok(Array.isArray(r.errors) && r.errors.length > 0);
+});
+
+test("validateCrossExaminationOpinion happy path returns ok=true with typed value (direction-1)", () => {
+  const r = validateCrossExaminationOpinion(readJson(join(validDir, "cross-examination-opinion-our-objection.valid.json")));
+  assert.equal(r.ok, true);
+  assert.equal(r.value.direction, "our_objection_to_their_evidence");
+  assert.equal(r.value.preparation_status, "ready_for_trial");
+});
+
+test("validateCrossExaminationOpinion error path returns ok=false with summary + errors (bad direction)", () => {
+  const r = validateCrossExaminationOpinion(readJson(join(invalidDir, "cross-examination-opinion-bad-direction.json")));
+  assert.equal(r.ok, false);
+  assert.ok(r.summary.length > 0);
+  assert.ok(Array.isArray(r.errors) && r.errors.length > 0);
+});
+
+// --- WI-PTA-06 strict-iff conditional invariant (src/cross-exam-invariants.ts) ---
+// our_response_short_version required iff direction=their_anticipated_objection_to_our_evidence.
+// Enforced in BOTH directions; schema-valid fixtures compose "shape-valid AND invariant-holds".
+
+const cxBase = () => readJson(join(validDir, "cross-examination-opinion-our-objection.valid.json"));
+
+test("assertCrossExaminationOpinionInvariants: direction-2 with a non-empty response passes", () => {
+  const ok = { ...cxBase(), direction: "their_anticipated_objection_to_our_evidence", our_response_short_version: "Produce the original." };
+  assert.equal(validateCrossExaminationOpinion(ok).ok, true, "fixture is schema-valid");
+  assert.doesNotThrow(() => assertCrossExaminationOpinionInvariants(ok));
+});
+
+test("assertCrossExaminationOpinionInvariants: direction-2 with null response throws (missing required response)", () => {
+  const bad = { ...cxBase(), direction: "their_anticipated_objection_to_our_evidence", our_response_short_version: null };
+  assert.throws(() => assertCrossExaminationOpinionInvariants(bad), CrossExaminationInvariantError);
+});
+
+test("assertCrossExaminationOpinionInvariants: direction-2 with empty/whitespace response throws", () => {
+  for (const v of ["", "   "]) {
+    const bad = { ...cxBase(), direction: "their_anticipated_objection_to_our_evidence", our_response_short_version: v };
+    assert.throws(() => assertCrossExaminationOpinionInvariants(bad), CrossExaminationInvariantError, `response=${JSON.stringify(v)} must throw`);
+  }
+});
+
+test("assertCrossExaminationOpinionInvariants: direction-1 with null/empty response passes", () => {
+  for (const v of [null, "", "   "]) {
+    const ok = { ...cxBase(), direction: "our_objection_to_their_evidence", our_response_short_version: v };
+    assert.doesNotThrow(() => assertCrossExaminationOpinionInvariants(ok), `response=${JSON.stringify(v)} must pass`);
+  }
+});
+
+test("assertCrossExaminationOpinionInvariants: direction-1 with a non-empty response throws (strict-iff guard)", () => {
+  const bad = { ...cxBase(), direction: "our_objection_to_their_evidence", our_response_short_version: "not applicable here" };
+  assert.throws(() => assertCrossExaminationOpinionInvariants(bad), CrossExaminationInvariantError);
 });
 
 test("validateOcrLink happy path returns ok=true with direction=read-only", () => {

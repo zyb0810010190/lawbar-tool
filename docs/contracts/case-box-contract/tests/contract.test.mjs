@@ -39,6 +39,7 @@ const confidentialityClassificationSchema = readJson(join(schemasDir, "case-box-
 const docketEntrySchema = readJson(join(schemasDir, "case-box-docket-entry.schema.json"));
 const claimTrackSchema = readJson(join(schemasDir, "case-box-claim-track.schema.json"));
 const evidencePreparationSchema = readJson(join(schemasDir, "case-box-evidence-preparation.schema.json"));
+const crossExaminationOpinionSchema = readJson(join(schemasDir, "case-box-cross-examination-opinion.schema.json"));
 
 const validateMatter       = ajv.compile(matterSchema);
 const validateDocument     = ajv.compile(documentSchema);
@@ -53,6 +54,7 @@ const validateConfidentialityClassification = ajv.compile(confidentialityClassif
 const validateDocketEntry = ajv.compile(docketEntrySchema);
 const validateClaimTrack = ajv.compile(claimTrackSchema);
 const validateEvidencePreparation = ajv.compile(evidencePreparationSchema);
+const validateCrossExaminationOpinion = ajv.compile(crossExaminationOpinionSchema);
 
 const errs = (v) => (v.errors || []).map((e) => `${e.instancePath} ${e.message}`).join("; ");
 
@@ -1387,4 +1389,246 @@ test("EvidencePreparation schema shape: 16 required keys; open; no cross-field i
   assert.equal(evidencePreparationSchema.properties.facts_to_prove.items.minLength, 1, "facts_to_prove item minLength 1 (non-empty short strings)");
   const sbs = evidencePreparationSchema.properties.submitted_by_side.enum;
   assert.deepEqual(sbs, ["our_side", "opposing_side", "third_party", "court_obtained", "unknown", null]);
+});
+
+// ---------------------------------------------------------------------------
+// CrossExaminationOpinion (WI-PTA-06; frozen spec §3). Additive contract model:
+// a lawyer's structured cross-examination position on one EXISTING evidence item
+// within one claim track, in one of two directions. Four dimensions (authenticity,
+// legality, relevance, probative-force) each = status enum + free-text reason.
+// The cross-field rule (our_response_short_version required iff direction-2) is
+// enforced by a SEPARATE TS helper (src/cross-exam-invariants.ts), NOT the schema
+// — so the schema stays flat (no if/then) and is tested here for SHAPE only; the
+// strict-iff invariant is exercised in validators.test.mjs. Contract-only: the
+// (claim_track_id, evidence_id, direction) DB uniqueness (test #12) is DEFERRED to
+// WI-PTA-09. No sort_order, no authored_by_side, no rebuttal_evidence_ids.
+// ---------------------------------------------------------------------------
+
+const CX_VALID = "cross-examination-opinion-our-objection.valid.json";
+
+test("valid: CrossExaminationOpinion direction our_objection_to_their_evidence (test #9)", () => {
+  const fixture = readJson(join(validDir, CX_VALID));
+  assert.equal(validateCrossExaminationOpinion(fixture), true, errs(validateCrossExaminationOpinion));
+  assert.equal(fixture.direction, "our_objection_to_their_evidence");
+  assert.equal(fixture.our_response_short_version, null, "direction-1 leaves our_response_short_version null");
+});
+
+test("valid: CrossExaminationOpinion direction their_anticipated_objection_to_our_evidence (test #10)", () => {
+  const fixture = readJson(join(validDir, "cross-examination-opinion-anticipated-objection.valid.json"));
+  assert.equal(validateCrossExaminationOpinion(fixture), true, errs(validateCrossExaminationOpinion));
+  assert.equal(fixture.direction, "their_anticipated_objection_to_our_evidence");
+  assert.ok(typeof fixture.our_response_short_version === "string" && fixture.our_response_short_version.length > 0);
+});
+
+test("valid: CrossExaminationOpinion covers assorted dimension-status values + empty reasons/narratives", () => {
+  const fixture = readJson(join(validDir, "cross-examination-opinion-status-coverage.valid.json"));
+  assert.equal(validateCrossExaminationOpinion(fixture), true, errs(validateCrossExaminationOpinion));
+  assert.equal(fixture.authenticity_reason, "", "empty reason string accepted (required key)");
+  assert.equal(fixture.overall_opinion, "", "empty narrative string accepted");
+});
+
+test("valid: CrossExaminationOpinion accepts an unexpected property (open/additive schema)", () => {
+  const fixture = readJson(join(validDir, "cross-examination-opinion-unexpected-property.valid.json"));
+  assert.equal(validateCrossExaminationOpinion(fixture), true, errs(validateCrossExaminationOpinion));
+  assert.ok("future_reserved_field" in fixture);
+  assert.equal(crossExaminationOpinionSchema.additionalProperties, undefined, "open schema");
+});
+
+// Table-driven VALID: direction accepts both enum values.
+test("valid: CrossExaminationOpinion accepts both direction values (table-driven, tests #9/#10)", () => {
+  const base = readJson(join(validDir, CX_VALID));
+  for (const d of ["our_objection_to_their_evidence", "their_anticipated_objection_to_our_evidence"]) {
+    // keep the schema happy in both directions; the invariant is not exercised here (schema-only).
+    const mutant = { ...base, direction: d, our_response_short_version: d === "our_objection_to_their_evidence" ? null : "resp" };
+    assert.equal(validateCrossExaminationOpinion(mutant), true, `direction=${d} must accept (${errs(validateCrossExaminationOpinion)})`);
+  }
+});
+
+// Table-driven VALID: each of the 4 dimension-status fields accepts every enum value.
+test("valid: CrossExaminationOpinion accepts every dimension-status value on every dimension (table-driven)", () => {
+  const base = readJson(join(validDir, CX_VALID));
+  const dims = ["authenticity_status", "legality_status", "relevance_status", "probative_force_status"];
+  for (const dim of dims) {
+    for (const v of ["admitted", "denied", "conditional", "reserved", "not_applicable"]) {
+      const mutant = { ...base, [dim]: v };
+      assert.equal(validateCrossExaminationOpinion(mutant), true, `${dim}=${v} must accept (${errs(validateCrossExaminationOpinion)})`);
+    }
+  }
+});
+
+test("invalid: CrossExaminationOpinion with bad direction enum is rejected", () => {
+  const fixture = readJson(join(invalidDir, "cross-examination-opinion-bad-direction.json"));
+  assert.equal(validateCrossExaminationOpinion(fixture), false);
+  const offenders = (validateCrossExaminationOpinion.errors || []).filter((e) => e.instancePath === "/direction");
+  assert.ok(offenders.length > 0, `expected enum error on /direction (got ${errs(validateCrossExaminationOpinion)})`);
+});
+
+test("invalid: CrossExaminationOpinion with bad authenticity_status enum is rejected", () => {
+  const fixture = readJson(join(invalidDir, "cross-examination-opinion-bad-authenticity-status.json"));
+  assert.equal(validateCrossExaminationOpinion(fixture), false);
+  const offenders = (validateCrossExaminationOpinion.errors || []).filter((e) => e.instancePath === "/authenticity_status");
+  assert.ok(offenders.length > 0, `expected enum error on /authenticity_status (got ${errs(validateCrossExaminationOpinion)})`);
+});
+
+test("invalid: CrossExaminationOpinion with bad preparation_status enum is rejected", () => {
+  const fixture = readJson(join(invalidDir, "cross-examination-opinion-bad-preparation-status.json"));
+  assert.equal(validateCrossExaminationOpinion(fixture), false);
+  const offenders = (validateCrossExaminationOpinion.errors || []).filter((e) => e.instancePath === "/preparation_status");
+  assert.ok(offenders.length > 0, `expected enum error on /preparation_status (got ${errs(validateCrossExaminationOpinion)})`);
+});
+
+// Table-driven enum-reject across all four dimension-status fields (test #8).
+test("invalid: CrossExaminationOpinion rejects an invalid value on every dimension-status field (table-driven, test #8)", () => {
+  const base = readJson(join(validDir, CX_VALID));
+  for (const dim of ["authenticity_status", "legality_status", "relevance_status", "probative_force_status"]) {
+    const mutant = { ...base, [dim]: "bogus" };
+    assert.equal(validateCrossExaminationOpinion(mutant), false, `${dim}=bogus must be rejected`);
+    const offenders = (validateCrossExaminationOpinion.errors || []).filter((e) => e.instancePath === `/${dim}`);
+    assert.ok(offenders.length > 0, `expected enum error on /${dim} (got ${errs(validateCrossExaminationOpinion)})`);
+  }
+});
+
+test("invalid: CrossExaminationOpinion with malformed evidence_id (ULID pattern) is rejected", () => {
+  const fixture = readJson(join(invalidDir, "cross-examination-opinion-bad-evidence-id.json"));
+  assert.equal(validateCrossExaminationOpinion(fixture), false);
+  const offenders = (validateCrossExaminationOpinion.errors || []).filter((e) => e.instancePath === "/evidence_id" && e.keyword === "pattern");
+  assert.ok(offenders.length > 0, `expected pattern error on /evidence_id (got ${errs(validateCrossExaminationOpinion)})`);
+});
+
+test("invalid: CrossExaminationOpinion with wrong-type our_response_short_version (number) is rejected", () => {
+  const fixture = readJson(join(invalidDir, "cross-examination-opinion-wrong-type-our-response.json"));
+  assert.equal(validateCrossExaminationOpinion(fixture), false);
+  const offenders = (validateCrossExaminationOpinion.errors || []).filter((e) => e.instancePath === "/our_response_short_version");
+  assert.ok(offenders.length > 0, `expected type error on /our_response_short_version (got ${errs(validateCrossExaminationOpinion)})`);
+});
+
+// Table-driven required-field coverage: derive from schema.required (21 keys).
+test("invalid: CrossExaminationOpinion rejects omission of EVERY required field (schema-derived, table-driven)", () => {
+  const base = readJson(join(validDir, CX_VALID));
+  const required = crossExaminationOpinionSchema.required;
+  assert.equal(required.length, 21, "expected 21 required fields");
+  assert.equal(validateCrossExaminationOpinion(base), true, errs(validateCrossExaminationOpinion));
+  for (const field of required) {
+    const mutant = { ...base };
+    delete mutant[field];
+    assert.equal(validateCrossExaminationOpinion(mutant), false, `omitting ${field} must be rejected`);
+    const offenders = (validateCrossExaminationOpinion.errors || []).filter(
+      (e) => e.keyword === "required" && e.params.missingProperty === field,
+    );
+    assert.ok(offenders.length > 0, `expected required-error naming ${field} (got ${errs(validateCrossExaminationOpinion)})`);
+  }
+});
+
+// our_response_short_version is the ONLY nullable field: null accepts, omission rejects.
+test("invalid/valid: CrossExaminationOpinion our_response_short_version accepts null but rejects omission", () => {
+  const base = readJson(join(validDir, CX_VALID));
+  assert.equal(validateCrossExaminationOpinion({ ...base, our_response_short_version: null }), true, "null accepts");
+  const omitted = { ...base };
+  delete omitted.our_response_short_version;
+  assert.equal(validateCrossExaminationOpinion(omitted), false, "omission rejects");
+});
+
+// Table-driven malformed-ULID across all four ULID fields.
+test("invalid: CrossExaminationOpinion rejects a malformed ULID for every identifier field (table-driven)", () => {
+  const base = readJson(join(validDir, CX_VALID));
+  for (const field of ["id", "matter_id", "claim_track_id", "evidence_id"]) {
+    const mutant = { ...base, [field]: "NOT-A-ULID" };
+    assert.equal(validateCrossExaminationOpinion(mutant), false, `malformed ${field} must be rejected`);
+    const offenders = (validateCrossExaminationOpinion.errors || []).filter(
+      (e) => e.instancePath === `/${field}` && e.keyword === "pattern",
+    );
+    assert.ok(offenders.length > 0, `expected a ULID pattern error on /${field} (got ${errs(validateCrossExaminationOpinion)})`);
+  }
+});
+
+// Timestamp coverage.
+test("invalid: CrossExaminationOpinion rejects a malformed timestamp for created_at and updated_at (table-driven)", () => {
+  const base = readJson(join(validDir, CX_VALID));
+  for (const field of ["created_at", "updated_at"]) {
+    const mutant = { ...base, [field]: "2026-07-16 10:00:00" };
+    assert.equal(validateCrossExaminationOpinion(mutant), false, `malformed ${field} must be rejected`);
+    const offenders = (validateCrossExaminationOpinion.errors || []).filter(
+      (e) => e.instancePath === `/${field}` && e.keyword === "format",
+    );
+    assert.ok(offenders.length > 0, `expected a date-time format error on /${field} (got ${errs(validateCrossExaminationOpinion)})`);
+  }
+});
+
+// Non-empty identity fields.
+test("invalid: CrossExaminationOpinion rejects empty / null / non-string for tenant_id, actor_user_id (table-driven)", () => {
+  const base = readJson(join(validDir, CX_VALID));
+  for (const field of ["tenant_id", "actor_user_id"]) {
+    for (const bad of ["", null, 123]) {
+      const mutant = { ...base, [field]: bad };
+      assert.equal(validateCrossExaminationOpinion(mutant), false, `${field}=${JSON.stringify(bad)} must be rejected`);
+      const offenders = (validateCrossExaminationOpinion.errors || []).filter((e) => e.instancePath === `/${field}`);
+      assert.ok(offenders.length > 0, `expected an error on /${field} for ${JSON.stringify(bad)} (got ${errs(validateCrossExaminationOpinion)})`);
+    }
+  }
+});
+
+// Null on non-nullable fields (every field except our_response_short_version).
+test("invalid: CrossExaminationOpinion rejects null on non-nullable fields (table-driven)", () => {
+  const base = readJson(join(validDir, CX_VALID));
+  const nonNullable = Object.keys(crossExaminationOpinionSchema.properties).filter((k) => k !== "our_response_short_version");
+  for (const field of nonNullable) {
+    const mutant = { ...base, [field]: null };
+    assert.equal(validateCrossExaminationOpinion(mutant), false, `${field}=null must be rejected (non-nullable)`);
+    const offenders = (validateCrossExaminationOpinion.errors || []).filter((e) => e.instancePath === `/${field}`);
+    assert.ok(offenders.length > 0, `expected an error on /${field} for null (got ${errs(validateCrossExaminationOpinion)})`);
+  }
+});
+
+// Wrong-primitive-type for EVERY field, drift-guarded against schema.properties.
+test("invalid: CrossExaminationOpinion rejects a wrong primitive type for every field (table-driven, drift-guarded)", () => {
+  const base = readJson(join(validDir, CX_VALID));
+  const wrongType = {
+    id: 123, tenant_id: 123, actor_user_id: 123, matter_id: 123,
+    claim_track_id: 123, evidence_id: 123, direction: 123,
+    authenticity_status: 123, authenticity_reason: 123,
+    legality_status: 123, legality_reason: 123,
+    relevance_status: 123, relevance_reason: 123,
+    probative_force_status: 123, probative_force_reason: 123,
+    overall_opinion: 123, courtroom_short_version: 123,
+    our_response_short_version: 123, preparation_status: 123,
+    created_at: 123, updated_at: 123,
+  };
+  assert.deepEqual(
+    Object.keys(wrongType).sort(),
+    Object.keys(crossExaminationOpinionSchema.properties).sort(),
+    "wrong-type table must cover every schema property",
+  );
+  for (const [field, bad] of Object.entries(wrongType)) {
+    const mutant = { ...base, [field]: bad };
+    assert.equal(validateCrossExaminationOpinion(mutant), false, `${field}=${JSON.stringify(bad)} must be rejected`);
+    const offenders = (validateCrossExaminationOpinion.errors || []).filter((e) => e.instancePath === `/${field}`);
+    assert.ok(offenders.length > 0, `expected an error on /${field} for wrong type (got ${errs(validateCrossExaminationOpinion)})`);
+  }
+});
+
+test("CrossExaminationOpinion schema shape: 21 required keys; open; flat (no allOf/if — conditional is a TS helper); exact enums", () => {
+  const req = new Set(crossExaminationOpinionSchema.required);
+  for (const f of [
+    "id", "tenant_id", "actor_user_id", "matter_id", "claim_track_id", "evidence_id", "direction",
+    "authenticity_status", "authenticity_reason", "legality_status", "legality_reason",
+    "relevance_status", "relevance_reason", "probative_force_status", "probative_force_reason",
+    "overall_opinion", "courtroom_short_version", "our_response_short_version", "preparation_status",
+    "created_at", "updated_at",
+  ]) {
+    assert.ok(req.has(f), `${f} must be required`);
+  }
+  assert.equal(crossExaminationOpinionSchema.required.length, 21);
+  assert.equal(crossExaminationOpinionSchema.additionalProperties, undefined, "open schema");
+  assert.equal(crossExaminationOpinionSchema.allOf, undefined, "no allOf (conditional lives in cross-exam-invariants.ts)");
+  assert.equal(crossExaminationOpinionSchema.if, undefined, "no if/then (conditional lives in cross-exam-invariants.ts)");
+  assert.equal("sort_order" in crossExaminationOpinionSchema.properties, false, "no sort_order");
+  assert.equal("authored_by_side" in crossExaminationOpinionSchema.properties, false, "no authored_by_side");
+  assert.equal("rebuttal_evidence_ids" in crossExaminationOpinionSchema.properties, false, "no rebuttal_evidence_ids");
+  assert.deepEqual(crossExaminationOpinionSchema.properties.direction.enum,
+    ["our_objection_to_their_evidence", "their_anticipated_objection_to_our_evidence"]);
+  assert.deepEqual(crossExaminationOpinionSchema.$defs.dimensionStatus.enum,
+    ["admitted", "denied", "conditional", "reserved", "not_applicable"]);
+  assert.deepEqual(crossExaminationOpinionSchema.properties.preparation_status.enum,
+    ["draft", "review_needed", "ready_for_trial"]);
+  assert.deepEqual(crossExaminationOpinionSchema.properties.our_response_short_version.type, ["string", "null"]);
 });

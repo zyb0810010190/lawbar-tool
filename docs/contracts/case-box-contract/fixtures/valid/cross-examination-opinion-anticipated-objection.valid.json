@@ -1,0 +1,23 @@
+{
+  "id": "01jrcasebox00000000000cx02",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "claim_track_id": "01jrcasebox0000000000000t1",
+  "evidence_id": "01jrcasebox0000000000000e2",
+  "direction": "their_anticipated_objection_to_our_evidence",
+  "authenticity_status": "admitted",
+  "authenticity_reason": "Original bears the notarized seal.",
+  "legality_status": "admitted",
+  "legality_reason": "Obtained lawfully via the discovery order.",
+  "relevance_status": "admitted",
+  "relevance_reason": "Directly proves the payment timeline.",
+  "probative_force_status": "conditional",
+  "probative_force_reason": "Strong if the accompanying receipt is admitted.",
+  "overall_opinion": "Expect an authenticity challenge; original is available.",
+  "courtroom_short_version": "They may challenge authenticity.",
+  "our_response_short_version": "Produce the notarized original and the custody log.",
+  "preparation_status": "review_needed",
+  "created_at": "2026-07-16T10:05:00.000Z",
+  "updated_at": "2026-07-16T10:05:00.000Z"
+}

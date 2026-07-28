@@ -1,0 +1,23 @@
+{
+  "id": "01jrcasebox00000000000cx04",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "claim_track_id": "01jrcasebox0000000000000t2",
+  "evidence_id": "01jrcasebox0000000000000e4",
+  "direction": "our_objection_to_their_evidence",
+  "authenticity_status": "admitted",
+  "authenticity_reason": "Uncontested.",
+  "legality_status": "admitted",
+  "legality_reason": "Uncontested.",
+  "relevance_status": "admitted",
+  "relevance_reason": "Uncontested.",
+  "probative_force_status": "admitted",
+  "probative_force_reason": "Uncontested.",
+  "overall_opinion": "No objection anticipated.",
+  "courtroom_short_version": "No objection.",
+  "our_response_short_version": "",
+  "preparation_status": "ready_for_trial",
+  "created_at": "2026-07-16T10:15:00.000Z",
+  "updated_at": "2026-07-16T10:15:00.000Z"
+}
