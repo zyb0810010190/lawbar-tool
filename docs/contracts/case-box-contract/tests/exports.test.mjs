@@ -84,6 +84,9 @@ const expectedFns = [
   "validateClaimTrack",
   // WI-PTA-05
   "validateEvidencePreparation",
+  // WI-PTA-06
+  "validateCrossExaminationOpinion",
+  "assertCrossExaminationOpinionInvariants",
 ];
 
 const expectedArrays = [
@@ -131,6 +134,7 @@ const expectedObjects = [
   "docketEntrySchema",
   "claimTrackSchema",
   "evidencePreparationSchema",
+  "crossExaminationOpinionSchema",
 ];
 
 const expectedConstants = [
@@ -153,6 +157,8 @@ const expectedErrorCtors = [
   // WI-brief-matter-type (R-5)
   "DocumentSupersessionInvariantError",
   "MatterSuccessorInvariantError",
+  // WI-PTA-06
+  "CrossExaminationInvariantError",
 ];
 
 test("every expected function is exported and callable", () => {

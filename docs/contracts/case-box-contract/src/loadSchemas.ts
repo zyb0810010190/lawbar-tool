@@ -15,6 +15,7 @@ import confidentialityClassificationSchema from "../schemas/case-box-confidentia
 import docketEntrySchema from "../schemas/case-box-docket-entry.schema.json" with { type: "json" };
 import claimTrackSchema from "../schemas/case-box-claim-track.schema.json" with { type: "json" };
 import evidencePreparationSchema from "../schemas/case-box-evidence-preparation.schema.json" with { type: "json" };
+import crossExaminationOpinionSchema from "../schemas/case-box-cross-examination-opinion.schema.json" with { type: "json" };
 
 export {
   matterSchema,
@@ -30,4 +31,5 @@ export {
   docketEntrySchema,
   claimTrackSchema,
   evidencePreparationSchema,
+  crossExaminationOpinionSchema,
 };

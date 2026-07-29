@@ -1,0 +1,23 @@
+{
+  "id": "01jrcasebox00000000000cx03",
+  "tenant_id": "tenant-local-v1",
+  "actor_user_id": "local-user",
+  "matter_id": "01jrcasebox0000000000000m1",
+  "claim_track_id": "01jrcasebox0000000000000t2",
+  "evidence_id": "01jrcasebox0000000000000e3",
+  "direction": "our_objection_to_their_evidence",
+  "authenticity_status": "not_applicable",
+  "authenticity_reason": "",
+  "legality_status": "reserved",
+  "legality_reason": "",
+  "relevance_status": "conditional",
+  "relevance_reason": "",
+  "probative_force_status": "denied",
+  "probative_force_reason": "",
+  "overall_opinion": "",
+  "courtroom_short_version": "",
+  "our_response_short_version": null,
+  "preparation_status": "draft",
+  "created_at": "2026-07-16T10:10:00.000Z",
+  "updated_at": "2026-07-16T10:10:00.000Z"
+}
