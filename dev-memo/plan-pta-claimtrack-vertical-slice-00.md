@@ -182,6 +182,46 @@ it lands every later slice is **forward-only** (v14/v15/v16 — never re-cut v13
   4. Is the gated-base sequencing (merge the pre-execution gate to `main` before VS implementation)
      correct, and are the invariant preservations in §5 sufficient?
 
+## 7.6 VS-1 planning discovery (post-review) — a party-identity foundation WI (VS-0) is required FIRST
+
+Grounding VS-1 against the real persistence code (planner pass) surfaced two Critical blockers in the
+`ensureMatterPartyIds` step that §3 had folded into VS-1. This is exactly the integration reality the
+vertical slice exists to surface early — and it lands at slice #1, before four models are entangled.
+
+**The blockers.**
+- **O1 — audit-vocabulary gap.** Parties live only inside `case_box_matters.payload_json`. Backfilling
+  a ULID onto an id-less party REWRITES that payload = a matter mutation. But the matter audit kinds are
+  only `MATTER_REGISTERED` / `MATTER_ARCHIVED` / `MATTER_UNARCHIVED` / OCR-sync-LLM-export flags — there
+  is NO "matter updated" / "party ids assigned" kind. Leaving the mutation unaudited breaks the
+  every-mutation-audited invariant; adding a kind is a **contract/schema change (hard-stop)**.
+- **O2 — circular identity.** "assign an id to the party that `claimant_party_id` references" is circular:
+  an id-less party has no ULID to be referenced by. Assignment must happen BEFORE the ClaimTrack stores a
+  reference.
+
+**Resolution (cc-suite Codex consult, thread `019fae2a-280f-7973-ad4c-9f97eae8d8ff`; I concur).**
+Adopt **resolution A**, and **shift the slice boundary** — a small **VS-0 party-identity foundation WI
+precedes VS-1**:
+1. **New matters** — the persistence create path assigns a server-side ULID to any id-less party at
+   matter creation (populates the already-optional `Party.id`; audited by the existing `MATTER_REGISTERED`
+   because ids exist before the create is hashed). **No schema change** on this path.
+2. **Legacy id-less matters** — an explicit, audited backfill via a **NEW `MATTER_PARTY_IDS_ASSIGNED`
+   audit-event kind** (specific, not a generic `MATTER_UPDATED`; reusing `MATTER_ARCHIVED`/flag kinds would
+   be semantically false). This is the **one schema change** — a hard-stop.
+3. **VS-1 is revised**: `ensureMatterPartyIds` is REMOVED from VS-1; VS-1's `createClaimTrack` REQUIRES the
+   referenced `claimant_party_id` / `respondent_party_id` to already exist on the matter's parties.
+
+**Why not a migration-time backfill (candidates B/E), the tempting shortcut** — it is **unsafe**: rewriting
+an audited entity's persisted payload inside a schema migration would leave `case_box_matters.payload_json`
+no longer matching the last matter event's `after_state_hash`. It might pass the structural chain check
+(`event_count == COUNT == MAX(sequence)`) and `prev_event_hash` linkage, but it silently breaks
+**state-hash continuity** — the precise class of undetectable drift a court-facing audit log must never
+permit. A migration may transform audited entity state ONLY by appending an audit event per affected matter.
+
+**Status / hard-stop.** VS-0's item 2 (the new `MATTER_PARTY_IDS_ASSIGNED` audit-event kind) is a
+**public schema change** → `AGENTS.md` hard-stop + `security-boundary.md` §"No silent surface changes":
+requires an ADR + **explicit user approval** + its own cc-suite `review-plan`. Detailed VS-0 planning is
+**BLOCKED pending that approval**. VS-1 does not begin until VS-0 lands.
+
 ## 8. Stop condition
 
 Superseded when cc-suite `review-plan` returns READY and the VS-1 docket is opened; or revised if
