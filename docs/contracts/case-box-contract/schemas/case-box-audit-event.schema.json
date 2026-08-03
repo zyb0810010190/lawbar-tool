@@ -69,7 +69,7 @@
     "event_kind": {
       "description": "v2 normalized audit-event kind (ADR audit-event-kind-preservation) — a CASE_BOX_AUDIT_EVENT_KINDS key. Present iff audit_schema_version is present (v2 events); absent on legacy v1 events. Hashed in the v2 canonicalization. The chain verifier (verifyAuditChain) additionally enforces that the kind's declared {action, entity_type, reasonRequired} matches the event.",
       "enum": [
-        "MATTER_REGISTERED", "MATTER_ARCHIVED", "MATTER_UNARCHIVED",
+        "MATTER_REGISTERED", "MATTER_ARCHIVED", "MATTER_UNARCHIVED", "MATTER_PARTY_IDS_ASSIGNED",
         "DOCUMENT_REGISTERED", "DOCUMENT_OCR_SUBMITTED", "DOCUMENT_OCR_COMPLETE", "DOCUMENT_OCR_FAILED",
         "DOCUMENT_TRIAGED", "DOCUMENT_TAGGED", "DOCUMENT_REVIEWED", "DOCUMENT_SOFT_DELETED",
         "OCR_LINK_SNAPSHOTTED", "OCR_LINK_REFRESHED",

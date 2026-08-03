@@ -73,6 +73,9 @@ export const CASE_BOX_AUDIT_EVENT_KINDS = Object.freeze({
   MATTER_REGISTERED:          { action: "create",          entity_type: "matter",           reasonRequired: false },
   MATTER_ARCHIVED:            { action: "update",          entity_type: "matter",           reasonRequired: false },
   MATTER_UNARCHIVED:          { action: "update",          entity_type: "matter",           reasonRequired: false },
+  // WI-PTA-VS0: audited assignment/backfill of party ULIDs on a matter (parties live in the matter
+  // payload; assigning an id rewrites the matter → an audited matter update, never an unaudited migration).
+  MATTER_PARTY_IDS_ASSIGNED:  { action: "update",          entity_type: "matter",           reasonRequired: false },
   DOCUMENT_REGISTERED:        { action: "create",          entity_type: "document",         reasonRequired: false },
   DOCUMENT_OCR_SUBMITTED:     { action: "update",          entity_type: "document",         reasonRequired: false },
   DOCUMENT_OCR_COMPLETE:      { action: "update",          entity_type: "document",         reasonRequired: false },

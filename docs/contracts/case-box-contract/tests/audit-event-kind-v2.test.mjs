@@ -158,6 +158,40 @@ test("v2 (WI-PTA-03): a delete-hard event whose kind mismatches its action is re
   assert.equal(verifyAuditChain([bad], { eventHashFn }).ok, false);
 });
 
+// --- 5c. WI-PTA-VS0: MATTER_PARTY_IDS_ASSIGNED — audited party-id assignment/backfill on a matter ---
+
+test("MATTER_PARTY_IDS_ASSIGNED is a known kind declaring {update, matter, reasonRequired:false}", () => {
+  const meta = CASE_BOX_AUDIT_EVENT_KINDS.MATTER_PARTY_IDS_ASSIGNED;
+  assert.ok(meta, "MATTER_PARTY_IDS_ASSIGNED must be in CASE_BOX_AUDIT_EVENT_KINDS");
+  assert.equal(meta.action, "update");
+  assert.equal(meta.entity_type, "matter");
+  assert.equal(meta.reasonRequired, false);
+});
+
+test("v2 (WI-PTA-VS0): a MATTER_PARTY_IDS_ASSIGNED event (update/matter) verifies without a reason", () => {
+  // A party-id backfill rewrites the matter → an audited matter update with before/after state hashes.
+  const ev = v2Event({
+    action: "update", entity_type: "matter", entity_id: ID_M,
+    event_kind: "MATTER_PARTY_IDS_ASSIGNED", before_state_hash: "sha256:prev",
+  });
+  const canonical = canonicalAuditEventHashInput(ev);
+  assert.match(canonical, /"event_kind":"MATTER_PARTY_IDS_ASSIGNED"/);
+  assert.match(canonical, /"entity_type":"matter"/);
+  const r = verifyAuditChain([ev], { eventHashFn });
+  assert.equal(r.ok, true);
+});
+
+test("v2 (WI-PTA-VS0): a MATTER_PARTY_IDS_ASSIGNED event whose action mismatches the kind is rejected", () => {
+  // declares {update}; pairing it with create must fail the tuple class check at the verify boundary.
+  const bad = v2Event({
+    action: "create", entity_type: "matter", entity_id: ID_M,
+    event_kind: "MATTER_PARTY_IDS_ASSIGNED",
+  });
+  const r = verifyAuditChain([bad], { eventHashFn });
+  assert.equal(r.ok, false);
+  assert.equal(r.errorReason, "event_kind_inconsistent");
+});
+
 // --- 6. event_kind tampering breaks verification for v2 rows (the load-bearing property) ---
 
 test("v2: tampering event_kind within the same {action,entity_type} class breaks chain verification", () => {
