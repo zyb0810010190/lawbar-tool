@@ -711,10 +711,10 @@ test("A3-UNLINK-T1: re-unlink, re-relink rejected (illegal_transition); missing 
   db.close();
 });
 
-// 17. No schema version bump: operation does not change CURRENT_SCHEMA_VERSION (stays 12).
-test("A3-UNLINK-T1: operation performs no schema bump (CURRENT_SCHEMA_VERSION == 12)", async () => {
+// 17. No schema version bump: operation does not change CURRENT_SCHEMA_VERSION (currently 13 via VS-1).
+test("A3-UNLINK-T1: operation performs no schema bump (CURRENT_SCHEMA_VERSION == 13)", async () => {
   const { persistence, db } = opSetup();
-  assert.equal(CURRENT_SCHEMA_VERSION, 12);
+  assert.equal(CURRENT_SCHEMA_VERSION, 13);
   const id = opLink(db, mkid("lnos"));
   await persistence.unlinkLink(id, { actor_user_id: "lawyer", unlink_reason: "r" });
   assert.equal(applySchema(db), CURRENT_SCHEMA_VERSION, "applySchema idempotent; version unchanged");
@@ -928,11 +928,11 @@ test("A3-LINK-CREATE-T1: a created link can be unlinked then relinked", async ()
 });
 
 // 14. No schema version bump from createLink.
-test("A3-LINK-CREATE-T1: createLink performs no schema bump (CURRENT_SCHEMA_VERSION == 12)", async () => {
+test("A3-LINK-CREATE-T1: createLink performs no schema bump (CURRENT_SCHEMA_VERSION == 13)", async () => {
   const { persistence, db } = opSetup();
   opMatter(db); opSeedValid(db);
   await persistence.createLink(createInput());
   assert.equal(applySchema(db), CURRENT_SCHEMA_VERSION);
-  assert.equal(CURRENT_SCHEMA_VERSION, 12);
+  assert.equal(CURRENT_SCHEMA_VERSION, 13);
   db.close();
 });

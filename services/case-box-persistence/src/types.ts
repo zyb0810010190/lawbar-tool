@@ -6,6 +6,7 @@
 
 import type {
   CaseBoxAuditEvent,
+  CaseBoxClaimTrack,
   CaseBoxConfidentialityClassification,
   CaseBoxDeadline,
   CaseBoxDocketEntry,
@@ -27,6 +28,7 @@ export type {
   ChainVerifyErr,
   ChainVerifyOk,
   AuditEventHash,
+  CaseBoxClaimTrack,
   CaseBoxDeadline,
   CaseBoxDocketEntry,
   CaseBoxEvidenceItem,
@@ -189,6 +191,11 @@ export interface CaseBoxPersistence {
   getEvidenceItem(query: GetEvidenceItemQuery): Promise<CaseBoxEvidenceItem | null>;
   listEvidenceItems(query: ListEvidenceItemsQuery): Promise<ListEvidenceItemsPage>;
 
+  // Claim tracks (WI-PTA-VS1) — create/get/list only (no update/withdraw/resolve/delete).
+  createClaimTrack(input: unknown): Promise<CaseBoxClaimTrack>;
+  getClaimTrack(query: GetClaimTrackQuery): Promise<CaseBoxClaimTrack | null>;
+  listClaimTracks(query: ListClaimTracksQuery): Promise<ReadonlyArray<CaseBoxClaimTrack>>;
+
   // OCR links (Phase A7)
   upsertOcrLink(input: unknown): Promise<UpsertOcrLinkResult>;
   getOcrLink(query: GetOcrLinkQuery): Promise<CaseBoxOcrLink | null>;
@@ -339,6 +346,19 @@ export interface ListEvidenceItemsQuery {
 export interface ListEvidenceItemsPage {
   readonly rows: ReadonlyArray<CaseBoxEvidenceItem>;
   readonly next_cursor: string | null;
+}
+
+// ClaimTrack queries (WI-PTA-VS1). List is unpaginated (a matter has inherently
+// few tracks) — it returns a full deterministic-ordered array, not a cursor page.
+export interface GetClaimTrackQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
+  readonly claim_track_id: string;
+}
+
+export interface ListClaimTracksQuery {
+  readonly tenant_id: string;
+  readonly matter_id: string;
 }
 
 export interface ConfirmDocketEntryOpts {

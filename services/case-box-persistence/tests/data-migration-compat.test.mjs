@@ -275,12 +275,13 @@ const V8_TABLES = new Set([
   "case_box_evidence_items", // v7
   "case_box_ocr_links", // v8
 ]);
-// Tables added at v9..v12 — must NOT exist in the old store, must exist after upgrade.
+// Tables added at v9..v13 — must NOT exist in the old store, must exist after upgrade.
 const NEWER_TABLES = [
   "case_box_document_pages", // v9
   "case_box_document_page_geometries", // v10
   "case_box_anchors", // v11
   "case_box_links", // v11 (+ v12 columns)
+  "case_box_claim_tracks", // v13
 ];
 
 function maxSchemaVersion(db) {

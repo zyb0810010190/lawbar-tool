@@ -46,6 +46,12 @@ VS-1 exposes no path for them).
   `getClaimTrack`/`listClaimTracks` read-through).
 - `src/types.ts` + `src/index.ts` — `CaseBoxClaimTrack` re-export + `GetClaimTrackQuery` /
   `ListClaimTracksQuery` / the 3 methods on `CaseBoxPersistence`.
+- **Forced version-pin bumps (added post-implementation — the `12→13` bump breaks sibling version-pins the
+  original §1 list missed; a repo-wide sweep confirms these two files are the ENTIRE blast radius):**
+  `tests/hardening-evidence.test.mjs` (T3-S0 "no DDL" pin, 4 literals incl. `max.v`) and
+  `tests/hardening-link-status-resolver.test.mjs` (A3 unlink/link-create "no schema bump" pins). These assert
+  *"my operation added no DDL"* via `CURRENT_SCHEMA_VERSION == 12`; after VS-1 the correct pin is `13` (those
+  ops still add no DDL; the current version is now 13). Mechanical `12→13` only — no behavior/intent change.
 - Tests: `tests/hardening-schema.test.mjs` (v13 block + bump the hard-coded `12`/`1..12` assertions);
   `tests/data-migration-compat.test.mjs` (add `case_box_claim_tracks` to `NEWER_TABLES`);
   `tests/impl-parity-claim-track.test.mjs` (**NEW**); `tests/hardening-claim-track.test.mjs` (**NEW**);

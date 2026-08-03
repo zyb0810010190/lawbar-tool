@@ -21,6 +21,7 @@ import type { Database } from "better-sqlite3";
 
 import type {
   CaseBoxAuditEvent,
+  CaseBoxClaimTrack,
   CaseBoxMatter,
   CaseBoxConfidentialityClassification,
   CaseBoxDocument,
@@ -87,6 +88,11 @@ import {
   listEvidenceItemsSqlite,
 } from "./evidenceRepoQueries.js";
 import {
+  applyCreateClaimTrackSqlite,
+  getClaimTrackSqlite,
+  listClaimTracksSqlite,
+} from "./claimTrackRepoQueries.js";
+import {
   applyUpsertOcrLinkSqlite,
   getOcrLinkSqlite,
   listOcrLinksSqlite,
@@ -129,12 +135,14 @@ import type {
   EffectiveClassificationResult,
   EvidenceTransitionOpts,
   FactTransitionOpts,
+  GetClaimTrackQuery,
   GetDeadlineQuery,
   GetDocketEntryQuery,
   GetDocumentDetailQuery,
   GetEffectiveClassificationQuery,
   GetEvidenceItemQuery,
   GetFactQuery,
+  ListClaimTracksQuery,
   GetFactSupersessionChainQuery,
   GetMatterSummaryQuery,
   GetOcrLinkQuery,
@@ -597,6 +605,16 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   }
   async listEvidenceItems(query: ListEvidenceItemsQuery): Promise<ListEvidenceItemsPage> {
     return listEvidenceItemsSqlite(this.#db, query);
+  }
+  async createClaimTrack(input: unknown): Promise<CaseBoxClaimTrack> {
+    const row = this.#runImmediateWrite((db, deps) => applyCreateClaimTrackSqlite(db, input, deps));
+    return structuredClone(row) as CaseBoxClaimTrack;
+  }
+  async getClaimTrack(query: GetClaimTrackQuery): Promise<CaseBoxClaimTrack | null> {
+    return getClaimTrackSqlite(this.#db, query);
+  }
+  async listClaimTracks(query: ListClaimTracksQuery): Promise<ReadonlyArray<CaseBoxClaimTrack>> {
+    return listClaimTracksSqlite(this.#db, query);
   }
   async upsertOcrLink(input: unknown): Promise<UpsertOcrLinkResult> {
     const result = this.#runImmediateWrite((db, deps) => applyUpsertOcrLinkSqlite(db, input, deps));

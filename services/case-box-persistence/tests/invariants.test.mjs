@@ -104,6 +104,7 @@ test("6.2.6 CaseBoxPersistenceError code is one of the documented set (incl. B1+
     "invalid_payload", "invalid_initial_state", "invalid_argument",
     "anchor_referenced", // A3 referenced-anchor-delete refusal.
     "audit_chain_desync", // WI-PTA-VS0 fail-closed backfill guard.
+    "unknown_party", // WI-PTA-VS1 claim-track party-ref existence check (O3 layer 2).
     "not_implemented", // B1+ scaffolding code; retired by B11 when full SQLite impl ships.
   ]);
   // Trigger each code at least once and verify the value is recognized.
@@ -137,7 +138,7 @@ test("6.2.6 CaseBoxPersistenceError code is one of the documented set (incl. B1+
 // 6.2.7 Prototype allowlist — exactly the 10 documented methods + constructor
 // ---------------------------------------------------------------------------
 
-test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented method allowlist (A1-A9 + DPE3 + PTA-VS0 = 45)", () => {
+test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented method allowlist (A1-A9 + DPE3 + PTA-VS0 + PTA-VS1 = 48)", () => {
   const expected = [
     "appendConfidentialityClassification",
     "appendDocketEntry",
@@ -148,11 +149,13 @@ test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented meth
     "archiveMatter",
     "confirmDocketEntry",
     "constructor",
+    "createClaimTrack",
     "createMatter",
     "dismissDocketEntry",
     "editDocketEntry",
     "ensureMatterPartyIds",
     "getAuditChainHead",
+    "getClaimTrack",
     "getDeadline",
     "getDeadlineCalendar",
     "getDocketEntry",
@@ -167,6 +170,7 @@ test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented meth
     "getOcrLink",
     "getPrivilegeStatus",
     "listAuditEvents",
+    "listClaimTracks",
     "listConfidentialityClassifications",
     "listDeadlines",
     "listDocketEntries",

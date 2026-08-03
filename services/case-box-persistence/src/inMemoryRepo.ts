@@ -39,10 +39,12 @@ import type {
   EffectiveClassificationResult,
   EvidenceTransitionOpts,
   FactTransitionOpts,
+  GetClaimTrackQuery,
   GetDocketEntryQuery,
   GetEffectiveClassificationQuery,
   GetEvidenceItemQuery,
   GetFactQuery,
+  ListClaimTracksQuery,
   GetPrivilegeStatusQuery,
   ListAuditEventsPage,
   ListAuditEventsQuery,
@@ -78,6 +80,7 @@ import type {
 } from "./types.js";
 
 import type {
+  CaseBoxClaimTrack,
   CaseBoxConfidentialityClassification,
   CaseBoxDeadline,
   CaseBoxDocketEntry,
@@ -146,6 +149,12 @@ import {
   type EvidenceState,
 } from "./inMemoryEvidence.js";
 import {
+  applyCreateClaimTrack,
+  createClaimTrackState,
+  listClaimTracks as listClaimTracksImpl,
+  type ClaimTrackState,
+} from "./inMemoryClaimTrack.js";
+import {
   applyUpsertOcrLink,
   createOcrLinkState,
   getOcrLinkHelper,
@@ -182,6 +191,8 @@ interface InternalState {
   readonly evidence: EvidenceState;
   /** Phase A7 — OCR-link snapshot storage. */
   readonly ocrLink: OcrLinkState;
+  /** WI-PTA-VS1 — claim-track storage. */
+  readonly claimTrack: ClaimTrackState;
 }
 
 const _state = new WeakMap<InMemoryCaseBoxPersistence, InternalState>();
@@ -211,6 +222,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
       deadline: createDeadlineState(),
       evidence: createEvidenceState(),
       ocrLink: createOcrLinkState(),
+      claimTrack: createClaimTrackState(),
     });
   }
 
@@ -680,6 +692,47 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
         return entry === undefined ? null : { document: entry.document };
       },
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // WI-PTA-VS1 — claim-track delegates (create/get/list only)
+  // -------------------------------------------------------------------------
+
+  async createClaimTrack(input: unknown): Promise<CaseBoxClaimTrack> {
+    const state = stateOf(this);
+    return applyCreateClaimTrack(state.claimTrack, state, this.#commonAppendDeps(), input);
+  }
+
+  async getClaimTrack(query: GetClaimTrackQuery): Promise<CaseBoxClaimTrack | null> {
+    const state = stateOf(this);
+    const matter = state.matters.get(query.matter_id);
+    if (matter === undefined) return null;
+    if (matter.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    const row = state.claimTrack.claimTrackById.get(query.claim_track_id);
+    if (row === undefined) return null;
+    if (row.matter_id !== query.matter_id) return null;
+    if (row.tenant_id !== query.tenant_id) return null;
+    return structuredClone(row) as CaseBoxClaimTrack;
+  }
+
+  async listClaimTracks(query: ListClaimTracksQuery): Promise<ReadonlyArray<CaseBoxClaimTrack>> {
+    const state = stateOf(this);
+    const matter = state.matters.get(query.matter_id);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
+    }
+    if (matter.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    return listClaimTracksImpl(state.claimTrack, query);
   }
 
   // -------------------------------------------------------------------------
