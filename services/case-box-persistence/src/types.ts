@@ -78,6 +78,15 @@ export interface ArchiveMatterOpts {
   readonly reason: string;
 }
 
+/**
+ * WI-PTA-VS0 — opts for the audited party-id backfill. The acting user is
+ * EXPLICIT (the caller / IPC handler), never the matter's original actor, so a
+ * later backfill is not misattributed to the matter's creator (plan §2.6).
+ */
+export interface EnsureMatterPartyIdsOpts {
+  readonly actorUserId: string;
+}
+
 export interface GetEffectiveClassificationQuery {
   readonly tenant_id: string;
   readonly matter_id: string;
@@ -135,6 +144,7 @@ export interface CaseBoxPersistence {
   getMatter(matterId: string): Promise<CaseBoxMatter | null>;
   archiveMatter(matterId: string, opts: ArchiveMatterOpts): Promise<CaseBoxMatter>;
   unarchiveMatter(matterId: string, opts: ArchiveMatterOpts): Promise<CaseBoxMatter>;
+  ensureMatterPartyIds(matterId: string, opts: EnsureMatterPartyIdsOpts): Promise<CaseBoxMatter>;
 
   // Document lifecycle
   registerDocument(matterId: string, document: unknown): Promise<CaseBoxDocument>;

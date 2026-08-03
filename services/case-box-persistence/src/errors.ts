@@ -16,6 +16,7 @@ export type CaseBoxPersistenceErrorCode =
   | "invalid_initial_state"
   | "invalid_argument"
   | "anchor_referenced"
+  | "audit_chain_desync"
   | "not_implemented";
 
 export class CaseBoxPersistenceError extends Error {

@@ -25,11 +25,12 @@ import type {
 
 import { CaseBoxPersistenceError } from "./errors.js";
 import { generateUlid } from "./ulid.js";
-import type { StoredAuditEvent } from "./auditChain.js";
+import { entityStateHash, type StoredAuditEvent } from "./auditChain.js";
 import type {
   ArchiveMatterOpts,
   AuditChainHead,
   CaseBoxPersistence,
+  EnsureMatterPartyIdsOpts,
   ConfirmDocketEntryOpts,
   ConfirmDocketEntryResult,
   DeadlineTransitionOpts,
@@ -125,6 +126,7 @@ import {
 } from "./inMemoryDeadline.js";
 import {
   prepareCreateMatter,
+  prepareEnsureMatterPartyIds,
   prepareMatterTransition,
 } from "./inMemoryMatter.js";
 import {
@@ -238,6 +240,28 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
 
   async unarchiveMatter(matterId: string, opts: ArchiveMatterOpts): Promise<CaseBoxMatter> {
     return this.#applyMatterTransition(matterId, opts, "active", "MATTER_UNARCHIVED");
+  }
+
+  async ensureMatterPartyIds(matterId: string, opts: EnsureMatterPartyIdsOpts): Promise<CaseBoxMatter> {
+    const state = stateOf(this);
+    const matter = state.matters.get(matterId);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
+    }
+    const prepared = prepareEnsureMatterPartyIds(matter, opts, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: () => state.auditByMatter.get(matterId) ?? [],
+    });
+    if (!prepared.changed) {
+      // Idempotent: every party already has an id — no write, no event.
+      return structuredClone(matter) as CaseBoxMatter;
+    }
+    state.matters.set(matterId, prepared.next);
+    const stored = state.auditByMatter.get(matterId) ?? [];
+    stored.push(prepared.audit!);
+    state.auditByMatter.set(matterId, stored);
+    return structuredClone(prepared.next) as CaseBoxMatter;
   }
 
   async #applyMatterTransition(
@@ -806,4 +830,51 @@ export function _internalFactStateForTest(p: InMemoryCaseBoxPersistence): import
     throw new Error("_internalFactStateForTest: persistence has no internal state");
   }
   return state.fact;
+}
+
+/**
+ * Test-only seam for WI-PTA-VS0: overwrite a stored matter's `parties` array
+ * with the given parties AND re-align its last matter event's
+ * `after_state_hash` so the chain stays internally consistent — reconstructing
+ * a legacy (pre-WI) matter whose parties were never server-assigned ids, OR one
+ * whose ids are (invalidly) duplicate. Because create-time assignment now
+ * always id-fills parties, this is the only way to reach the
+ * `ensureMatterPartyIds` non-idempotent / duplicate-existing-id paths in a
+ * test. Module-local (NOT on the prototype, NOT re-exported from src/index.ts)
+ * so the §6.2.7 allowlist stays clean; imported only by tests/internals.mjs.
+ */
+export function _setStoredMatterPartiesForTest(
+  persistence: InMemoryCaseBoxPersistence,
+  matterId: string,
+  parties: ReadonlyArray<unknown>,
+  realign = true,
+): void {
+  const state = _state.get(persistence);
+  if (state === undefined) {
+    throw new Error("_setStoredMatterPartiesForTest: persistence has no internal state");
+  }
+  const matter = state.matters.get(matterId);
+  if (matter === undefined) {
+    throw new Error(`_setStoredMatterPartiesForTest: unknown matter ${matterId}`);
+  }
+  const rewritten = structuredClone(matter) as CaseBoxMatter;
+  (rewritten as { parties: unknown }).parties = structuredClone(parties);
+  state.matters.set(matterId, rewritten);
+  const stored = state.auditByMatter.get(matterId);
+  if (stored === undefined || stored.length === 0) {
+    throw new Error(`_setStoredMatterPartiesForTest: no audit events for ${matterId}`);
+  }
+  // `realign` (default) re-aligns the LAST event's after_state_hash to the
+  // rewritten payload so state-hash continuity holds (the in-memory chain
+  // recomputes event hashes on read, so no stored hash needs patching) —
+  // reconstructing a VALID legacy matter. `realign:false` deliberately leaves
+  // the chain out of sync with the rewritten payload, reconstructing a
+  // corrupted/desynced matter to exercise the fail-closed backfill guard.
+  if (!realign) return;
+  const lastIdx = stored.length - 1;
+  const last = stored[lastIdx]!;
+  stored[lastIdx] = {
+    sequence: last.sequence,
+    event: { ...last.event, after_state_hash: entityStateHash(rewritten) },
+  };
 }

@@ -1,5 +1,11 @@
 // Impl-parity B1 — matter scenarios. Split from former monolithic
 // impl-parity.test.mjs per B7 plan §1.7 (closes B6 D4#1).
+//
+// WI-PTA-VS0: createMatter now server-assigns ULIDs to id-less parties, so the
+// stored matter (and its MATTER_REGISTERED hash) depends on the injected id
+// generator. These cross-impl deep-equals therefore use makeAuditPair() (a
+// SHARED id prefix) so both impls generate identical party ids; makePair()'s
+// separate prefixes would make the generated party ids diverge.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -8,10 +14,10 @@ import {
   DEFAULT_MATTER_ID,
   makeMatterInput,
 } from "./conformance/fixtures.mjs";
-import { makePair } from "./impl-parity-common.mjs";
+import { makeAuditPair } from "./impl-parity-common.mjs";
 
 test("impl-parity B1.1: createMatter happy path returns identical matter row", async () => {
-  const { inMem, sqlite } = makePair();
+  const { inMem, sqlite } = makeAuditPair();
   const input = makeMatterInput();
   const im = await inMem.createMatter(input);
   const sq = await sqlite.createMatter(input);
@@ -19,7 +25,7 @@ test("impl-parity B1.1: createMatter happy path returns identical matter row", a
 });
 
 test("impl-parity B1.2: createMatter with all R-5(j) free-text fields", async () => {
-  const { inMem, sqlite } = makePair();
+  const { inMem, sqlite } = makeAuditPair();
   const input = makeMatterInput({
     case_type_text: "合同纠纷",
     case_progress_text: "first hearing 2026-07-15",
@@ -32,7 +38,7 @@ test("impl-parity B1.2: createMatter with all R-5(j) free-text fields", async ()
 });
 
 test("impl-parity B1.3: createMatter with successor_matter_id (R5.2)", async () => {
-  const { inMem, sqlite } = makePair();
+  const { inMem, sqlite } = makeAuditPair();
   // Both impls need the successor matter first.
   const successorId = "01jcasemattermockid0000099";
   const successor = makeMatterInput({ id: successorId, matter_type: "litigation" });
@@ -48,7 +54,7 @@ test("impl-parity B1.3: createMatter with successor_matter_id (R5.2)", async () 
 });
 
 test("impl-parity B1.4: archiveMatter → getMatter round-trip", async () => {
-  const { inMem, sqlite } = makePair();
+  const { inMem, sqlite } = makeAuditPair();
   await inMem.createMatter(makeMatterInput());
   await sqlite.createMatter(makeMatterInput());
   const imArch = await inMem.archiveMatter(DEFAULT_MATTER_ID, { actor_user_id: "lawyer", reason: "test" });
@@ -60,7 +66,7 @@ test("impl-parity B1.4: archiveMatter → getMatter round-trip", async () => {
 });
 
 test("impl-parity B1.5: unarchiveMatter → getMatter round-trip", async () => {
-  const { inMem, sqlite } = makePair();
+  const { inMem, sqlite } = makeAuditPair();
   await inMem.createMatter(makeMatterInput());
   await sqlite.createMatter(makeMatterInput());
   await inMem.archiveMatter(DEFAULT_MATTER_ID, { actor_user_id: "lawyer", reason: "test" });
@@ -71,7 +77,7 @@ test("impl-parity B1.5: unarchiveMatter → getMatter round-trip", async () => {
 });
 
 test("impl-parity B1.6: createMatter rejects same way (duplicate_id) on both impls", async () => {
-  const { inMem, sqlite } = makePair();
+  const { inMem, sqlite } = makeAuditPair();
   await inMem.createMatter(makeMatterInput());
   await sqlite.createMatter(makeMatterInput());
   let imErr, sqErr;
@@ -86,7 +92,7 @@ test("impl-parity B1.6: createMatter rejects same way (duplicate_id) on both imp
 // ---------------------------------------------------------------------------
 
 test("impl-parity T3-S0: createMatter with litigation_position round-trips identically", async () => {
-  const { inMem, sqlite } = makePair();
+  const { inMem, sqlite } = makeAuditPair();
   const input = makeMatterInput({ litigation_position: "plaintiff" });
   const im = await inMem.createMatter(input);
   const sq = await sqlite.createMatter(input);
@@ -99,7 +105,7 @@ test("impl-parity T3-S0: createMatter with litigation_position round-trips ident
 });
 
 test("impl-parity T3-S0: legacy matter without litigation_position stays valid; field absent on read", async () => {
-  const { inMem, sqlite } = makePair();
+  const { inMem, sqlite } = makeAuditPair();
   const input = makeMatterInput();
   await inMem.createMatter(input);
   await sqlite.createMatter(input);
@@ -110,7 +116,7 @@ test("impl-parity T3-S0: legacy matter without litigation_position stays valid; 
 });
 
 test("impl-parity T3-S0: out-of-enum litigation_position is rejected identically by both impls", async () => {
-  const { inMem, sqlite } = makePair();
+  const { inMem, sqlite } = makeAuditPair();
   const input = makeMatterInput({ litigation_position: "third_party" });
   let imErr, sqErr;
   try { await inMem.createMatter(input); } catch (e) { imErr = e; }

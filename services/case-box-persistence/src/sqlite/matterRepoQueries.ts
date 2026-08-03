@@ -8,6 +8,7 @@ import type { Database } from "better-sqlite3";
 
 import type { StoredAuditEvent } from "../auditChain.js";
 import type { CaseBoxMatter } from "case-box-contract";
+import { CaseBoxPersistenceError } from "../errors.js";
 
 export function insertMatterRow(db: Database, m: CaseBoxMatter): void {
   db.prepare(
@@ -28,11 +29,23 @@ export function insertMatterRow(db: Database, m: CaseBoxMatter): void {
 }
 
 export function updateMatterRow(db: Database, m: CaseBoxMatter): void {
-  db.prepare(
-    `UPDATE case_box_matters
-       SET status = ?, archived_at = ?, payload_json = ?
-     WHERE id = ?`,
-  ).run(m.status, m.archived_at ?? null, JSON.stringify(m), m.id);
+  // Atomic-consistency hardening (WI-PTA-VS0): scope to the row's own
+  // tenant_id and assert exactly one affected row so a matter-id / tenant
+  // drift raises rather than silently no-ops (mirrors the fact / privilege /
+  // deadline / evidence / docket scoped-update discipline).
+  const info = db
+    .prepare(
+      `UPDATE case_box_matters
+         SET status = ?, archived_at = ?, payload_json = ?
+       WHERE id = ? AND tenant_id = ?`,
+    )
+    .run(m.status, m.archived_at ?? null, JSON.stringify(m), m.id, m.tenant_id);
+  if (info.changes !== 1) {
+    throw new CaseBoxPersistenceError(
+      "invalid_argument",
+      `matter scoped update affected ${info.changes} rows, expected 1 (tenant scope drift for id=${m.id})`,
+    );
+  }
 }
 
 export function insertAuditEvent(

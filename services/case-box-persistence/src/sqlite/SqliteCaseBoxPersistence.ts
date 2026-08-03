@@ -98,7 +98,7 @@ import {
   getMatterSummarySqlite,
   listMattersSqlite,
 } from "./aggregationsRepoQueries.js";
-import { prepareCreateMatter, prepareMatterTransition } from "../inMemoryMatter.js";
+import { prepareCreateMatter, prepareEnsureMatterPartyIds, prepareMatterTransition } from "../inMemoryMatter.js";
 import { generateUlid } from "../ulid.js";
 import {
   hasDocumentId,
@@ -124,6 +124,7 @@ import type {
   DeadlineTransitionOpts,
   DismissDocketEntryOpts,
   EditDocketEntryOpts,
+  EnsureMatterPartyIdsOpts,
   DocumentDetail,
   EffectiveClassificationResult,
   EvidenceTransitionOpts,
@@ -340,6 +341,50 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
     run.immediate();
 
     return Promise.resolve(structuredClone(resultMatter!) as CaseBoxMatter);
+  }
+
+  async ensureMatterPartyIds(matterId: string, opts: EnsureMatterPartyIdsOpts): Promise<CaseBoxMatter> {
+    const db = this.#db;
+    const now = this.#now;
+    const generateId = this.#generateId;
+    let resultMatter: CaseBoxMatter | null = null;
+
+    const run = db.transaction(() => {
+      const row = db
+        .prepare("SELECT payload_json FROM case_box_matters WHERE id = ?")
+        .get(matterId) as { payload_json: string } | undefined;
+      if (row === undefined) {
+        throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
+      }
+      const matter = JSON.parse(row.payload_json) as CaseBoxMatter;
+
+      const prepared = prepareEnsureMatterPartyIds(matter, opts, {
+        generateId,
+        nowIso: () => now().toISOString(),
+        storedAuditEventsForMatter: () => loadSyntheticStoredEvents(db, matterId),
+      });
+      if (!prepared.changed) {
+        // Idempotent: every party already has an id — no write, no event.
+        resultMatter = matter;
+        return;
+      }
+
+      const eventHash = eventHashFn(prepared.audit!.event);
+      updateMatterRow(db, prepared.next);
+      insertAuditEvent(db, prepared.audit!, eventHash);
+      upsertAuditChainHead(
+        db,
+        prepared.next.id,
+        prepared.audit!.event.id,
+        prepared.audit!.sequence,
+        prepared.audit!.event.timestamp,
+        eventHash,
+      );
+      resultMatter = prepared.next;
+    });
+    run.immediate();
+
+    return structuredClone(resultMatter!) as CaseBoxMatter;
   }
 
   // -------------------------------------------------------------------------

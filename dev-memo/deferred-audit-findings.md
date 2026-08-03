@@ -599,3 +599,18 @@ below tracks the deliberately-accepted **residual** of M2.
 | Finding ID | Audit job | Verify job | Severity | Reason for deferral / disposition | Target | Safe? | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
 | MIGRATE-COMPAT-M2-residual | `audit-mre5099f-u48410` | `<fix1-verify>` | Medium | Explicit-accept: the frozen-DDL fixture proves schema-history upgrade + API round-trip, but the copied rows use the **current** `payload_json` shape, so old-app persisted-JSON/payload drift is not exercised. Full closure needs a **pinned old-app binary/snapshot fixture**, which the repo has chosen NOT to commit (WI guidance: prefer generated fixtures over committed binaries). | `WI-MIGRATE-PINNED-FIXTURE` (future; only if the repo accepts a committed old-app snapshot) | YES | escalated | Documented in `dev-memo/desktop-data-migration-compat.md` §5. Mitigations in place: frozen v1–v8 DDL fixture + `V8_TABLES` self-check (fails loudly on schema drift). Residual is a fidelity ceiling, not a correctness defect. |
+
+---
+
+## WI-PTA-VS0 Phase C — matter party-identity persistence (audit `audit-mscx6unm`, verify `verify-mscxmy96`)
+
+Phase C added create-time party-ULID assignment + the audited `ensureMatterPartyIds` backfill.
+The Phase C audit raised 1 Critical + 1 High + 3 Medium; 3 were FIXED in-WI (fail-closed
+state-hash continuity on the backfill via a new `audit_chain_desync` code; bounded collision-retry;
+negative desync tests), verified ALL CLOSED. The rows below are the dispositioned remainder.
+
+| Finding ID | Audit job | Verify job | Severity | Reason for deferral / disposition | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|---|---|
+| VS0-TENANT-1 | `audit-mscx6unm` | `verify-mscxmy96` | High | Consistent-with-precedent: `ensureMatterPartyIds(matterId, {actorUserId})` takes no caller tenant — identical to the shipped `archiveMatter`/`unarchiveMatter(matterId, {actor_user_id[,reason]})` convention. The persistence layer is by-id and declares (types.ts:121-124) that it enforces tenant ISOLATION but not caller AUTHORIZATION; caller-tenant enforcement is the IPC-handler boundary. Not a persistence-layer defect. | `WI-PTA-VS2` (IPC handler MUST enforce caller tenant before `ensureMatterPartyIds`, exactly as it must for `archiveMatter`) — a hard VS-2 acceptance requirement | YES | escalated | verify confirmed the by-id convention; VS-2 handler carries the tenant gate |
+| VS0-STATEHASH-XCUT-1 | `audit-mscx6unm` | `verify-mscxmy96` | Low | Cross-cutting observation (out of VS-0 scope): every entity write in the package computes `before_state_hash = entityStateHash(currentPayload)` without cross-checking the prior event's `after_state_hash` at write time (e.g. `prepareMatterTransition` archive/unarchive, fact/evidence/deadline writes). VS-0's NEW backfill was hardened to fail closed; the pre-existing writes were left as-is (fixing only VS-0 would be inconsistent; a repo-wide write-time continuity check is its own WI). | future hardening WI (repo-wide write-time before_state_hash↔prior-event continuity verification) | YES | open | continuity is otherwise validated holistically at the verify boundary (`verifyAuditChainForMatter`); VS-0 backfill is strictly safer than precedent |
+| VS0-PARTYID-SHAPE-1 | `audit-mscx6unm` | `verify-mscxmy96` | Medium | Covered-by-contract: `party.id` is a ULID `$ref` in `case-box-matter.schema.json` and `validateMatter` runs before persistence, so empty/non-string ids cannot reach `assignMatterPartyIdsInPlace`; treating only absent as id-less is correct. | — | YES | closed | verify confirmed via validators.test.mjs:115 + schema ULID pattern |

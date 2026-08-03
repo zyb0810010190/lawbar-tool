@@ -102,6 +102,8 @@ test("6.2.6 CaseBoxPersistenceError code is one of the documented set (incl. B1+
     "duplicate_id", "unknown_matter", "unknown_document", "tenant_mismatch",
     "matter_id_mismatch", "illegal_transition", "local_only_external_flag_rejected",
     "invalid_payload", "invalid_initial_state", "invalid_argument",
+    "anchor_referenced", // A3 referenced-anchor-delete refusal.
+    "audit_chain_desync", // WI-PTA-VS0 fail-closed backfill guard.
     "not_implemented", // B1+ scaffolding code; retired by B11 when full SQLite impl ships.
   ]);
   // Trigger each code at least once and verify the value is recognized.
@@ -135,7 +137,7 @@ test("6.2.6 CaseBoxPersistenceError code is one of the documented set (incl. B1+
 // 6.2.7 Prototype allowlist — exactly the 10 documented methods + constructor
 // ---------------------------------------------------------------------------
 
-test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented method allowlist (A1-A9 + DPE3 = 44)", () => {
+test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented method allowlist (A1-A9 + DPE3 + PTA-VS0 = 45)", () => {
   const expected = [
     "appendConfidentialityClassification",
     "appendDocketEntry",
@@ -149,6 +151,7 @@ test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented meth
     "createMatter",
     "dismissDocketEntry",
     "editDocketEntry",
+    "ensureMatterPartyIds",
     "getAuditChainHead",
     "getDeadline",
     "getDeadlineCalendar",

@@ -49,6 +49,7 @@ export type { CaseBoxPersistenceErrorCode } from "./errors.js";
 export type {
   CaseBoxPersistence,
   ArchiveMatterOpts,
+  EnsureMatterPartyIdsOpts,
   ListDocumentsQuery,
   ListDocumentsPage,
   ListAuditEventsQuery,
