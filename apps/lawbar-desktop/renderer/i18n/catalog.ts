@@ -568,6 +568,51 @@ export const CATALOG = {
   "auditEntityType.cross_examination_opinion": "质证意见",
   "auditEntityType.legal_opinion_card": "法律意见卡",
 
+  // ---- ClaimTrack 诉请跟踪 (WI-PTA-VS3) ----
+  // enum: track_type (facade claimTrackTypeLabel) / our_role (claimTrackOurRoleLabel)
+  "claimTrack.trackType.main_claim": "本诉",
+  "claimTrack.trackType.counterclaim": "反诉",
+  "claimTrack.ourRole.asserting": "我方主张",
+  "claimTrack.ourRole.responding": "我方应对",
+  // enum: status (facade claimTrackStatusLabel) — v1 only ever creates active
+  "claimTrack.status.active": "进行中",
+  "claimTrack.status.withdrawn": "已撤回",
+  "claimTrack.status.resolved": "已了结",
+  // disclosure chrome / grouped list
+  "claimTrack.disclosure.title": "诉请跟踪",
+  "claimTrack.loading": "正在加载诉请跟踪…",
+  "claimTrack.loadFailed": "加载诉请跟踪失败，请重试。",
+  "claimTrack.group.mainClaim": "本诉",
+  "claimTrack.group.counterclaim": "反诉",
+  "claimTrack.partyWithRole": "{name}（{role}）",
+  "claimTrack.unknownParty": "未知当事人",
+  "claimTrack.empty.title": "暂无诉请跟踪项",
+  "claimTrack.empty.hint": "先添加本案需要跟踪的本诉或反诉请求。",
+  // add form
+  "claimTrack.add.button": "添加诉请",
+  "claimTrack.form.title": "添加诉请",
+  "claimTrack.form.trackType": "类型",
+  "claimTrack.form.ourRole": "我方立场",
+  "claimTrack.form.claimant": "主张方",
+  "claimTrack.form.respondent": "相对方",
+  "claimTrack.form.titleField": "标题",
+  "claimTrack.form.selectPlaceholder": "— 请选择 —",
+  "claimTrack.form.supplemental": "补充内容（请求摘要 / 抗辩摘要 / 法律依据 / 金额计算）",
+  "claimTrack.form.claimSummary": "请求/主张摘要",
+  "claimTrack.form.responseSummary": "抗辩/回应摘要",
+  "claimTrack.form.legalBasis": "法律依据",
+  "claimTrack.form.calculationSummary": "金额/计算摘要",
+  "claimTrack.form.save": "保存",
+  "claimTrack.form.cancel": "取消",
+  // validation + status lines
+  "claimTrack.validation.required": "请填写必填项。",
+  "claimTrack.validation.samePartyBothSides": "主张方与相对方不能是同一当事人。",
+  "claimTrack.status.added": "诉请已添加。",
+  "claimTrack.status.addFailed": "添加诉请失败，请重试。",
+  // disabled states (D3 — two distinct truthful messages)
+  "claimTrack.disabled.tooFewParties": "暂无可选当事人 — 请先在案件中添加至少两位当事人，再创建诉请跟踪项。",
+  "claimTrack.disabled.noPartyIds": "此案件的当事人尚未分配标识，暂无法创建诉请跟踪项。",
+
   // ---- IPC error surfaces (WI-DESKTOP-ZH-CN-ERROR-SURFACES-04) ----
   // Generic, safe zh-CN display messages keyed by the STABLE English error CODE.
   // The English error.message (main-side, for logs) is never shown to the user.

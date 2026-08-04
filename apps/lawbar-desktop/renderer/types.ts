@@ -26,6 +26,11 @@ export type MatterStatus = "active" | "archived";
 export type LedgerCategory = "litigation" | "counsel" | "non_litigation";
 
 export interface Party {
+  // Party ULID (VS-0 assigns at matter-create; legacy parties may lack it until a
+  // deferred backfill). The data already flows through MATTER_RESPONSE_FIELDS.parties;
+  // this optional widening lets the ClaimTrack selects address a party by id
+  // (WI-PTA-VS3). No DTO field-name array changes, so renderer-dto-sync is unaffected.
+  readonly id?: string;
   readonly role: string;
   readonly display_name: string;
   readonly party_kind: string;

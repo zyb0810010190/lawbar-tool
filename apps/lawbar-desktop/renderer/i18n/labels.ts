@@ -12,6 +12,8 @@
 // (keeps `scripts/check-renderer-imports.mjs` green; value imports from the contract are forbidden).
 
 import type {
+  ClaimTrackOurRole,
+  ClaimTrackType,
   ConfidentialityClass,
   LedgerCategory,
   MatterStatus,
@@ -149,6 +151,46 @@ const DEADLINE_STATUS_ID: Readonly<Record<string, CatalogId>> = {
 };
 export function deadlineStatusLabel(status: string): string {
   const id = DEADLINE_STATUS_ID[status];
+  return id === undefined ? status : t(id);
+}
+
+// ClaimTrack track_type / our_role are small CLOSED unions (WI-PTA-VS3), so they use
+// the exhaustive `switch` + `assertNever` idiom (mirror matterTypeLabel): a new union
+// member fails the TypeScript build. The three court concepts stay distinct — our_role
+// (我方主张/我方应对) is a DIFFERENT axis from the T3 原告/被告 litigation position.
+export function claimTrackTypeLabel(x: ClaimTrackType): string {
+  switch (x) {
+    case "main_claim":
+      return t("claimTrack.trackType.main_claim");
+    case "counterclaim":
+      return t("claimTrack.trackType.counterclaim");
+    default:
+      return assertNever(x);
+  }
+}
+
+export function claimTrackOurRoleLabel(x: ClaimTrackOurRole): string {
+  switch (x) {
+    case "asserting":
+      return t("claimTrack.ourRole.asserting");
+    case "responding":
+      return t("claimTrack.ourRole.responding");
+    default:
+      return assertNever(x);
+  }
+}
+
+// ClaimTrack status is an OPEN `string` at the renderer boundary (persistence owns
+// the lifecycle), so this uses the lookup + raw-value fallback idiom (mirror
+// deadlineStatusLabel): an unknown status renders its raw code, never throwing. v1
+// only ever shows 进行中 (active); 已撤回/已了结 are reserved for a later slice.
+const CLAIM_TRACK_STATUS_ID: Readonly<Record<string, CatalogId>> = {
+  active: "claimTrack.status.active",
+  withdrawn: "claimTrack.status.withdrawn",
+  resolved: "claimTrack.status.resolved",
+};
+export function claimTrackStatusLabel(status: string): string {
+  const id = CLAIM_TRACK_STATUS_ID[status];
   return id === undefined ? status : t(id);
 }
 

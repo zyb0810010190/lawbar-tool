@@ -26,6 +26,7 @@ import { renderChainHeadDisclosure } from "./viewMatterAudit.js";
 import { renderDocumentsDisclosure } from "./viewMatterDocuments.js";
 import { renderDeadlinesDisclosure } from "./viewMatterDeadlines.js";
 import { renderFactsDisclosure } from "./viewMatterFacts.js";
+import { renderClaimTracksDisclosure } from "./viewMatterClaimTracks.js";
 import { renderLinksDisclosure } from "./viewMatterLinks.js";
 import { renderT3CatalogDisclosure } from "./viewMatterT3Catalog.js";
 import { errorMessage } from "../i18n/errorMessage.js";
@@ -411,6 +412,7 @@ function renderDetail(
   const documentsDetails = renderDocumentsDisclosure(doc, deps.api, row.id);
   const deadlinesDetails = renderDeadlinesDisclosure(doc, deps.api, row.id);
   const factsDetails = renderFactsDisclosure(doc, deps.api, row.id);
+  const claimTracksDetails = renderClaimTracksDisclosure(doc, deps.api, row.id, row.parties);
   const linksDetails = renderLinksDisclosure(doc, deps.api, row.id);
   const t3CatalogDetails = renderT3CatalogDisclosure(doc, deps.api, row.id);
   const chainHeadDetails = renderChainHeadDisclosure(doc, deps.api, row.id);
@@ -418,7 +420,7 @@ function renderDetail(
   const mainCol = el(
     "div",
     { class: "view-main" },
-    [infoCard, documentsDetails, deadlinesDetails, factsDetails, linksDetails, t3CatalogDetails],
+    [infoCard, documentsDetails, deadlinesDetails, factsDetails, claimTracksDetails, linksDetails, t3CatalogDetails],
     doc,
   );
 

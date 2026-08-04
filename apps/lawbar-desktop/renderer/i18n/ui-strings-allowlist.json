@@ -121,19 +121,19 @@
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 240,
+    "line": 241,
     "text": "${jurisdiction.value}${lockedMarker}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 260,
+    "line": 261,
     "text": "${partyRoleLabel(p.role)} — ${p.display_name} (${partyKindLabel(p.party_kind)})",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 433,
+    "line": 435,
     "text": "§",
     "kind": "text"
   },
@@ -171,6 +171,78 @@
     "file": "renderer/screens/viewMatterAudit.ts",
     "line": 280,
     "text": "${auditEntityTypeLabel(ev.entity_type)} · ${ulidShort(ev.entity_id)}",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterClaimTracks.ts",
+    "line": 53,
+    "text": "counterclaim",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterClaimTracks.ts",
+    "line": 53,
+    "text": "main_claim",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterClaimTracks.ts",
+    "line": 163,
+    "text": "listClaimTracks",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterClaimTracks.ts",
+    "line": 276,
+    "text": " · ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterClaimTracks.ts",
+    "line": 291,
+    "text": " → ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterClaimTracks.ts",
+    "line": 312,
+    "text": "data-unknown",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterClaimTracks.ts",
+    "line": 355,
+    "text": "main_claim",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterClaimTracks.ts",
+    "line": 356,
+    "text": "counterclaim",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterClaimTracks.ts",
+    "line": 368,
+    "text": "asserting",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterClaimTracks.ts",
+    "line": 369,
+    "text": "responding",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterClaimTracks.ts",
+    "line": 448,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterClaimTracks.ts",
+    "line": 559,
+    "text": " ",
     "kind": "text"
   },
   {
