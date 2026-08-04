@@ -33,6 +33,10 @@ import {
 // the same reason as the docket handlers above (handlers.ts barrel is outside
 // this WI's governed Allowed-files; CBW-601-BARREL follow-up).
 import { createFactHandler, transitionFactHandler } from "../../src/caseBox/factHandlers.js";
+// WI-PTA-VS2 ClaimTrack IPC handlers — imported DIRECTLY from the per-entity
+// module for the same reason as the docket/fact handlers above (the handlers.ts
+// barrel is outside this WI's governed Allowed-files).
+import { createClaimTrackHandler, listClaimTracksHandler } from "../../src/caseBox/claimTrackHandlers.js";
 // WI-FORMS-T3-S3 DOCX export handler — imported DIRECTLY from the per-entity module
 // for the same reason as the docket/fact handlers above (the handlers.ts barrel is
 // outside this WI's governed Allowed-files).
@@ -175,6 +179,12 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.factTransition, async (_evt, payload: unknown) => {
     return transitionFactHandler(payload, provide, nowFn);
+  });
+  ipcMain.handle(CHANNEL.claimTrackCreate, async (_evt, payload: unknown) => {
+    return createClaimTrackHandler(payload, provide, nowFn, idFactory);
+  });
+  ipcMain.handle(CHANNEL.claimTrackList, async (_evt, payload: unknown) => {
+    return listClaimTracksHandler(payload, provide);
   });
   ipcMain.handle(CHANNEL.t3PreviewCatalog, async (_evt, payload: unknown) => {
     return previewT3CatalogHandler(payload, provide);

@@ -39,6 +39,8 @@ export const CHANNEL = {
   factList: "casebox:fact:list",
   factCreate: "casebox:fact:create",
   factTransition: "casebox:fact:transition",
+  claimTrackCreate: "casebox:claimTrack:create",
+  claimTrackList: "casebox:claimTrack:list",
   linkCreate: "casebox:link:create",
   linkUnlink: "casebox:link:unlink",
   linkRelink: "casebox:link:relink",

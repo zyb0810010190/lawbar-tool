@@ -24,6 +24,8 @@ import type {
   EditDocketEntryDto,
   TransitionFactDto,
   TransitionDeadlineDto,
+  CreateClaimTrackDto,
+  ListClaimTracksDto,
   CreateLinkDto,
   UnlinkLinkDto,
   RelinkLinkDto,
@@ -50,6 +52,8 @@ import type {
   EditDocketEntryResult,
   TransitionFactResult,
   TransitionDeadlineResult,
+  CreateClaimTrackResult,
+  ListClaimTracksResult,
   CreateLinkResult,
   UnlinkLinkResult,
   RelinkLinkResult,
@@ -88,6 +92,11 @@ export interface CaseBoxApi {
   createDocketEntry(dto: CreateDocketEntryDto): Promise<CreateDocketEntryResult>;
   confirmDocketEntry(dto: ConfirmDocketEntryDto): Promise<ConfirmDocketEntryResult>;
   transitionFact(dto: TransitionFactDto): Promise<TransitionFactResult>;
+  // WI-PTA-VS2: the ClaimTrack IPC layer (list + create). The write surface is
+  // guarded server-side (matter/tenant preflight + party-ref preflight +
+  // forbidden-field rejection + server-authority injection); renderer UI is VS-3.
+  createClaimTrack(dto: CreateClaimTrackDto): Promise<CreateClaimTrackResult>;
+  listClaimTracks(dto: ListClaimTracksDto): Promise<ListClaimTracksResult>;
   listDocketEntries(dto: ListDocketEntriesDto): Promise<ListDocketEntriesResult>;
   dismissDocketEntry(dto: DismissDocketEntryDto): Promise<DismissDocketEntryResult>;
   // WI-DPE4: edit a proposed docket entry (IPC/DTO only; renderer call sites are DPE5).
@@ -141,6 +150,8 @@ const caseBoxApi: CaseBoxApi = {
   createDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:create", dto),
   confirmDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:confirm", dto),
   transitionFact: (dto) => ipcRenderer.invoke("casebox:fact:transition", dto),
+  createClaimTrack: (dto) => ipcRenderer.invoke("casebox:claimTrack:create", dto),
+  listClaimTracks: (dto) => ipcRenderer.invoke("casebox:claimTrack:list", dto),
   listDocketEntries: (dto) => ipcRenderer.invoke("casebox:docket:list", dto),
   dismissDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:dismiss", dto),
   editDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:edit", dto),

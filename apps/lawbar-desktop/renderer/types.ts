@@ -217,6 +217,36 @@ export interface CreateFactDto {
   readonly as_of_date?: string;
 }
 
+// ClaimTrack track_type / our_role controlled vocab (WI-PTA-VS2). Mirrors the
+// canonical CreateClaimTrackDto in src/caseBox/dto/claimTrack.ts.
+export type ClaimTrackType = "main_claim" | "counterclaim";
+export type ClaimTrackOurRole = "asserting" | "responding";
+
+// Renderer-supplied fields for casebox:claimTrack:create (WI-PTA-VS2). The server
+// injects every authority / lifecycle field (id / tenant_id / actor_user_id /
+// status="active" / created_at === updated_at); the renderer forwards only these.
+// The four summaries are optional (server defaults them to ""); sort_order is a
+// lawyer-controlled integer >= 0.
+export interface CreateClaimTrackDto {
+  readonly matterId: string;
+  readonly track_type: ClaimTrackType;
+  readonly claimant_party_id: string;
+  readonly respondent_party_id: string;
+  readonly our_role: ClaimTrackOurRole;
+  readonly title: string;
+  readonly claim_summary?: string;
+  readonly response_summary?: string;
+  readonly legal_basis?: string;
+  readonly calculation_summary?: string;
+  readonly sort_order: number;
+}
+
+// Renderer-supplied fields for casebox:claimTrack:list (WI-PTA-VS2): the scope
+// (matterId) only. The server injects tenant_id and returns a projected array.
+export interface ListClaimTracksDto {
+  readonly matterId: string;
+}
+
 export interface IpcErrorEnvelope {
   readonly kind: "case_box_persistence_error";
   readonly code: string;
@@ -358,6 +388,30 @@ export const RENDERER_TRANSITION_DEADLINE_DTO_FIELDS = Object.freeze([
   "deadlineId",
   "to",
   "transition_reason",
+] as const);
+
+// WI-PTA-VS2: the ClaimTrack create/list bridge allowlists. Each set-equals its
+// canonical *_CLAIM_TRACK*_DTO_FIELDS counterpart in
+// src/caseBox/dto/claimTrack.ts (asserted by tests/renderer-dto-sync.test.mjs).
+// Authority/lifecycle fields (id/tenant_id/actor_user_id/matter_id/status/
+// created_at/updated_at) are absent, so stripDtoFields drops them before the IPC
+// call (defense-in-depth; main's CREATE_CLAIM_TRACK_FORBIDDEN_FIELDS is the authority).
+export const RENDERER_CREATE_CLAIM_TRACK_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "track_type",
+  "claimant_party_id",
+  "respondent_party_id",
+  "our_role",
+  "title",
+  "claim_summary",
+  "response_summary",
+  "legal_basis",
+  "calculation_summary",
+  "sort_order",
+] as const);
+
+export const RENDERER_LIST_CLAIM_TRACKS_DTO_FIELDS = Object.freeze([
+  "matterId",
 ] as const);
 
 // ---------------------------------------------------------------------------

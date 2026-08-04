@@ -80,6 +80,10 @@ const PAIRS = [
   ["RENDERER_EDIT_DOCKET_DTO_FIELDS", "EDIT_DOCKET_DTO_FIELDS"],
   ["RENDERER_TRANSITION_FACT_DTO_FIELDS", "TRANSITION_FACT_DTO_FIELDS"],
   ["RENDERER_TRANSITION_DEADLINE_DTO_FIELDS", "TRANSITION_DEADLINE_DTO_FIELDS"],
+  // WI-PTA-VS2: the renderer ClaimTrack create/list bridges mirror the canonical
+  // *_CLAIM_TRACK*_DTO_FIELDS in src/caseBox/dto/claimTrack.ts.
+  ["RENDERER_CREATE_CLAIM_TRACK_DTO_FIELDS", "CREATE_CLAIM_TRACK_DTO_FIELDS"],
+  ["RENDERER_LIST_CLAIM_TRACKS_DTO_FIELDS", "LIST_CLAIM_TRACKS_DTO_FIELDS"],
   // WI-A3-LINK-UI-T1: the renderer link bridge mirrors the canonical link DTO field
   // arrays in src/caseBox/dto/link.ts (consume-only; the canonical arrays already exist).
   ["RENDERER_CREATE_LINK_DTO_FIELDS", "CREATE_LINK_DTO_FIELDS"],
@@ -158,6 +162,8 @@ const RESPONSE_ALLOWLISTS = [
   // WI-FF1: the write-channel response allowlists exclude the same authority fields.
   ["CREATE_FACT_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "reviewer_actor_user_id"]],
   ["TRANSITION_FACT_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "reviewer_actor_user_id"]],
+  // WI-PTA-VS2: the ClaimTrack response allowlist (shared by create + list) excludes authority.
+  ["CREATE_CLAIM_TRACK_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
   // DOCKET_ENTRY carries proposer + lifecycle actor identities; all must stay out of the allowlist.
   ["DOCKET_ENTRY_RESPONSE_FIELDS", ["tenant_id", "actor_user_id", "confirmation_actor_user_id", "dismissal_actor_user_id"]],
   ["CONFIRM_DOCKET_DEADLINE_RESPONSE_FIELDS", ["tenant_id", "actor_user_id"]],
