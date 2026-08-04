@@ -33,6 +33,8 @@ export const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set([
   "invalid_initial_state",
   "invalid_argument",
   "anchor_referenced",
+  "audit_chain_desync",
+  "unknown_party",
   "not_implemented",
 ]);
 

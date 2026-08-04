@@ -22,6 +22,8 @@ const SAFE_MESSAGES: Record<CaseBoxPersistenceErrorCode, string> = {
   invalid_initial_state: "invalid initial state",
   invalid_argument: "invalid argument",
   anchor_referenced: "anchor is referenced",
+  audit_chain_desync: "audit chain desync",
+  unknown_party: "unknown party",
   not_implemented: "operation not implemented",
 };
 
