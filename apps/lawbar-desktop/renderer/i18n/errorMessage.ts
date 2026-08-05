@@ -35,6 +35,8 @@ export const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set([
   "anchor_referenced",
   "audit_chain_desync",
   "unknown_party",
+  "matter_archived",
+  "no_editable_change",
   "not_implemented",
 ]);
 

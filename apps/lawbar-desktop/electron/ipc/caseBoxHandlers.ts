@@ -37,6 +37,11 @@ import { createFactHandler, transitionFactHandler } from "../../src/caseBox/fact
 // module for the same reason as the docket/fact handlers above (the handlers.ts
 // barrel is outside this WI's governed Allowed-files).
 import { createClaimTrackHandler, listClaimTracksHandler } from "../../src/caseBox/claimTrackHandlers.js";
+// matter-details-edit Phase C — the updateMatterDetails write handler, imported
+// DIRECTLY from the per-entity matterHandlers module for the same reason as the
+// docket/fact/claim-track handlers above (the handlers.ts barrel is outside this
+// WI's governed Allowed-files).
+import { updateMatterDetailsHandler } from "../../src/caseBox/matterHandlers.js";
 // WI-FORMS-T3-S3 DOCX export handler — imported DIRECTLY from the per-entity module
 // for the same reason as the docket/fact handlers above (the handlers.ts barrel is
 // outside this WI's governed Allowed-files).
@@ -118,6 +123,9 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.matterArchive, async (_evt, payload: unknown) => {
     return archiveMatterHandler(payload, provide);
+  });
+  ipcMain.handle(CHANNEL.matterUpdateDetails, async (_evt, payload: unknown) => {
+    return updateMatterDetailsHandler(payload, provide);
   });
   ipcMain.handle(CHANNEL.auditChainHead, async (_evt, payload: unknown) => {
     return chainHeadHandler(payload, provide);

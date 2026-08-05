@@ -25,6 +25,7 @@ import type {
   ListFactsDto,
   ListMattersDto,
   RegisterDocumentDto,
+  UpdateMatterDetailsDto,
   TransitionFactDto,
   TransitionDeadlineDto,
   CreateClaimTrackDto,
@@ -40,6 +41,7 @@ import type {
 
 import {
   RENDERER_ARCHIVE_MATTER_DTO_FIELDS,
+  RENDERER_UPDATE_MATTER_DETAILS_DTO_FIELDS,
   RENDERER_CHAIN_HEAD_DTO_FIELDS,
   RENDERER_CONFIRM_DOCKET_DTO_FIELDS,
   RENDERER_CREATE_DOCKET_DTO_FIELDS,
@@ -75,6 +77,7 @@ export interface CaseBoxClient {
   getMatter(dto: GetMatterDto): Promise<IpcEnvelope<unknown>>;
   listMatters(dto: ListMattersDto): Promise<IpcEnvelope<unknown>>;
   archiveMatter(dto: ArchiveMatterDto): Promise<IpcEnvelope<unknown>>;
+  updateMatterDetails(dto: UpdateMatterDetailsDto): Promise<IpcEnvelope<unknown>>;
   chainHead(dto: ChainHeadDto): Promise<IpcEnvelope<unknown>>;
   listAuditEvents(dto: ListAuditEventsDto): Promise<IpcEnvelope<unknown>>;
   listDocuments(dto: ListDocumentsDto): Promise<IpcEnvelope<unknown>>;
@@ -106,6 +109,7 @@ export interface CaseBoxApi {
   getMatter(dto: GetMatterDto): Promise<IpcEnvelope<unknown>>;
   listMatters(dto: ListMattersDto): Promise<IpcEnvelope<unknown>>;
   archiveMatter(dto: ArchiveMatterDto): Promise<IpcEnvelope<unknown>>;
+  updateMatterDetails(dto: UpdateMatterDetailsDto): Promise<IpcEnvelope<unknown>>;
   chainHead(dto: ChainHeadDto): Promise<IpcEnvelope<unknown>>;
   listAuditEvents(dto: ListAuditEventsDto): Promise<IpcEnvelope<unknown>>;
   listDocuments(dto: ListDocumentsDto): Promise<IpcEnvelope<unknown>>;
@@ -164,6 +168,8 @@ export function createCaseBoxApi(client: CaseBoxClient): CaseBoxApi {
       client.listMatters(stripDtoFields(dto, RENDERER_LIST_MATTERS_DTO_FIELDS)),
     archiveMatter: (dto) =>
       client.archiveMatter(stripDtoFields(dto, RENDERER_ARCHIVE_MATTER_DTO_FIELDS)),
+    updateMatterDetails: (dto) =>
+      client.updateMatterDetails(stripDtoFields(dto, RENDERER_UPDATE_MATTER_DETAILS_DTO_FIELDS)),
     chainHead: (dto) =>
       client.chainHead(stripDtoFields(dto, RENDERER_CHAIN_HEAD_DTO_FIELDS)),
     listAuditEvents: (dto) =>

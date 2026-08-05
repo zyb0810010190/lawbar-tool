@@ -43,6 +43,7 @@ export const CATALOG = {
   "eventKind.MATTER_ARCHIVED": "案件已归档",
   "eventKind.MATTER_UNARCHIVED": "案件已取消归档",
   "eventKind.MATTER_PARTY_IDS_ASSIGNED": "当事人标识已分配",
+  "eventKind.MATTER_DETAILS_UPDATED": "案件信息已更新",
   "eventKind.DOCUMENT_REGISTERED": "文档已登记",
   "eventKind.DOCUMENT_OCR_SUBMITTED": "文档 OCR 已提交",
   "eventKind.DOCUMENT_OCR_COMPLETE": "文档 OCR 已完成",
@@ -629,6 +630,8 @@ export const CATALOG = {
   "error.anchor_referenced": "该锚点已被引用，无法执行此操作。",
   "error.audit_chain_desync": "审计链校验失败，操作已被阻止。",
   "error.unknown_party": "未找到该当事人。",
+  "error.matter_archived": "该案件已归档，请先取消归档后再编辑。",
+  "error.no_editable_change": "没有需要保存的修改。",
   "error.not_implemented": "操作暂不可用，请稍后重试。",
   "error.unknown": "发生错误，请稍后重试。",
 

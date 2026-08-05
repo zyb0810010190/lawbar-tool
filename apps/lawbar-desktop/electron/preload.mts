@@ -9,6 +9,7 @@ import type {
   GetMatterDto,
   ListMattersDto,
   ArchiveMatterDto,
+  UpdateMatterDetailsDto,
   ChainHeadDto,
   ListAuditEventsDto,
   ListDocumentsDto,
@@ -37,6 +38,7 @@ import type {
   GetMatterResult,
   ListMattersResult,
   ArchiveMatterResult,
+  UpdateMatterDetailsResult,
   ChainHeadResult,
   ListAuditEventsResult,
   ListDocumentsResult,
@@ -76,6 +78,10 @@ export interface CaseBoxApi {
   getMatter(dto: GetMatterDto): Promise<GetMatterResult>;
   listMatters(dto: ListMattersDto): Promise<ListMattersResult>;
   archiveMatter(dto: ArchiveMatterDto): Promise<ArchiveMatterResult>;
+  // matter-details-edit Phase C: edit a matter's 6 editable free-text fields. The
+  // write surface is guarded server-side (tenant/matter preflight + forbidden-field
+  // rejection + server-authority injection); the renderer edit SCREEN is Phase D.
+  updateMatterDetails(dto: UpdateMatterDetailsDto): Promise<UpdateMatterDetailsResult>;
   chainHead(dto: ChainHeadDto): Promise<ChainHeadResult>;
   listAuditEvents(dto: ListAuditEventsDto): Promise<ListAuditEventsResult>;
   listDocuments(dto: ListDocumentsDto): Promise<ListDocumentsResult>;
@@ -138,6 +144,7 @@ const caseBoxApi: CaseBoxApi = {
   getMatter: (dto) => ipcRenderer.invoke("casebox:matter:get", dto),
   listMatters: (dto) => ipcRenderer.invoke("casebox:matter:list", dto),
   archiveMatter: (dto) => ipcRenderer.invoke("casebox:matter:archive", dto),
+  updateMatterDetails: (dto) => ipcRenderer.invoke("casebox:matter:updateDetails", dto),
   chainHead: (dto) => ipcRenderer.invoke("casebox:audit:chainHead", dto),
   listAuditEvents: (dto) => ipcRenderer.invoke("casebox:audit:listEvents", dto),
   listDocuments: (dto) => ipcRenderer.invoke("casebox:document:list", dto),

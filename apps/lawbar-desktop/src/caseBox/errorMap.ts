@@ -24,6 +24,8 @@ const SAFE_MESSAGES: Record<CaseBoxPersistenceErrorCode, string> = {
   anchor_referenced: "anchor is referenced",
   audit_chain_desync: "audit chain desync",
   unknown_party: "unknown party",
+  matter_archived: "该案件已归档，需先取消归档再编辑。",
+  no_editable_change: "没有需要保存的修改。",
   not_implemented: "operation not implemented",
 };
 

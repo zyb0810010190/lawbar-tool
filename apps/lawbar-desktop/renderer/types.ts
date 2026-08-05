@@ -70,6 +70,26 @@ export interface ArchiveMatterDto {
   readonly reason: string;
 }
 
+// Renderer-supplied fields for casebox:matter:updateDetails (matter-details-edit
+// Phase C). Mirrors the canonical UpdateMatterDetailsDto in src/caseBox/dto/matter.ts.
+// The server injects actor_user_id + enforces tenant scope; the renderer forwards
+// only { matterId, patch, reason }. A patch value is a string (new value), null
+// (explicit clear — not for `name`), or absent (no change).
+export interface UpdateMatterDetailsPatch {
+  readonly name?: string | null;
+  readonly retainer_scope?: string | null;
+  readonly case_type_text?: string | null;
+  readonly case_progress_text?: string | null;
+  readonly court_contact_text?: string | null;
+  readonly contention_summary_text?: string | null;
+}
+
+export interface UpdateMatterDetailsDto {
+  readonly matterId: string;
+  readonly patch: UpdateMatterDetailsPatch;
+  readonly reason: string;
+}
+
 export interface ChainHeadDto {
   readonly matterId: string;
 }
@@ -292,6 +312,27 @@ export const RENDERER_LIST_MATTERS_DTO_FIELDS = Object.freeze([
 export const RENDERER_ARCHIVE_MATTER_DTO_FIELDS = Object.freeze([
   "matterId",
   "reason",
+] as const);
+
+// matter-details-edit Phase C: the update-details bridge allowlists. The top-level
+// set-equals UPDATE_MATTER_DETAILS_DTO_FIELDS and the patch set-equals
+// UPDATE_MATTER_DETAILS_PATCH_FIELDS in src/caseBox/dto/matter.ts (both asserted by
+// tests/renderer-dto-sync.test.mjs). stripDtoFields drops any extra TOP-LEVEL key
+// before the IPC call (defense-in-depth); main's UPDATE_MATTER_DETAILS_FORBIDDEN_FIELDS
+// + the per-key patch allowlist remain the authority.
+export const RENDERER_UPDATE_MATTER_DETAILS_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "patch",
+  "reason",
+] as const);
+
+export const RENDERER_UPDATE_MATTER_DETAILS_PATCH_FIELDS = Object.freeze([
+  "name",
+  "retainer_scope",
+  "case_type_text",
+  "case_progress_text",
+  "court_contact_text",
+  "contention_summary_text",
 ] as const);
 
 export const RENDERER_CHAIN_HEAD_DTO_FIELDS = Object.freeze([
