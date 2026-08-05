@@ -6,8 +6,7 @@
 // directly — that surface is covered by tests/casebox-ipc.electron.test.mjs.
 //
 // Flow: load #/matters (empty) → New matter → fill form → submit → view detail
-// → Archive… → fill reason → submit → view (archived) → expand chain head
-// → assert count + headHash visible (truncated per §6.5).
+// → Archive… → fill reason → submit → view (archived).
 //
 // Invariants: pre/post no-DB-file scan across tempRoot + repo working tree;
 // no-real-data scanner exits 0 after the test; wrapper crash count invariant.
