@@ -431,7 +431,7 @@ function renderDetail(
       el(
         "div",
         { class: "colophon-header" },
-        [t("detail.colophonTitle"), el("span", { class: "colophon-marker" }, ["§"], doc)],
+        [t("detail.colophonTitle")],
         doc,
       ),
       el(

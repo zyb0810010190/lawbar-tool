@@ -1119,7 +1119,6 @@ body.lawbar-app {
   text-transform: uppercase;
   display: flex; align-items: center; justify-content: space-between;
 }
-.colophon-header .colophon-marker { color: var(--color-accent); }
 .colophon-body { padding: var(--space-5); }
 .colophon-row {
   display: grid;
@@ -2162,14 +2161,6 @@ body.lawbar-app {
   text-align: center;
   max-width: 480px;
   margin: 0 auto;
-}
-.list-empty-desktop .empty-glyph {
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-size: 64px;
-  color: var(--color-accent);
-  line-height: 1;
-  margin-bottom: var(--space-4);
 }
 .list-empty-desktop h2 {
   font-family: var(--font-serif);

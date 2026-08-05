@@ -114,12 +114,6 @@
     "kind": "text"
   },
   {
-    "file": "renderer/screens/listMatters.ts",
-    "line": 256,
-    "text": "§",
-    "kind": "text"
-  },
-  {
     "file": "renderer/screens/viewMatter.ts",
     "line": 241,
     "text": "${jurisdiction.value}${lockedMarker}",
@@ -129,12 +123,6 @@
     "file": "renderer/screens/viewMatter.ts",
     "line": 261,
     "text": "${partyRoleLabel(p.role)} — ${p.display_name} (${partyKindLabel(p.party_kind)})",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatter.ts",
-    "line": 434,
-    "text": "§",
     "kind": "text"
   },
   {
