@@ -305,10 +305,29 @@ function renderDetail(
     ],
     doc,
   );
+  // Edit affordance — a primary action in the header/actions area for active
+  // matters only (hidden for archived; the direct /edit route has its own
+  // read-only safety net). Placed OUTSIDE the archive danger zone.
+  let editBtn: HTMLElement | null = null;
+  if (row.status === "active") {
+    editBtn = el(
+      "button",
+      {
+        type: "button",
+        class: "button button--primary view-edit-btn",
+        "data-test-id": "view-edit",
+      },
+      [t("detail.editButton")],
+      doc,
+    );
+    editBtn.addEventListener("click", () => {
+      deps.navigate(buildHash("edit", { id: row.id }));
+    });
+  }
   const header = el(
     "header",
     { class: "view-header" },
-    [back, titleEl, pill, metaStrip],
+    [back, titleEl, pill, metaStrip, editBtn],
     doc,
   );
 

@@ -12,12 +12,6 @@
     "kind": "html-text"
   },
   {
-    "file": "renderer/index.ts",
-    "line": 54,
-    "text": "name",
-    "kind": "text"
-  },
-  {
     "file": "renderer/screens/createMatter.ts",
     "line": 57,
     "text": "client",

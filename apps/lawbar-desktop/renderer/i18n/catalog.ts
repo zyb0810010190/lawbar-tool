@@ -178,6 +178,7 @@ export const CATALOG = {
   "detail.dangerZone": "危险操作",
   "detail.archiveWarning": "归档将锁定本案件，操作记录于审计日志。",
   "detail.archiveButton": "归档…",
+  "detail.editButton": "编辑…",
   "detail.archivedMarker": "本案件已归档。",
 
   // ---- Evidence links section (WI-A3-LINK-UI-T1) ----
@@ -331,6 +332,28 @@ export const CATALOG = {
   "matterArchive.status.archiving": "正在归档…",
   "matterArchive.status.archived": "已归档",
   "matterArchive.status.error": "错误：{message}",
+
+  // ---- edit matter screen (matter-details-edit Phase D) ----
+  "matterEdit.backToMatters": "← 返回案件列表",
+  "matterEdit.backToMatter": "← 返回案件",
+  "matterEdit.notFoundTitle": "未找到案件",
+  "matterEdit.invalidIdBody": "案件 ID 格式有误或不存在。",
+  "matterEdit.loading": "正在加载案件…",
+  "matterEdit.unavailableTitle": "案件不可用",
+  "matterEdit.staleLinkBody": "该链接可能已失效。",
+  "matterEdit.title": "编辑案件信息 — {name}",
+  "matterEdit.field.name": "案件名称",
+  "matterEdit.changesTitle": "将记录的更改",
+  "matterEdit.changesNone": "尚无更改",
+  "matterEdit.reasonLabel": "原因 *（{min}–{max} 个字符）",
+  "matterEdit.submit": "保存更改",
+  "matterEdit.cancel": "取消",
+  "matterEdit.error.nameRequired": "案件名称不能为空。",
+  "matterEdit.error.reasonTooShort": "请填写原因，且至少需 {min} 个字符。",
+  "matterEdit.error.reasonTooLong": "原因不得超过 {max} 个字符。",
+  "matterEdit.status.saving": "正在保存…",
+  "matterEdit.status.saved": "已保存",
+  "matterEdit.archivedBanner": "案件已归档，需先取消归档才能编辑。",
 
   // ---- not-found route + bootstrap error (renderer/index.ts) ----
   "notFound.title": "未找到",

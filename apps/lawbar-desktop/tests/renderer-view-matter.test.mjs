@@ -167,6 +167,35 @@ test("Archive button: navigates to #/matters/:id/archive", async () => {
   assert.deepEqual(navCalls, [`#/matters/${VALID_ULID}/archive`]);
 });
 
+test("Edit button: present for active + navigates to #/matters/:id/edit", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const navCalls = [];
+  const api = makeStubApi();
+  await mountViewMatter(
+    root,
+    { api, navigate: (h) => navCalls.push(h), doc },
+    VALID_ULID,
+  );
+  const edit = findByTestId(root, "view-edit");
+  assert.ok(edit !== null);
+  edit.dispatchEvent({ type: "click" });
+  assert.deepEqual(navCalls, [`#/matters/${VALID_ULID}/edit`]);
+});
+
+test("Edit button: ABSENT for archived matter", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    getMatter: async () => ({
+      ok: true,
+      value: syntheticMatter({ status: "archived", archived_at: "2026-05-27T11:00:00Z" }),
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  assert.equal(findByTestId(root, "view-edit"), null);
+});
+
 test("Back link: navigates to #/matters + preventDefault on click", async () => {
   const doc = new MockDoc();
   const root = doc.createElement("main");

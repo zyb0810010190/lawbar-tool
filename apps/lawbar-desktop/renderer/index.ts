@@ -7,7 +7,7 @@
 // `src/caseBox`, `electron`, `node:*`, `case-box-persistence`, etc.
 
 import { getDefaultApi, type CaseBoxApi } from "./api.js";
-import { attachRouter, type ParsedRoute } from "./router.js";
+import { attachRouter, parseHash, type ParsedRoute } from "./router.js";
 import { applySidebarCurrent } from "./nav.js";
 import { t } from "./i18n/t.js";
 import type { CatalogId } from "./i18n/catalog.js";
@@ -15,6 +15,7 @@ import { mountListMatters } from "./screens/listMatters.js";
 import { mountCreateMatter } from "./screens/createMatter.js";
 import { mountViewMatter } from "./screens/viewMatter.js";
 import { mountArchiveMatter } from "./screens/archiveMatter.js";
+import { mountEditMatter } from "./screens/editMatter.js";
 import { mountSettings } from "./screens/settings.js";
 
 type ThemePreference = "system" | "light" | "dark";
@@ -45,27 +46,13 @@ declare global {
 function navigate(hash: string): void {
   if (window.location.hash === hash) {
     // Re-mount even when the hash didn't change (caller intent: re-render).
-    void renderRoute({ name: parseRouteName(hash), params: parseParams(hash) });
+    // Parse through router.ts's parseHash — the single source of truth — so the
+    // re-mount path uses the exact same (strict Crockford ULID) guard as attachRouter,
+    // with no duplicate route table to drift.
+    void renderRoute(parseHash(hash));
     return;
   }
   window.location.hash = hash;
-}
-
-function parseRouteName(hash: string): ParsedRoute["name"] {
-  if (hash === "#/matters" || hash === "" || hash === "#") return "list";
-  if (hash === "#/matters/new") return "new";
-  if (hash === "#/settings") return "settings";
-  if (/^#\/matters\/[0-9a-z]{26}$/.test(hash)) return "view";
-  if (/^#\/matters\/[0-9a-z]{26}\/archive$/.test(hash)) return "archive";
-  return "not-found";
-}
-
-function parseParams(hash: string): { id?: string } {
-  const view = /^#\/matters\/([0-9a-z]{26})$/.exec(hash);
-  if (view !== null) return { id: view[1] };
-  const archive = /^#\/matters\/([0-9a-z]{26})\/archive$/.exec(hash);
-  if (archive !== null) return { id: archive[1] };
-  return {};
 }
 
 async function renderRoute(route: ParsedRoute): Promise<void> {
@@ -101,6 +88,13 @@ async function renderRoute(route: ParsedRoute): Promise<void> {
         return;
       }
       await mountArchiveMatter(app, { api, navigate }, route.params.id);
+      return;
+    case "edit":
+      if (route.params.id === undefined) {
+        navigate("#/not-found");
+        return;
+      }
+      await mountEditMatter(app, { api, navigate }, route.params.id);
       return;
     case "settings":
       await mountSettings(app, { navigate });
