@@ -18,6 +18,12 @@ export type CaseBoxPersistenceErrorCode =
   | "anchor_referenced"
   | "audit_chain_desync"
   | "unknown_party"
+  // matter-details-edit Phase B (additive; no existing code renamed/removed):
+  //   matter_archived    — an edit was attempted on a non-active (archived) matter.
+  //   no_editable_change — a details patch left every editable field unchanged
+  //                        after canonicalization (no-op → no audit spam).
+  | "matter_archived"
+  | "no_editable_change"
   | "not_implemented";
 
 export class CaseBoxPersistenceError extends Error {

@@ -31,6 +31,7 @@ import type {
   AuditChainHead,
   CaseBoxPersistence,
   EnsureMatterPartyIdsOpts,
+  UpdateMatterDetailsOpts,
   ConfirmDocketEntryOpts,
   ConfirmDocketEntryResult,
   DeadlineTransitionOpts,
@@ -130,6 +131,7 @@ import {
 import {
   prepareCreateMatter,
   prepareEnsureMatterPartyIds,
+  prepareMatterDetailsUpdate,
   prepareMatterTransition,
 } from "./inMemoryMatter.js";
 import {
@@ -272,6 +274,34 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     state.matters.set(matterId, prepared.next);
     const stored = state.auditByMatter.get(matterId) ?? [];
     stored.push(prepared.audit!);
+    state.auditByMatter.set(matterId, stored);
+    return structuredClone(prepared.next) as CaseBoxMatter;
+  }
+
+  async updateMatterDetails(matterId: string, opts: UpdateMatterDetailsOpts): Promise<CaseBoxMatter> {
+    const state = stateOf(this);
+    const matter = state.matters.get(matterId);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
+    }
+    const prepared = prepareMatterDetailsUpdate(matter, opts, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: () => state.auditByMatter.get(matterId) ?? [],
+      // D4a: the LATEST PRIOR event scoped to this matter (entity_type/entity_id),
+      // scanned newest-first over the real interleaved audit log.
+      latestPriorMatterEvent: () => {
+        const events = state.auditByMatter.get(matterId) ?? [];
+        for (let i = events.length - 1; i >= 0; i--) {
+          const ev = events[i]!.event;
+          if (ev.entity_type === "matter" && ev.entity_id === matterId) return events[i];
+        }
+        return undefined;
+      },
+    });
+    state.matters.set(matterId, prepared.next);
+    const stored = state.auditByMatter.get(matterId) ?? [];
+    stored.push(prepared.audit);
     state.auditByMatter.set(matterId, stored);
     return structuredClone(prepared.next) as CaseBoxMatter;
   }

@@ -104,7 +104,12 @@ import {
   getMatterSummarySqlite,
   listMattersSqlite,
 } from "./aggregationsRepoQueries.js";
-import { prepareCreateMatter, prepareEnsureMatterPartyIds, prepareMatterTransition } from "../inMemoryMatter.js";
+import {
+  prepareCreateMatter,
+  prepareEnsureMatterPartyIds,
+  prepareMatterDetailsUpdate,
+  prepareMatterTransition,
+} from "../inMemoryMatter.js";
 import { generateUlid } from "../ulid.js";
 import {
   hasDocumentId,
@@ -115,8 +120,10 @@ import {
   selectMatterForDocument,
 } from "./documentRepoQueries.js";
 import {
+  assertMatterAuditHeadConsistent,
   insertAuditEvent,
   insertMatterRow,
+  selectLatestMatterEvent,
   updateMatterRow,
   upsertAuditChainHead,
 } from "./matterRepoQueries.js";
@@ -131,6 +138,7 @@ import type {
   DismissDocketEntryOpts,
   EditDocketEntryOpts,
   EnsureMatterPartyIdsOpts,
+  UpdateMatterDetailsOpts,
   DocumentDetail,
   EffectiveClassificationResult,
   EvidenceTransitionOpts,
@@ -386,6 +394,57 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
         prepared.audit!.event.id,
         prepared.audit!.sequence,
         prepared.audit!.event.timestamp,
+        eventHash,
+      );
+      resultMatter = prepared.next;
+    });
+    run.immediate();
+
+    return structuredClone(resultMatter!) as CaseBoxMatter;
+  }
+
+  async updateMatterDetails(matterId: string, opts: UpdateMatterDetailsOpts): Promise<CaseBoxMatter> {
+    const db = this.#db;
+    const now = this.#now;
+    const generateId = this.#generateId;
+    let resultMatter: CaseBoxMatter | null = null;
+
+    // ONE transaction: read payload → hash → D4a continuity → append event →
+    // update row, all under BEGIN IMMEDIATE. A thrown guard rolls the whole
+    // transaction back (no event row, no head advance, no payload rewrite).
+    const run = db.transaction(() => {
+      const row = db
+        .prepare("SELECT payload_json FROM case_box_matters WHERE id = ?")
+        .get(matterId) as { payload_json: string } | undefined;
+      if (row === undefined) {
+        throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
+      }
+      const matter = JSON.parse(row.payload_json) as CaseBoxMatter;
+
+      // audit finding H (SQLite-only, defense-in-depth): refuse to append onto an
+      // inconsistent audit head BEFORE deriving the next sequence, so a stale /
+      // corrupted head row rolls the whole BEGIN IMMEDIATE back (no event, no head
+      // advance, no payload rewrite). The in-memory impl derives sequence from the
+      // real event array and is immune. archiveMatter / ensureMatterPartyIds share
+      // this gap and are hardened in a separate follow-up WI (left unchanged here).
+      assertMatterAuditHeadConsistent(db, matterId);
+
+      const prepared = prepareMatterDetailsUpdate(matter, opts, {
+        generateId,
+        nowIso: () => now().toISOString(),
+        storedAuditEventsForMatter: () => loadSyntheticStoredEvents(db, matterId),
+        latestPriorMatterEvent: () => selectLatestMatterEvent(db, matterId),
+      });
+
+      const eventHash = eventHashFn(prepared.audit.event);
+      updateMatterRow(db, prepared.next);
+      insertAuditEvent(db, prepared.audit, eventHash);
+      upsertAuditChainHead(
+        db,
+        prepared.next.id,
+        prepared.audit.event.id,
+        prepared.audit.sequence,
+        prepared.audit.event.timestamp,
         eventHash,
       );
       resultMatter = prepared.next;

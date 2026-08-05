@@ -89,6 +89,37 @@ export interface EnsureMatterPartyIdsOpts {
   readonly actorUserId: string;
 }
 
+/**
+ * matter-details-edit Phase B (D5) — the narrow patch of the 6 editable free-text
+ * descriptive matter fields. This is a strict allowlist: any OTHER key present in
+ * the patch (frozen/server/lifecycle field or an unknown key) is rejected as
+ * `invalid_payload`. Per-key semantics:
+ *   - key absent / value `undefined` → no change to that field;
+ *   - value `null` or `""` → an explicit clear, permitted ONLY where the field's
+ *     domain allows it (`name` is required and cannot be cleared → `invalid_payload`;
+ *     the 5 optional descriptors may be cleared to `""`);
+ *   - a string value → the new value (trimmed before change detection).
+ */
+export interface MatterDetailsPatch {
+  readonly name?: string | null;
+  readonly retainer_scope?: string | null;
+  readonly case_type_text?: string | null;
+  readonly case_progress_text?: string | null;
+  readonly court_contact_text?: string | null;
+  readonly contention_summary_text?: string | null;
+}
+
+/**
+ * matter-details-edit Phase B — opts for `updateMatterDetails`. `actor_user_id`
+ * and `reason` are caller-supplied (the reason is court-facing and REQUIRED for a
+ * MATTER_DETAILS_UPDATED event). No server/provenance/lifecycle field is accepted.
+ */
+export interface UpdateMatterDetailsOpts {
+  readonly patch: MatterDetailsPatch;
+  readonly actor_user_id: string;
+  readonly reason: string;
+}
+
 export interface GetEffectiveClassificationQuery {
   readonly tenant_id: string;
   readonly matter_id: string;
@@ -147,6 +178,7 @@ export interface CaseBoxPersistence {
   archiveMatter(matterId: string, opts: ArchiveMatterOpts): Promise<CaseBoxMatter>;
   unarchiveMatter(matterId: string, opts: ArchiveMatterOpts): Promise<CaseBoxMatter>;
   ensureMatterPartyIds(matterId: string, opts: EnsureMatterPartyIdsOpts): Promise<CaseBoxMatter>;
+  updateMatterDetails(matterId: string, opts: UpdateMatterDetailsOpts): Promise<CaseBoxMatter>;
 
   // Document lifecycle
   registerDocument(matterId: string, document: unknown): Promise<CaseBoxDocument>;

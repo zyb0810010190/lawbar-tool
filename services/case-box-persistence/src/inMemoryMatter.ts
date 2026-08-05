@@ -14,7 +14,9 @@ import {
   buildCaseBoxAuditEvent,
   IllegalTransitionError,
   MatterSuccessorInvariantError,
+  validateAuditEvent,
   validateMatter,
+  type CaseBoxAuditEvent,
   type CaseBoxAuditEventKind,
   type CaseBoxMatter,
 } from "case-box-contract";
@@ -363,5 +365,209 @@ export function prepareEnsureMatterPartyIds(
     changed: true,
     next,
     audit: { sequence: stored.length + 1, event: built.value },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// matter-details-edit Phase B — audited edit of the 6 free-text descriptive
+// fields (`updateMatterDetails`). Mirrors the prepareMatterTransition /
+// prepareEnsureMatterPartyIds precedent: pure core, before/after entityStateHash,
+// one appended event, fail-closed continuity. Differs in TWO ways (D4a/D5a):
+//   1. Continuity is verified against the LATEST PRIOR *matter* event (not the
+//      immediately-prior GLOBAL event) because claim-track / deadline / document
+//      events now interleave the chain; `prev_event_hash` still chains off the
+//      global head, `before_state_hash` off that latest matter event.
+//   2. It emits a narrow, SORTED `changed_fields` (D5a), attached post-build +
+//      re-validated so it is hashed (tamper-evident) and allowlist-bounded.
+// ---------------------------------------------------------------------------
+
+/** The exactly-6 editable free-text matter-detail fields (D1 rev-1). */
+export const EDITABLE_MATTER_DETAIL_FIELDS = [
+  "name",
+  "retainer_scope",
+  "case_type_text",
+  "case_progress_text",
+  "court_contact_text",
+  "contention_summary_text",
+] as const;
+
+type EditableMatterDetailField = (typeof EDITABLE_MATTER_DETAIL_FIELDS)[number];
+
+const EDITABLE_MATTER_DETAIL_FIELD_SET: ReadonlySet<string> = new Set(EDITABLE_MATTER_DETAIL_FIELDS);
+
+/** Strict patch of the 6 editable fields (see types.ts `MatterDetailsPatch`). */
+export interface MatterDetailsPatch {
+  readonly name?: string | null;
+  readonly retainer_scope?: string | null;
+  readonly case_type_text?: string | null;
+  readonly case_progress_text?: string | null;
+  readonly court_contact_text?: string | null;
+  readonly contention_summary_text?: string | null;
+}
+
+export interface UpdateMatterDetailsOpts {
+  readonly patch: MatterDetailsPatch;
+  readonly actor_user_id: string;
+  readonly reason: string;
+}
+
+interface MatterDetailsUpdateDeps {
+  generateId: () => string;
+  nowIso: () => string;
+  /** Global stored events for the matter (for prev_event_hash off the global head + next sequence). */
+  storedAuditEventsForMatter: () => StoredAuditEvent[];
+  /** The LATEST PRIOR event with entity_type==="matter" && entity_id===matter.id (D4a state baseline). */
+  latestPriorMatterEvent: () => StoredAuditEvent | undefined;
+}
+
+interface PrepareMatterDetailsUpdateResult {
+  next: CaseBoxMatter;
+  audit: StoredAuditEvent;
+}
+
+/**
+ * Pure-function preparation for `updateMatterDetails`. Loads-then-prepares: the
+ * repo passes the current stored matter; this validates the strict patch,
+ * canonicalizes + change-detects, verifies fail-closed D4a continuity, and
+ * builds the single MATTER_DETAILS_UPDATED event (with sorted `changed_fields`)
+ * to append. Never mutates the caller's `matter`. Throws before returning on any
+ * guard failure, so the repo appends/rewrites nothing on rejection.
+ */
+export function prepareMatterDetailsUpdate(
+  matter: CaseBoxMatter,
+  opts: UpdateMatterDetailsOpts,
+  deps: MatterDetailsUpdateDeps,
+): PrepareMatterDetailsUpdateResult {
+  // --- opts guards -------------------------------------------------------
+  if (typeof opts.actor_user_id !== "string" || opts.actor_user_id.length === 0) {
+    throw new CaseBoxPersistenceError("invalid_argument", `actor_user_id must be a non-empty string`);
+  }
+  if (typeof opts.reason !== "string" || opts.reason.length === 0) {
+    throw new CaseBoxPersistenceError("invalid_payload", `reason must be a non-empty string for a matter-details edit`);
+  }
+  // --- lifecycle guard: an archived matter is read-only (D5) -------------
+  if (matter.status !== "active") {
+    throw new CaseBoxPersistenceError(
+      "matter_archived",
+      `cannot edit matter ${matter.id}: status is ${JSON.stringify(matter.status)} (unarchive before editing)`,
+    );
+  }
+  // --- strict PATCH validation (D5): allowlist-only keys -----------------
+  const patch: unknown = opts.patch;
+  if (patch === null || typeof patch !== "object" || Array.isArray(patch)) {
+    throw new CaseBoxPersistenceError("invalid_payload", `patch must be a plain object of editable matter fields`);
+  }
+  const patchRecord = patch as Record<string, unknown>;
+  for (const key of Object.keys(patchRecord)) {
+    if (!EDITABLE_MATTER_DETAIL_FIELD_SET.has(key)) {
+      throw new CaseBoxPersistenceError(
+        "invalid_payload",
+        `patch contains a non-editable or unknown field: ${JSON.stringify(key)}`,
+      );
+    }
+  }
+  // --- change detection (canonicalize/trim BEFORE compare) ---------------
+  const next = structuredClone(matter) as CaseBoxMatter;
+  const nextRecord = next as Record<string, unknown>;
+  const matterRecord = matter as unknown as Record<string, unknown>;
+  const changed: EditableMatterDetailField[] = [];
+  for (const field of EDITABLE_MATTER_DETAIL_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(patchRecord, field)) continue;
+    const raw = patchRecord[field];
+    if (raw === undefined) continue; // explicit undefined = "no change to this field"
+    let desired: string;
+    if (raw === null) {
+      desired = ""; // null = explicit clear
+    } else if (typeof raw === "string") {
+      desired = raw.trim(); // canonicalize before change detection
+    } else {
+      throw new CaseBoxPersistenceError(
+        "invalid_payload",
+        `patch field ${JSON.stringify(field)} must be a string, null, or undefined`,
+      );
+    }
+    if (field === "name" && desired === "") {
+      throw new CaseBoxPersistenceError("invalid_payload", `name is required and cannot be cleared`);
+    }
+    // `name` is always present; the 5 optional descriptors default to "" (absent
+    // and "" are the same "empty" state for change detection — avoids spam).
+    const current = field === "name" ? matter.name : (matterRecord[field] as string | undefined) ?? "";
+    if (desired === current) continue; // no material change to this field
+    changed.push(field);
+    nextRecord[field] = desired;
+  }
+  // --- no-op rejection: no editable field changed → no audit spam --------
+  if (changed.length === 0) {
+    throw new CaseBoxPersistenceError("no_editable_change", `matter-details edit changed no editable field`);
+  }
+  // --- changed_fields: ascending-sorted, unique, allowlist-only (D5a) ----
+  const changedFields = [...changed].sort();
+  // --- validate the rewritten payload ------------------------------------
+  const nextValid = validateMatter(next);
+  if (!nextValid.ok) {
+    throw new CaseBoxPersistenceError("invalid_payload", `post-edit matter invalid: ${nextValid.summary}`);
+  }
+  // --- D4a fail-closed continuity vs the LATEST PRIOR matter event -------
+  const priorMatterEvent = deps.latestPriorMatterEvent();
+  if (priorMatterEvent === undefined) {
+    throw new CaseBoxPersistenceError(
+      "audit_chain_desync",
+      `cannot edit matter ${matter.id}: no prior matter audit event (a matter always has MATTER_REGISTERED)`,
+    );
+  }
+  const priorAfterHash = priorMatterEvent.event.after_state_hash;
+  if (typeof priorAfterHash !== "string" || priorAfterHash.length === 0) {
+    throw new CaseBoxPersistenceError(
+      "audit_chain_desync",
+      `cannot edit matter ${matter.id}: latest prior matter event has a null/malformed after_state_hash`,
+    );
+  }
+  if (priorAfterHash !== entityStateHash(matter)) {
+    throw new CaseBoxPersistenceError(
+      "audit_chain_desync",
+      `cannot edit matter ${matter.id}: stored payload is out of sync with the latest prior matter event ` +
+        `(after_state_hash != current payload hash)`,
+    );
+  }
+  // --- append ONE MATTER_DETAILS_UPDATED event ---------------------------
+  const afterHash = entityStateHash(next);
+  const stored = deps.storedAuditEventsForMatter();
+  const prevHash = priorHeadOf(stored);
+  const stamp = deps.nowIso();
+  const built = buildCaseBoxAuditEvent({
+    kind: "MATTER_DETAILS_UPDATED" as CaseBoxAuditEventKind,
+    id: deps.generateId(),
+    tenant_id: matter.tenant_id,
+    actor_user_id: opts.actor_user_id,
+    matter_id: matter.id,
+    entity_id: matter.id,
+    before_state_hash: priorAfterHash,
+    after_state_hash: afterHash,
+    prev_event_hash: prevHash,
+    timestamp: stamp,
+    reason: opts.reason,
+  });
+  if (!built.ok) {
+    throw new CaseBoxPersistenceError("invalid_payload", `audit-event builder rejected: ${built.summary}`);
+  }
+  // The fixed-field builder does not emit `changed_fields`; the emitter attaches
+  // the narrow structured list (D5a) post-build and RE-VALIDATES it against the
+  // contract schema (allowlist / uniqueness / non-empty / per-kind conditional)
+  // BEFORE it is hashed + appended. The v2 canonicalization hashes `changed_fields`,
+  // so it is tamper-evident and can never carry an out-of-allowlist value.
+  const eventWithChanged = {
+    ...built.value,
+    changed_fields: changedFields as CaseBoxAuditEvent["changed_fields"],
+  };
+  const revalidated = validateAuditEvent(eventWithChanged);
+  if (!revalidated.ok) {
+    throw new CaseBoxPersistenceError(
+      "invalid_payload",
+      `MATTER_DETAILS_UPDATED event with changed_fields rejected: ${revalidated.summary}`,
+    );
+  }
+  return {
+    next,
+    audit: { sequence: stored.length + 1, event: revalidated.value },
   };
 }
