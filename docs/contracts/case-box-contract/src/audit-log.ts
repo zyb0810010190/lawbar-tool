@@ -76,6 +76,9 @@ export const CASE_BOX_AUDIT_EVENT_KINDS = Object.freeze({
   // WI-PTA-VS0: audited assignment/backfill of party ULIDs on a matter (parties live in the matter
   // payload; assigning an id rewrites the matter → an audited matter update, never an unaudited migration).
   MATTER_PARTY_IDS_ASSIGNED:  { action: "update",          entity_type: "matter",           reasonRequired: false },
+  // matter-details-edit Phase A: audited correction of the 6 free-text descriptive fields (D1/D4). The
+  // narrow structured `changed_fields` (D5a) records WHAT changed and is HASHED in the v2 canonicalization.
+  MATTER_DETAILS_UPDATED:     { action: "update",          entity_type: "matter",           reasonRequired: true  },
   DOCUMENT_REGISTERED:        { action: "create",          entity_type: "document",         reasonRequired: false },
   DOCUMENT_OCR_SUBMITTED:     { action: "update",          entity_type: "document",         reasonRequired: false },
   DOCUMENT_OCR_COMPLETE:      { action: "update",          entity_type: "document",         reasonRequired: false },
@@ -217,6 +220,16 @@ export function canonicalAuditEventHashInput(event: CaseBoxAuditEvent): string {
   // event_kind present) or a valid v2 event (audit_schema_version === 2 AND a known event_kind), and
   // THROWS on anything else (partial pair / unsupported version / unknown kind). This defensive
   // validation at the canonicalizer is a security-boundary requirement, not merely defensive.
+  // matter-details-edit Phase A (audit finding M): `changed_fields` is a security-boundary field permitted
+  // ONLY on a MATTER_DETAILS_UPDATED v2 event. Reject it on ANY other kind (incl. v1 legacy) at the
+  // canonicalizer — defense-in-depth mirroring the partial-pair / unknown-kind throws below, so a
+  // schema-bypassing malformed event can never hash a smuggled `changed_fields`. Byte-safe: this only fires
+  // for events that actually carry the field, so every existing event's canonical bytes are unchanged.
+  if (event.changed_fields !== undefined && event.event_kind !== "MATTER_DETAILS_UPDATED") {
+    throw new Error(
+      "canonicalAuditEventHashInput: changed_fields is only allowed on MATTER_DETAILS_UPDATED v2 events",
+    );
+  }
   const hasVer = event.audit_schema_version !== undefined && event.audit_schema_version !== null;
   const hasKind = event.event_kind !== undefined && event.event_kind !== null;
   if (hasVer || hasKind) {
@@ -236,12 +249,19 @@ export function canonicalAuditEventHashInput(event: CaseBoxAuditEvent): string {
       );
     }
     // v2: existing 12 fields PLUS audit_schema_version + event_kind, in alphabetical (canonical) order.
+    // matter-details-edit Phase A (D5a): `changed_fields` is included ONLY when present, in its
+    // alphabetical slot (between before_state_hash and entity_id). This conditional spread is the #1
+    // byte-preservation invariant — an event with NO changed_fields produces a canonical string
+    // BYTE-IDENTICAL to the pre-change v2 shape, so every existing event's hash is unchanged. Do NOT
+    // add changed_fields unconditionally (a null/default would rewrite every existing v2 event's string
+    // and break the chain).
     const canonical = {
       action: event.action,
       actor_user_id: event.actor_user_id,
       after_state_hash: event.after_state_hash,
       audit_schema_version: event.audit_schema_version,
       before_state_hash: event.before_state_hash,
+      ...(event.changed_fields !== undefined ? { changed_fields: event.changed_fields } : {}),
       entity_id: event.entity_id,
       entity_type: event.entity_type,
       event_kind: event.event_kind,

@@ -68,6 +68,7 @@ export type CaseBoxAuditEvent = {
     | "MATTER_ARCHIVED"
     | "MATTER_UNARCHIVED"
     | "MATTER_PARTY_IDS_ASSIGNED"
+    | "MATTER_DETAILS_UPDATED"
     | "DOCUMENT_REGISTERED"
     | "DOCUMENT_OCR_SUBMITTED"
     | "DOCUMENT_OCR_COMPLETE"
@@ -140,6 +141,29 @@ export type CaseBoxAuditEvent = {
    * Audit-event canonicalization version. v2 events set this to 2 (the value is hashed in the v2 canonicalization); absent on legacy v1 events. Present iff event_kind is present.
    */
   audit_schema_version?: 2;
+  /**
+   * matter-details-edit Phase A (D5a). The narrow, structured list of the 6 editable free-text matter fields that materially changed in a MATTER_DETAILS_UPDATED edit. MUST be in canonical SORTED order (ascending by field name): the field is a semantic SET, but the v2 canonicalization hashes array order EXACTLY, so an unsorted array would hash a different value for the same change-set. JSON Schema cannot enforce sortedness declaratively — the Phase-B persistence emitter MUST sort before append (enforced + tested in Phase B); this schema enforces only allowlist membership, uniqueness, and non-empty. Allowed ONLY on event_kind === "MATTER_DETAILS_UPDATED" (allOf conditional below); forbidden on every other kind. Hashed in the v2 canonicalization (tamper-evident). NOT a generic metadata escape hatch.
+   *
+   * @minItems 1
+   */
+  changed_fields?: [
+    (
+      | "name"
+      | "retainer_scope"
+      | "case_type_text"
+      | "case_progress_text"
+      | "court_contact_text"
+      | "contention_summary_text"
+    ),
+    ...(
+      | "name"
+      | "retainer_scope"
+      | "case_type_text"
+      | "case_progress_text"
+      | "court_contact_text"
+      | "contention_summary_text"
+    )[]
+  ];
 };
 /**
  * This interface was referenced by `undefined`'s JSON-Schema

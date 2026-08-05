@@ -69,7 +69,7 @@
     "event_kind": {
       "description": "v2 normalized audit-event kind (ADR audit-event-kind-preservation) — a CASE_BOX_AUDIT_EVENT_KINDS key. Present iff audit_schema_version is present (v2 events); absent on legacy v1 events. Hashed in the v2 canonicalization. The chain verifier (verifyAuditChain) additionally enforces that the kind's declared {action, entity_type, reasonRequired} matches the event.",
       "enum": [
-        "MATTER_REGISTERED", "MATTER_ARCHIVED", "MATTER_UNARCHIVED", "MATTER_PARTY_IDS_ASSIGNED",
+        "MATTER_REGISTERED", "MATTER_ARCHIVED", "MATTER_UNARCHIVED", "MATTER_PARTY_IDS_ASSIGNED", "MATTER_DETAILS_UPDATED",
         "DOCUMENT_REGISTERED", "DOCUMENT_OCR_SUBMITTED", "DOCUMENT_OCR_COMPLETE", "DOCUMENT_OCR_FAILED",
         "DOCUMENT_TRIAGED", "DOCUMENT_TAGGED", "DOCUMENT_REVIEWED", "DOCUMENT_SOFT_DELETED",
         "OCR_LINK_SNAPSHOTTED", "OCR_LINK_REFRESHED",
@@ -94,6 +94,16 @@
     "audit_schema_version": {
       "const": 2,
       "description": "Audit-event canonicalization version. v2 events set this to 2 (the value is hashed in the v2 canonicalization); absent on legacy v1 events. Present iff event_kind is present."
+    },
+    "changed_fields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["name", "retainer_scope", "case_type_text", "case_progress_text", "court_contact_text", "contention_summary_text"]
+      },
+      "uniqueItems": true,
+      "minItems": 1,
+      "description": "matter-details-edit Phase A (D5a). The narrow, structured list of the 6 editable free-text matter fields that materially changed in a MATTER_DETAILS_UPDATED edit. MUST be in canonical SORTED order (ascending by field name): the field is a semantic SET, but the v2 canonicalization hashes array order EXACTLY, so an unsorted array would hash a different value for the same change-set. JSON Schema cannot enforce sortedness declaratively — the Phase-B persistence emitter MUST sort before append (enforced + tested in Phase B); this schema enforces only allowlist membership, uniqueness, and non-empty. Allowed ONLY on event_kind === \"MATTER_DETAILS_UPDATED\" (allOf conditional below); forbidden on every other kind. Hashed in the v2 canonicalization (tamper-evident). NOT a generic metadata escape hatch."
     }
   },
   "allOf": [
@@ -107,6 +117,17 @@
         "properties": {
           "reason": { "type": "string", "minLength": 1 }
         }
+      }
+    },
+    {
+      "description": "changed_fields is allowed ONLY on a MATTER_DETAILS_UPDATED event; forbidden on every other kind (and on legacy v1 events with no event_kind).",
+      "if": {
+        "properties": { "event_kind": { "const": "MATTER_DETAILS_UPDATED" } },
+        "required": ["event_kind"]
+      },
+      "then": true,
+      "else": {
+        "properties": { "changed_fields": false }
       }
     }
   ],

@@ -64,6 +64,12 @@ test("v2: canonicalAuditEventHashInput pins the 14-field string with audit_schem
   assert.notEqual(canonicalAuditEventHashInput(v2Event()), V1_CANONICAL);
 });
 
+// Byte-preservation guard (plan-matter-details-edit Phase A #1 invariant): the changed_fields addition
+// MUST NOT introduce a "changed_fields" token into the canonical string of any event that has none.
+test("v2: byte-preservation — an existing-kind event canonical has NO changed_fields token", () => {
+  assert.ok(!canonicalAuditEventHashInput(v2Event()).includes("changed_fields"));
+});
+
 // --- 3. buildCaseBoxAuditEvent sets both v2 fields ---
 
 test("v2: buildCaseBoxAuditEvent sets event_kind and audit_schema_version on new events", () => {
