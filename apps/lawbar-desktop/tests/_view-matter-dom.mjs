@@ -137,8 +137,8 @@ export function collectText(node) {
 }
 
 // --- Async flush ---
-// mountViewMatter chains loadChainHead -> loadAuditEvents -> api.listAuditEvents -> loadPage,
-// which is several await hops deep.
+// A lazily-loaded <details> section chains several await hops (open -> IPC list
+// -> render), so settle multiple microtasks before asserting.
 export async function flush() {
   for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
 }
@@ -223,17 +223,6 @@ export function captureWarn(fn) {
       throw err;
     },
   );
-}
-
-export function auditEvent(overrides = {}) {
-  return {
-    timestamp: "2026-05-27T10:30:00Z",
-    action: "matter.created",
-    entity_type: "matter",
-    entity_id: EVENT_ULID,
-    after_state_hash: SAMPLE_HASH,
-    ...overrides,
-  };
 }
 
 export function deadlineRow(overrides = {}) {

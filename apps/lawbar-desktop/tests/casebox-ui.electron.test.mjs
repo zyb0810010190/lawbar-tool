@@ -221,17 +221,6 @@ test("release smoke matrix: launch → nav → create → list → detail → su
     );
     assert.equal(await win.locator('[data-test-id="view-archive"]').count(), 0);
 
-    // Extra sub-screen evidence: audit chain head disclosure.
-    await win.locator('[data-test-id="view-chain-summary"]').click();
-    await win.waitForSelector('[data-test-id="view-chain-headhash"]', { timeout: 5000 });
-    assert.match(
-      await win.locator('[data-test-id="view-chain-headhash-truncated"]').textContent(),
-      /\.\.\./,
-    );
-    assert.ok(
-      Number(await win.locator('[data-test-id="view-chain-count"]').textContent()) >= 1,
-    );
-
     // M8: 设置 (Settings) renders app info through the real app:info preload/IPC boundary.
     await win.locator('a.sidebar-link[data-nav="settings"]').click();
     await win.waitForSelector('[data-test-id="settings-title"]', { timeout: 5000 });
