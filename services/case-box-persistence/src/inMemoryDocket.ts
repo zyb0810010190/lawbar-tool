@@ -396,7 +396,7 @@ export function prepareDismissDocketEntry(
   if (typeof opts.dismissed_at !== "string" || opts.dismissed_at.length === 0) {
     throw new CaseBoxPersistenceError("invalid_argument", `dismissed_at must be a non-empty ISO-8601 timestamp`);
   }
-  if (typeof opts.dismissal_reason !== "string" || opts.dismissal_reason.length === 0) {
+  if (typeof opts.dismissal_reason !== "string" || opts.dismissal_reason.trim().length === 0) {
     throw new CaseBoxPersistenceError("invalid_argument", `dismissal_reason must be a non-empty string`);
   }
   const matterId = state.docketIndex.get(entryId);

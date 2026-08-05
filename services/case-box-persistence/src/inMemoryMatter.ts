@@ -154,7 +154,7 @@ export function prepareMatterTransition(
   kind: CaseBoxAuditEventKind,
   deps: TransitionMatterDeps,
 ): PrepareTransitionMatterResult {
-  if (typeof opts.reason !== "string" || opts.reason.length === 0) {
+  if (typeof opts.reason !== "string" || opts.reason.trim().length === 0) {
     throw new CaseBoxPersistenceError("invalid_argument", `reason must be a non-empty string`);
   }
   if (typeof opts.actor_user_id !== "string" || opts.actor_user_id.length === 0) {
@@ -442,7 +442,7 @@ export function prepareMatterDetailsUpdate(
   if (typeof opts.actor_user_id !== "string" || opts.actor_user_id.length === 0) {
     throw new CaseBoxPersistenceError("invalid_argument", `actor_user_id must be a non-empty string`);
   }
-  if (typeof opts.reason !== "string" || opts.reason.length === 0) {
+  if (typeof opts.reason !== "string" || opts.reason.trim().length === 0) {
     throw new CaseBoxPersistenceError("invalid_payload", `reason must be a non-empty string for a matter-details edit`);
   }
   // --- lifecycle guard: an archived matter is read-only (D5) -------------

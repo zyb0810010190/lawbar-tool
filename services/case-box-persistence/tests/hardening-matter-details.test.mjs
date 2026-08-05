@@ -254,6 +254,20 @@ test("MDU: an empty reason → invalid_payload", async () => {
     () => p.updateMatterDetails(DEFAULT_MATTER_ID, OPTS({ name: "x" }, "")),
     (e) => e instanceof CaseBoxPersistenceError && e.code === "invalid_payload",
   );
+  // whitespace-only reason is rejected identically to the empty string
+  await assert.rejects(
+    () => p.updateMatterDetails(DEFAULT_MATTER_ID, OPTS({ name: "x" }, "   ")),
+    (e) => e instanceof CaseBoxPersistenceError && e.code === "invalid_payload",
+  );
+});
+
+test("MDU: SQLite — a whitespace-only reason → invalid_payload", async () => {
+  const { persistence: sqlite } = makeSqlite("mdu15sq");
+  await sqlite.createMatter(makeMatterInput());
+  await assert.rejects(
+    () => sqlite.updateMatterDetails(DEFAULT_MATTER_ID, OPTS({ name: "x" }, "   ")),
+    (e) => e instanceof CaseBoxPersistenceError && e.code === "invalid_payload",
+  );
 });
 
 test("MDU: an empty actor_user_id → invalid_argument", async () => {

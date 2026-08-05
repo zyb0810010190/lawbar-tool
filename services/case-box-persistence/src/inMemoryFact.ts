@@ -225,7 +225,7 @@ export function prepareTransitionFact(
 
   // Reason pre-validation for rejected edges (mirrors A3's pattern).
   if (opts.to === "rejected") {
-    if (typeof opts.rejection_reason !== "string" || opts.rejection_reason.length === 0) {
+    if (typeof opts.rejection_reason !== "string" || opts.rejection_reason.trim().length === 0) {
       throw new CaseBoxPersistenceError(
         "invalid_argument",
         `transition to rejected requires a non-empty rejection_reason`,

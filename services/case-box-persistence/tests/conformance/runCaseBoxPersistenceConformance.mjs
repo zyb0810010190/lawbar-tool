@@ -141,6 +141,11 @@ export function runConformance(label, factory) {
       () => p.archiveMatter(DEFAULT_MATTER_ID, { actor_user_id: "local-user", reason: "" }),
       "invalid_argument",
     );
+    // whitespace-only reason is rejected identically to the empty string
+    await assertRejectsCode(
+      () => p.archiveMatter(DEFAULT_MATTER_ID, { actor_user_id: "local-user", reason: "   " }),
+      "invalid_argument",
+    );
   });
 
   test(`${label}: 6.1.14 unarchiveMatter happy path`, async () => {
@@ -975,6 +980,16 @@ export function runConformance(label, factory) {
       }),
       "invalid_argument",
     );
+    // whitespace-only reason is rejected identically to a missing reason
+    await assertRejectsCode(
+      () => p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+        to: "dismissed",
+        actor_user_id: "lawyer-01",
+        at: "2026-05-21T11:00:00.000Z",
+        reason: "   ",
+      }),
+      "invalid_argument",
+    );
     const row = await p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
       to: "dismissed",
       actor_user_id: "lawyer-01",
@@ -1001,6 +1016,16 @@ export function runConformance(label, factory) {
         to: "waived",
         actor_user_id: "lawyer-01",
         at: "2026-05-21T12:00:00.000Z",
+      }),
+      "invalid_argument",
+    );
+    // whitespace-only reason is rejected identically to a missing reason
+    await assertRejectsCode(
+      () => p.transitionPrivilegeMarker(DEFAULT_PRIVILEGE_MARKER_ID, {
+        to: "waived",
+        actor_user_id: "lawyer-01",
+        at: "2026-05-21T12:00:00.000Z",
+        reason: "   ",
       }),
       "invalid_argument",
     );
@@ -1408,6 +1433,16 @@ export function runConformance(label, factory) {
         to: "rejected",
         reviewer_actor_user_id: "lawyer-01",
         at: "2026-05-21T16:00:00.000Z",
+      }),
+      "invalid_argument",
+    );
+    // whitespace-only rejection_reason is rejected identically to a missing reason
+    await assertRejectsCode(
+      () => p.transitionFact(DEFAULT_FACT_ID, {
+        to: "rejected",
+        reviewer_actor_user_id: "lawyer-01",
+        at: "2026-05-21T16:00:00.000Z",
+        rejection_reason: "   ",
       }),
       "invalid_argument",
     );
@@ -2015,6 +2050,15 @@ export function runConformance(label, factory) {
       }),
       "invalid_argument",
     );
+    // whitespace-only dismissal_reason is rejected identically to the empty string
+    await assertRejectsCode(
+      () => p.dismissDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
+        dismissal_actor_user_id: "lawyer-01",
+        dismissed_at: "2026-05-21T21:00:00.000Z",
+        dismissal_reason: "   ",
+      }),
+      "invalid_argument",
+    );
     const row = await p.dismissDocketEntry(DEFAULT_DOCKET_ENTRY_ID, {
       dismissal_actor_user_id: "lawyer-01",
       dismissed_at: "2026-05-21T21:00:00.000Z",
@@ -2361,6 +2405,16 @@ export function runConformance(label, factory) {
         to: "met",
         actor_user_id: "lawyer-01",
         at: "2026-06-16T10:00:00.000Z",
+      }),
+      "invalid_argument",
+    );
+    // whitespace-only transition_reason is rejected identically to a missing reason
+    await assertRejectsCode(
+      () => p.transitionDeadline(DEFAULT_DEADLINE_ID, {
+        to: "met",
+        actor_user_id: "lawyer-01",
+        at: "2026-06-16T10:00:00.000Z",
+        transition_reason: "   ",
       }),
       "invalid_argument",
     );

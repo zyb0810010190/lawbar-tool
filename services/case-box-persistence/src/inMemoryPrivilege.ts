@@ -230,7 +230,7 @@ export function prepareTransitionPrivilegeMarker(
   // surfaces as invalid_argument rather than illegal_transition (per plan
   // round-2 reconciliation M1 fix).
   if (opts.to === "dismissed" || opts.to === "waived") {
-    if (typeof opts.reason !== "string" || opts.reason.length === 0) {
+    if (typeof opts.reason !== "string" || opts.reason.trim().length === 0) {
       throw new CaseBoxPersistenceError(
         "invalid_argument",
         `transition to ${opts.to} requires a non-empty reason`,
