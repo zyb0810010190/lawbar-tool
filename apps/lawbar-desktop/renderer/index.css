@@ -78,7 +78,8 @@
   --status-archived-bg: transparent;
   --status-archived-border: var(--color-border-strong);
   --color-focus-ring: var(--color-accent);
-  --shadow-sm: 0 0 0 1px var(--color-border);
+  --shadow-sm: 0 1px 2px #1F1A170D, 0 8px 22px #1F1A1714;
+  --shadow-xs: 0 1px 2px #1F1A1710;
   --traffic-close: #E1685C;
   --traffic-min: #E2B23E;
   --traffic-max: #62B65B;
@@ -132,7 +133,8 @@
   --status-archived-bg: transparent;
   --status-archived-border: var(--color-border-strong);
   --color-focus-ring: var(--color-accent);
-  --shadow-sm: 0 0 0 1px var(--color-border);
+  --shadow-sm: 0 1px 2px #00000059, 0 12px 30px #00000073;
+  --shadow-xs: 0 1px 2px #0000004D;
   --traffic-close: #E1685C;
   --traffic-min: #E2B23E;
   --traffic-max: #62B65B;
@@ -254,7 +256,6 @@ html {
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-pill: 999px;
-  --shadow-xs: none;
   --duration-fast: 120ms;
   --duration-base: 180ms;
   --ease-standard: cubic-bezier(0.2, 0, 0.1, 1);
@@ -990,6 +991,7 @@ body.lawbar-app {
   background: var(--color-surface);
   border: var(--rule-thin) solid var(--color-rule);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: var(--space-7);
 }
 .view-card + .view-card { margin-top: var(--space-6); }
@@ -1103,6 +1105,7 @@ body.lawbar-app {
   background: var(--color-surface);
   border: var(--rule-thin) solid var(--color-rule);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: 0;
   overflow: hidden;
 }
@@ -1180,6 +1183,7 @@ body.lawbar-app {
   background: var(--color-surface);
   border: var(--rule-thin) solid var(--color-rule);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: 0;
 }
 .audit-chain summary {
@@ -1242,6 +1246,7 @@ body.lawbar-app {
   background: var(--color-surface);
   border: var(--rule-thin) solid var(--color-danger-border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: var(--space-5);
   display: flex; flex-direction: column; gap: var(--space-3);
 }
@@ -1365,6 +1370,7 @@ body.lawbar-app {
   background: var(--color-surface);
   border: var(--rule-thin) solid var(--color-rule);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: var(--space-6);
   margin-bottom: var(--space-8);
   display: grid;
@@ -1590,6 +1596,7 @@ body.lawbar-app {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: 10px 12px;
   display: flex;
   align-items: center;
@@ -1639,6 +1646,7 @@ body.lawbar-app {
 .binding-card {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: 10px 12px;
   display: flex;
   align-items: center;
@@ -1940,6 +1948,7 @@ body.lawbar-app {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: var(--space-4) var(--space-5);
   display: flex;
   flex-direction: column;
@@ -2551,6 +2560,7 @@ body.lawbar-app {
 .parties-section {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: var(--space-2) var(--space-3);
   margin-bottom: var(--space-3);
 }
