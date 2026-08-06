@@ -213,7 +213,7 @@ function renderAddFactControl(
   );
   const btn = el(
     "button",
-    { type: "button", class: "view-facts-add-btn", "data-test-id": "view-facts-add" },
+    { type: "button", class: "button button--primary view-facts-add-btn", "data-test-id": "view-facts-add" },
     [t("fact.addFact")],
     doc,
   );
@@ -430,7 +430,7 @@ function renderReviewControls(
   );
   const confirmReject = el(
     "button",
-    { type: "button", class: "view-facts-reject-confirm", "data-test-id": "view-facts-reject-confirm", hidden: "" },
+    { type: "button", class: "button button--danger view-facts-reject-confirm", "data-test-id": "view-facts-reject-confirm", hidden: "" },
     [t("fact.confirmReject")],
     doc,
   );
@@ -452,7 +452,7 @@ function renderReviewControls(
   for (const action of actions) {
     const btn = el(
       "button",
-      { type: "button", class: `view-facts-review-${action.to}`, "data-test-id": `view-facts-review-${action.to}` },
+      { type: "button", class: `button button--${action.to === "rejected" ? "danger" : "secondary"} view-facts-review-${action.to}`, "data-test-id": `view-facts-review-${action.to}` },
       [action.label],
       doc,
     );
@@ -544,7 +544,7 @@ async function loadFacts(
     if (cursor !== null) {
       const btn = el(
         "button",
-        { type: "button", class: "view-facts-more", "data-test-id": "view-facts-more" },
+        { type: "button", class: "button button--secondary view-facts-more", "data-test-id": "view-facts-more" },
         [t("common.loadMore")],
         doc,
       );

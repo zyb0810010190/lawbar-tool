@@ -173,7 +173,7 @@ export function renderDocketProposalsSection(
         seenCursors.add(cursor);
         const btn = el(
           "button",
-          { type: "button", class: "view-docket-proposals-more", "data-test-id": "view-docket-proposals-more" },
+          { type: "button", class: "button button--secondary view-docket-proposals-more", "data-test-id": "view-docket-proposals-more" },
           [t("common.loadMore")],
           doc,
         );
@@ -315,19 +315,19 @@ function renderDismissControl(
   );
   const dismissBtn = el(
     "button",
-    { type: "button", class: "view-docket-dismiss-btn", "data-test-id": "view-docket-dismiss" },
+    { type: "button", class: "button button--danger view-docket-dismiss-btn", "data-test-id": "view-docket-dismiss" },
     [t("docket.dismiss.button")],
     doc,
   );
   const confirmBtn = el(
     "button",
-    { type: "button", class: "view-docket-dismiss-confirm", "data-test-id": "view-docket-dismiss-confirm", hidden: "" },
+    { type: "button", class: "button button--danger view-docket-dismiss-confirm", "data-test-id": "view-docket-dismiss-confirm", hidden: "" },
     [t("docket.dismiss.confirm")],
     doc,
   );
   const cancelBtn = el(
     "button",
-    { type: "button", class: "view-docket-dismiss-cancel", "data-test-id": "view-docket-dismiss-cancel", hidden: "" },
+    { type: "button", class: "button button--secondary view-docket-dismiss-cancel", "data-test-id": "view-docket-dismiss-cancel", hidden: "" },
     [t("docket.cancel")],
     doc,
   );
@@ -441,7 +441,7 @@ function renderEditControl(
 
   const editBtn = el(
     "button",
-    { type: "button", class: "view-docket-edit-btn", "data-test-id": "view-docket-edit" },
+    { type: "button", class: "button button--secondary view-docket-edit-btn", "data-test-id": "view-docket-edit" },
     [t("docket.edit.button")],
     doc,
   );
@@ -485,13 +485,13 @@ function renderEditControl(
   );
   const saveBtn = el(
     "button",
-    { type: "button", class: "view-docket-edit-save", "data-test-id": "view-docket-edit-save" },
+    { type: "button", class: "button button--primary view-docket-edit-save", "data-test-id": "view-docket-edit-save" },
     [t("docket.edit.save")],
     doc,
   );
   const cancelBtn = el(
     "button",
-    { type: "button", class: "view-docket-edit-cancel", "data-test-id": "view-docket-edit-cancel" },
+    { type: "button", class: "button button--secondary view-docket-edit-cancel", "data-test-id": "view-docket-edit-cancel" },
     [t("docket.cancel")],
     doc,
   );

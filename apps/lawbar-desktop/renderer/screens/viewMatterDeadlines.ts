@@ -232,7 +232,7 @@ function renderAddDeadlineControl(
   );
   const proposeBtn = el(
     "button",
-    { type: "button", class: "view-deadlines-add-btn", "data-test-id": "view-deadlines-add" },
+    { type: "button", class: "button button--primary view-deadlines-add-btn", "data-test-id": "view-deadlines-add" },
     [t("deadline.propose")],
     doc,
   );
@@ -245,7 +245,7 @@ function renderAddDeadlineControl(
   );
   const confirmBtn = el(
     "button",
-    { type: "button", class: "view-deadlines-confirm-btn", "data-test-id": "view-deadlines-confirm" },
+    { type: "button", class: "button button--primary view-deadlines-confirm-btn", "data-test-id": "view-deadlines-confirm" },
     [t("deadline.confirm")],
     doc,
   );
@@ -490,7 +490,7 @@ function renderDeadlineTransitionControls(
   };
 
   const mkBtn = (label: string, testId: string): HTMLElement =>
-    el("button", { type: "button", class: "view-deadlines-transition-btn", "data-test-id": testId }, [label], doc);
+    el("button", { type: "button", class: "button button--secondary view-deadlines-transition-btn", "data-test-id": testId }, [label], doc);
 
   // Shared submit: forward the narrow dto, surface a transition error inline (keep
   // the row, re-enable via `reEnable`, NO refresh — the WI-D4 lesson), and on
@@ -557,13 +557,13 @@ function renderDeadlineTransitionControls(
     );
     const confirmBtn = el(
       "button",
-      { type: "button", class: "view-deadlines-transition-confirm", "data-test-id": "view-deadlines-transition-confirm", hidden: "" },
+      { type: "button", class: "button button--primary view-deadlines-transition-confirm", "data-test-id": "view-deadlines-transition-confirm", hidden: "" },
       [t("deadline.transition.confirm")],
       doc,
     );
     const cancelBtn = el(
       "button",
-      { type: "button", class: "view-deadlines-transition-cancel", "data-test-id": "view-deadlines-transition-cancel", hidden: "" },
+      { type: "button", class: "button button--secondary view-deadlines-transition-cancel", "data-test-id": "view-deadlines-transition-cancel", hidden: "" },
       [t("deadline.transition.cancel")],
       doc,
     );

@@ -423,13 +423,13 @@ function renderAddArea(
 
   const saveBtn = el(
     "button",
-    { type: "button", class: "view-ct-save", "data-test-id": "view-ct-save" },
+    { type: "button", class: "button button--primary view-ct-save", "data-test-id": "view-ct-save" },
     [t("claimTrack.form.save")],
     doc,
   );
   const cancelBtn = el(
     "button",
-    { type: "button", class: "view-ct-cancel", "data-test-id": "view-ct-cancel" },
+    { type: "button", class: "button button--secondary view-ct-cancel", "data-test-id": "view-ct-cancel" },
     [t("claimTrack.form.cancel")],
     doc,
   );
@@ -453,7 +453,7 @@ function renderAddArea(
 
   const addBtn = el(
     "button",
-    { type: "button", class: "view-claim-tracks-add-btn", "data-test-id": "view-claim-tracks-add" },
+    { type: "button", class: "button button--primary view-claim-tracks-add-btn", "data-test-id": "view-claim-tracks-add" },
     [t("claimTrack.add.button")],
     doc,
   );

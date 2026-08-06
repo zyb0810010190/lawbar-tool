@@ -106,7 +106,7 @@ export function renderLinksDisclosure(
   );
   const exportBtn = el(
     "button",
-    { type: "button", class: "view-links-export-btn", "data-test-id": "view-links-export-btn" },
+    { type: "button", class: "button button--secondary view-links-export-btn", "data-test-id": "view-links-export-btn" },
     [t("links.export.button")],
     doc,
   );
@@ -204,7 +204,7 @@ function renderCreateLinkControl(
   );
   const btn = el(
     "button",
-    { type: "button", class: "view-links-create-btn", "data-test-id": "view-links-create-btn" },
+    { type: "button", class: "button button--primary view-links-create-btn", "data-test-id": "view-links-create-btn" },
     [t("links.create.button")],
     doc,
   );
@@ -406,7 +406,7 @@ function renderLinkActions(
       "button",
       {
         type: "button",
-        class: "view-links-unlink-confirm",
+        class: "button button--danger view-links-unlink-confirm",
         "data-test-id": "view-links-unlink-confirm",
         hidden: "",
       },
@@ -415,7 +415,7 @@ function renderLinkActions(
     );
     const unlinkBtn = el(
       "button",
-      { type: "button", class: "view-links-unlink", "data-test-id": "view-links-unlink" },
+      { type: "button", class: "button button--danger view-links-unlink", "data-test-id": "view-links-unlink" },
       [t("links.unlink.button")],
       doc,
     );
@@ -457,7 +457,7 @@ function renderLinkActions(
     // Relink: one reversible click, no reason (the persistence relink takes none).
     const relinkBtn = el(
       "button",
-      { type: "button", class: "view-links-relink", "data-test-id": "view-links-relink" },
+      { type: "button", class: "button button--secondary view-links-relink", "data-test-id": "view-links-relink" },
       [t("links.relink.button")],
       doc,
     );
