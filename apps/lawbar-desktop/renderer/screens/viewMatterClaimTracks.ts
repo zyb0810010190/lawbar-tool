@@ -350,7 +350,7 @@ function renderAddArea(
   const trackTypeField = renderRadioGroup(
     doc,
     "view-ct-track-type",
-    t("claimTrack.form.trackType"),
+    t("claimTrack.form.trackType") + " *",
     [
       ["main_claim", t("claimTrack.trackType.main_claim")],
       ["counterclaim", t("claimTrack.trackType.counterclaim")],
@@ -363,7 +363,7 @@ function renderAddArea(
   const ourRoleField = renderRadioGroup(
     doc,
     "view-ct-our-role",
-    t("claimTrack.form.ourRole"),
+    t("claimTrack.form.ourRole") + " *",
     [
       ["asserting", t("claimTrack.ourRole.asserting")],
       ["responding", t("claimTrack.ourRole.responding")],
