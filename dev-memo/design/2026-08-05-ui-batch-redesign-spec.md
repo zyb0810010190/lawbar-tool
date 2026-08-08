@@ -46,6 +46,20 @@ any cancel / status toggles (`view-*-export*`, `view-docket-edit-btn`, `view-lin
 - **(R) Settings utility row → DEFERRED to a separate WI.** The 打开数据目录 / 复制诊断信息 utilities require new
   IPC and are not pure presentation; WI-UI-4 only rebalances Settings with static info. Interactive utilities
   are a later opt-in WI. Supersedes §3's "add a utility row (optional)" — presentation-only in these batches.
+- **(UI-4) → CLOSED AS A NO-OP, verified 2026-08-08. The 4-batch plan completes at UI-3.** Both of UI-4's
+  items were re-verified against real code and neither has remaining work:
+  - **(L) matter action cluster — ALREADY SATISFIED.** The proposed rule was "header = 编辑 primary,
+    危险操作 section = 归档 danger". That is exactly what ships: `viewMatter.ts:317-318` renders 编辑 as
+    `button button--primary view-edit-btn` in the header, and `viewMatter.ts:488-501` renders 归档 as
+    `button button--danger view-archive-btn` inside the archive pull card marked `detail.dangerZone`
+    (「危险操作」). §"Visual-weight rules" of this same spec already recorded that separation as
+    "intentional, not drift" — item L contradicted its own document.
+  - **(R) Settings — no gap to close.** The interactive half (打开数据目录 / 复制诊断信息) was already
+    DEFERRED above (needs new IPC; not presentation). The residual "rebalance with static info" has no
+    identified deficit: `settings.ts` already presents 版本, 运行模式, 数据位置, 本地优先, 离线优先,
+    FileVault state + its production note, and the no-telemetry privacy statement across two sections.
+  Implementing UI-4 anyway would have meant inventing churn against a screen that is already correct, which
+  §"Execution discipline" forbids. **No WI-UI-4 commit exists or is needed.**
 - **(I, action order) → INLINE surfaces use `[primary, cancel]`; a future MODAL surface would use macOS
   HIG `[cancel, primary]`.** Decided 2026-08-08 for WI-UI-2, at Frank's direction to route the call to Codex
   (`review-plan-mskgim15-vhefre`, thread `019fe1bb-754a-7113-aaa8-eaa9a0e85806`).

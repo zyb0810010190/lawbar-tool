@@ -630,3 +630,14 @@ a whitespace-only `reason`. Investigation found this was a repo-wide class (6 au
 | Finding ID | Audit job | Verify job | Severity | Reason for deferral / disposition | Target | Safe? | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
 | BATCH284-REASON-WS-1 | `audit-msfxq8mz-1nf786` | — | Low | Batch-284 L1: persistence `updateMatterDetails` accepted a whitespace-only court-facing `reason` (guard `.length === 0`, missing `.trim()`). Product path was safe (the IPC handler already rejected whitespace); the gap was defense-in-depth + a repo-wide class. Deferred at batch-close only because fixing pre-closeout would have moved HEAD and invalidated the batch-284 attestation. | `WI-audited-reason-guard-hardening` (this commit) | YES | closed | CLOSED in this commit — all 6 persistence reason-guards (matter transition/archive, matter-details update, privilege dismiss/waive, docket dismiss, deadline missed→met, fact reject) tightened to `.trim().length === 0` (condition-only; existing error codes/messages + stored reason value unchanged → audit-event hashes byte-stable; matches the 2 pre-existing `.trim()` sites). Whitespace-rejection parity tests (in-memory + SQLite) added per op. Persistence 1236/1236, contract 564/564. Audit `audit-msfyi7q3-gxvv1s`: no C/H/M/L findings. |
+
+---
+
+## LOC-fallback verdict format (batch-286 window `307abab..c743e26`)
+
+Batch-286 Layer-B (`audit-mskgn1w4-dfvp3p`) returned BATCH-PASS with one Low against the deterministic
+LOC fallback introduced by WI-CONTRACT-FIX (defect 2).
+
+| Finding ID | Audit job | Verify job | Severity | Reason for deferral / disposition | Target | Safe? | Status | Notes |
+|---|---|---|---|---|---|---|---|---|
+| BATCH286-LOCFALLBACK-VERDICT-1 | `audit-mskgn1w4-dfvp3p` | — | Low | The deterministic LOC fallback in `.claude/rules/loc-guardian.md` §"Scan mechanism" prints the top-20 raw line counts but does not itself emit the `VERDICT: N over limit, M warnings` line the gate semantics reference, nor mechanically classify source-vs-test thresholds. Explicitly NOT a gate weakening — the surrounding text requires pure-LOC confirmation before declaring a fail and applies §"Gate semantics" unchanged, and the auditor concurred the gate stays mandatory. The residual risk is that a future agent records an informal "clean" result without a deterministic verdict format. Deferred at batch-close only because fixing it pre-closeout would move HEAD and invalidate the batch-286 attestation (same rationale as `BATCH284-REASON-WS-1`). | future `WI-loc-fallback-verdict` — make the fallback emit the canonical `VERDICT: N over limit, M warnings` line and classify source (fail ≥800 pure) vs test (fail ≥1200 raw) mechanically | YES | open | rule-doc only; no product code involved. Gate remains enforceable in the interim: the raw screen is a conservative upper bound (raw ≥ pure), so it cannot pass a real violation — it can only over-report, which fails safe. |
