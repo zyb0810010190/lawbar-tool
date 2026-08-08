@@ -64,3 +64,6 @@ dev-memo/superseded/
 /dev-memo/run/intake/
 /dev-memo/run/reports/
 /dev-memo/run/override-reason.md
+
+# nlpm scoring history (local telemetry; see /nlpm:score)
+.claude/nlpm-history.json

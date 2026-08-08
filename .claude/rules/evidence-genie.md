@@ -82,6 +82,11 @@ real Evidence architecture gate; nothing builds on it until it is green and its 
     revision, a new ADR, a new RCA lane, a `/project-autopilot` or `/loop` start, or whole-project intake);
     it is advisory for an individual WI that is not one of those triggers. Do not state recap is REQUIRED
     for every WI, and do not downgrade the §C lessons/recall pre-flight to SHOULD.
+    **Conditional on plugin enablement** — per [[echo-sleuth]] §"Enablement gate", whenever the echo-sleuth
+    plugin is unavailable both pre-flights are DORMANT: they MUST NOT block an Evidence WI and their
+    absence MUST NOT be recorded as a skipped gate. This is an availability condition on the *mechanism*,
+    not a downgrade of the wording, and it re-arms automatically once the plugin is enabled. No Evidence
+    court-facing invariant (1-11) is affected.
 
 ## References
 - `docs/adr/ADR-evidence-m0-xiaolai-workflow-composition.md` (EVW-00, D1-D7).

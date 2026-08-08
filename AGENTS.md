@@ -79,8 +79,12 @@ exact files committed, next lane status.
 Claude and Codex delegate to each other through two separate MCP transports:
 
 - **Claude → Codex** via the `codex-cli` MCP server (needs the `codex` binary on PATH).
-  From Claude: `/audit`, `/implement`, `/review-plan`, `/bug-analyze`, `/verify`,
-  `/continue`, `/result`, `/status`, `/preflight`, `/cancel`.
+  From Claude, the commands are **namespaced** — `/cc-suite:audit`, `/cc-suite:implement`,
+  `/cc-suite:review-plan`, `/cc-suite:bug-analyze`, `/cc-suite:verify`, `/cc-suite:continue`,
+  `/cc-suite:result`, `/cc-suite:status`, `/cc-suite:codex-preflight`, `/cc-suite:cancel`.
+  Bare forms (`/audit`, `/verify`, …) do NOT resolve; they are the plugin's internal command
+  filenames, not an invocation surface. Reaching Codex outside the broker — direct `codex-cli`
+  MCP or `codex exec` — is fallback only, per `.claude/rules/cc-suite.md` §"Invocation paths".
 - **Codex → Claude** via the `claude-code` MCP server (claude-octopus, run through
   `npx -y`; reuses the Claude CLI login). From Codex, invoke with `$`: `$claude-review`,
   `$claude-plan`, `$claude-implement`, `$claude-debug`.
@@ -97,6 +101,24 @@ No assumed automatic fallback. If a delegated agent stalls, fails, or is unavail
 the lane `DELEGATE-STALLED` / `DELEGATE-FAILED` / `DELEGATE-UNAVAILABLE`, preserve partial
 output, continue with the local agent's own review or native gates, and never treat a
 failed delegation lane as review clearance.
+
+### Offering Codex deliberation (when to put the option in front of the user)
+
+When a decision is genuinely consequential — architecture, approach, a trade-off with lasting
+cost — include an option to route it to Codex, e.g. "Let Codex weigh in — deliberate, then
+recommend."
+
+- **Not at every branch point.** Skip it for questions of fact, trivial preferences, and
+  choices with an obvious default. Offering deliberation on an observation is noise, and it
+  trains the user to ignore the offer when it matters.
+- **On selection**: consult Codex via cc-suite, deliberate (do not defer blindly — Codex can be
+  wrong), then proceed with the synthesized best option, or return a sharper recommendation if
+  the call is still close.
+- **Skip when no real Codex integration is reachable** in the project — say so instead of
+  offering a dead option.
+
+Path order, recording, and failure classification for the actual consultation stay with
+`.claude/rules/cc-suite.md`; this section governs only when the option is worth offering.
 
 ### Background-invocation discipline (HARNESS_REAP)
 
@@ -116,7 +138,14 @@ Full rule: `.claude/rules/cc-suite.md` §"Background-invocation discipline" (RCA
 ### echo-sleuth continuity (compatible triggers)
 
 Full rule: `.claude/rules/echo-sleuth.md`. echo-sleuth is a memory layer, not a review layer;
-it MUST NOT edit product source, stage/commit/push, or bypass cc-suite. Triggers, in WI terms:
+it MUST NOT edit product source, stage/commit/push, or bypass cc-suite.
+
+**Conditional on enablement.** The plugin is optional. Check availability per
+`.claude/rules/echo-sleuth.md` §"Enablement gate" before relying on a trigger — never assume
+either state. While it is absent every trigger below is **dormant**: do not invoke
+`/echo-sleuth:*`, do not record its absence as a skipped gate, and satisfy the continuity intent
+from `git log`, `dev-memo/`, and the rule files instead. Triggers re-arm automatically once the
+plugin is installed and enabled. Triggers, in WI terms:
 
 - **Before a major WI** (new plan, ADR, RCA, batch start): `/echo-sleuth:recap`, cited in the
   WI's pre-flight.
@@ -169,7 +198,7 @@ task. This is why the audit trail is mandatory in batch mode, not optional.
 Generating a queue and executing a queue are different authorities. The agent may propose a
 queue (a PLAN WI), but a proposed queue is not executable until it passes governance:
 
-1. Codex reviews the proposed queue (`/review-plan`).
+1. Codex reviews the proposed queue (`/cc-suite:review-plan`).
 2. A queue-lint check confirms every WI has: a concrete scope, declared allowed files,
    declared gates, no forbidden-area touch, no dependency on a later WI, and concrete
    acceptance criteria — no bare "cleanup", "refactor", or "improve".

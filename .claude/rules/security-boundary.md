@@ -29,11 +29,11 @@ Any change touching:
 Every security-sensitive change must go through:
 
 1. **Bounded WI** — exactly one work item; no scope creep.
-2. **Plan review** — `/review-plan` before implementation. Architecture / security-impacting plans cannot skip this gate.
+2. **Plan review** — `/cc-suite:review-plan` before implementation. Architecture / security-impacting plans cannot skip this gate.
 3. **Tests first** — regression tests for the new invariant and for the prior failure mode (proof the gap actually closes).
 4. **Implement** — minimal change satisfying the WI.
-5. **Audit** — `/audit` (or `/audit-fix` when fixes are pre-authorized) on the changed scope.
-6. **Verify** — `/verify` confirms the audit findings landed.
+5. **Audit** — `/cc-suite:audit` (or `/cc-suite:audit-fix` when fixes are pre-authorized) on the changed scope.
+6. **Verify** — `/cc-suite:verify` confirms the audit findings landed.
 7. **Sign-off doc** — if the WI closes a security gap previously flagged in audit, append to or create a sign-off doc under `docs/release/`.
 
 ## No silent surface changes

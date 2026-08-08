@@ -9,7 +9,8 @@ Pairs with [[autonomy]] (pre-authorized actions + hard-stop list) and `.claude/l
 
 ## When the gate applies
 
-Run a `/loc-guardian:scan` **before** any of the following:
+Run a LOC scan (per §"Scan mechanism" — plugin if available, deterministic fallback otherwise)
+**before** any of the following:
 
 - **Long `/goal` runs.** Any goal-driven autonomous loop that may add or substantially modify hand-written source or test files.
 - **`/project-autopilot` skill runs.** The first step of an autopilot loop AFTER `branch-clean` is now `loc-guardian:scan`.
@@ -22,9 +23,34 @@ A scan is NOT required before:
 - Pure-`.gitignore` or pure-config changes.
 - Trivial typo/comment-only patches.
 
+## Scan mechanism (the plugin is optional; the gate is not)
+
+The `loc-guardian` plugin is **optional** and may be installed or removed at any time; check
+availability (`ls -d ~/.claude/plugins/cache/xiaolai/loc-guardian` plus `enabledPlugins` in
+`.claude/settings.json`) rather than assuming either state. The gate below applies regardless —
+only the mechanism changes:
+
+- **Plugin available** — run `/loc-guardian:scan` and read its `VERDICT:` line. Preferred.
+- **Plugin absent (current state)** — run the deterministic fallback and apply the SAME thresholds:
+
+  ```bash
+  find . -type f \( -name '*.ts' -o -name '*.mjs' -o -name '*.js' -o -name '*.tsx' -o -name '*.jsx' \) \
+    -not -path '*/node_modules/*' -not -path '*/dist/*' -not -path '*/coverage/*' \
+    -not -path '*/src/generated/*' -print0 | xargs -0 wc -l | sort -rn | head -20
+  ```
+
+  This counts RAW lines. Raw ≥ pure, so a file under the raw threshold is provably under the pure
+  threshold — the screen is conservative in the safe direction and never lets a violation through.
+  A file at or above its raw threshold (800 source / 1200 test) is NOT yet a failure: confirm pure
+  LOC (excluding blanks and comment-only lines) before declaring a fail, then apply §"Gate semantics"
+  unchanged.
+
+**Never treat plugin absence as a passing scan.** An unavailable mechanism is an unrun gate, not a
+green one — record which mechanism produced the verdict.
+
 ## Gate semantics
 
-`/loc-guardian:scan` returns a `VERDICT: N over limit, M warnings` line.
+The scan (either mechanism) yields a `VERDICT: N over limit, M warnings` result.
 
 **Warnings below the fail threshold do NOT block autopilot.** Only `N > 0` (files over the fail threshold) stops the loop. A warning is a tracking signal, not a gate. **Do not start a LOC-2/LOC-N follow-up refactor unless it has been explicitly selected as the next WI** — chasing the warn zone proactively is out of scope for normal autopilot iterations.
 
@@ -73,7 +99,7 @@ The split MUST follow the extraction rules in `.claude/loc-guardian.local.md` (s
 The autonomous loop steps are now:
 
 1. `branch-clean` (per [[../commands/branch-clean]]).
-2. **`loc-guardian:scan`** (this rule).
+2. **LOC scan** (this rule, per §"Scan mechanism").
 3. If scan returns `VERDICT: 0 over limit`, proceed.
 4. If scan returns over-limit hand-written source or test files:
    - Surface the over-limit list to the user.
@@ -81,12 +107,12 @@ The autonomous loop steps are now:
    - Do not continue the autopilot loop until the gate is green OR the user explicitly authorizes deferral with a written justification.
 5. Read plan corpus, select next WI (per [[autonomy]] continuation rule).
 6. Execute WI.
-7. **`loc-guardian:scan` again before commit.** Re-running the gate after implementation catches new violations introduced by the WI itself.
+7. **LOC scan again before commit** (same mechanism as step 2). Re-running the gate after implementation catches new violations introduced by the WI itself.
 8. `commit-gate` (per [[../commands/commit-gate]]).
 
 ## Failure handling
 
-- **`/loc-guardian:scan` returns an error or empty output** — the gate is **failed-closed**. Do not continue the autonomous run. Surface the failure to the user.
+- **The scan returns an error or empty output** — the gate is **failed-closed**. Do not continue the autonomous run. Surface the failure to the user. This applies to whichever mechanism §"Scan mechanism" selected: a missing `loc-guardian` plugin is NOT an error (fall through to the deterministic command), but a deterministic command that errors or returns nothing IS.
 - **The optimizer suggests changes that violate other rules** (e.g. proposes touching a security-boundary file without sign-off, or wants to refactor a generated file) — reject the suggestion and surface the conflict.
 
 ## Relationship to other rules

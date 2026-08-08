@@ -4,6 +4,39 @@
 
 This rule codifies when and how to invoke echo-sleuth for **lane continuity**, **post-RCA knowledge promotion**, **pre-rule-change discovery**, and **periodic memory hygiene**. The rule itself is durable; the underlying plugin surfaces (slash commands + agents) may evolve.
 
+## Enablement gate (READ FIRST — this rule is conditional)
+
+echo-sleuth is an **optional** plugin that may be installed or removed at any time. Everything
+below is written as if it were available, so an availability check governs the whole file. Check
+before relying on any trigger — do not assume either state:
+
+```bash
+ls -d ~/.claude/plugins/cache/xiaolai/echo-sleuth 2>/dev/null && \
+  python3 -c "import json;print(json.load(open('.claude/settings.json')).get('enabledPlugins'))"
+```
+
+- **While the plugin is absent, every REQUIRED trigger in §"When to invoke" is DORMANT.** A
+  dormant trigger MUST NOT block a WI, MUST NOT be recorded as a skipped or failed gate, and
+  MUST NOT be cited as review clearance. Do not invoke `/echo-sleuth:*` — the command does not
+  resolve, and a failed invocation is not evidence of anything.
+- **The underlying obligation survives the plugin.** echo-sleuth is one *mechanism* for
+  continuity, not the continuity requirement itself. While it is dormant, satisfy the same
+  intent from sources already in the repo: `git log`, the `dev-memo/` corpus (especially
+  `dev-memo/run/log.md` and `dev-memo/deferred-audit-findings.md`), prior ADRs, and the rule
+  files themselves. Cite what was actually consulted.
+- **Re-arming is automatic.** When the plugin is installed and enabled, the triggers below
+  become REQUIRED again with no edit to this file. Confirm availability before claiming a
+  trigger ran.
+
+This gate exists because a rule that mandates an uninvokable command is unenforceable: it
+cannot be satisfied, so it silently converts every WI into a contract violation. Stating the
+condition is what keeps the rule honest.
+
+**Prior art (same shape, already tracked policy):** `BATCH-AUDIT.md` §"Study packet" already
+carves out `/echo-sleuth:extract` as un-runnable inside an unattended batch and defers the
+obligation to a later MEMORY WI rather than dropping it. This gate generalizes that pattern:
+mechanism unavailable → trigger does not fire → obligation deferred, never discarded.
+
 ## Available surfaces (as of plugin v0.4.0)
 
 Slash commands (user-typed or assistant-driven):
