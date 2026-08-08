@@ -413,6 +413,19 @@ function renderLinkActions(
       [t("links.unlink.confirm")],
       doc,
     );
+    // Escape hatch for the two-step unlink (the docket-dismiss precedent): revealing a
+    // required-reason step must always offer a way back out. Cancel makes no api call.
+    const cancelBtn = el(
+      "button",
+      {
+        type: "button",
+        class: "button button--secondary view-links-unlink-cancel",
+        "data-test-id": "view-links-unlink-cancel",
+        hidden: "",
+      },
+      [t("links.unlink.cancel")],
+      doc,
+    );
     const unlinkBtn = el(
       "button",
       { type: "button", class: "button button--danger view-links-unlink", "data-test-id": "view-links-unlink" },
@@ -424,6 +437,20 @@ function renderLinkActions(
       reasonInput.removeAttribute("hidden");
       reasonInput.setAttribute("aria-required", "true");
       confirmBtn.removeAttribute("hidden");
+      cancelBtn.removeAttribute("hidden");
+    });
+    // Restore the pre-reveal state: collapse the warning, the reason input and both
+    // unlink buttons, drop the typed reason + the aria-required marker, and clear any
+    // inline error/status text for this row.
+    cancelBtn.addEventListener("click", () => {
+      (reasonInput as unknown as { value: string }).value = "";
+      warning.setAttribute("hidden", "");
+      reasonInput.setAttribute("hidden", "");
+      reasonInput.removeAttribute("aria-required");
+      confirmBtn.setAttribute("hidden", "");
+      cancelBtn.setAttribute("hidden", "");
+      clearStatusRole();
+      setText(status, "");
     });
     confirmBtn.addEventListener("click", () => {
       void (async () => {
@@ -451,8 +478,8 @@ function renderLinkActions(
         }
       })();
     });
-    buttons.push(unlinkBtn, confirmBtn);
-    controls.push(unlinkBtn, " ", warning, " ", reasonInput, " ", confirmBtn, " ", status);
+    buttons.push(unlinkBtn, confirmBtn, cancelBtn);
+    controls.push(unlinkBtn, " ", warning, " ", reasonInput, " ", confirmBtn, " ", cancelBtn, " ", status);
   } else {
     // Relink: one reversible click, no reason (the persistence relink takes none).
     const relinkBtn = el(

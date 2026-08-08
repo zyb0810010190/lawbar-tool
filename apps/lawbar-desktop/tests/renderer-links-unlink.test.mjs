@@ -101,6 +101,73 @@ test("unlink: confirm forwards { matterId, linkId, unlinkReason } and refreshes"
   assert.equal(listCalls, 2, "list refreshed after unlink");
 });
 
+// --- Unlink escape hatch (WI-UI-2) ---
+// The two-step unlink reveals a required reason; it must also offer a way back out.
+// Action-row convention for an inline confirm row: confirm FIRST, cancel SECOND.
+
+test("unlink: cancel exists, is hidden until Unlink, and is revealed with the confirm", async () => {
+  const root = await openWithActiveLink(stubWithLinks());
+  const cancel = findByTestId(root, "view-links-unlink-cancel");
+  assert.ok(cancel !== null, "unlink-cancel button present");
+  assert.equal(cancel.hasAttribute("hidden"), true, "hidden before the reveal");
+  findByTestId(root, "view-links-unlink").dispatchEvent({ type: "click" });
+  assert.equal(cancel.hasAttribute("hidden"), false, "revealed by the same path as reason + confirm");
+  assert.equal(findByTestId(root, "view-links-unlink-confirm").hasAttribute("hidden"), false);
+});
+
+test("unlink: action row DOM order is confirm-before-cancel", async () => {
+  const root = await openWithActiveLink(stubWithLinks());
+  const actions = findByTestId(root, "view-links-actions");
+  const indexOfTestId = (id) =>
+    actions.children.findIndex(
+      (c) => typeof c.getAttribute === "function" && c.getAttribute("data-test-id") === id,
+    );
+  const confirmAt = indexOfTestId("view-links-unlink-confirm");
+  const cancelAt = indexOfTestId("view-links-unlink-cancel");
+  assert.ok(confirmAt >= 0 && cancelAt >= 0, "both buttons are direct children of the action row");
+  assert.ok(confirmAt < cancelAt, "confirm precedes cancel in DOM order");
+});
+
+test("unlink: cancel collapses warning+reason+confirm+itself, clears the reason, unlinkLink NOT called", async () => {
+  let called = false;
+  const root = await openWithActiveLink(
+    stubWithLinks({ unlinkLink: async () => { called = true; return { ok: true, value: {} }; } }),
+  );
+  findByTestId(root, "view-links-unlink").dispatchEvent({ type: "click" });
+  // a blank-reason confirm leaves an inline error the cancel must also clear
+  findByTestId(root, "view-links-unlink-reason").value = "   ";
+  findByTestId(root, "view-links-unlink-confirm").dispatchEvent({ type: "click" });
+  await flush();
+  assert.ok(findByTestId(root, "view-links-action-error") !== null, "inline error present before cancel");
+  const reason = findByTestId(root, "view-links-unlink-reason");
+  reason.value = "typed then abandoned";
+  findByTestId(root, "view-links-unlink-cancel").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(called, false, "cancel makes no api call");
+  assert.equal(reason.hasAttribute("hidden"), true, "reason input collapsed");
+  assert.equal(reason.hasAttribute("aria-required"), false, "aria-required removed");
+  assert.equal(reason.value, "", "typed reason cleared");
+  assert.equal(findByTestId(root, "view-links-unlink-confirm").hasAttribute("hidden"), true);
+  assert.equal(findByTestId(root, "view-links-unlink-cancel").hasAttribute("hidden"), true);
+  assert.equal(findByTestId(root, "view-links-unlink-warning").hasAttribute("hidden"), true);
+  assert.equal(findByTestId(root, "view-links-action-error"), null, "inline error cleared");
+  assert.equal(collectText(findByTestId(root, "view-links-action-status")), "", "status text cleared");
+});
+
+test("unlink: after cancel, Unlink can be re-revealed and still unlinks with a reason", async () => {
+  let unlinkDto;
+  const api = stubWithLinks({ unlinkLink: async (dto) => { unlinkDto = dto; return { ok: true, value: {} }; } });
+  const root = await openWithActiveLink(api);
+  findByTestId(root, "view-links-unlink").dispatchEvent({ type: "click" });
+  findByTestId(root, "view-links-unlink-cancel").dispatchEvent({ type: "click" });
+  findByTestId(root, "view-links-unlink").dispatchEvent({ type: "click" });
+  assert.equal(findByTestId(root, "view-links-unlink-reason").hasAttribute("hidden"), false);
+  findByTestId(root, "view-links-unlink-reason").value = "superseded";
+  findByTestId(root, "view-links-unlink-confirm").dispatchEvent({ type: "click" });
+  await flush();
+  assert.deepEqual(unlinkDto, { matterId: VALID_ULID, linkId: "01jzlink00000000000000000a", unlinkReason: "superseded" });
+});
+
 test("unlink: backend error envelope → inline role=alert with server message, no refresh", async () => {
   let listCalls = 0;
   const api = stubWithLinks({

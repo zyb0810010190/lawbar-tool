@@ -156,6 +156,76 @@ test("review: Reject with reason forwards {to:'rejected', rejection_reason}", as
   assert.deepEqual(dto, { matterId: VALID_ULID, factId: FACT_ID, to: "rejected", rejection_reason: "contradicted by exhibit B" });
 });
 
+// --- Reject escape hatch (WI-UI-2) ---
+// The two-step reject reveals a required reason; it must also offer a way back out.
+// Action-row convention for an inline confirm row: confirm FIRST, cancel SECOND.
+
+test("review: reject cancel exists, is hidden until Reject, and is revealed with the confirm", async () => {
+  const root = await mountFacts(oneFact("candidate"));
+  const cancel = findByTestId(root, "view-facts-reject-cancel");
+  assert.ok(cancel !== null, "reject-cancel button present");
+  assert.equal(cancel.hasAttribute("hidden"), true, "hidden before the reveal");
+  findByTestId(root, "view-facts-review-rejected").dispatchEvent({ type: "click" });
+  assert.equal(cancel.hasAttribute("hidden"), false, "revealed by the same path as reason + confirm");
+  assert.equal(findByTestId(root, "view-facts-reject-confirm").hasAttribute("hidden"), false);
+});
+
+test("review: reject row DOM order is confirm-before-cancel", async () => {
+  const root = await mountFacts(oneFact("candidate"));
+  const control = findByTestId(root, "view-facts-review-control");
+  const indexOfTestId = (id) =>
+    control.children.findIndex(
+      (c) => typeof c.getAttribute === "function" && c.getAttribute("data-test-id") === id,
+    );
+  const confirmAt = indexOfTestId("view-facts-reject-confirm");
+  const cancelAt = indexOfTestId("view-facts-reject-cancel");
+  assert.ok(confirmAt >= 0 && cancelAt >= 0, "both buttons are direct children of the control row");
+  assert.ok(confirmAt < cancelAt, "confirm precedes cancel in DOM order");
+});
+
+test("review: reject cancel collapses reason+confirm+itself, clears the reason, no transitionFact call", async () => {
+  let called = false;
+  const api = stubWithTransition({
+    listFacts: async () => ({ ok: true, value: { rows: [factRow({ status: "candidate" })], next_cursor: null } }),
+    transitionFact: async () => { called = true; return { ok: true, value: {} }; },
+  });
+  const root = await mountFacts(api);
+  findByTestId(root, "view-facts-review-rejected").dispatchEvent({ type: "click" });
+  // an empty-reason confirm leaves an inline error the cancel must also clear
+  findByTestId(root, "view-facts-reject-confirm").dispatchEvent({ type: "click" });
+  await flush();
+  assert.ok(findByTestId(root, "view-facts-review-error") !== null, "inline error present before cancel");
+  const reason = findByTestId(root, "view-facts-reject-reason");
+  reason.value = "typed then abandoned";
+  findByTestId(root, "view-facts-reject-cancel").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(called, false, "cancel makes no api call");
+  assert.equal(reason.hasAttribute("hidden"), true, "reason input collapsed");
+  assert.equal(reason.hasAttribute("aria-required"), false, "aria-required removed");
+  assert.equal(reason.value, "", "typed reason cleared");
+  assert.equal(findByTestId(root, "view-facts-reject-confirm").hasAttribute("hidden"), true);
+  assert.equal(findByTestId(root, "view-facts-reject-cancel").hasAttribute("hidden"), true);
+  assert.equal(findByTestId(root, "view-facts-review-error"), null, "inline error cleared");
+  assert.equal(collectText(findByTestId(root, "view-facts-review-status")), "", "status text cleared");
+});
+
+test("review: after cancel, Reject can be re-revealed and still rejects with a reason", async () => {
+  let dto;
+  const api = stubWithTransition({
+    listFacts: async () => ({ ok: true, value: { rows: [factRow({ status: "candidate" })], next_cursor: null } }),
+    transitionFact: async (d) => { dto = d; return { ok: true, value: factRow({ status: "rejected" }) }; },
+  });
+  const root = await mountFacts(api);
+  findByTestId(root, "view-facts-review-rejected").dispatchEvent({ type: "click" });
+  findByTestId(root, "view-facts-reject-cancel").dispatchEvent({ type: "click" });
+  findByTestId(root, "view-facts-review-rejected").dispatchEvent({ type: "click" });
+  assert.equal(findByTestId(root, "view-facts-reject-reason").hasAttribute("hidden"), false);
+  findByTestId(root, "view-facts-reject-reason").value = "superseded";
+  findByTestId(root, "view-facts-reject-confirm").dispatchEvent({ type: "click" });
+  await flush();
+  assert.deepEqual(dto, { matterId: VALID_ULID, factId: FACT_ID, to: "rejected", rejection_reason: "superseded" });
+});
+
 test("review: backend illegal_transition -> inline role=alert, no list refresh", async () => {
   let listCalls = 0;
   const api = stubWithTransition({

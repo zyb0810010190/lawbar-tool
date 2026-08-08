@@ -493,7 +493,7 @@
   },
   {
     "file": "renderer/screens/viewMatterFacts.ts",
-    "line": 472,
+    "line": 499,
     "text": " ",
     "kind": "text"
   },
@@ -565,55 +565,55 @@
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 594,
+    "line": 621,
     "text": "AMBIGUOUS",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 594,
+    "line": 621,
     "text": "BROKEN",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 594,
+    "line": 621,
     "text": "CLEAN",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 594,
+    "line": 621,
     "text": "NEEDS_REVIEW",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 594,
+    "line": 621,
     "text": "NON_CITABLE",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 594,
+    "line": 621,
     "text": "UNLINKED",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 604,
+    "line": 631,
     "text": "${t(\"links.export.summaryLabel\")} — ${summaryParts.join(\" · \")}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 628,
+    "line": 655,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterLinks.ts",
-    "line": 629,
+    "line": 656,
     "text": "${linkSourceTypeLabel(c.sourceType)} · ${c.sourceId}",
     "kind": "text"
   }

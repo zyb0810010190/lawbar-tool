@@ -445,7 +445,7 @@ function renderAddArea(
       field({ id: "ct-respondent", label: t("claimTrack.form.respondent"), required: true }, respondentSelect, doc),
       field({ id: "ct-title", label: t("claimTrack.form.titleField"), required: true }, titleInput, doc),
       supplemental,
-      el("div", { class: "view-ct-actions" }, [cancelBtn, " ", saveBtn], doc),
+      el("div", { class: "view-ct-actions" }, [saveBtn, " ", cancelBtn], doc),
       status,
     ],
     doc,

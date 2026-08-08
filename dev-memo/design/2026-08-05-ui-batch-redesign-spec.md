@@ -46,6 +46,29 @@ any cancel / status toggles (`view-*-export*`, `view-docket-edit-btn`, `view-lin
 - **(R) Settings utility row → DEFERRED to a separate WI.** The 打开数据目录 / 复制诊断信息 utilities require new
   IPC and are not pure presentation; WI-UI-4 only rebalances Settings with static info. Interactive utilities
   are a later opt-in WI. Supersedes §3's "add a utility row (optional)" — presentation-only in these batches.
+- **(I, action order) → INLINE surfaces use `[primary, cancel]`; a future MODAL surface would use macOS
+  HIG `[cancel, primary]`.** Decided 2026-08-08 for WI-UI-2, at Frank's direction to route the call to Codex
+  (`review-plan-mskgim15-vhefre`, thread `019fe1bb-754a-7113-aaa8-eaa9a0e85806`).
+  *Why this was a real fork:* the app is macOS-only with a native-feel goal, and Apple's HIG puts the default
+  button RIGHTMOST — the opposite of this spec's approved `[primary, cancel]`. Verified reality first: 4 of 5
+  action rows are already primary-first (`viewMatterDeadlines.ts:593`, `viewMatterDocketProposals.ts:525`,
+  `archiveMatter`, `editMatter`); only `viewMatterClaimTracks.ts:448` was `[cancel, save]`.
+  *Mechanism for the decision (not "best practice says"):* HIG's ordering is written for modal/alert surfaces
+  that STOP the user to force a choice between escape and default. These are inline task controls embedded in
+  a list/document workflow, read left-to-right — so primary-first keeps the row's main verb first in scan
+  order and keeps every inline row mechanically uniform. Destructive rows deliberately do NOT deviate: if
+  destructive rows reversed order while benign ones did not, placement would become a hidden safety signal
+  users must learn, which is weak and easily mislearned. The real guard on these flows is the mandatory typed
+  reason — already hardened against whitespace-only input in `e9ff43c`.
+  *Scope limit:* this convention binds INLINE surfaces only. No true modal/sheet exists in the app today; if
+  one is ever introduced it follows macOS HIG (primary right), because the split follows interaction surface,
+  not danger level. So WI-UI-2 changes exactly one existing row (ClaimTracks) and places both new cancels
+  after their confirm.
+- **(O, 2-step escape) → CONFIRMED by code, exactly two missing.** `view-facts-reject-confirm` and
+  `view-links-unlink-confirm` are the only confirm actions in the renderer with no cancel sibling; every other
+  confirm already pairs with one. Both are destructive and both require a typed reason, so a user who reveals
+  the reason input currently has no way to back out. WI-UI-2 adds `view-facts-reject-cancel` and
+  `view-links-unlink-cancel`.
 - **(D, deadlines) → KEEP 提议 semantics; do NOT rename to 添加期限.** The docket lifecycle is
   proposed → confirmed → materialized (`docs/adr/case-box-step-6-deadline-docketing-rules.md`); "添加" would
   misrepresent the two-step. The committed ADR outranks the "添加X uniformly" proposal (source hierarchy). The
