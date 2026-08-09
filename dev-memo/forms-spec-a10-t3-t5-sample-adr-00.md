@@ -21,7 +21,7 @@ Two local, untracked input files under `dev-memo/run/intake/forms-samples/` (kep
 material never enters git):
 - **T3 reference** — `示例-证据目录及说明-一审.pdf` (a filed 证据目录及说明, 2 pages, 25 evidence rows;
   scanned/image PDF — no text layer).
-- **T5 reference** — `【一审】质证意见-示例20260629.docx` (a filed 质证意见 narrative brief; ~60 paragraphs).
+- **T5 reference** — `【一审】质证意见-示例20260101.docx` (a filed 质证意见 narrative brief; ~60 paragraphs).
 
 Both are one real first-instance (一审) case. They are a single data point,
 not a template authority — see §5 non-decisions and §6 open questions.
@@ -64,7 +64,7 @@ static header/footer — the lowest-risk of the three forms.
 
 ## B. T5 — 质证意见 / 质证记录 (cross-examination)
 
-Observed pattern (from `【一审】质证意见-示例20260629.docx`, treated as a **narrative 质证意见 brief**, NOT a
+Observed pattern (from `【一审】质证意见-示例20260101.docx`, treated as a **narrative 质证意见 brief**, NOT a
 finalized structured table):
 
 1. **Case-number header**: `示例民初0001号、0002号`.

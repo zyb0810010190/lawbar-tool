@@ -28,7 +28,7 @@ meant to prove and captures the opposing party's 质证 (cross-examination) stan
 is a flat catalogue of one party's evidence, T4 adds the **argument structure** — 争议焦点 / 证明对象 →
 supporting evidence → 对方质证意见 (三性 stance + reasons). Per DR-00 (forms-spec §H), T4 — like T3/T5 — is an
 **internal lawyer trial-review work product**, NOT a court-filing artifact in this phase; the audience +
-court-facing/export scope are part of the B1 product-scope decision (§4), not assumed here. The T5 sample (`【一审】质证意见-示例20260629.docx`, a narrative 质证意见 brief) shows the *content* of a
+court-facing/export scope are part of the B1 product-scope decision (§4), not assumed here. The T5 sample (`【一审】质证意见-示例20260101.docx`, a narrative 质证意见 brief) shows the *content* of a
 质证 stance (三性: 真实性/合法性/关联性 as accept/reject/partial + reasons cross-referencing evidence numbers) but
 NOT a normalized table.
 
