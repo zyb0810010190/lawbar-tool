@@ -136,10 +136,23 @@ const APPROVED_FICTIONAL_PARTY_NAMES = [
 // therefore overlap) the exact entries above; the exact list is kept as the record of what
 // the fixture corpus actually contains today.
 const APPROVED_FICTIONAL_PARTY_PATTERNS = [
-  // 示例 = "sample/example" — this repo's convention for a fictional Chinese organisation or
-  // document, e.g. 示例建设有限公司 in dev-memo/forms-spec-a10-t3-t5-sample-adr-00.md. The
-  // trailing `.` requires at least one character after the prefix, so a bare 示例 is not a name.
-  /^示例./,
+  // 示例 = "sample/example" — this repo's convention for a fictional Chinese organisation.
+  //
+  // TIGHTENED (WI-GATE-L1). The previous pattern was `/^示例./`: prefix-only and unanchored at
+  // the end, so it admitted an unbounded family — 示例 followed by ANYTHING. A real name glued
+  // to a synthetic prefix passed unrecorded (示例王大锤, 示例建设有限公司（法定代表人：王大锤）),
+  // which is provenance by family rather than by record.
+  //
+  // Grounded in what the repo actually carries, not in what a 示例 name could look like: the
+  // ONLY 示例-prefixed party/organisation label anywhere in the corpus is 示例建设有限公司
+  // (dev-memo/forms-spec-a10-t3-t5-sample-adr-00.md, the T5 intro line). Every other 示例
+  // occurrence is a document filename (示例-证据目录及说明-一审.pdf), a case number
+  // (示例民初0001号), or OCR body text — none of them party labels. That single recorded form is
+  // 示例 + a Chinese-character body + the company-form suffix 有限公司, so the pattern is
+  // anchored at BOTH ends to exactly that shape. Anything else — including another 示例
+  // organisation form — must be added to APPROVED_FICTIONAL_PARTY_NAMES deliberately, with its
+  // source recorded. That is the allowlist working as designed, not a gap.
+  /^示例[一-鿿]{1,12}有限公司$/,
   // "ACME Corp", "ACME Corporation", "Acme Demonstration LLC", …
   /^ACME\b/i,
   // "Counterparty Ltd", "Counterparty Holdings", …
@@ -151,7 +164,10 @@ const APPROVED_FICTIONAL_PARTY_SET = new Set(
 );
 
 function isApprovedFictionalPartyName(value) {
-  const v = String(value).normalize("NFC").trim();
+  // Defense in depth (WI-GATE-M1): never coerce. A non-string party label has no verifiable
+  // provenance, so it can never be "approved" — callers must fail it, not stringify it.
+  if (typeof value !== "string") return false;
+  const v = value.normalize("NFC").trim();
   // An empty label is a schema violation (minLength 1), not a provenance failure — leave it
   // to the contract tests rather than reporting it as a privacy hit.
   if (v.length === 0) return true;
@@ -159,8 +175,27 @@ function isApprovedFictionalPartyName(value) {
   return APPROVED_FICTIONAL_PARTY_PATTERNS.some((re) => re.test(v));
 }
 
+// The JSON type of a parsed value, for reporting. JSON.parse can only yield object / array /
+// string / number / boolean / null, so this is total over its output.
+function jsonTypeOf(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value; // "object" | "string" | "number" | "boolean"
+}
+
 // Recursive walk so nested labels are covered (CaseBoxMatter.parties[]), not only the
 // top-level standalone party fixtures.
+//
+// WI-GATE-M1 — a party-label field is collected BY KEY, regardless of its value's type. The
+// previous version guarded on `typeof value === "string"`, which meant a parseable-but-
+// malformed fixture bypassed the allowlist entirely: for `{"display_name": {"value": "<real
+// name>"}}` the walk descended into the wrapper, the `display_name` key association was lost,
+// and no hit was ever emitted. The gate fails closed on UNPARSEABLE JSON, so failing OPEN on
+// parseable-malformed JSON was incoherent — this is a privacy control and must stand on its
+// own, not lean on schema validation to reject the shape first.
+//
+// The recursion is deliberately still unconditional, so nested labels inside a malformed
+// wrapper keep their existing coverage: the key check ADDS a failure, it never replaces one.
 function collectPartyNameValues(node, out = []) {
   if (Array.isArray(node)) {
     for (const item of node) collectPartyNameValues(item, out);
@@ -168,7 +203,7 @@ function collectPartyNameValues(node, out = []) {
   }
   if (node !== null && typeof node === "object") {
     for (const [key, value] of Object.entries(node)) {
-      if (PARTY_NAME_FIELDS.has(key) && typeof value === "string") out.push({ field: key, value });
+      if (PARTY_NAME_FIELDS.has(key)) out.push({ field: key, value, jsonType: jsonTypeOf(value) });
       collectPartyNameValues(value, out);
     }
   }
@@ -186,6 +221,12 @@ const PARTY_NAME_HINT =
   "\"Counterparty Ltd\" / a 示例-prefixed organisation), or — only if this value is genuinely fictional — " +
   "add it to APPROVED_FICTIONAL_PARTY_NAMES in apps/lawbar-desktop/scripts/check-no-real-data.mjs with a " +
   "comment naming where it comes from. Never add a real party name.";
+
+const PARTY_NAME_TYPE_HINT =
+  "a party-label field must be a plain JSON string so its provenance can be checked against the " +
+  "APPROVED-FICTIONAL allowlist. A wrapped, nested, or non-string value (object / array / number / " +
+  "boolean / null) is invalid provenance in itself and is never coerced or skipped. Replace it with " +
+  "an approved placeholder string (张三 / 李四 / \"ACME Corp\" / \"Counterparty Ltd\").";
 
 // Structural (parse-based, not regex-based) provenance check, so reformatting a fixture
 // cannot evade it. `text` is the raw file body; `file` is the rel path used in hit records.
@@ -207,7 +248,24 @@ function scanFixtureProvenance(text, file = "") {
   }
   const lines = text.split("\n");
   const hits = [];
-  for (const { field, value } of collectPartyNameValues(parsed)) {
+  for (const { field, value, jsonType } of collectPartyNameValues(parsed)) {
+    // A party label that is not a plain string is invalid provenance in itself — it cannot be
+    // allowlist-checked, so it fails with its own distinct reason. Deliberately NOT coerced,
+    // stringified, or skipped, and the offending value is NOT echoed: reporting the JSON type
+    // is enough to locate and fix the fixture without spilling a possibly-real name into logs.
+    if (jsonType !== "string") {
+      const keyIdx = lines.findIndex((l) => l.includes(`"${field}"`));
+      hits.push({
+        file,
+        line: keyIdx >= 0 ? keyIdx + 1 : 1,
+        pattern: "party-name-not-a-string",
+        field,
+        jsonType,
+        match: jsonType,
+        hint: PARTY_NAME_TYPE_HINT,
+      });
+      continue;
+    }
     if (isApprovedFictionalPartyName(value)) continue;
     const idx = lines.findIndex((l) => l.includes(value));
     hits.push({
@@ -338,9 +396,12 @@ function main(argv) {
   }
   for (const h of allHits) {
     // `field` is present only on provenance hits; pattern hits keep their original format.
-    const detail = h.field
-      ? `field=${h.field} value=${JSON.stringify(h.match)}`
-      : `match=${JSON.stringify(h.match)}`;
+    // `jsonType` marks the non-string party-label failure, which reports the offending JSON
+    // type rather than the value (never coerced — see scanFixtureProvenance).
+    let detail;
+    if (h.jsonType) detail = `field=${h.field} jsonType=${h.jsonType}`;
+    else if (h.field) detail = `field=${h.field} value=${JSON.stringify(h.match)}`;
+    else detail = `match=${JSON.stringify(h.match)}`;
     console.error(`[check-no-real-data] FAIL ${h.file}:${h.line} pattern=${h.pattern} ${detail}`);
     if (h.hint) console.error(`[check-no-real-data]        -> ${h.hint}`);
   }

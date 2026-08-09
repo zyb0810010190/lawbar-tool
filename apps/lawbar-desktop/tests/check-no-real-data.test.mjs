@@ -311,6 +311,164 @@ test("scanFile runs the provenance check end-to-end on a real contract fixture",
   assert.deepEqual(scanFile(f), []);
 });
 
+// --- WI-GATE-M1: party-label fields are evaluated by KEY, never by value type -----------
+//
+// Defect (M1): the collector only evaluated `display_name` when `typeof value === "string"`,
+// so a parseable-but-malformed fixture silently bypassed the whole allowlist — the recursive
+// walk descended into the wrapper and the key association was lost. A real name in a
+// non-string `display_name` passed the gate. The gate documents itself as failing closed on
+// UNPARSEABLE JSON; it must equally fail closed on parseable-malformed JSON, because it is a
+// privacy control that has to stand on its own, not a schema check.
+
+const NON_ALLOWLISTED = "王大锤";
+
+test("scanFixtureProvenance FAILS an object-wrapped display_name (M1 bypass)", () => {
+  const text = JSON.stringify({ role: "client", display_name: { value: NON_ALLOWLISTED } }, null, 2);
+  const hits = scanFixtureProvenance(text, "docs/contracts/x/fixtures/valid/p.json");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].pattern, "party-name-not-a-string");
+  assert.equal(hits[0].field, "display_name");
+  assert.equal(hits[0].jsonType, "object");
+  assert.equal(hits[0].file, "docs/contracts/x/fixtures/valid/p.json");
+  assert.ok(hits[0].line >= 1);
+  assert.match(hits[0].hint, /string/i);
+});
+
+test("scanFixtureProvenance FAILS an array-wrapped display_name (M1 bypass)", () => {
+  const text = JSON.stringify({ role: "client", display_name: [NON_ALLOWLISTED] }, null, 2);
+  const hits = scanFixtureProvenance(text, "f.json");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].pattern, "party-name-not-a-string");
+  assert.equal(hits[0].jsonType, "array");
+});
+
+test("scanFixtureProvenance FAILS a numeric display_name (M1 bypass)", () => {
+  const text = JSON.stringify({ role: "client", display_name: 12345 }, null, 2);
+  const hits = scanFixtureProvenance(text, "f.json");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].pattern, "party-name-not-a-string");
+  assert.equal(hits[0].jsonType, "number");
+});
+
+test("scanFixtureProvenance FAILS a null display_name (M1 bypass)", () => {
+  const text = JSON.stringify({ role: "client", display_name: null }, null, 2);
+  const hits = scanFixtureProvenance(text, "f.json");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].pattern, "party-name-not-a-string");
+  assert.equal(hits[0].jsonType, "null");
+});
+
+test("scanFixtureProvenance FAILS a boolean display_name (M1 bypass)", () => {
+  const text = JSON.stringify({ role: "client", display_name: true }, null, 2);
+  const hits = scanFixtureProvenance(text, "f.json");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].pattern, "party-name-not-a-string");
+  assert.equal(hits[0].jsonType, "boolean");
+});
+
+test("scanFixtureProvenance FAILS an object-wrapped name nested in matter.parties[]", () => {
+  const text = JSON.stringify(
+    {
+      name: "Test Matter — Sample Litigation",
+      parties: [
+        { role: "client", display_name: "ACME Corp", party_kind: "organization" },
+        { role: "opposing", display_name: { value: NON_ALLOWLISTED }, party_kind: "organization" },
+      ],
+    },
+    null,
+    2,
+  );
+  const hits = scanFixtureProvenance(text, "f.json");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].pattern, "party-name-not-a-string");
+  assert.equal(hits[0].field, "display_name");
+  assert.equal(hits[0].jsonType, "object");
+});
+
+test("the non-string hit reports the JSON type, never a coerced/stringified value", () => {
+  const text = JSON.stringify({ display_name: { value: NON_ALLOWLISTED } }, null, 2);
+  const hits = scanFixtureProvenance(text, "f.json");
+  assert.equal(hits.length, 1);
+  // The offending value must not be coerced into the report — no "[object Object]", and the
+  // wrapped name must not be echoed into CI logs by the type failure itself.
+  const serialised = JSON.stringify(hits[0]);
+  assert.ok(!serialised.includes("[object Object]"), "must not stringify the value");
+  assert.ok(!serialised.includes(NON_ALLOWLISTED), "type failure must not echo the wrapped value");
+});
+
+test("evaluating by key does NOT lose the existing nested-recursion coverage", () => {
+  // An object-wrapped display_name whose wrapper itself carries a nested display_name string
+  // must produce BOTH: the type failure on the outer key AND the allowlist failure on the
+  // inner string. Recursion is preserved, not traded away for the key check.
+  const text = JSON.stringify({ display_name: { display_name: NON_ALLOWLISTED } }, null, 2);
+  const hits = scanFixtureProvenance(text, "f.json");
+  assert.equal(hits.length, 2);
+  assert.ok(hits.some((h) => h.pattern === "party-name-not-a-string" && h.jsonType === "object"));
+  assert.ok(hits.some((h) => h.pattern === "party-name-not-allowlisted" && h.match === NON_ALLOWLISTED));
+});
+
+test("allowlisted plain-string display_names still pass (no regression from the M1 fix)", () => {
+  for (const ok of APPROVED_FICTIONAL_PARTY_NAMES) {
+    const text = JSON.stringify({ role: "client", display_name: ok, party_kind: "individual" }, null, 2);
+    assert.deepEqual(scanFixtureProvenance(text, "f.json"), [], `${ok} must still pass`);
+  }
+  const nested = JSON.stringify(
+    {
+      parties: [
+        { role: "client", display_name: "ACME Corp", party_kind: "organization" },
+        { role: "opposing", display_name: "Counterparty Ltd", party_kind: "organization" },
+      ],
+    },
+    null,
+    2,
+  );
+  assert.deepEqual(scanFixtureProvenance(nested, "f.json"), []);
+});
+
+test("isApprovedFictionalPartyName never approves a non-string (defense in depth)", () => {
+  for (const bad of [{ value: "张三" }, ["张三"], 12345, null, true]) {
+    assert.equal(isApprovedFictionalPartyName(bad), false, `${JSON.stringify(bad)} must not be approved`);
+  }
+});
+
+// --- WI-GATE-L1: the 示例 prefix pattern is tightened to the recorded synthetic form ------
+
+test("示例 pattern: the form the repo actually carries still passes", () => {
+  // 示例建设有限公司 — dev-memo/forms-spec-a10-t3-t5-sample-adr-00.md §"Intro". This is the ONLY
+  // 示例-prefixed party/organisation label present anywhere in the repo.
+  assert.equal(isApprovedFictionalPartyName("示例建设有限公司"), true);
+});
+
+test("示例 pattern: names the OLD loose /^示例./ admitted are now rejected", () => {
+  const OLD_LOOSE = /^示例./; // the pre-fix pattern, reconstructed to prove the tightening bites
+  const nowRejected = [
+    "示例王大锤", // synthetic prefix glued onto a personal name
+    "示例建设有限公司（法定代表人：王大锤）", // real name appended after a synthetic org
+    "示例建设有限公司 王大锤",
+    "示例民初0001号", // a case number, not a party label
+    "示例-证据目录及说明-一审.pdf", // a document filename, not a party label
+    "示例科技", // no company-form suffix; unrecorded
+  ];
+  for (const v of nowRejected) {
+    assert.ok(OLD_LOOSE.test(v), `precondition: old regex admitted ${v}`);
+    assert.equal(isApprovedFictionalPartyName(v), false, `${v} must no longer be approved`);
+  }
+});
+
+test("示例 pattern: a bare 示例 is still not a name (pre-existing behaviour kept)", () => {
+  assert.equal(isApprovedFictionalPartyName("示例"), false);
+  assert.equal(isApprovedFictionalPartyName("建设示例有限公司"), false); // prefix-anchored, not substring
+});
+
+test("ACME / Counterparty families are untouched by the 示例 tightening", () => {
+  for (const ok of ["ACME Corp", "ACME Corporation", "Acme Demonstration LLC", "Counterparty Ltd", "Counterparty Holdings"]) {
+    assert.equal(isApprovedFictionalPartyName(ok), true, `${ok} must stay approved`);
+  }
+  for (const bad of ["Corp ACME", "The Counterparty"]) {
+    assert.equal(isApprovedFictionalPartyName(bad), false, `${bad} must stay rejected`);
+  }
+});
+
 test("every tracked contract + desktop fixture passes the provenance allowlist", () => {
   const roots = [
     path.join(REPO_ROOT, "docs/contracts/fixtures"),
