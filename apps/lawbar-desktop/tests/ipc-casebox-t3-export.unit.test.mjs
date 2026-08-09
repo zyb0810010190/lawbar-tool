@@ -31,7 +31,7 @@ function documentTextRuns(buffer) {
   };
 }
 
-const CLIENT = { role: "client", display_name: "孙乐驰", party_kind: "individual" };
+const CLIENT = { role: "client", display_name: "张三", party_kind: "individual" };
 const CLIENT_2 = { role: "client", display_name: "王二", party_kind: "individual" };
 
 function matterWith(parties, extra = {}) {
@@ -273,7 +273,7 @@ test("malformed submitterSelection (wrong types) → invalid_payload", async () 
 
   // An unknown key inside submitterSelection is rejected and names the offending key.
   const res3 = await exportT3DocxHandler(
-    { matterId: MATTER_ID, submitterSelection: { partyIndex: 0, displayNameEcho: "孙乐驰", extra: 1 } },
+    { matterId: MATTER_ID, submitterSelection: { partyIndex: 0, displayNameEcho: "张三", extra: 1 } },
     provide,
     deps,
   );

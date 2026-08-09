@@ -60,7 +60,7 @@ The renderer needs a read-only view type mirroring `T3CatalogModel` (structural,
 ```
 ▾ 证据目录及说明 (preview)                         ← <details data-test-id="view-t3-summary">
   提交人诉讼地位:  原告 (plaintiff)                ← header; ⟨needs review⟩ if absent/out-of-enum
-  名称/姓名:       孙乐驰
+  名称/姓名:       张三
 
   ┌──────┬──────────────┬────────────────────────┬────────┐
   │ 序号 │ 证据名称       │ 证明内容                 │ 页码    │

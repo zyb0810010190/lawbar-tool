@@ -17,7 +17,7 @@ import { previewT3CatalogHandler } from "../dist/src/caseBox/handlers.js";
 const TENANT = "default-tenant";
 const MATTER_ID = "01jzmatter0000000000000000";
 
-const CLIENT = { role: "client", display_name: "孙乐驰", party_kind: "individual" };
+const CLIENT = { role: "client", display_name: "张三", party_kind: "individual" };
 const CLIENT_2 = { role: "client", display_name: "王二", party_kind: "individual" };
 const OPPOSING = { role: "opposing", display_name: "对方公司", party_kind: "organization" };
 
@@ -75,7 +75,7 @@ test("success: builds a model over accepted rows; injects tenant + accepted stat
   assert.equal(res.value.kind, "model");
   assert.equal(res.value.model.formType, "证据目录及说明");
   assert.deepEqual(res.value.model.litigationPosition, { value: "plaintiff" });
-  assert.deepEqual(res.value.model.submitterName, { text: "孙乐驰" });
+  assert.deepEqual(res.value.model.submitterName, { text: "张三" });
   assert.equal(res.value.model.rows.length, 2);
   assert.equal(res.value.model.rows[0].sequence, 1);
   assert.deepEqual(res.value.model.rows[0].evidenceName, { text: "银行流水" });
@@ -198,7 +198,7 @@ test("refusal: 0/multi client + no selection → submitter_selection_required", 
 test("refusal: partyIndex out of range → submitter_index_out_of_range", async () => {
   const { provide } = makeProvider({ matter: matterWith([CLIENT]), evidence: [] });
   const res = await previewT3CatalogHandler(
-    { matterId: MATTER_ID, submitterSelection: { partyIndex: 9, displayNameEcho: "孙乐驰" } },
+    { matterId: MATTER_ID, submitterSelection: { partyIndex: 9, displayNameEcho: "张三" } },
     provide,
   );
   assert.equal(res.ok, true);

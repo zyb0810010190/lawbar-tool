@@ -27,7 +27,7 @@ function model(overrides = {}) {
     formType: "证据目录及说明",
     matterId: "01J0MATTER0000000000000001",
     litigationPosition: { value: "plaintiff" },
-    submitterName: { text: "孙乐驰" },
+    submitterName: { text: "张三" },
     rows: [],
     ...overrides,
   };
@@ -78,7 +78,7 @@ test("structural: header carries 提交人诉讼地位 (原告) + 名称/姓名 
   const runs = extractTextRuns(await documentXml(model({ rows: [row(1)] })));
   const joined = runs.join("");
   assert.match(joined, /提交人诉讼地位：原告/);
-  assert.match(joined, /名称\/姓名：孙乐驰/);
+  assert.match(joined, /名称\/姓名：张三/);
   assert.match(joined, /证据目录及说明/, "title present");
 });
 

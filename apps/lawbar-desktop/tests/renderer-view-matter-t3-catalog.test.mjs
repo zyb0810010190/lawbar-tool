@@ -24,7 +24,7 @@ function modelFixture(overrides = {}) {
     formType: "证据目录及说明",
     matterId: VALID_ULID,
     litigationPosition: { value: "plaintiff" },
-    submitterName: { text: "孙乐驰" },
+    submitterName: { text: "张三" },
     rows: [],
     ...overrides,
   };
@@ -98,7 +98,7 @@ test("t3 preview: renders the 提交人诉讼地位 + 名称 header and the 4-co
   const headerText = collectText(header);
   assert.match(headerText, /提交人诉讼地位/);
   assert.match(headerText, /原告/);
-  assert.match(headerText, /孙乐驰/);
+  assert.match(headerText, /张三/);
   const table = findByTestId(root, "view-t3-table");
   assert.ok(table !== null);
   const rows = findAllByTestId(root, "view-t3-row");
