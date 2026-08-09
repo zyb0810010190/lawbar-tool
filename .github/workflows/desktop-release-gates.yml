@@ -10,6 +10,11 @@ on:
   pull_request:
     paths:
       - "apps/lawbar-desktop/**"
+      # The desktop `pretest` chain runs `check:no-real-data:all` — the full-corpus
+      # privacy scan whose party-name allowlist guards `docs/contracts/**/fixtures/**`.
+      # Without this path, a PR touching ONLY a contract fixture would never fire the
+      # very gate that protects it (WI-GATE-FULLSCAN, commit 6c8fe17).
+      - "docs/contracts/**"
       - ".github/workflows/desktop-release-gates.yml"
   workflow_dispatch: {}
 
