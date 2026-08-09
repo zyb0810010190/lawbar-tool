@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,11 +8,16 @@ import { fileURLToPath } from "node:url";
 import {
   scanFile,
   scanContent,
+  scanFixtureProvenance,
   isInScope,
   isBinaryAsset,
   isDetectorDoc,
+  isFixtureJson,
+  isApprovedFictionalPartyName,
   DOC_EXEMPT_MARKER,
   PATTERNS,
+  PARTY_NAME_FIELDS,
+  APPROVED_FICTIONAL_PARTY_NAMES,
 } from "../scripts/check-no-real-data.mjs";
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."); // apps/lawbar-desktop
@@ -159,4 +164,170 @@ test("scanFile: marker in a non-dev-memo file does not exempt (end-to-end path g
   const f = path.join(dir, "x.ts");
   writeFileSync(f, `const v = "District Court"; // ${DOC_EXEMPT_MARKER}\n`, "utf8");
   assert.ok(scanFile(f).some((h) => h.pattern === "real-court-en"));
+});
+
+// --- WI-GATE-PROVENANCE: widened scope ------------------------------------------------
+
+test("isInScope: pre-existing scopes are unchanged (this WI may only ADD coverage)", () => {
+  assert.equal(isInScope(path.join(APP_ROOT, "renderer/screens/listMatters.ts")), true);
+  assert.equal(isInScope(path.join(APP_ROOT, "renderer/index.css")), true);
+  assert.equal(isInScope(path.join(REPO_ROOT, "services/case-box-persistence/src/index.ts")), true);
+  assert.equal(isInScope(path.join(APP_ROOT, "renderer/fonts/noto-sans-sc-400.woff2")), false);
+  // Self-exemptions must survive: the gate's own script + test legitimately carry patterns.
+  assert.equal(isInScope(path.join(APP_ROOT, "scripts/check-no-real-data.mjs")), false);
+  assert.equal(isInScope(path.join(APP_ROOT, "tests/check-no-real-data.test.mjs")), false);
+});
+
+test("isInScope: contract fixtures are now scanned (both contract packages)", () => {
+  // Previously missed entirely — no "case-box" substring in the path.
+  assert.equal(isInScope(path.join(REPO_ROOT, "docs/contracts/fixtures/valid/submission-inline.json")), true);
+  assert.equal(isInScope(path.join(REPO_ROOT, "docs/contracts/fixtures/invalid/retry-violation.json")), true);
+  assert.equal(
+    isInScope(path.join(REPO_ROOT, "docs/contracts/case-box-contract/fixtures/valid/party.valid.json")),
+    true,
+  );
+});
+
+test("isInScope: the widened fixture scope does not pull in vendored node_modules fixtures", () => {
+  assert.equal(
+    isInScope(path.join(REPO_ROOT, "docs/contracts/node_modules/json-schema-traverse/spec/fixtures/x.json")),
+    false,
+  );
+  // Pre-existing behaviour, NOT introduced here and NOT narrowed here: the original
+  // /casebox|case-box|caseBox/i hint already matched every path containing "case-box",
+  // including that package's node_modules. Verified against HEAD before this WI. Narrowing
+  // it would weaken the gate, which this WI may not do.
+  assert.equal(
+    isInScope(path.join(REPO_ROOT, "docs/contracts/case-box-contract/node_modules/fast-uri/test/fixtures/y.json")),
+    true,
+  );
+  // The provenance allowlist, however, must never treat vendored data as our sample data.
+  assert.equal(
+    isFixtureJson(path.join(REPO_ROOT, "docs/contracts/case-box-contract/node_modules/fast-uri/test/fixtures/y.json")),
+    false,
+  );
+});
+
+test("isInScope: desktop test data (golden fixtures + inline goldens) is now scanned", () => {
+  assert.equal(isInScope(path.join(APP_ROOT, "tests/fixtures/a10-golden-canonical-export.json")), true);
+  // The five-week leak lived in an inline golden string inside a *.unit.test.mjs, not under
+  // tests/fixtures/ — scoping the directory is what actually covers that vector.
+  assert.equal(isInScope(path.join(APP_ROOT, "tests/t3-catalog-model.unit.test.mjs")), true);
+  assert.equal(isInScope(path.join(APP_ROOT, "tests/renderer-api.test.mjs")), true);
+});
+
+// --- WI-GATE-PROVENANCE: fixture party-name provenance --------------------------------
+
+test("PARTY_NAME_FIELDS covers the contract's only party-label field", () => {
+  assert.ok(PARTY_NAME_FIELDS.has("display_name"));
+  // Guard against over-reach: `name` is a matter title / OCR engine id, not a party label.
+  assert.ok(!PARTY_NAME_FIELDS.has("name"));
+});
+
+test("isFixtureJson: only JSON under the fixture roots qualifies", () => {
+  assert.equal(isFixtureJson(path.join(REPO_ROOT, "docs/contracts/fixtures/valid/submission-inline.json")), true);
+  assert.equal(
+    isFixtureJson(path.join(REPO_ROOT, "docs/contracts/case-box-contract/fixtures/invalid/party-bad-role.json")),
+    true,
+  );
+  assert.equal(isFixtureJson(path.join(APP_ROOT, "tests/fixtures/a10-golden-canonical-export.json")), true);
+  // Not fixtures:
+  assert.equal(isFixtureJson(path.join(APP_ROOT, "package.json")), false);
+  assert.equal(isFixtureJson(path.join(APP_ROOT, "tests/t3-catalog-model.unit.test.mjs")), false);
+  assert.equal(
+    isFixtureJson(path.join(REPO_ROOT, "docs/contracts/case-box-contract/schemas/case-box-party.schema.json")),
+    false,
+  );
+  assert.equal(
+    isFixtureJson(path.join(REPO_ROOT, "docs/contracts/node_modules/fast-uri/test/fixtures/y.json")),
+    false,
+  );
+});
+
+test("isApprovedFictionalPartyName accepts the seeded allowlist and its prefixed families", () => {
+  for (const ok of APPROVED_FICTIONAL_PARTY_NAMES) {
+    assert.ok(isApprovedFictionalPartyName(ok), `${ok} should be approved`);
+  }
+  for (const ok of ["张三", "李四", "ACME Corp", "Acme Demonstration LLC", "Counterparty Ltd", "示例建设有限公司"]) {
+    assert.ok(isApprovedFictionalPartyName(ok), `${ok} should be approved`);
+  }
+});
+
+test("isApprovedFictionalPartyName rejects anything not on the allowlist", () => {
+  for (const bad of ["王大锤", "Zhang Wei", "北京某某科技有限公司", "J. Smith", "Corp ACME", "建设示例有限公司"]) {
+    assert.equal(isApprovedFictionalPartyName(bad), false, `${bad} must not be approved`);
+  }
+});
+
+test("scanFixtureProvenance passes an allowlisted party name", () => {
+  const text = JSON.stringify({ role: "client", display_name: "张三", party_kind: "individual" }, null, 2);
+  assert.deepEqual(scanFixtureProvenance(text, "docs/contracts/x/fixtures/valid/p.json"), []);
+});
+
+test("scanFixtureProvenance fails a non-allowlisted party name and names file/field/value/remedy", () => {
+  const text = JSON.stringify({ role: "client", display_name: "王大锤", party_kind: "individual" }, null, 2);
+  const hits = scanFixtureProvenance(text, "docs/contracts/x/fixtures/valid/p.json");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].pattern, "party-name-not-allowlisted");
+  assert.equal(hits[0].file, "docs/contracts/x/fixtures/valid/p.json");
+  assert.equal(hits[0].field, "display_name");
+  assert.equal(hits[0].match, "王大锤");
+  assert.ok(hits[0].line >= 1);
+  assert.match(hits[0].hint, /APPROVED_FICTIONAL_PARTY_NAMES/);
+});
+
+test("scanFixtureProvenance walks nested parties[] arrays, not just the top level", () => {
+  const text = JSON.stringify(
+    {
+      name: "Test Matter — Sample Litigation",
+      parties: [
+        { role: "client", display_name: "ACME Corp", party_kind: "organization" },
+        { role: "opposing", display_name: "某某实业股份有限公司", party_kind: "organization" },
+      ],
+    },
+    null,
+    2,
+  );
+  const hits = scanFixtureProvenance(text, "f.json");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].match, "某某实业股份有限公司");
+});
+
+test("scanFixtureProvenance fails closed when a fixture cannot be parsed", () => {
+  const hits = scanFixtureProvenance("{ not json", "f.json");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].pattern, "fixture-unparseable");
+});
+
+test("scanFixtureProvenance: the dev-memo exemption marker cannot bypass a fixture", () => {
+  const text = JSON.stringify({ display_name: `王大锤 ${DOC_EXEMPT_MARKER}` }, null, 2);
+  const hits = scanFixtureProvenance(text, "f.json");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].pattern, "party-name-not-allowlisted");
+});
+
+test("scanFile runs the provenance check end-to-end on a real contract fixture", () => {
+  const f = path.join(REPO_ROOT, "docs/contracts/case-box-contract/fixtures/valid/matter.valid.json");
+  assert.deepEqual(scanFile(f), []);
+});
+
+test("every tracked contract + desktop fixture passes the provenance allowlist", () => {
+  const roots = [
+    path.join(REPO_ROOT, "docs/contracts/fixtures"),
+    path.join(REPO_ROOT, "docs/contracts/case-box-contract/fixtures"),
+    path.join(APP_ROOT, "tests/fixtures"),
+  ];
+  const files = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === "node_modules") continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else files.push(full);
+    }
+  };
+  for (const r of roots) walk(r);
+  assert.ok(files.length > 100, "expected the fixture corpus to be non-trivial");
+  const hits = files.flatMap((f) => scanFile(f));
+  assert.deepEqual(hits, [], `fixture corpus must be clean; got ${JSON.stringify(hits)}`);
 });
