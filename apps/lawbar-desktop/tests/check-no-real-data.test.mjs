@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readdirSync, rmSync } from "node:fs";
+import { execSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +15,7 @@ import {
   isDetectorDoc,
   isFixtureJson,
   isApprovedFictionalPartyName,
+  resolveScanFiles,
   DOC_EXEMPT_MARKER,
   PATTERNS,
   PARTY_NAME_FIELDS,
@@ -467,6 +469,139 @@ test("ACME / Counterparty families are untouched by the 示例 tightening", () =
   for (const bad of ["Corp ACME", "The Counterparty"]) {
     assert.equal(isApprovedFictionalPartyName(bad), false, `${bad} must stay rejected`);
   }
+});
+
+// --- WI-GATE-FULLSCAN: standing full-scan mode (`--all`) --------------------------------
+//
+// The gate has always been DIFF-SCOPED: with git changes present it scans only the changed
+// files, so a real identifier sitting dormant in a file nobody touches is never re-checked.
+// That is not hypothetical — real client identifiers sat in this repo's fixtures and tests for
+// five weeks (scrubbed in f86c8e4) precisely because the gate only ever looked at diffs.
+// `--all` makes the checks a standing invariant. The diff-scoped path remains the DEFAULT.
+
+const SCRIPT = path.join(APP_ROOT, "scripts/check-no-real-data.mjs");
+
+function runScanner(args) {
+  return spawnSync(process.execPath, [SCRIPT, ...args], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  });
+}
+
+function gitLines(cmd) {
+  return execSync(cmd, { cwd: REPO_ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+    .split("\n")
+    .filter(Boolean)
+    .map((rel) => path.resolve(REPO_ROOT, rel));
+}
+
+test("--all resolves the full corpus, not a diff — non-zero in-scope file count", () => {
+  const { mode, files } = resolveScanFiles(["--all"]);
+  assert.equal(mode, "full");
+  const inScope = files.filter(isInScope);
+  // The exact blind spot being fixed: diff mode reports "0 file(s)" when nothing changed.
+  // A full scan that resolves nothing has not verified the invariant, it has only failed to look.
+  assert.ok(inScope.length > 100, `expected the whole in-scope corpus; got ${inScope.length}`);
+});
+
+test("--all is a strict SUPERSET of whatever the default mode would scan", () => {
+  const full = new Set(resolveScanFiles(["--all"]).files);
+  const dflt = resolveScanFiles([]);
+  assert.notEqual(dflt.mode, "full", "the default must never be the full scan");
+  for (const f of dflt.files) {
+    assert.ok(full.has(f), `default-mode file missing from the full scan: ${f}`);
+  }
+});
+
+test("--all reaches dormant tracked files the default mode cannot see", () => {
+  // Dynamically chosen so the assertion cannot rot: a TRACKED, in-scope file that git reports
+  // as unchanged AND that lies outside the roots the no-change sweep walks. Both default
+  // branches (diff scan and no-change sweep) miss it; the full scan must not.
+  const changed = new Set([
+    ...gitLines("git diff --cached --name-only --diff-filter=ACMR"),
+    ...gitLines("git diff --name-only --diff-filter=ACMR"),
+    ...gitLines("git ls-files --others --exclude-standard"),
+  ]);
+  const sweepRoots = [path.join(REPO_ROOT, "apps/lawbar-desktop"), path.join(REPO_ROOT, "docs/contracts")];
+  const dormant = gitLines("git ls-files")
+    .filter(isInScope)
+    .filter((f) => !changed.has(f))
+    .filter((f) => !sweepRoots.some((r) => f.startsWith(`${r}${path.sep}`)));
+  assert.ok(dormant.length > 0, "expected tracked in-scope files outside the sweep roots (services/case-box-*)");
+
+  const full = new Set(resolveScanFiles(["--all"]).files);
+  const dflt = new Set(resolveScanFiles([]).files);
+  for (const f of dormant) {
+    assert.ok(full.has(f), `full scan must cover dormant tracked file ${f}`);
+    assert.ok(!dflt.has(f), `default mode must stay diff-scoped; it should not see ${f}`);
+  }
+});
+
+test("default (no flag) still diff-scopes: exactly the git-changed set, or the sweep when clean", () => {
+  const changed = [
+    ...gitLines("git diff --cached --name-only --diff-filter=ACMR"),
+    ...gitLines("git diff --name-only --diff-filter=ACMR"),
+    ...gitLines("git ls-files --others --exclude-standard"),
+  ];
+  const { mode, files } = resolveScanFiles([]);
+  if (changed.length > 0) {
+    assert.equal(mode, "diff");
+    assert.deepEqual(new Set(files), new Set(changed));
+  } else {
+    assert.equal(mode, "sweep");
+  }
+});
+
+test("explicit path arguments are unchanged by the flag parsing", () => {
+  const { mode, files } = resolveScanFiles(["apps/lawbar-desktop/renderer/index.css"]);
+  assert.equal(mode, "explicit");
+  assert.deepEqual(files, [path.join(REPO_ROOT, "apps/lawbar-desktop/renderer/index.css")]);
+});
+
+test("--all CLI exits 0 on the clean corpus and reports a non-zero file count", () => {
+  const r = runScanner(["--all"]);
+  assert.equal(r.status, 0, `full scan failed:\n${r.stdout}\n${r.stderr}`);
+  const m = /OK — (\d+) file\(s\)/.exec(r.stdout);
+  assert.ok(m, `expected an OK line with a file count; got: ${JSON.stringify(r.stdout)}`);
+  assert.ok(Number(m[1]) > 100, `full scan reported only ${m[1]} file(s)`);
+  assert.match(r.stdout, /mode=full/);
+});
+
+test("--all CLI FAILS on a violation planted in a real fixture directory", () => {
+  // Negative control at a REAL fixture path (not a tmpdir), because the point of the full scan
+  // is that it re-checks repo content rather than only what a diff happens to contain.
+  const planted = path.join(
+    REPO_ROOT,
+    "docs/contracts/case-box-contract/fixtures/valid/__fullscan-negative-control.json",
+  );
+  writeFileSync(
+    planted,
+    JSON.stringify({ role: "client", display_name: "王大锤", party_kind: "individual" }, null, 2),
+    "utf8",
+  );
+  try {
+    const r = runScanner(["--all"]);
+    assert.equal(r.status, 1, `planted violation must fail the full scan; stdout=${r.stdout}`);
+    assert.match(r.stderr, /__fullscan-negative-control\.json/);
+    assert.match(r.stderr, /party-name-not-allowlisted/);
+  } finally {
+    rmSync(planted, { force: true });
+  }
+});
+
+test("an unrecognised flag is a usage error, never silently resolved as a path", () => {
+  // A typo such as `--all-files` must not resolve to a nonexistent file and then "pass"
+  // having scanned nothing.
+  assert.equal(resolveScanFiles(["--all-files"]).mode, "usage-error");
+  const r = runScanner(["--all-files"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /unknown option/);
+});
+
+test("--all combined with explicit paths is a usage error (ambiguous scope)", () => {
+  assert.equal(resolveScanFiles(["--all", "apps/lawbar-desktop/renderer/index.css"]).mode, "usage-error");
+  const r = runScanner(["--all", "apps/lawbar-desktop/renderer/index.css"]);
+  assert.equal(r.status, 1);
 });
 
 test("every tracked contract + desktop fixture passes the provenance allowlist", () => {

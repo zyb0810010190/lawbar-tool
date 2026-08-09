@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// Diff scan for real-looking legal markers per dev-memo/plan-casebox-ipc-impl-01.md
-// rev-0.3 §15.3. Scans staged + working-tree changes (or a user-supplied
-// path list) for high-recall legal markers. Exits 0 on clean; exits 1 with
-// per-match listing on hit. Heuristic — not a formal guarantee.
+// Scan for real-looking legal markers per dev-memo/plan-casebox-ipc-impl-01.md
+// rev-0.3 §15.3. Default: staged + working-tree changes (or a user-supplied
+// path list). `--all`: the whole in-scope corpus regardless of git status, so the
+// checks are a standing invariant rather than a diff-only tripwire (WI-GATE-FULLSCAN).
+// Exits 0 on clean; exits 1 with per-match listing on hit. Heuristic — not a formal guarantee.
 import { execSync } from "node:child_process";
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -285,24 +286,26 @@ const EXEMPT_PATHS = new Set([
   path.join(REPO_ROOT, "apps/lawbar-desktop/tests/check-no-real-data.test.mjs"),
 ]);
 
-function gitChangedFiles() {
+// Repo-relative paths from a git listing command. Returns [] when git is unavailable or the
+// command fails — callers must not treat an empty listing as "nothing to scan" (see main()).
+function gitList(args) {
   try {
-    const staged = execSync("git diff --cached --name-only --diff-filter=ACMR", {
+    return execSync(`git ${args}`, {
       cwd: REPO_ROOT,
       encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
     }).split("\n").filter(Boolean);
-    const unstaged = execSync("git diff --name-only --diff-filter=ACMR", {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-    }).split("\n").filter(Boolean);
-    const untracked = execSync("git ls-files --others --exclude-standard", {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-    }).split("\n").filter(Boolean);
-    return Array.from(new Set([...staged, ...unstaged, ...untracked]));
   } catch {
     return [];
   }
+}
+
+function gitChangedFiles() {
+  return Array.from(new Set([
+    ...gitList("diff --cached --name-only --diff-filter=ACMR"),
+    ...gitList("diff --name-only --diff-filter=ACMR"),
+    ...gitList("ls-files --others --exclude-standard"),
+  ]));
 }
 
 function collectRecursive(dir) {
@@ -366,32 +369,106 @@ function scanFile(filePath) {
   return hits;
 }
 
-function main(argv) {
-  let files;
-  if (argv.length > 0) {
-    files = argv.map((a) => path.resolve(REPO_ROOT, a));
-  } else {
-    const changed = gitChangedFiles();
-    if (changed.length > 0) {
-      files = changed.map((rel) => path.resolve(REPO_ROOT, rel));
-    } else {
-      // No git changes — sweep the in-scope trees. WI-GATE-PROVENANCE added docs/contracts:
-      // previously the sweep could not reach any fixture outside apps/lawbar-desktop, so the
-      // widened scope would have been unreachable in this branch. isInScope still filters.
-      const roots = [
-        path.join(REPO_ROOT, "apps/lawbar-desktop"),
-        path.join(REPO_ROOT, "docs/contracts"),
-      ];
-      files = roots.filter((r) => existsSync(r)).flatMap((r) => collectRecursive(r));
+// No-git-changes sweep roots. WI-GATE-PROVENANCE added docs/contracts: previously the sweep
+// could not reach any fixture outside apps/lawbar-desktop, so the widened scope would have been
+// unreachable in this branch. isInScope still filters.
+const SWEEP_ROOTS = [
+  path.join(REPO_ROOT, "apps/lawbar-desktop"),
+  path.join(REPO_ROOT, "docs/contracts"),
+];
+
+function sweepFiles() {
+  return SWEEP_ROOTS.filter((r) => existsSync(r)).flatMap((r) => collectRecursive(r));
+}
+
+// --- Full-scan mode (WI-GATE-FULLSCAN) ---------------------------------------------------
+//
+// The default mode is DIFF-SCOPED: when git reports changes, only those files are scanned. That
+// catches every NEW introduction but never re-checks a file nobody touched, so a real identifier
+// sitting dormant in an untouched fixture stays invisible indefinitely. That is not hypothetical
+// — real client identifiers sat in this repo's fixtures and tests for five weeks (scrubbed in
+// f86c8e4) for exactly this reason.
+//
+// `--all` turns the same checks into a standing invariant: same PATTERNS, same isInScope, same
+// provenance allowlist, same exit codes — only the file set differs. The set is deliberately the
+// UNION of every source the default mode can draw on (tracked files, untracked-but-not-ignored
+// files, and the no-change tree sweep), so the full scan can never see LESS than the default
+// scan would. Nothing here narrows or softens the diff-scoped path, which remains the default.
+function fullScanFiles() {
+  return Array.from(new Set([
+    ...gitList("ls-files").map((rel) => path.resolve(REPO_ROOT, rel)),
+    ...gitList("ls-files --others --exclude-standard").map((rel) => path.resolve(REPO_ROOT, rel)),
+    ...sweepFiles(),
+  ]));
+}
+
+const USAGE = "usage: check-no-real-data.mjs [--all] [<path>...]";
+
+function parseArgs(argv) {
+  let all = false;
+  const paths = [];
+  for (const a of argv) {
+    if (a === "--all") {
+      all = true;
+      continue;
     }
+    // An unrecognised flag is a usage ERROR, never a path. Resolving `--all-files` as a
+    // relative path would yield a nonexistent file, scanFile would return no hits, and the
+    // gate would report a pass having scanned nothing. Fail closed on the typo instead.
+    if (a.startsWith("-")) return { error: `unknown option ${JSON.stringify(a)}`, all, paths };
+    paths.push(a);
+  }
+  if (all && paths.length > 0) {
+    return { error: "--all cannot be combined with explicit paths", all, paths };
+  }
+  return { error: null, all, paths };
+}
+
+// Resolves WHICH files a given invocation scans. Everything downstream (isInScope, PATTERNS,
+// the fixture provenance allowlist, the exit codes) is identical across modes by construction.
+function resolveScanFiles(argv = []) {
+  const { error, all, paths } = parseArgs(argv);
+  if (error !== null) return { mode: "usage-error", error, files: [] };
+  if (all) return { mode: "full", error: null, files: fullScanFiles() };
+  if (paths.length > 0) {
+    return { mode: "explicit", error: null, files: paths.map((a) => path.resolve(REPO_ROOT, a)) };
+  }
+  const changed = gitChangedFiles();
+  if (changed.length > 0) {
+    return { mode: "diff", error: null, files: changed.map((rel) => path.resolve(REPO_ROOT, rel)) };
+  }
+  return { mode: "sweep", error: null, files: sweepFiles() };
+}
+
+function main(argv) {
+  const { mode, error, files } = resolveScanFiles(argv);
+  if (mode === "usage-error") {
+    console.error(`[check-no-real-data] FAIL ${error}`);
+    console.error(`[check-no-real-data]        -> ${USAGE}`);
+    return 1;
   }
   const inScope = files.filter(isInScope);
+  // Fail closed in full-scan mode. A full scan that resolved nothing has not verified the
+  // invariant, it has only failed to look (broken git, wrong cwd, a future scope regression).
+  // Diff mode legitimately reports 0 when no in-scope file changed, so the guard is full-only.
+  if (mode === "full" && inScope.length === 0) {
+    console.error(
+      "[check-no-real-data] FAIL full scan resolved 0 in-scope files — refusing to report a pass",
+    );
+    console.error(
+      "[check-no-real-data]        -> run from inside the repository with git available; " +
+        "an empty full scan is a gate failure, not a clean result",
+    );
+    return 1;
+  }
   const allHits = [];
   for (const f of inScope) {
     allHits.push(...scanFile(f));
   }
   if (allHits.length === 0) {
-    console.log(`[check-no-real-data] OK — ${inScope.length} file(s) in case-box scope; no markers`);
+    console.log(
+      `[check-no-real-data] OK — ${inScope.length} file(s) in case-box scope (mode=${mode}); no markers`,
+    );
     return 0;
   }
   for (const h of allHits) {
@@ -409,6 +486,8 @@ function main(argv) {
 }
 
 export {
+  main,
+  resolveScanFiles,
   scanFile,
   scanContent,
   scanFixtureProvenance,
