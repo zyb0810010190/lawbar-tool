@@ -1,5 +1,6 @@
 // A07ConformanceHarness.swift — Evidence Core Swift: A0.7 renderer-conformance HARNESS (WI-ENA8;
-// messy-fixture coverage extended in WI-EVIDENCE-A0.7-FIXTURE-COVERAGE-00).
+// messy-fixture coverage extended in WI-EVIDENCE-A0.7-FIXTURE-COVERAGE-00; oracle-free stability mode
+// added in WI-A07-STABILITY).
 //
 // First real A0.7 harness per docs/adr/ADR-evidence-a07-renderer-conformance-gate.md (A07-GATE-00).
 // It LOADS a synthetic fixture, READS the committed oracle (oracle.json — the expected values are NOT
@@ -24,6 +25,18 @@
 //
 // The expected-value authority is the committed oracle, authored from each fixture's KNOWN construction
 // and INDEPENDENT of this code (A07-GATE-00 §3 — never back-fill harness output into an oracle).
+//
+// STABILITY MODE (WI-A07-STABILITY) — `runStability(fixtureURL:iterations:)`. The gate's real question is
+// whether the geometry SOURCE is reproducible, which an oracle comparison cannot ask on a document whose
+// geometry has never been recorded. Stability mode needs NO oracle: it captures the full observed geometry
+// of every page, fully releases the document, RE-loads the same unchanged file, and re-captures — N times —
+// then compares every capture byte-exactly against the first. Any divergence between reads of the same
+// unchanged file is the definitional Class-2 signal (`class_2_geometry_source_instability`): the geometry
+// source is not reproducible. It reuses this file's capture path, result type, and classification enum;
+// it defines no new verdict vocabulary. It reads only; it CREATES NO ORACLE and WRITES NO FILE (stdout is
+// the CLI's only output), which is what makes it safe to point at confidential client material. For the
+// same reason its `detail` strings carry page counts and geometry numbers ONLY — never a file name, path,
+// page content, text, or document metadata.
 
 import Foundation
 #if canImport(PDFKit)
@@ -167,14 +180,7 @@ public enum EvidenceCoreA07Harness {
             guard box.pageIndex >= 0, box.pageIndex < pageCount, let page = document.page(at: box.pageIndex) else {
                 continue // missing page -> handled as a box-count mismatch in evaluate()
             }
-            let mb = page.bounds(for: .mediaBox)
-            let cb = page.bounds(for: .cropBox)
-            boxes.append(.init(pageIndex: box.pageIndex,
-                               originX: Double(mb.origin.x), originY: Double(mb.origin.y),
-                               width: Double(mb.width), height: Double(mb.height),
-                               rotation: page.rotation,
-                               cropBox: .init(x: Double(cb.origin.x), y: Double(cb.origin.y),
-                                              width: Double(cb.width), height: Double(cb.height))))
+            boxes.append(captureBox(page, pageIndex: box.pageIndex))
         }
 
         // 4. Observed normalized sample values, computed from the OBSERVED sample-page box via
@@ -199,6 +205,36 @@ public enum EvidenceCoreA07Harness {
                                     detail: "PDFKit unavailable; A0.7 harness not executable in this environment")
         #endif
     }
+
+    #if canImport(PDFKit)
+    // MARK: - Geometry capture (single source of truth for oracle mode AND stability mode)
+
+    /// Capture ONE page's observed geometry: mediaBox origin+extent, cropBox, rotation. PDFKit reports
+    /// `bounds(for: .cropBox)` defaulting to the mediaBox when the page declares no CropBox. Returns a
+    /// pure value type, so the caller can release the document immediately after capture.
+    static func captureBox(_ page: PDFPage, pageIndex: Int) -> A07Observed.Box {
+        let mb = page.bounds(for: .mediaBox)
+        let cb = page.bounds(for: .cropBox)
+        return .init(pageIndex: pageIndex,
+                     originX: Double(mb.origin.x), originY: Double(mb.origin.y),
+                     width: Double(mb.width), height: Double(mb.height),
+                     rotation: page.rotation,
+                     cropBox: .init(x: Double(cb.origin.x), y: Double(cb.origin.y),
+                                    width: Double(cb.width), height: Double(cb.height)))
+    }
+
+    /// Capture the FULL observed geometry for EVERY page of a loaded document (stability mode, which has
+    /// no oracle to tell it which pages to look at). `sampleNormalized` is empty: normalized samples are
+    /// an oracle-driven Class-1 check and have no meaning without oracle sample points.
+    static func captureAllPages(_ document: PDFDocument) -> A07Observed {
+        var boxes: [A07Observed.Box] = []
+        for index in 0..<document.pageCount {
+            guard let page = document.page(at: index) else { continue } // short list -> caught as invalid
+            boxes.append(captureBox(page, pageIndex: index))
+        }
+        return A07Observed(pageCount: document.pageCount, perPageMediaBox: boxes, sampleNormalized: [])
+    }
+    #endif
 
     /// Pure classifier: compare observed geometry to the oracle. No IO. Order of checks fixes the
     /// Class-1 vs Class-2 split: structural disagreements (page count, box extent, box origin, cropBox,
@@ -279,5 +315,146 @@ public enum EvidenceCoreA07Harness {
         return A07ConformanceResult(status: .pass, classification: .ok,
                                     observedPageCount: observed.pageCount,
                                     detail: "all \(oracle.expected.perPageMediaBox.count) box + \(oracle.expected.samplePoints.count) sample assertions within tolerance \(tol)")
+    }
+
+    // MARK: - Stability mode (WI-A07-STABILITY) — no oracle, no file written
+
+    /// Default number of independent reads a stability run performs.
+    public static let stabilityDefaultIterations = 3
+
+    /// Run the ORACLE-FREE A0.7 stability check: read the SAME unchanged file `iterations` times, fully
+    /// releasing the document between reads, and compare every capture byte-exactly against the first.
+    ///
+    /// - `pass` / `ok` — every read reported identical geometry.
+    /// - `fail` / `class_2_geometry_source_instability` — two reads of the same unchanged file disagreed.
+    ///   That is the definitional Class-2 signal and a STOP; it is never downgraded to pass.
+    /// - `fail` / `fixture_or_oracle_invalid` — the document did not load, reported zero pages, or did not
+    ///   yield geometry for every page. Never a pass.
+    /// - `inconclusive` / `inconclusive_no_checkable_assertions` — fewer than two reads requested, so there
+    ///   is nothing to compare. Inconclusive is NOT pass.
+    /// - `fail` / `not_implemented` — PDFKit unavailable. `not_implemented` is a FAIL (A07-GATE-00 §4).
+    ///
+    /// Reads only. Creates NO oracle and writes NO file, so it leaves no artifact on disk and is safe to
+    /// point at confidential material. `detail` carries counts and geometry numbers only — never the file
+    /// name/path, page content, text, or document metadata.
+    public static func runStability(fixtureURL: URL,
+                                    iterations: Int = EvidenceCoreA07Harness.stabilityDefaultIterations) -> A07ConformanceResult {
+        // OFFLINE INVARIANT (same as oracle mode): `PDFDocument(url:)` is network-capable for http(s)
+        // URLs. Reject any non-file URL before loading anything (evidence-genie.md invariant 1).
+        guard fixtureURL.isFileURL else {
+            return A07ConformanceResult(status: .fail, classification: .fixture_or_oracle_invalid,
+                                        observedPageCount: 0,
+                                        detail: "fixture must be a local file URL (offline harness); refusing non-file URL")
+        }
+        // Fewer than two reads compares nothing. Guarded here as well as in evaluateStability so the
+        // read loop below can never be entered with a degenerate count.
+        guard iterations >= 2 else {
+            return A07ConformanceResult(status: .inconclusive, classification: .inconclusive_no_checkable_assertions,
+                                        observedPageCount: 0,
+                                        detail: "stability needs at least 2 reads to compare; iterations=\(iterations) defines no checkable assertion (not pass)")
+        }
+
+        #if canImport(PDFKit)
+        var captures: [A07Observed] = []
+        for read in 1...iterations {
+            // Each read builds a FRESH PDFDocument inside its own autorelease pool and captures only
+            // value-typed geometry. No document reference outlives the pool, so the next iteration is a
+            // genuine re-load of the file rather than a re-read of a retained in-memory document.
+            let captured: A07Observed? = autoreleasepool {
+                guard let document = PDFDocument(url: fixtureURL) else { return nil }
+                return captureAllPages(document)
+            }
+            guard let observed = captured else {
+                return A07ConformanceResult(status: .fail, classification: .fixture_or_oracle_invalid,
+                                            observedPageCount: 0,
+                                            detail: "document failed to load on read \(read) of \(iterations) (not pass)")
+            }
+            captures.append(observed)
+        }
+        return evaluateStability(captures: captures)
+        #else
+        // PDFKit unavailable -> the harness cannot execute. not_implemented is a FAIL (A07-GATE-00 §4).
+        return A07ConformanceResult(status: .fail, classification: .not_implemented,
+                                    observedPageCount: 0,
+                                    detail: "PDFKit unavailable; A0.7 stability mode not executable in this environment")
+        #endif
+    }
+
+    /// Pure classifier for stability mode: compare N captures of the same unchanged file. No IO.
+    /// `captures[0]` is the reference read. Mirrors the `run` / `evaluate` split of oracle mode so the
+    /// Class-2 branch is directly testable without needing a genuinely unstable renderer.
+    static func evaluateStability(captures: [A07Observed]) -> A07ConformanceResult {
+        guard let first = captures.first, captures.count >= 2 else {
+            return A07ConformanceResult(status: .inconclusive, classification: .inconclusive_no_checkable_assertions,
+                                        observedPageCount: captures.first?.pageCount ?? 0,
+                                        detail: "stability needs at least 2 reads to compare; got \(captures.count) (not pass)")
+        }
+        // A document with no pages has no geometry source to assess: invalid, never pass.
+        guard first.pageCount > 0 else {
+            return A07ConformanceResult(status: .fail, classification: .fixture_or_oracle_invalid,
+                                        observedPageCount: 0,
+                                        detail: "document reports 0 pages; no geometry to assess (not pass)")
+        }
+        guard first.perPageMediaBox.count == first.pageCount else {
+            return A07ConformanceResult(status: .fail, classification: .fixture_or_oracle_invalid,
+                                        observedPageCount: first.pageCount,
+                                        detail: "geometry captured for only \(first.perPageMediaBox.count) of \(first.pageCount) pages (not pass)")
+        }
+
+        let reference = canonicalGeometry(first)
+        for (index, other) in captures.enumerated().dropFirst() where canonicalGeometry(other) != reference {
+            // Two reads of the SAME unchanged file disagreed: the geometry source is not reproducible.
+            return A07ConformanceResult(status: .fail, classification: .class_2_geometry_source_instability,
+                                        observedPageCount: other.pageCount,
+                                        detail: "geometry source not reproducible: \(stabilityDivergence(first: first, other: other, read: index + 1))")
+        }
+        return A07ConformanceResult(status: .pass, classification: .ok,
+                                    observedPageCount: first.pageCount,
+                                    detail: "geometry identical across \(captures.count) independent reads of \(first.pageCount) pages")
+    }
+
+    // MARK: - Deterministic geometry rendering (stability comparison + divergence reporting)
+
+    /// IEEE-754 bit pattern of a Double, so the stability comparison is byte-exact rather than `==`-exact
+    /// (`==` would call NaN != NaN a divergence it cannot describe, and -0.0 == 0.0 a match).
+    private static func bits(_ value: Double) -> String { String(value.bitPattern, radix: 16) }
+
+    /// Byte-exact canonical rendering of one captured page. Comparison key only; never printed.
+    static func canonicalBox(_ box: A07Observed.Box) -> String {
+        "p\(box.pageIndex)|media=\(bits(box.originX)),\(bits(box.originY)),\(bits(box.width)),\(bits(box.height))"
+            + "|rot=\(box.rotation)"
+            + "|crop=\(bits(box.cropBox.x)),\(bits(box.cropBox.y)),\(bits(box.cropBox.width)),\(bits(box.cropBox.height))"
+    }
+
+    /// Byte-exact canonical rendering of one full capture (page count + every captured page).
+    static func canonicalGeometry(_ observed: A07Observed) -> String {
+        (["pages=\(observed.pageCount)"] + observed.perPageMediaBox.map(canonicalBox)).joined(separator: "\n")
+    }
+
+    /// Human-readable decimal rendering of one page's geometry, used ONLY in a divergence detail.
+    /// Geometry numbers only — no file name, page content, text, or metadata.
+    static func describeBox(_ box: A07Observed.Box) -> String {
+        "media=(\(box.originX),\(box.originY),\(box.width),\(box.height)) rot=\(box.rotation) "
+            + "crop=(\(box.cropBox.x),\(box.cropBox.y),\(box.cropBox.width),\(box.cropBox.height))"
+    }
+
+    /// Describe the FIRST difference between the reference read and a later read, deterministically.
+    static func stabilityDivergence(first: A07Observed, other: A07Observed, read: Int) -> String {
+        if first.pageCount != other.pageCount {
+            return "page count read 1 = \(first.pageCount), read \(read) = \(other.pageCount)"
+        }
+        for (index, box) in first.perPageMediaBox.enumerated() {
+            guard index < other.perPageMediaBox.count else {
+                return "page \(box.pageIndex) geometry captured on read 1 but missing on read \(read)"
+            }
+            let otherBox = other.perPageMediaBox[index]
+            if canonicalBox(box) != canonicalBox(otherBox) {
+                return "page \(box.pageIndex) read 1 \(describeBox(box)) != read \(read) \(describeBox(otherBox))"
+            }
+        }
+        if other.perPageMediaBox.count != first.perPageMediaBox.count {
+            return "captured page count read 1 = \(first.perPageMediaBox.count), read \(read) = \(other.perPageMediaBox.count)"
+        }
+        return "captures differ between read 1 and read \(read)"
     }
 }

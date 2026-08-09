@@ -41,8 +41,34 @@ tolerance, and returns a deterministic verdict: `status` (`pass`/`fail`/`inconcl
 is not pass**; a **Class-2** geometry-source instability is a STOP and is never downgraded to pass. The result
 carries `isMarker=false`: a passing harness run is **not** an A0.7 marker.
 
+**A0.7 stability mode (WI-A07-STABILITY) — oracle-free, writes nothing.** The gate's real question is whether
+the geometry **source** is reproducible, which an oracle comparison cannot ask about a document whose geometry
+has never been recorded — and recording an oracle for a real client filing would persist client-derived page
+dimensions to disk. `EvidenceCoreA07Harness.runStability(fixtureURL:iterations:)` needs **no oracle**: it
+captures the full observed geometry of **every** page (the same capture path oracle mode uses), fully releases
+the document, **re-loads the same unchanged file**, re-captures — `iterations` times (default **3**, minimum
+**2**) — and compares every capture **byte-exactly** (IEEE-754 bit patterns) against the first. It reuses the
+existing result type and classification enum: identical captures are `pass`/`ok`; **any** divergence between
+reads of the same unchanged file is `fail`/`class_2_geometry_source_instability` (the definitional Class-2
+signal — the geometry source is not reproducible — a STOP, never downgraded to pass); a document that fails to
+load, reports zero pages, or does not yield geometry for every page is `fail`/`fixture_or_oracle_invalid`;
+fewer than two reads is `inconclusive`/`inconclusive_no_checkable_assertions`. It **reads only**: it creates
+**no oracle** and **writes no file**, and its `detail` strings carry counts and geometry numbers **only** —
+never the file name/path, page content, text, or document metadata. That is what makes it safe to point at
+confidential material.
+
+```
+a07-harness-cli <fixture.pdf> <oracle.json>
+a07-harness-cli --stability <fixture.pdf> [--iterations N]   (N >= 2, default 3)
+```
+
+Both CLI modes print one tab-separated line to stdout — `<status>\t<classification>\t<observedPageCount>` —
+and exit 0 iff `status == pass`. A non-pass additionally writes one `detail: ...` line to **stderr**, so stdout
+keeps its exact machine-readable shape for `scripts/workflow/a07-marker-write.sh`.
+
 **This package is NOT (still):**
-- **NOT an A0.7 marker** — the harness writes **no** marker and **no** files; it touches **no**
+- **NOT an A0.7 marker** — the harness (both oracle mode and stability mode) writes **no** marker and **no**
+  files; it touches **no**
   `dev-memo/run/evidence/**`, and creates **no** provenance/HMAC and **no** tamper/fabrication guard. A durable,
   provenance-valid marker is a separate authorized WI (A07-GATE-00 §5/§8).
 - **NOT production anchor geometry** — the coordinate roundtrip is an internal probe and the harness reads only
@@ -50,7 +76,8 @@ carries `isMarker=false`: a passing harness run is **not** an A0.7 marker.
 - **NOT product behavior** — no anchors, no citation/page-identity persistence, no PDFView/UI conversion, no
   export, no OCR/AI/cloud/auth/network. Public symbols: `EvidenceCoreSmoke.smokeVersion`/`.smoke()`,
   `EvidenceCorePdfKitProbe.pdfKitAvailable`/`.probe()`, `EvidenceCorePdfLoadProbe.load(url:)`,
-  `EvidenceCorePageBoxProbe.inspectMediaBoxes(url:)`, and `EvidenceCoreA07Harness.run(fixtureURL:oracleURL:)`.
+  `EvidenceCorePageBoxProbe.inspectMediaBoxes(url:)`, `EvidenceCoreA07Harness.run(fixtureURL:oracleURL:)`, and
+  `EvidenceCoreA07Harness.runStability(fixtureURL:iterations:)`/`.stabilityDefaultIterations`.
   The coordinate roundtrip probe is internal (no public symbol).
 
 It does not touch or change the existing `native/evidence-core/` JS deterministic-JSON shim.
