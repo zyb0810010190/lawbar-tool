@@ -14,10 +14,22 @@ A queue becomes **executable** in either of two ways:
    `queue.reviewed`; then `govern-queue.sh` writes `queue.governed` (requires both). Lint
    alone never governs.
 
-The agent may execute only a governed queue. It may not edit `queue.md` during an active
-batch except to mark WIs complete or append audit metadata. The `batch-commit-guard.sh` hook
-refuses commits when the queue is not governed, the breaker is hit, an audit is due, or a
-risk flag is pending — so these limits are enforced, not merely instructed.
+The agent may execute only a governed queue. It may **not** edit `queue.md` during an active
+batch — including to mark WIs complete or append audit metadata. Governance is **content-bound**:
+`govern-queue.sh` records `queue_sha256=sha256(queue.md)` into `queue.governed`, and
+`batch-commit-guard.sh` (BCG-6 / GOVERNANCE-CHAIN-001) denies the next commit on any mismatch. So
+editing `queue.md` mid-batch does not record progress — it blocks every commit until
+`govern-queue.sh` is re-run, and that re-run must never share a Bash tool call with the dependent
+commit (the guard is a PreToolUse hook and reads pre-refresh state; see `AGENTS.md`
+§"Test-environment & governance-sequencing notes").
+
+Record per-WI progress where it is actually read: the commit message, `dev-memo/run/log.md`, and —
+per `.claude/rules/plan-execution.md` §3 — a status block stamped into the WI's own plan file inside
+that WI's commit. **The queue is transport; plans and the log are the record.**
+
+The `batch-commit-guard.sh` hook refuses commits when the queue is not governed, the content hash
+does not match, the breaker is hit, an audit is due, or a risk flag is pending — so these limits are
+enforced, not merely instructed.
 
 ## Files
 
