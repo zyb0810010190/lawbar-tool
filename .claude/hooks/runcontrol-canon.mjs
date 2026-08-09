@@ -32,6 +32,7 @@ const PROTECTED = new Set([
   "human.ack",
   "human.override",
   "override-reason.md",
+  "remediation.authorized",
   "batch-start",
   "last-batch-audit",
   "risk.flag",

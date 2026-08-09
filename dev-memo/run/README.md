@@ -41,8 +41,20 @@ enforced, not merely instructed.
 - `last-batch-audit` — ignored local checkpoint: commit hash of the last completed batch audit. Create or update it after completing a batch audit.
 - `risk.flag` — presence = a Layer-C trigger is pending; blocks commits until audited.
 - `human.ack` — single-use human authorization for **gated mode only**; consumed on use.
-- `human.override` — single-use **batch-mode** override token; consumed on use.
+- `human.override` — single-use **batch-mode** override token; consumed on use. General-purpose
+  break glass: it bypasses risk / governance / count and permits *any* commit.
 - `override-reason.md` — required non-empty reason for `human.override`; kept in the audit trail.
+- `remediation.authorized` — single-use **remediation-lane** token: the narrow escape that lets the
+  commit which *resolves* a **FAILED** batch audit actually land. Strictly narrower than
+  `human.override` — it bypasses only the audit-DUE deny, only for a commit whose staged set is
+  inside its declared `allowed_path` list, and only when the cc-suite broker job it names really
+  recorded `AUDIT-VERDICT: BATCH-FAIL` over `range_base..audit_head`. It does **not** advance
+  `last-batch-audit`, so commits stay blocked until a follow-up audit PASSes and the closeout runs.
+  A merely-DUE audit is **not** covered: that is not a deadlock, it is an audit nobody has run.
+  Written by a human only (agent writes are denied by `protect-run-control.sh` /
+  `runcontrol-canon.mjs` / `block-run-control-bash-write.sh`); consumed + logged by
+  `batch-commit-guard.sh`. Field format and the full verification list: `BATCH-AUDIT.md`
+  §"Remediation lane".
 
 WI field contract: `check-queue.sh` requires Type, Scope, Source of truth, Allowed files,
 Forbidden files, Gates, Acceptance criteria, Risk flags, Depends on, Commit boundary.

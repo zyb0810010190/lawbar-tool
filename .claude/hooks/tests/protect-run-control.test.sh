@@ -89,6 +89,7 @@ rm -rf "$PD_A" "$PD_E"
 # shift (per the review). mk_pd/expect_pd/expect_nonode are defined in the PRC-1 section above.
 PD2=$(mk_pd)
 for base in queue.governed queue.linted queue.reviewed human.ack human.override override-reason.md \
+            remediation.authorized \
             batch-start last-batch-audit risk.flag config forbidden-paths.txt .closeout-pending; do
   expect_pd DENY "PRC-2: protected basename $base (canonical)" "$PD2" "{\"tool_input\":{\"file_path\":\"$PD2/dev-memo/run/$base\",\"content\":\"x\"}}"
 done

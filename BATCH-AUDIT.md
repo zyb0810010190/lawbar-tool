@@ -27,6 +27,48 @@ on. Per-WI gates check each task in isolation; the batch audit checks the *accum
 PASS → continue the batch. Any finding → stop, report, and resolve as a new WI (fixed /
 deferred-with-WI / rejected-with-reason). The batch does not resume past unresolved findings.
 
+### Remediation lane — committing the fix for a FAILED audit
+
+A Critical/High/Medium cannot be deferred (`batch-closeout.mjs` requires
+`AUDIT-VERDICT: BATCH-PASS C0 H0 M0 L<n>`), so fix-and-re-audit is the only path — and that path
+needs a commit, which `batch-commit-guard.sh` otherwise blocks as audit-DUE. **The action that
+resolves the finding was the one action the system forbade.** Twice this deadlock was broken by
+spending a single-use `human.override`, which is break-glass, not routine process.
+
+The remediation lane (WI-BATCH-REMEDIATION-LANE-00) fixes that. It applies **only to an audit that
+has FAILED** — a merely-DUE audit is not a deadlock, it is an audit nobody has run yet, and the
+correct response is to run it. A **human** creates `dev-memo/run/remediation.authorized` (the agent
+cannot: it is hook-protected exactly like `human.ack` / `human.override`):
+
+```
+# remediation-authorization v1
+range_base=<40-hex>              # MUST equal dev-memo/run/last-batch-audit AND the live window BASE
+audit_head=<40-hex>              # the HEAD the failing audit covered (ancestor-or-equal of HEAD)
+broker_job_id=audit-xxxxxxxx-yyyyyy
+broker_output_sha256=<sha256 of that job's rawOutput>
+finding_ids=M1, L1               # which finding(s) this commit resolves
+reason=<one line, kept in the audit trail>
+allowed_path=services/x/src/thing.ts     # exact file
+allowed_path=services/x/tests/           # trailing '/' = directory prefix
+```
+
+`batch-commit-guard.sh` then permits **exactly one** commit, and only after verifying, fail-closed:
+the artifact is strictly well-formed; `range_base` is the current marker *and* the live BASE; the
+named broker job's `rawOutput` hashes to `broker_output_sha256` and declares
+`AUDIT-RANGE: <range_base>..<audit_head>` plus `AUDIT-VERDICT: BATCH-FAIL …` on their own lines;
+the commit form cannot smuggle content past the index (no `-a`, `-p`, `-i`, `-o`, `--amend`,
+`--pathspec-from-file`, `--`, pathspec operands, chaining, redirection or substitution); and every
+staged path is inside `allowed_path`. The token is then consumed and logged to `dev-memo/run/log.md`,
+exactly like `human.override`.
+
+This **narrows** the existing escape rather than widening it: an override permits *any* commit and
+bypasses risk/governance/count; the remediation lane bypasses **only** the audit-DUE deny, for a
+path-scoped commit bound to a specific failing job. Risk flag, governed queue, the BCG-6 content
+hash, the closeout sentinel and the `AUTO_ADVANCE_MAX` breaker all still apply.
+
+**The marker is not advanced.** A remediation commit does not close the window: commits stay blocked
+until a follow-up Layer-B audit covering `range_base..<new head>` returns PASS and the closeout runs.
+
 ## Study packet (echo-sleuth, after each batch)
 
 Generate the post-hoc study record — this is the substitute for per-WI human approval, so it

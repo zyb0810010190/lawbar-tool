@@ -17,7 +17,8 @@ const HELPER = join(fileURLToPath(import.meta.url), "../../runcontrol-canon.mjs"
 // per the review). Must mirror protect-run-control.sh.
 const PROTECTED = [
   "queue.governed", "queue.linted", "queue.reviewed", "human.ack", "human.override",
-  "override-reason.md", "batch-start", "last-batch-audit", "risk.flag", "config",
+  "override-reason.md", "remediation.authorized",
+  "batch-start", "last-batch-audit", "risk.flag", "config",
   "forbidden-paths.txt", ".closeout-pending",
 ];
 
