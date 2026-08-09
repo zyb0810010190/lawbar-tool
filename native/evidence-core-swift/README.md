@@ -57,14 +57,38 @@ fewer than two reads is `inconclusive`/`inconclusive_no_checkable_assertions`. I
 never the file name/path, page content, text, or document metadata. That is what makes it safe to point at
 confidential material.
 
+**A0.7 fresh-process stability (WI-A07-STABILITY-FRESHPROC) — every capture in a NEW process.** The
+in-process form above re-reads one file inside **one** process, so a CoreGraphics/PDFKit cache keyed on the
+file URL and living for the **process lifetime** cannot be fully excluded — a mid-run file swap proved the
+release between reads is effective, but "probably not cached" is not a finding for a court-facing gate.
+`EvidenceCoreA07Harness.runStabilityFreshProcess(fixtureURL:iterations:executableURL:)` removes the question:
+it re-spawns **the running binary** (resolved from the kernel via `_NSGetExecutablePath`, never a hardcoded
+build path, so it behaves identically under `swift run`, `swift test`, debug, and release) `iterations` times
+in `--capture-once` mode and compares the collected captures. It **reuses** the same capture path, the same
+canonical rendering, and the same `evaluateStability` classifier as the in-process form — there is **one**
+implementation of the gate logic, not two — so the verdict shape and vocabulary are identical. Agreement
+across independent processes is evidence about the geometry **source**, not about one process's memory.
+A capture that decodes to equal values but **renders** differently is also Class-2: the byte-exact check can
+only turn a pass into a STOP, never the reverse. Like every other mode it **writes no file** (the child's
+stdout is a pipe, its stderr is `/dev/null`) and leaks no file name or path.
+
+`--capture-once` is the subprocess primitive the driver drives: it prints **only** the canonical geometry
+string (page count, page indices, IEEE-754 bit patterns, rotation) and exits 0; a document that does not load
+exits non-zero. It is not a verdict mode and emits no marker.
+
 ```
 a07-harness-cli <fixture.pdf> <oracle.json>
-a07-harness-cli --stability <fixture.pdf> [--iterations N]   (N >= 2, default 3)
+a07-harness-cli --stability <fixture.pdf> [--fresh-process] [--iterations N]   (N >= 2, default 3)
+a07-harness-cli --capture-once <fixture.pdf>
 ```
 
-Both CLI modes print one tab-separated line to stdout — `<status>\t<classification>\t<observedPageCount>` —
-and exit 0 iff `status == pass`. A non-pass additionally writes one `detail: ...` line to **stderr**, so stdout
-keeps its exact machine-readable shape for `scripts/workflow/a07-marker-write.sh`.
+The three **verdict** invocations (oracle, in-process stability, fresh-process stability) print one
+tab-separated line to stdout — `<status>\t<classification>\t<observedPageCount>` — and exit 0 iff
+`status == pass`. A non-pass additionally writes one `detail: ...` line to **stderr**, so stdout keeps its
+exact machine-readable shape for `scripts/workflow/a07-marker-write.sh`. A usage error exits **2** and prints
+nothing to stdout. Fresh-process mode costs one process launch per iteration (~0.1 s each on the reference
+machine) against ~1 ms for the whole in-process run; it is a deliberate trade of speed for an exclusion the
+in-process form cannot make.
 
 **This package is NOT (still):**
 - **NOT an A0.7 marker** — the harness (both oracle mode and stability mode) writes **no** marker and **no**
@@ -76,8 +100,10 @@ keeps its exact machine-readable shape for `scripts/workflow/a07-marker-write.sh
 - **NOT product behavior** — no anchors, no citation/page-identity persistence, no PDFView/UI conversion, no
   export, no OCR/AI/cloud/auth/network. Public symbols: `EvidenceCoreSmoke.smokeVersion`/`.smoke()`,
   `EvidenceCorePdfKitProbe.pdfKitAvailable`/`.probe()`, `EvidenceCorePdfLoadProbe.load(url:)`,
-  `EvidenceCorePageBoxProbe.inspectMediaBoxes(url:)`, `EvidenceCoreA07Harness.run(fixtureURL:oracleURL:)`, and
-  `EvidenceCoreA07Harness.runStability(fixtureURL:iterations:)`/`.stabilityDefaultIterations`.
+  `EvidenceCorePageBoxProbe.inspectMediaBoxes(url:)`, `EvidenceCoreA07Harness.run(fixtureURL:oracleURL:)`,
+  `EvidenceCoreA07Harness.runStability(fixtureURL:iterations:)`/`.stabilityDefaultIterations`, and
+  `EvidenceCoreA07Harness.runStabilityFreshProcess(fixtureURL:iterations:executableURL:)`/
+  `.captureOnceCanonicalGeometry(fixtureURL:)`/`.runningExecutableURL()`/`.captureOnceFlag`.
   The coordinate roundtrip probe is internal (no public symbol).
 
 It does not touch or change the existing `native/evidence-core/` JS deterministic-JSON shim.
