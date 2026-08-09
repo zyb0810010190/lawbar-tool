@@ -91,6 +91,23 @@ expect DENY  "printf risk.flag"            'printf x > dev-memo/run/risk.flag'
 expect DENY  "create human.override"       'echo go > dev-memo/run/human.override'
 expect DENY  "touch human.ack token"       'touch dev-memo/run/human.ack'
 expect DENY  "touch human.override token"  'touch dev-memo/run/human.override'
+# WI-BATCH-REMEDIATION-LANE-00: the remediation token is agent-uncreatable, same class as the
+# override token. Every write channel must deny — otherwise the agent could self-authorize a
+# commit past a FAILED batch audit.
+expect DENY  "create remediation token"    'echo x > dev-memo/run/remediation.authorized'
+expect DENY  "append remediation token"    'echo x >> dev-memo/run/remediation.authorized'
+expect DENY  "heredoc remediation token"   'cat > dev-memo/run/remediation.authorized'
+expect DENY  "touch remediation token"     'touch dev-memo/run/remediation.authorized'
+expect DENY  "tee remediation token"       'echo x | tee dev-memo/run/remediation.authorized'
+expect DENY  "cp into remediation token"   'cp /tmp/x dev-memo/run/remediation.authorized'
+expect DENY  "mv into remediation token"   'mv /tmp/x dev-memo/run/remediation.authorized'
+expect DENY  "symlink remediation token"   'ln -s /tmp/x dev-memo/run/remediation.authorized'
+expect DENY  "rm remediation token"        'rm -f dev-memo/run/remediation.authorized'
+expect DENY  "sed -i remediation token"    'sed -i s/a/b/ dev-memo/run/remediation.authorized'
+expect DENY  "dd of= remediation token"    'dd if=/tmp/x of=dev-memo/run/remediation.authorized'
+expect DENY  "node -e writes remediation"  'node -e "require(\"fs\").writeFileSync(\"dev-memo/run/remediation.authorized\",\"x\")"'
+expect DENY  "obfuscated remediation path" 'echo x > dev-memo/r\un/remediation.authorized'
+expect DENY  "cd + bare remediation token" 'cd dev-memo/run && echo x > remediation.authorized'
 expect DENY  "cat-heredoc queue.governed"  'cat > dev-memo/run/queue.governed'
 expect DENY  "tee queue.reviewed"          'echo PASS | tee dev-memo/run/queue.reviewed'
 expect DENY  "tee -a queue.linted"         'echo X | tee -a dev-memo/run/queue.linted'
@@ -109,6 +126,26 @@ expect DENY  "absolute path overwrite"     'echo X > /Users/zhongyibao/ClaudePro
 expect DENY  "dotslash path overwrite"     'echo X > ./dev-memo/run/config'
 expect DENY  "chained after &&"            'true && echo X > dev-memo/run/config'
 expect DENY  "fd-prefixed redirect"        'foo 1> dev-memo/run/risk.flag'
+
+# --- BRCBW-11: the redirection TARGET is terminated by an unquoted metacharacter, not only by
+# whitespace. `for tok in $norm` splits on whitespace alone, so these forms used to yield tokens
+# like `…/config;echo` / `…/human.override;` / `…/config|cat` whose BASENAME never matched $AUTH —
+# and the write was ALLOWED. Genuine red-before cases for EVERY protected file. ---
+expect DENY  "redirect + ';' + cmd"        'echo X > dev-memo/run/config; echo done'
+expect DENY  "redirect + ';' no space"     'echo X > dev-memo/run/config;echo done'
+expect DENY  "no-space redirect + ';'"     'echo X>dev-memo/run/queue.governed;ls'
+expect DENY  "redirect + '|' no space"     'echo X > dev-memo/run/config|cat'
+expect DENY  "append + ';' + cmd"          'echo X >> dev-memo/run/last-batch-audit; ls'
+expect DENY  "redirect override + ';'"     'echo go > dev-memo/run/human.override; echo ok'
+expect DENY  "redirect ack + ';'"          'echo go > dev-memo/run/human.ack;true'
+expect DENY  "redirect remediation + ';'"  'echo go > dev-memo/run/remediation.authorized; echo ok'
+expect DENY  "redirect risk.flag + '|'"    'echo go > dev-memo/run/risk.flag|cat'
+expect DENY  "quoted target + ';'"         'echo X > "dev-memo/run/config";ls'
+expect DENY  "redirect + ')' subshell end" '(echo X > dev-memo/run/config)'
+expect DENY  "truncate log.md + ';'"       'echo X > dev-memo/run/log.md; ls'
+# the same metacharacter AFTER a legitimate append must stay ALLOWED (no new false positive)
+expect ALLOW "append log.md + ';' + cmd"   'echo entry >> dev-memo/run/log.md; ls'
+expect ALLOW "append log.md + '&&' + cmd"  'echo entry >> dev-memo/run/log.md && ls'
 
 # log.md: append OK, but overwrite / truncate / delete is tamper
 expect DENY  "overwrite log.md"            'echo X > dev-memo/run/log.md'

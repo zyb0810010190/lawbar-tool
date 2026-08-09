@@ -77,7 +77,11 @@ fi
 # `.closeout-pending` is the batch-closeout sentinel (BATCH-CLOSEOUT-AUTO-00): writable/removable
 # ONLY by the named closeout script (script channel), never by a direct agent write — else the
 # additive batch-commit-guard.sh deny it drives could be forged or cleared.
-AUTH='config|batch-start|last-batch-audit|queue\.governed|queue\.linted|queue\.reviewed|risk\.flag|human\.ack|human\.override|override-reason\.md|forbidden-paths\.txt|\.closeout-pending'
+# `remediation.authorized` is the remediation-lane token (WI-BATCH-REMEDIATION-LANE-00): a HUMAN
+# creates it, batch-commit-guard.sh consumes it. If the agent could write it, it would be
+# self-authorizing its own commit past a FAILED batch audit — the whole point of the lane is that
+# it cannot. Same protection class as human.ack / human.override.
+AUTH='config|batch-start|last-batch-audit|queue\.governed|queue\.linted|queue\.reviewed|risk\.flag|human\.ack|human\.override|override-reason\.md|remediation\.authorized|forbidden-paths\.txt|\.closeout-pending'
 
 # --- fast exit / fail-safe when nothing references dev-memo/run/ ---
 if [ -z "$CMD" ]; then
@@ -133,7 +137,23 @@ scan_redir() {
   for tok in $norm; do
     if [ "$mode" = "APP" ] || [ "$mode" = "TRUNC" ]; then
       t=$tok
+      # BRCBW-11 (High, PRE-EXISTING — found while proving WI-BATCH-REMEDIATION-LANE-00's "the agent
+      # cannot create the token" criterion): a redirection target word is terminated by an UNQUOTED
+      # shell metacharacter as well as by whitespace. `for tok in $norm` only splits on whitespace,
+      # so `> dev-memo/run/config;echo x`, `…/config|cat` and `> …/human.override; ls` produced the
+      # tokens `…/config;echo`, `…/config|cat`, `…/human.override;` — whose BASENAMES never matched
+      # ^($AUTH)$ — and the write was ALLOWED. That under-denied EVERY protected run-control file
+      # (config, human.ack/override, batch-start, last-batch-audit, queue.*, risk.flag,
+      # remediation.authorized, .closeout-pending) and log.md truncation, via the most obvious
+      # spelling an agent would type. Truncate the target at the first `; | & )` — before and after
+      # quote-stripping, so `"…/config";ls` is covered too.
+      # Strictly ADDITIVE: the check now runs on a PREFIX of the old token. A token that matched
+      # before had no metacharacter in its basename (AUTH contains none), so it is unchanged; a
+      # token that did not match can now only start matching. Worst case is an over-denial of an
+      # exotic real filename containing ';' under dev-memo/run/ — friction, never a bypass.
+      t=${t%%[\;\|\&\)]*}
       t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}   # strip one layer of surrounding quotes
+      t=${t%%[\;\|\&\)]*}
       case "$t" in
         *dev-memo/run/*)
           base=${t##*/}
