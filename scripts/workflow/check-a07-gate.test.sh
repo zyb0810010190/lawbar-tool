@@ -22,9 +22,18 @@ require_project() {
   mkdir -p "$T/dev-memo/run" || { echo "FATAL: mkdir failed in $T"; exit 1; }
   printf '## WI-x\nType: IMPL\n' > "$T/dev-memo/run/queue.md"
 }
+# seed_marker <project> — put a genuine, provenance-valid marker in <project>'s local evidence
+# namespace. Since WI-A07-MARKER-BIND there is no caller-asserted --status/--classification: the
+# verdict is DERIVED from a harness invocation, so the seed runs a stand-in harness that prints the
+# real CLI's one-line contract and binds its exact bytes + binary. The stub and its captured stdout
+# live OUTSIDE the marker namespace (a non-marker file inside it is a guard violation).
 seed_marker() {
+  local h="$1/.harness"; mkdir -p "$h"
+  printf '#!/bin/sh\nprintf "pass\\tok\\t2\\n"\n' > "$h/a07-harness-cli"; chmod +x "$h/a07-harness-cli"
+  "$h/a07-harness-cli" >"$h/stdout.bin" 2>/dev/null; local hrc=$?
   LAWBAR_A07_MARKER_HMAC_KEY="$KEY" python3 "$MARK" write --fixture "$FX" --oracle "$OR" \
-    --status pass --classification ok --page-count 2 --tolerance 1e-9 --command t --platform t \
+    --harness-bin "$h/a07-harness-cli" --harness-stdout "$h/stdout.bin" --harness-exit "$hrc" \
+    --command t --platform t \
     --out-root "$1/dev-memo/run/evidence" --repo-commit aa11bb22 --repo-tree cc33dd44 \
     --harness-commit aa11bb22 --produced-at 2026-06-23T00:00:00Z >/dev/null
 }
