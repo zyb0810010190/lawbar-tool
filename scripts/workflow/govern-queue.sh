@@ -5,7 +5,10 @@
 # An agent-proposed queue is governed when BOTH exist:
 #   queue.linted    (written by check-queue.sh)
 #   queue.reviewed  (written by mark-queue-reviewed.sh after Codex /review-plan passes)
-# A human-authored queue may be governed directly with:  govern-queue.sh --human-approved
+# A human-authored queue may be governed with:  check-queue.sh && govern-queue.sh --human-approved
+#
+# WI-GOVERN-LINT: --human-approved waives the REVIEW leg ONLY — queue.linted is REQUIRED on EVERY
+# path to queue.governed. See the comment on the --human-approved branch below for why.
 #
 # BCG-6 / GOVERNANCE-CHAIN-001: governance is CONTENT-BOUND. Besides the `governed=...` line,
 # this script records `queue_sha256=<64-hex>` = sha256(dev-memo/run/queue.md) into queue.governed.
@@ -107,6 +110,20 @@ write_governed() {
 }
 
 if [ "${1:-}" = "--human-approved" ]; then
+  # WI-GOVERN-LINT (audit finding X1). --human-approved waives the REVIEW leg ONLY. Governance has
+  # two independent legs: LINT (check-queue.sh -> queue.linted) is MECHANICAL field validation of
+  # queue.md; REVIEW (mark-queue-reviewed.sh -> queue.reviewed) is an independent reviewer's
+  # judgement. A human approving a queue substitutes for the reviewer — it is not a reason to skip
+  # mechanical validation. check-queue.sh is also the ONLY place the `Type: UI` -> concrete
+  # `Design artifact:` requirement (AGENTS.md §"Operating model", UI-GATES.md §"Queue entry gate")
+  # is enforced, so a lint-less --human-approved govern used to put a UI WI into a governed queue
+  # with zero design proof. queue.linted is therefore required on EVERY path to queue.governed.
+  if [ ! -f "$RUN/queue.linted" ]; then
+    rm -f "$GOV"
+    echo "missing queue.linted (run check-queue.sh)"
+    echo "NOT governed. --human-approved waives the Codex review, not the queue lint — run check-queue.sh first."
+    exit 1
+  fi
   write_governed "human-approved"
   echo "Queue governed by explicit human approval (content-bound to queue.md)."
   echo "  queue_sha256=$GOVERNED_HASH"
