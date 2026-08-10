@@ -1,11 +1,47 @@
 #!/bin/bash
 # block-run-control-bash-write.sh — PreToolUse(Bash) hook.
-# Denies DIRECT Bash writes to the dev-memo/run/ AUTHORITY/STATE files (governance + audit
-# state), closing the High-severity tamper path that protect-run-control.sh leaves open:
-# that hook covers Write|Edit|MultiEdit but NOT Bash, so `echo X > dev-memo/run/config`,
+#
+# ===========================================================================================
+# WHAT THIS IS: BEST-EFFORT COMMAND HYGIENE. NOT AN ENFORCEMENT BOUNDARY.
+# ===========================================================================================
+# This hook reads the TEXT of a proposed Bash command and denies the ones that look like they
+# write the dev-memo/run/ governance and audit-state files. That is all it does.
+#
+# It prevents MISTAKES. It does NOT prevent FORGERY.
+#
+# Why it cannot: once an agent is allowed to run a shell at all, deciding what a command will
+# actually touch is an unbounded parsing problem, not a matching problem. `sh -c`, `eval`,
+# variables, aliases and functions, subshells, `$(...)`, process substitution, parameter and
+# brace expansion, `$IFS` games, base64/printf-assembled strings, an interpreter that spawns
+# its own shell, or simply a helper script written elsewhere and then executed — each is a way
+# to name a file that no amount of string matching on the ORIGINAL command line will see. Every
+# guard below is a lexical heuristic over one line of text; the heuristics are deliberately
+# fail-closed and deliberately over-deny, and they are still, in principle, defeatable by
+# anyone who is trying.
+#
+# So: this hook is cooperative friction — it keeps an honest agent (and an honest human in a
+# hurry) from casually clobbering governance state, and it makes the accidental path loud. It
+# is not a security control and must not be relied on as one.
+#
+# THEREFORE:
+#   - Do NOT treat "the guard passed" as proof that a command is safe. A pass is the absence of
+#     a match, not evidence of intent or of effect.
+#   - Do NOT make a downstream decision (accepting a batch, trusting queue.governed, believing
+#     an audit trail is intact) on the strength of this hook having run. Verify the state files
+#     themselves — content, git history, human tokens — not the fact that a hook was installed.
+#   - Do NOT weaken any check here on the grounds that "it's only advisory". A partial guard
+#     that people rely on is worse than no guard; the honest framing above is what keeps this
+#     from becoming a false assurance.
+#   - Real enforcement, if it is ever needed, has to come from something outside the command
+#     text: filesystem permissions, a separate privilege domain, signed/attested state, or
+#     review of the resulting diff.
+#
+# Origin (still accurate as the description of the ACCIDENT class this covers): protect-run-
+# control.sh covers Write|Edit|MultiEdit but NOT Bash, so `echo X > dev-memo/run/config`,
 # `tee dev-memo/run/queue.governed`, `ln dev-memo/run/human.ack ...`, `sed -i ... config`,
-# `rm dev-memo/run/queue.reviewed`, etc. can forge governance/override/audit state and bypass
-# batch-commit-guard.sh. Evidence: dev-memo/hook-audit-canary-01.md (BASH-WRITE-BYPASS, High).
+# `rm dev-memo/run/queue.reviewed`, etc. would otherwise sail straight past it and change
+# governance/override/audit state that batch-commit-guard.sh reads.
+# Evidence: dev-memo/hook-audit-canary-01.md (BASH-WRITE-BYPASS).
 #
 # Policy:
 #   - Authority/state files (mirror protect-run-control.sh): ALL Bash writes denied
@@ -18,7 +54,10 @@
 #   - queue.md (authored), README.md, queue.example.md, reviews/ are NOT authority state —
 #     writes allowed.
 #
-# Fails SAFE: an unparseable command that appears to write into dev-memo/run/ is denied.
+# Fails CLOSED *within the limits stated at the top*: when the text it CAN see is ambiguous —
+# unparseable command, unresolvable substitution, unbalanced quoting — it denies rather than
+# guesses. That is a property of the parsing it attempts; it says nothing about text it never
+# sees (indirection through eval/sh -c/an interpreter/a written-then-run script).
 # BSD/macOS-portable: no GNU-only regex idioms (see dev-memo/hook-audit-canary-01.md).
 # This hook is conservative — a write verb co-occurring with an authority path is denied even
 # if that path is only a read source; the legitimate workflow scripts never name state files
@@ -92,32 +131,152 @@ if [ -z "$CMD" ]; then
   fi
   exit 0
 fi
-# --- BRCBW-10: de-obfuscate lexical shell-word obfuscation of the path (Mechanism 0) ---
-# Produce a best-effort de-obfuscated copy: strip an unquoted backslash before a non-special char
-# (`r\un` -> `run`, `d\ev-memo` -> `dev-memo`), and — when each quote type is BALANCED (even count)
-# — remove the surrounding `'`/`"` of literal concatenation (`"run"` -> `run`, `ru''n` -> `run`),
-# preserving contents. ODD (unbalanced) quote count => leave unchanged (fail-safe). Does NOT resolve
-# $IFS / $(...) / variables / brace expansion (Mechanism-C non-goals). Used to (a) widen the
-# fast-exit and (b) feed an ADDITIVE rescan so obfuscated targets reach tok_auth.
-deobf() {
-  local s=$1 dq sq
-  s=$(printf '%s' "$s" | sed 's/\\\(.\)/\1/g')
-  dq=$(printf '%s' "$s" | tr -cd '"' | wc -c | tr -d ' ')
-  sq=$(printf '%s' "$s" | tr -cd "'" | wc -c | tr -d ' ')
-  if [ $((dq % 2)) -eq 0 ] && [ $((sq % 2)) -eq 0 ]; then
-    s=$(printf '%s' "$s" | tr -d "\"'")
-  fi
-  printf '%s' "$s"
+# --- BRCBW-12: candidate-target termination at ANY shell metacharacter ---
+# A file-name word in a shell command ends at the first UNQUOTED metacharacter, not only at
+# whitespace. Every scan below whitespace-splits (`for tok in $norm` / `set -- $stmt`), so a
+# protected path glued straight onto a metacharacter used to survive as part of the token and
+# its BASENAME then matched nothing in $AUTH — an ALLOW. The original truncation set was
+# `; | & )`; it omitted `< > (`, which left these VERIFIED bypasses (each confirmed by feeding
+# crafted JSON to this hook on stdin):
+#     echo X > dev-memo/run/config<foo          (redirect target glued to a `<` redirection)
+#     echo X > dev-memo/run/config(foo
+#     rm|cp|mv|tee|touch|sed -i|dd of= dev-memo/run/config<foo   (and the `>` spelling: the verb
+#     scan has no `__TRUNC__` normalisation, so BOTH `<` and `>` were live there)
+# cut_meta sets $CUT to the token truncated at the first char of `; | & ( ) < >` or whitespace.
+# Deliberately quote-BLIND: a metacharacter inside quotes is really data (`rm "…/a;b"` names a
+# file called `a;b`), and cutting there can only SHORTEN the candidate, i.e. only turn a
+# non-match into a match. Worst case is an over-denial of an exotic real filename under
+# dev-memo/run/ — friction, never a bypass. Strictly ADDITIVE: every check that fired before
+# fires on the same or a shorter prefix ($AUTH contains none of these characters).
+cut_meta() {
+  CUT=${1%%[\;\|\&\(\)\<\>]*}
+  case $CUT in *[[:space:]]*) CUT=${CUT%%[[:space:]]*} ;; esac
 }
-DEOBF=$(deobf "$CMD")
-# Fast-exit gate (BRCBW-10/-1 High fix): proceed iff CMD or DEOBF references dev-memo/run — NO
-# trailing-slash requirement, so `cd dev-memo/run` (no slash) and de-obfuscated paths are seen.
-printf '%s' "$CMD" | grep -qE 'dev-memo/run' || printf '%s' "$DEOBF" | grep -qE 'dev-memo/run' || exit 0
 
-# --- helpers --- token classifiers: does a single (quote-stripped) token name an authority file?
-tok_auth()  { local t=$1; t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}
+# --- BRCBW-10 + BRCBW-12: de-obfuscate lexical shell-word obfuscation of the path ---
+# deobf_scan walks the command ONE CHARACTER AT A TIME with a per-token quote state machine and
+# sets three globals:
+#   DEOBF       — quote-context-aware de-obfuscation: a backslash removes itself and makes the
+#                 next character data (`r\un` -> `run`); a quote character that OPENS or CLOSES
+#                 a token's quoting is structural and dropped (`"run"` -> `run`, `ru''n` ->
+#                 `run`); a quote of the OTHER type inside a quoted span is data and kept.
+#   DEOBF_FLAT  — the same walk but with EVERY surviving quote character removed too. This is a
+#                 deliberate superset of DEOBF and of the old implementation's output; it exists
+#                 so that this change cannot LOSE a denial the parity heuristic used to produce
+#                 (e.g. `rm "dev-memo/'run'/config"`, where the inner quotes are really data).
+#   DEOBF_NEUT  — like DEOBF, but every `; | & ( ) < > [ ]` that was QUOTED or backslash-escaped
+#                 is replaced by `_`. In a real shell those characters are DATA there, not
+#                 syntax; two scans below reason about them over the whole string and were
+#                 fooled by that (see the VERIFIED bypasses under "quote-blind shell syntax").
+#   DEOBF_UNBAL — 1 when the final token is still inside a quote at end-of-string.
+#
+# VERIFIED bypasses closed by DEOBF_NEUT (both are the same defect as the parity heuristic —
+# reasoning about shell syntax by matching the whole string, with no idea what is quoted):
+#   (i)  scan_redir/scan_indirection blank `[[ ... ]]` spans with a plain sed, because `>` inside
+#        a test is a comparison. A QUOTED literal bracket pair drags a real redirection into the
+#        blanked span: `echo "[[" > dev-memo/run/config; echo "]]"` was ALLOWED.
+#   (ii) scan_verbs/scan_indirection split statements with `awk gsub(/&&|\|\||[;|&]/)`. A QUOTED
+#        metacharacter in an argument ends the statement early, so the real target lands in a
+#        fragment whose first word is not a write verb: `rm 'a;b' dev-memo/run/config`,
+#        `tee 'a;b' …`, `cp /tmp/x 'a;b' …`, `touch 'a;b' …` were all ALLOWED.
+# Neutralising only the characters that are unambiguously literal when quoted keeps `$` and
+# backtick meaningful, and the NEUT rescan is purely ADDITIVE — an extra pass that can call
+# emit_deny, never one that turns a deny into an allow.
+#
+# What this REPLACES and why (BRCBW-12, VERIFIED bypass): the old deobf() counted `"` and `'`
+# over the WHOLE command and stripped quotes only when BOTH counts were even. One odd count
+# ANYWHERE disabled stripping EVERYWHERE — fail-OPEN. So `echo X > dev-memo/"run"/config` was
+# correctly denied, but `echo it's X > dev-memo/"run"/config` was ALLOWED: an unrelated
+# apostrophe in `it's` (or `don't`, `can't`) was enough to hide the path. The decision is now
+# per token and per quote-span, so an apostrophe in one word cannot un-de-obfuscate another.
+# Unbalanced quoting is no longer "leave unchanged" (which was the fail-open branch) — it is a
+# DENY, applied below once we know the command references run-control state.
+# Still NOT resolved (documented non-goals, unchanged): $IFS, $(...), variables, brace
+# expansion, and everything named in the header's "not an enforcement boundary" note.
+deobf_scan() {
+  local s=$1 i=0 n c st="" out="" flat="" neut="" lit
+  # Shortcut: with no backslash and no quote in the command there is nothing to de-obfuscate,
+  # nothing that can be unbalanced, and nothing that is quoted-literal, so the walk below would
+  # return the input verbatim in all three views. Provably identical, and it keeps the
+  # per-character loop off long ordinary command lines.
+  case $s in
+    *\\*|*\"*|*\'*) ;;
+    *) DEOBF=$s; DEOBF_FLAT=$s; DEOBF_NEUT=$s; DEOBF_UNBAL=0; return 0 ;;
+  esac
+  n=${#s}                 # separate statement: `local` expands all its words BEFORE assigning
+  DEOBF_UNBAL=0
+  while [ "$i" -lt "$n" ]; do
+    c=${s:i:1}; i=$((i + 1))
+    lit=0                 # 1 => this character is DATA in a real shell, never syntax
+    if [ "$c" = '\' ]; then
+      # Backslash: drop it, take the next character as DATA (it can no longer open/close a
+      # quote, and it is not syntax). Applied inside single quotes too, where real Bash would
+      # keep it literal — we over-strip on purpose, because stripping MORE can only reveal more
+      # paths (more denials), and the previous implementation stripped unconditionally as well.
+      [ "$i" -lt "$n" ] || continue     # trailing backslash: nothing to unescape
+      c=${s:i:1}; i=$((i + 1)); lit=1
+    else
+      case "$st" in
+        '')   case "$c" in "'") st="s"; continue ;; '"') st="d"; continue ;; esac ;;
+        s)    [ "$c" = "'" ] && { st=""; continue; }; lit=1 ;;
+        d)    [ "$c" = '"' ] && { st=""; continue; }; lit=1 ;;
+      esac
+    fi
+    out=$out$c
+    case "$c" in "'"|'"') : ;; *) flat=$flat$c ;; esac
+    if [ "$lit" = 1 ]; then
+      case "$c" in
+        \;|\||\&|\(|\)|\<|\>|\[|\]) neut=${neut}_ ;;   # quoted/escaped => literal, not syntax
+        *) neut=$neut$c ;;
+      esac
+    else
+      neut=$neut$c
+    fi
+  done
+  # An unterminated quote swallows the rest of the line, so the "current token" at end-of-string
+  # is the one that is unbalanced; every earlier token closed its quotes by construction.
+  [ -n "$st" ] && DEOBF_UNBAL=1
+  DEOBF=$out
+  DEOBF_FLAT=$flat
+  DEOBF_NEUT=$neut
+}
+# Fast-exit gate (BRCBW-10/-1 High fix): proceed iff the command references dev-memo/run — NO
+# trailing-slash requirement, so `cd dev-memo/run` (no slash) and de-obfuscated paths are seen.
+# PRESTRIP is CMD with EVERY backslash and quote character deleted. It is a SUPERSET of both
+# de-obfuscated views: DEOBF and DEOBF_FLAT keep every character PRESTRIP keeps (plus some quote
+# / escaped-backslash characters), and `dev-memo/run` contains no quote or backslash, so if that
+# substring is contiguous in either view it is contiguous in PRESTRIP too. Gating on PRESTRIP
+# therefore cannot skip anything the full scan would have caught.
+# It is also the HOT PATH: this hook runs on every Bash tool call, and deobf_scan below is a
+# per-character bash loop (~90ms on a 9KB command line). Both the strip and the test are pure
+# parameter expansion / `case` — no forks — so an ordinary command that never mentions
+# dev-memo/run exits here without paying for the character walk.
+PRESTRIP=${CMD//\\/}
+PRESTRIP=${PRESTRIP//\"/}
+PRESTRIP=${PRESTRIP//\'/}
+case "$CMD" in
+  *dev-memo/run*) ;;
+  *) case "$PRESTRIP" in *dev-memo/run*) ;; *) exit 0 ;; esac ;;
+esac
+deobf_scan "$CMD"
+# BRCBW-12: unbalanced quoting means the token boundaries are not knowable from this text, so no
+# scan below can be trusted about which word is the write target. Deny. This is bounded to
+# commands that reference run-control state (the gate above already ran), so an ordinary
+# `echo it's fine` is unaffected; an apostrophe in a sentence that ALSO names dev-memo/run is
+# over-denied, which is friction, not a bypass. Re-issue with the quote closed or escaped.
+if [ "$DEOBF_UNBAL" = 1 ]; then
+  emit_deny "Run-control guard: this command references dev-memo/run/ and has an unbalanced quote (a ' or \" that is never closed), so the guard cannot tell where the target word ends or which file would be written. Denying as a precaution (fail-closed). Close or escape the quote and re-issue; change run-control state via the workflow scripts or a deliberate human action."
+fi
+
+# --- helpers --- token classifiers: does a single token name an authority file?
+# Each candidate is (a) cut at the first shell metacharacter, (b) stripped of one surrounding
+# quote layer, (c) cut again — so `"dev-memo/run/config"<x` and `dev-memo/run/config<x` both
+# resolve to the real target word (BRCBW-12).
+tok_auth()  { local t; cut_meta "$1"; t=$CUT
+  t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}; cut_meta "$t"; t=$CUT
   case "$t" in *dev-memo/run/*) printf '%s' "${t##*/}" | grep -qE "^($AUTH)$" ;; *) return 1 ;; esac; }
-tok_logmd() { local t=$1; t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}
+tok_logmd() { local t; cut_meta "$1"; t=$CUT
+  t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}; cut_meta "$t"; t=$CUT
   case "$t" in *dev-memo/run/log.md) return 0 ;; *) return 1 ;; esac; }
 
 # --- pass 1: redirection targets (handles > >> >| and fd-prefixed forms) ---
@@ -151,9 +310,13 @@ scan_redir() {
       # before had no metacharacter in its basename (AUTH contains none), so it is unchanged; a
       # token that did not match can now only start matching. Worst case is an over-denial of an
       # exotic real filename containing ';' under dev-memo/run/ — friction, never a bypass.
-      t=${t%%[\;\|\&\)]*}
+      # BRCBW-12: the truncation set was `; | & )` and omitted `< > (`. `>` was masked here by
+      # the `__TRUNC__` normalisation above, but `<` and `(` were live, so
+      # `echo X > dev-memo/run/config<foo` and `…/config(foo` were ALLOWED (verified). cut_meta
+      # now terminates the target at any of `; | & ( ) < >` or whitespace.
+      cut_meta "$t"; t=$CUT
       t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}   # strip one layer of surrounding quotes
-      t=${t%%[\;\|\&\)]*}
+      cut_meta "$t"; t=$CUT
       case "$t" in
         *dev-memo/run/*)
           base=${t##*/}
@@ -347,12 +510,18 @@ scan_interp() {
 # (the narrow reserved-basename fallback — no global bare-basename deny). Non-goals (computed paths,
 # $IFS, brace, eval, dynamic cd) are documented residuals. Strictly ADDITIVE — only adds DENYs.
 ind_check() {            # ind_check <token> <cwd> <vars> <verb> <append:0|1>
-  local t=$1 cwd=$2 vars=$3 verb=$4 append=${5:-0} v base was_var=0
-  t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}
+  local t cwd=$2 vars=$3 verb=$4 append=${5:-0} v base was_var=0
+  # BRCBW-12: cut at the first shell metacharacter BEFORE and AFTER quote-stripping, exactly as
+  # tok_auth does — otherwise `rm config<foo` (under a tracked cd) and `rm "$p"<foo` (literal
+  # var) kept the metacharacter inside the candidate and resolved to nothing. Both were verified
+  # ALLOWs. Also applied to the resolved variable VALUE, defensively.
+  cut_meta "$1"; t=$CUT
+  t=${t#\"}; t=${t%\"}; t=${t#\'}; t=${t%\'}; cut_meta "$t"; t=$CUT
   case "$t" in
     '$'*) was_var=1; v=${t#\$}; v=${v#\{}; v=${v%\}}
       t=$(printf '%s\n' "$vars" | grep -E "^${v}=" 2>/dev/null | tail -1 | cut -d= -f2-)
-      [ -n "$t" ] || return 0 ;;            # unresolved var -> Mechanism-C non-goal, allow
+      [ -n "$t" ] || return 0             # unresolved var -> Mechanism-C non-goal, allow
+      cut_meta "$t"; t=$CUT ;;
   esac
   case "$t" in
     *dev-memo/run/*)
@@ -410,6 +579,9 @@ ${name}=${val}" ;;
     shift
     case "$vbase" in
       cd) a=$1; a=${a#\"}; a=${a%\"}; a=${a#\'}; a=${a%\'}; a=${a%)}
+        # BRCBW-12: the cd operand ends at the first shell metacharacter too, else
+        # `cd dev-memo/run<x && rm config` never tracked the run-control cwd (verified ALLOW).
+        cut_meta "$a"; a=$CUT
         case "$a" in
           dev-memo/run|dev-memo/run/|*/dev-memo/run|*/dev-memo/run/) cwd="dev-memo/run" ;;
           ''|..|../*|-|*'$'*) : ;;           # cd-up / cd- / cd"$x" / computed -> KEEP prior cwd (deny-safe)
@@ -473,6 +645,29 @@ if [ "$DEOBF" != "$CMD" ]; then
   scan_redir "$DEOBF" blank
   scan_verbs "$DEOBF"
   scan_indirection "$DEOBF"
+fi
+# BRCBW-12: the FLAT view (every quote character removed, no parity gate) is rescanned as well.
+# Two reasons, both about not losing ground: (1) it is a strict superset of what the old
+# parity heuristic produced when the counts happened to be even, so no denial that used to fire
+# can stop firing because DEOBF is now quote-context-aware (e.g. `rm "dev-memo/'run'/config"`,
+# where the inner quotes are data to a real shell but were stripped by the old code); (2) it
+# reveals quote-obfuscated paths regardless of where the quotes sit. Additive only — it can call
+# emit_deny, never turn a deny into an allow. Skipped when it adds nothing new.
+if [ "$DEOBF_FLAT" != "$CMD" ] && [ "$DEOBF_FLAT" != "$DEOBF" ]; then
+  scan_redir "$DEOBF_FLAT" blank
+  scan_verbs "$DEOBF_FLAT"
+  scan_indirection "$DEOBF_FLAT"
+fi
+# BRCBW-12: the NEUT view neutralises quoted/escaped `; | & ( ) < > [ ]`, which is what the
+# `[[ ... ]]` blanking and the `awk`-based statement splitter get wrong (they match the whole
+# string with no idea what is quoted). Rescanning it recovers the target word that a quoted
+# metacharacter used to hide — `echo "[[" > dev-memo/run/config; echo "]]"` and
+# `rm 'a;b' dev-memo/run/config` were both verified ALLOWs. Additive only; skipped when it adds
+# nothing new.
+if [ "$DEOBF_NEUT" != "$CMD" ] && [ "$DEOBF_NEUT" != "$DEOBF" ] && [ "$DEOBF_NEUT" != "$DEOBF_FLAT" ]; then
+  scan_redir "$DEOBF_NEUT" blank
+  scan_verbs "$DEOBF_NEUT"
+  scan_indirection "$DEOBF_NEUT"
 fi
 
 # --- pass 4: command-substitution bodies, ANY nesting depth (innermost peeling) ---

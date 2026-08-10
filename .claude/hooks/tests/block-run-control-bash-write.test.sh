@@ -369,6 +369,101 @@ expect ALLOW "cd then [[ > ]] comparison"     'cd dev-memo/run && [[ "$x" > conf
 expect DENY  "regression direct redirect"     'echo x > dev-memo/run/config'
 expect DENY  "regression direct rm"           'rm dev-memo/run/config'
 
+# --- BRCBW-12: target-word termination at ANY shell metacharacter + per-token quote handling ---
+# Two VERIFIED bypass classes (each confirmed by feeding crafted JSON to the hook's stdin; no
+# real write to a protected file was ever attempted):
+#
+#   (A) A redirection / write-verb target word is terminated by an unquoted shell metacharacter,
+#       but the truncation set was only `; | & )` — it omitted `<`, `>` and `(`. So a protected
+#       path glued directly to one of those left a token whose BASENAME (`config<foo`,
+#       `config(foo`) matched nothing in $AUTH, and the write was ALLOWED. In the redirection
+#       scan `>` happened to be neutralised already by the `__TRUNC__` normalisation, but `<`
+#       and `(` were live; in the VERB scan (tok_auth / tok_logmd) there is no normalisation at
+#       all, so BOTH `<` and `>` were live for rm/cp/mv/tee/touch/sed -i/dd of=.
+#   (B) deobf() gated quote-stripping on the parity of the quote counts over the WHOLE command:
+#       an ODD count ANYWHERE left every token unstripped — fail-OPEN. So a protected path with
+#       an internally quoted segment (dev-memo/"run"/config) was revealed and denied on its own,
+#       but ALLOWED as soon as an unrelated apostrophe (don't / it's / can't) appeared elsewhere
+#       in the command.
+#
+# The fix terminates a candidate target at any of `; | & ( ) < >` (plus whitespace) in BOTH
+# scans, replaces the parity heuristic with a per-token quote state machine, and treats
+# UNBALANCED quotes as DENY (fail-closed) instead of "leave unchanged".
+expect DENY  "redir target + '<' + path"     'echo X > dev-memo/run/config<foo'
+expect DENY  "redir target + '<' no space"   'echo X >dev-memo/run/config<foo'
+expect DENY  "redir target + '>' + path"     'echo X > dev-memo/run/config>foo'
+expect DENY  "redir target + '>' no space"   'echo X >dev-memo/run/config>foo'
+expect DENY  "redir override + '<'"          'echo X > dev-memo/run/human.override<foo'
+expect DENY  "redir remediation + '<'"       'echo X > dev-memo/run/remediation.authorized<foo'
+expect DENY  "redir governed + '<' fd"       'echo X > dev-memo/run/queue.governed<0'
+expect DENY  "truncate log.md + '<'"         'echo X > dev-memo/run/log.md<foo'
+expect DENY  "redir target + '(' glued"      'echo X > dev-memo/run/config(foo'
+# same class through the write-VERB scan (tok_auth / tok_logmd) — no `>` normalisation there:
+expect DENY  "rm authority + '<'"            'rm dev-memo/run/config<foo'
+expect DENY  "rm authority + '>'"            'rm dev-memo/run/config>foo'
+expect DENY  "cp dest authority + '<'"       'cp /tmp/x dev-memo/run/config<foo'
+expect DENY  "cp dest authority + '>'"       'cp /tmp/x dev-memo/run/config>foo'
+expect DENY  "tee authority + '<'"           'tee dev-memo/run/config<foo'
+expect DENY  "tee authority + '>'"           'tee dev-memo/run/config>foo'
+expect DENY  "tee log.md + '<'"              'tee dev-memo/run/log.md<foo'
+expect DENY  "mv dest ack + '<'"             'mv /tmp/x dev-memo/run/human.ack<foo'
+expect DENY  "touch remediation + '<'"       'touch dev-memo/run/remediation.authorized<foo'
+expect DENY  "sed -i authority + '<'"        'sed -i s/a/b/ dev-memo/run/config<foo'
+expect DENY  "dd of= authority + '<'"        'dd if=/tmp/x of=dev-memo/run/config<foo'
+# same class through the indirection resolver (cd-relative + literal-var operands):
+expect DENY  "cd + rm bare + '<'"            'cd dev-memo/run && rm config<foo'
+expect DENY  "cd + redirect bare + '<'"      'cd dev-memo/run && echo x > config<foo'
+expect DENY  "cd target glued '<'"           'cd dev-memo/run<x && rm config'
+expect DENY  "var rm operand + '<'"          'p=dev-memo/run/config; rm "$p"<foo'
+expect DENY  "var redirect target + '<'"     'p=dev-memo/run/config; echo x > "$p"<foo'
+# (B) the parity fail-open: an unrelated apostrophe must NOT disable quote de-obfuscation.
+expect DENY  "quoted seg + stray apostrophe" "echo it's X > dev-memo/\"run\"/config"
+expect DENY  "quoted seg + rm + apostrophe"  "rm dev-memo/\"run\"/config; echo don't"
+expect DENY  "apostrophe then quoted rm"     "echo don't && rm dev-memo/'run'/config"
+expect DENY  "empty-quote seg + apostrophe"  "echo it's X > dev-memo/ru''n/config"
+# unbalanced quotes over a run-control reference are UNPARSEABLE -> fail closed (DENY).
+expect DENY  "unbalanced sq + quoted seg"    "echo X > 'dev-memo/\"run\"/config"
+expect DENY  "unbalanced sq + rm"            "rm 'dev-memo/\"run\"/config"
+expect DENY  "unbalanced sq override"        "echo can't > dev-memo/\"run\"/human.override"
+expect DENY  "unbalanced sq direct path"     "echo X > 'dev-memo/run/config"
+# --- BRCBW-12 false-positive floor: no new over-denial on reads / appends / unrelated work ---
+expect ALLOW "cat authority + '<' glued"     'cat dev-memo/run/config<foo'
+expect ALLOW "cd + cat bare + '<'"           'cd dev-memo/run && cat config<foo'
+expect ALLOW "append log.md + '<' glued"     'echo entry >> dev-memo/run/log.md<foo'
+expect ALLOW "unrelated redirect + '<'"      'echo X > /tmp/scratch<foo'
+# an unbalanced quote in a command that does NOT reference run-control must still ALLOW —
+# the fail-closed deny is bounded to commands that reference dev-memo/run.
+expect ALLOW "unbalanced sq, no run ref"     "echo it's fine"
+expect ALLOW "unbalanced sq, other path"     "echo can't > /tmp/scratch"
+# a BALANCED apostrophe inside double quotes is data, not a quote -> no deny, no parity trip.
+expect ALLOW "apostrophe inside dquotes"     'git commit -m "do not touch dev-memo/run/config"'
+expect ALLOW "prose apostrophe + run ref"    'echo "the queue.governed under dev-memo/run is fine"'
+
+# --- BRCBW-12 sweep: the SAME defect (whole-string shell-syntax matching that ignores quoting)
+# in two other places. Both were verified ALLOWs before the fix.
+#   (i)  the `[[ ... ]]` blanking sed: `>` inside a Bash test is a comparison, so those spans are
+#        blanked before the redirection scan. A QUOTED literal bracket pair drags a REAL
+#        redirection into the blanked span and the write disappears.
+#   (ii) the awk statement splitter `gsub(/&&|\|\||[;|&]/)`: a QUOTED metacharacter inside an
+#        argument ends the statement early, so the real target lands in a fragment whose first
+#        word is not a write verb, and the write-verb scan never sees it.
+expect DENY  "quoted [[ hides redirect"      'echo "[[" > dev-memo/run/config; echo "]]"'
+expect DENY  "quoted [[ hides redirect (sq)" "echo '[[' > dev-memo/run/config; echo ']]'"
+expect DENY  "quoted [[ + trailing ]]"       'echo "[[" > dev-memo/run/human.override ]]'
+expect DENY  "rm + quoted ';' in operand"    "rm 'a;b' dev-memo/run/config"
+expect DENY  "rm + quoted ';' (dquotes)"     'rm "a;b" dev-memo/run/config'
+expect DENY  "rm + quoted '|' in operand"    "rm 'a|b' dev-memo/run/config"
+expect DENY  "rm + quoted '&' in operand"    "rm 'a&b' dev-memo/run/config"
+expect DENY  "cp dest + quoted ';' operand"  "cp /tmp/x 'a;b' dev-memo/run/config"
+expect DENY  "tee + quoted ';' operand"      "tee 'a;b' dev-memo/run/config"
+expect DENY  "touch remediation + quoted ';'" "touch 'a;b' dev-memo/run/remediation.authorized"
+expect DENY  "sed -i + quoted ';' operand"   "sed -i s/a/b/ 'a;b' dev-memo/run/config"
+expect DENY  "rm + escaped ';' in operand"   'rm a\;b dev-memo/run/config'
+# floor: a genuine test expression and a genuine read must not start denying.
+expect ALLOW "real [[ > ]] still compares"   '[[ "$x" > dev-memo/run/config ]]'
+expect ALLOW "cat + quoted ';' operand"      "cat 'a;b' dev-memo/run/config"
+expect ALLOW "grep + quoted ';' operand"     "grep -n 'a;b' dev-memo/run/config"
+
 # --- PRC-4-FU: emit_deny() must emit VALID JSON for control chars / quotes / backslashes ---
 # Extract emit_deny() in isolation (depends only on $1, jq, sed, tr, printf) and assert the output
 # parses as JSON with permissionDecision=deny — for both the jq-present and jq-fallback branches.
