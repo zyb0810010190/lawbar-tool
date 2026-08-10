@@ -361,9 +361,14 @@ printf 'remediation-spec governed queue body\n' > "$RUNDIR/queue.md"
 good_art; stage src/fix.txt; printf 'OLD=x\n' > "$RUNDIR/.closeout-pending"
 deny_case "AC9 closeout sentinel still blocks" "git commit -m fix" "batch-closeout is in progress"
 rm -f "$RUNDIR/.closeout-pending"
-# AUTO_ADVANCE_MAX breaker still blocks (window past MAX)
-setwin "$BASE" "$BASE" 3 3; good_art; stage src/fix.txt
-deny_case "AC9 breaker still blocks after the lane opens" "git commit -m fix" "AUTO_ADVANCE_MAX=3 reached"
+# AUTO_ADVANCE_MAX breaker still blocks a commit that has NO valid remediation token. (A VALID
+# token is attended remediation and DOES satisfy the breaker — that is the REMLANE-2 section below;
+# here the point is that the breaker is untouched for everything else.) EVERY=10 > MAX=3 puts the
+# window past the breaker while the audit is NOT yet due, which is the only shape in which the
+# breaker's own message is reachable at all.
+setwin "$BASE" "$BASE" 3 10; rm -f "$RUNDIR/remediation.authorized"; stage src/fix.txt
+chk "AC9 breaker still blocks a token-less commit" DENY "$(runhook)"
+chk "AC9 breaker cites AUTO_ADVANCE_MAX"           yes  "$(reasonhas 'AUTO_ADVANCE_MAX=3 reached')"
 setwin "$BASE" "$BASE"
 # multiple commits in one call still denied before the lane is even considered
 good_art; stage src/fix.txt
@@ -383,6 +388,84 @@ stage src/fix.txt
 chk "AC9 human.override still allows"          ALLOW  "$(runhook)"
 chk "AC9 human.override still consumed"        absent "$([ -f "$RUNDIR/human.override" ] && printf present || printf absent)"
 rm -f "$RUNDIR/override-reason.md"
+
+# ==============================================================================================
+# REMLANE-2 — a VALID token is ATTENDED remediation, so it satisfies the breaker as well
+# ==============================================================================================
+# Two independent stops are derived from the SAME counter (commits since the batch-audit marker):
+#   audit-DUE  COUNT >= BATCH_AUDIT_EVERY  — "a batch audit is required before more commits"
+#   breaker    COUNT >= AUTO_ADVANCE_MAX   — "too many consecutive UNATTENDED auto-commits"
+# dev-memo/run/config ships AUTO_ADVANCE_MAX=3 and BATCH_AUDIT_EVERY=3 — the SAME number — so both
+# always trip on the same commit. The lane cleared audit-DUE only, so the breaker denied anyway and
+# the lane was structurally unreachable for the exact case it was built for (verified in isolation,
+# broken in composition). The two stops answer different questions: a verified single-use token that
+# a human wrote, bound to a specific FAILED broker audit over the live window and scoped to declared
+# paths, is by construction NOT an unattended auto-commit. So a FULLY verified token (every predicate
+# passed, token consumed + logged) exempts that ONE commit from the breaker too. Absent or INVALID
+# token: nothing changes, including the deny messages.
+setwin "${C[3]}" "${C[3]}" 3 3   # BASE=C3 -> COUNT = C4,C5,remediation = 3 == MAX, exactly at the breaker
+ATSHA=$(mkjob audit-remat "AUDIT-RANGE: ${C[3]}..$HEADSHA" "AUDIT-VERDICT: BATCH-FAIL C0 H0 M1 L0")
+mkart "range_base=${C[3]}" "audit_head=$HEADSHA" "broker_job_id=audit-remat" \
+      "broker_output_sha256=$ATSHA" "finding_ids=M1" "reason=remediate at the breaker" \
+      "allowed_path=src/fix.txt"
+stage src/fix.txt
+R2LOG=$(logcount)
+chk "R2 COUNT exactly AT MAX + valid token -> allow" ALLOW   "$(runhook)"
+chk "R2 at-MAX token consumed"                       absent  "$(tokenstate)"
+chk "R2 at-MAX consumption logged once"              "$((R2LOG+1))" "$(logcount)"
+
+# COUNT OVER MAX (BASE=C0 -> COUNT=6 with MAX=3): still one allowed, fully verified commit.
+setwin "$BASE" "$BASE" 3 3; good_art; stage src/fix.txt
+R2LOG=$(logcount); R2MARK=$(cat "$RUNDIR/last-batch-audit")
+chk "R2 COUNT OVER MAX + valid token + in-scope staged set -> allow" ALLOW "$(runhook)"
+chk "R2 over-MAX token consumed"                     absent  "$(tokenstate)"
+chk "R2 over-MAX consumption logged once"            "$((R2LOG+1))" "$(logcount)"
+chk "R2 over-MAX marker NOT advanced"                "$R2MARK" "$(cat "$RUNDIR/last-batch-audit")"
+chk "R2 second commit on the spent token -> deny"    DENY "$(runhook)"
+chk "R2 second commit denies as audit-DUE"           yes  "$(reasonhas 'batch audit DUE')"
+
+# NO token at/over MAX: byte-for-byte today's behaviour. With MAX==EVERY the audit-DUE deny is
+# evaluated first, so that — not the breaker — is the message a token-less commit must still get.
+setwin "$BASE" "$BASE" 3 3; rm -f "$RUNDIR/remediation.authorized"; stage src/fix.txt
+chk "R2 no token at/over MAX -> deny"                DENY "$(runhook)"
+chk "R2 no token still denies as audit-DUE"          yes  "$(reasonhas 'batch audit DUE')"
+# The breaker's own message is only reachable when EVERY > MAX (past the breaker, audit not yet due).
+# It must be preserved EXACTLY, count included.
+setwin "$BASE" "$BASE" 3 10; rm -f "$RUNDIR/remediation.authorized"; stage src/fix.txt
+chk "R2 no token, breaker-only window -> deny"       DENY "$(runhook)"
+chk "R2 breaker message preserved exactly"           yes \
+   "$(reasonhas 'AUTO_ADVANCE_MAX=3 reached (6 consecutive auto-commits). Stop for human review; use a logged human.override to continue.')"
+# Deliberate scope: the lane is engaged ONLY inside the audit-DUE branch. In a breaker-only window
+# rem_authorize never runs, so there is no success path, no exemption — and the token stays UNSPENT.
+setwin "$BASE" "$BASE" 3 10; good_art; stage src/fix.txt
+deny_case "R2 valid token in a NOT-DUE breaker window is not engaged" "git commit -m fix" "AUTO_ADVANCE_MAX=3 reached"
+
+# INVALID token at/over MAX — every invalidity class must DENY for its OWN reason (proving the lane
+# verification ran and refused) and must NOT spend the human's authorization.
+setwin "$BASE" "$BASE" 3 3
+art_job audit-remabsent "$GOODSHA"; stage src/fix.txt
+deny_case "R2 over-MAX + bad job (audit never ran)" "git commit -m fix" "merely DUE, not FAILED"
+art_job audit-rempass "$PASSSHA"; stage src/fix.txt
+deny_case "R2 over-MAX + BATCH-PASS job"            "git commit -m fix" "BATCH-PASS"
+mkart "range_base=${C[1]}" "audit_head=$HEADSHA" "broker_job_id=audit-rembadr" \
+      "broker_output_sha256=$BADRSHA" "finding_ids=M1" "reason=r" "allowed_path=src/fix.txt"
+stage src/fix.txt
+deny_case "R2 over-MAX + wrong range_base"          "git commit -m fix" "!= the current batch-audit marker"
+good_art; stage src/fix.txt other/unrelated.txt
+deny_case "R2 over-MAX + path outside allowed_path" "git commit -m fix" "OUTSIDE the artifact's allowed_path set"
+mkart "this line has no equals sign"; stage src/fix.txt
+deny_case "R2 over-MAX + malformed artifact"        "git commit -m fix" "malformed artifact line"
+good_art; stage src/fix.txt
+deny_case "R2 over-MAX + non-index-neutral commit form" "git commit -a -m fix" "not on the remediation lane's index-neutral allow-list"
+
+# COUNT under BOTH thresholds: unchanged — normal rules already allow and the lane stays out of it,
+# so the token must be left unspent for the window that actually needs it.
+setwin "${C[4]}" "${C[4]}" 3 3   # BASE=C4 -> COUNT = C5,remediation = 2 < MAX and < EVERY
+good_art; stage src/fix.txt
+chk "R2 COUNT under both thresholds -> allow"        ALLOW   "$(runhook)"
+chk "R2 under-threshold token left unspent"          present "$(tokenstate)"
+rm -f "$RUNDIR/remediation.authorized"
+setwin "$BASE" "$BASE"
 
 # ==============================================================================================
 # Consume-on-success — a failure to remove or to log must DENY, never authorize a replayable token

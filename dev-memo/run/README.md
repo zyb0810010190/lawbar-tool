@@ -46,9 +46,18 @@ enforced, not merely instructed.
 - `override-reason.md` — required non-empty reason for `human.override`; kept in the audit trail.
 - `remediation.authorized` — single-use **remediation-lane** token: the narrow escape that lets the
   commit which *resolves* a **FAILED** batch audit actually land. Strictly narrower than
-  `human.override` — it bypasses only the audit-DUE deny, only for a commit whose staged set is
-  inside its declared `allowed_path` list, and only when the cc-suite broker job it names really
-  recorded `AUDIT-VERDICT: BATCH-FAIL` over `range_base..audit_head`. It does **not** advance
+  `human.override` — it covers only the two counter-derived stops (audit-DUE and, per REMLANE-2, the
+  `AUTO_ADVANCE_MAX` breaker), only for a commit whose staged set is inside its declared
+  `allowed_path` list, and only when the cc-suite broker job it names really recorded
+  `AUDIT-VERDICT: BATCH-FAIL` over `range_base..audit_head`. Risk flag, governance + content hash and
+  the closeout sentinel are *not* covered and are checked before the token is read.
+  A **fully verified** token satisfies the breaker as well because the two stops answer different
+  questions: audit-DUE asks "has this window been audited?", the breaker asks "is this a long
+  **unattended** auto-run?" — and a hand-written, job-bound, path-scoped, single-use token is by
+  definition an *attended* commit. (Both thresholds are `3` here, so they trip on the same commit;
+  without this the lane could never fire in the very case it exists for.) The exemption applies only
+  on the full success path and to that one commit; an absent or invalid token changes nothing. It
+  does **not** advance
   `last-batch-audit`, so commits stay blocked until a follow-up audit PASSes and the closeout runs.
   A merely-DUE audit is **not** covered: that is not a deadlock, it is an audit nobody has run.
   Written by a human only (agent writes are denied by `protect-run-control.sh` /

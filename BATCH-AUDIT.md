@@ -62,9 +62,28 @@ staged path is inside `allowed_path`. The token is then consumed and logged to `
 exactly like `human.override`.
 
 This **narrows** the existing escape rather than widening it: an override permits *any* commit and
-bypasses risk/governance/count; the remediation lane bypasses **only** the audit-DUE deny, for a
-path-scoped commit bound to a specific failing job. Risk flag, governed queue, the BCG-6 content
-hash, the closeout sentinel and the `AUTO_ADVANCE_MAX` breaker all still apply.
+bypasses risk/governance/count; the remediation lane covers only the two **counter-derived** stops,
+for a path-scoped commit bound to a specific failing job. Risk flag, governed queue, the BCG-6
+content hash and the closeout sentinel all still apply, and are all evaluated *before* the token is
+even read — so a commit they block never spends the human's authorization.
+
+**A valid token also satisfies the `AUTO_ADVANCE_MAX` breaker (REMLANE-2).** The breaker and the
+audit-DUE deny are two independent stops read off the *same* counter (commits since the marker), and
+`dev-memo/run/config` ships `AUTO_ADVANCE_MAX=3` with `BATCH_AUDIT_EVERY=3` — the **same number** —
+so both trip on the same commit. Clearing only audit-DUE therefore left the lane structurally
+unreachable for the exact case it was built for. The two stops answer different questions: audit-DUE
+asks *"has this window been audited?"*, the breaker asks *"is this a long **unattended** auto-run?"*.
+A single-use token a human wrote by hand, bound to a specific FAILED broker job over the live window
+and scoped to declared paths, is by construction an **attended** commit — so applying the breaker to
+it is a category error, not a safety margin. The exemption is granted **only** on the full success
+path (every check passed *and* the token was consumed + logged) and covers exactly that one commit;
+an absent or invalid token hits both denies exactly as before. There is deliberately **no numeric
+ceiling** on how far past `AUTO_ADVANCE_MAX` the counter may be: the bound is structural — the marker
+is never advanced, so each further commit in the window needs its own fresh human-authored artifact
+(or an override), which is stronger than any magic number and cannot itself misfire on the case it
+was meant to permit. The lane is engaged only inside the audit-DUE branch, so in the unusual config
+where `BATCH_AUDIT_EVERY > AUTO_ADVANCE_MAX` a breaker-only (not-yet-due) window is *not* covered:
+the token is left unspent and the breaker denies, as before.
 
 **The marker is not advanced.** A remediation commit does not close the window: commits stay blocked
 until a follow-up Layer-B audit covering `range_base..<new head>` returns PASS and the closeout runs.

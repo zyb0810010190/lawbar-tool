@@ -8,9 +8,12 @@
 #   the breaker. Two human-authorized escapes exist, both single-use and logged:
 #     - human.override + reason file — general-purpose break glass; bypasses risk/governed/count.
 #     - remediation.authorized — the NARROW remediation lane (WI-BATCH-REMEDIATION-LANE-00):
-#       bypasses ONLY the audit-DUE deny, only after a FAILED broker audit over the current
-#       window is verified, and only for a commit whose staged set is inside the artifact's
-#       declared allowed paths. It never advances the marker. See §"REMEDIATION LANE" below.
+#       bypasses the audit-DUE deny and, for that ONE fully-verified commit, the AUTO_ADVANCE_MAX
+#       breaker (REMLANE-2: a verified human token means the commit is ATTENDED, which is the
+#       question the breaker asks), only after a FAILED broker audit over the current window is
+#       verified, and only for a commit whose staged set is inside the artifact's declared allowed
+#       paths. It bypasses nothing else — risk flag, governance + content hash and the closeout
+#       sentinel all still apply. It never advances the marker. See §"REMEDIATION LANE" below.
 # Authority: this hook is the enforcement truth for the commit boundary (see README Authority
 #   map). It does NOT own staging/secrets checks — those are the other two commit hooks.
 
@@ -223,9 +226,12 @@ fi
 # authorized by dev-memo/run/remediation.authorized, an artifact the agent cannot create
 # (protect-run-control.sh + runcontrol-canon.mjs + block-run-control-bash-write.sh cover it
 # exactly like human.override). It is strictly NARROWER than an override: an override permits ANY
-# commit and bypasses risk/governed/count; this lane bypasses ONLY the audit-DUE deny, and only
-# for a commit whose staged set is a subset of the artifact's declared allowed paths, bound to a
-# specific FAILED broker audit job over the current window.
+# commit and bypasses risk/governed/count; this lane bypasses only the two COUNTER-derived stops
+# (audit-DUE and — per REMLANE-2, see the call site below — the AUTO_ADVANCE_MAX breaker, for that
+# one fully-verified commit only), and only for a commit whose staged set is a subset of the
+# artifact's declared allowed paths, bound to a specific FAILED broker audit job over the current
+# window. Risk flag, governance + the BCG-6 content hash and the closeout sentinel are NOT bypassed
+# — they are evaluated above, before the token is ever read.
 #
 # Verified, fail-closed on any doubt (each check DENIES; the token is spent only after ALL pass):
 #   R1 artifact present, readable, non-empty, strictly well-formed (known keys, no duplicates)
@@ -632,19 +638,44 @@ if [ "$OVERRIDE" -eq 0 ]; then
   # consumed (normal rules already permit the commit, so there is nothing to authorize).
   # rem_authorize denies internally on ANY failure and returns only after consuming+logging the
   # token, so reaching the next line means a fully verified remediation commit.
+  #
+  # REMLANE-2 — a fully verified token also satisfies the BREAKER. audit-DUE and the breaker are two
+  # independent stops derived from the SAME counter, and dev-memo/run/config ships
+  # AUTO_ADVANCE_MAX=3 with BATCH_AUDIT_EVERY=3 — the SAME number — so both trip on the same commit.
+  # Clearing only audit-DUE therefore left the lane structurally UNREACHABLE for the exact case it
+  # was built for. The two stops answer different questions: audit-DUE asks "has this window been
+  # audited?", the breaker asks "is this a long UNATTENDED auto-run?". A token a human wrote, bound
+  # to a specific FAILED broker audit over the LIVE window and scoped to declared paths, is by
+  # construction an ATTENDED, human-authorized commit, so applying the breaker to it is a category
+  # error. The exemption is therefore granted ONLY on rem_authorize's success path — i.e. after every
+  # predicate R1-R6 passed and R7 consumed+logged the single-use token — and covers exactly that ONE
+  # commit. Any other commit (no token, or a token that fails any check) reaches the breaker exactly
+  # as before. No numeric ceiling on COUNT is added: the bound is structural, not arithmetic — the
+  # marker is never advanced here, so every further commit in this window needs its own fresh
+  # human-authored artifact (or a human.override), which is a stronger limit than any magic number,
+  # and a magic number would recreate the very failure being fixed (a stop firing on a case it was
+  # not designed for).
+  #
+  # ORDERING: the breaker used to be evaluated BEFORE the lane so a doomed commit could not burn the
+  # human's authorization. That guard is now inverted — the breaker no longer refuses a verified
+  # remediation commit, so pre-empting it would deny the case this lane exists for. The "a denied
+  # commit must not spend the token" property is preserved by rem_authorize itself: R7 (consume+log)
+  # is the LAST step, every earlier failure denies before the token is touched, and once R7 has run
+  # there is no remaining check that can deny — so the token is spent if and only if the commit is
+  # allowed. Everything that must be checked before the token is touched (multi-commit, config, risk
+  # flag, governance + BCG-6 content hash, closeout sentinel, count derivation) is still evaluated
+  # above this point and is unchanged.
   deny_breaker() { deny "Batch guard: AUTO_ADVANCE_MAX=$MAX reached ($COUNT consecutive auto-commits). Stop for human review; use a logged human.override to continue."; }
+  REM_OK=0
   if [ "$COUNT" -ge "$EVERY" ]; then
     if [ -f "$REMFILE" ]; then
-      # The breaker is evaluated BEFORE the lane runs, so a commit the breaker will refuse anyway
-      # cannot burn the human's single-use authorization. (Risk flag / governance / sentinel are
-      # already checked above, i.e. also before the token is touched.)
-      [ "$COUNT" -ge "$MAX" ] && deny_breaker
-      rem_authorize "$BASE"
+      rem_authorize "$BASE"   # denies internally on ANY failure; returns only once fully verified
+      REM_OK=1                # verified attended remediation -> exempt from the breaker below
     else
       deny "Batch guard: batch audit DUE ($COUNT commits since last audit >= BATCH_AUDIT_EVERY=$EVERY). Run the batch audit and record new HEAD in dev-memo/run/last-batch-audit, then commit."
     fi
   fi
-  [ "$COUNT" -ge "$MAX" ] && deny_breaker
+  if [ "$REM_OK" -eq 0 ] && [ "$COUNT" -ge "$MAX" ]; then deny_breaker; fi
 fi
 
 # Allowed. Count is git-derived — no counter file to maintain.
