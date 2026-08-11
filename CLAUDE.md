@@ -1,8 +1,12 @@
-# CLAUDE.md — ClauDepot writing workspace
+# CLAUDE.md
 
-Covers the writing workspace only (`posts/`, `notes/`, and ClauDepot submission). It says
-nothing about the lawbar-tool application, its contracts, its services, or its evidence
-harness — those are governed by `docs/product/`, `docs/adr/`, and the code itself.
+Two things live here: the **ClauDepot writing workspace** (`posts/`, `notes/`, submission),
+and a small **invoke-only assistant layer** under `.claude/`, two pieces of which serve the
+whole repository rather than the workspace.
+
+It does not govern the lawbar-tool application. Product direction lives in `docs/product/`,
+technical decisions in `docs/adr/` (which the product brief declares outrank it), and
+behaviour in the code.
 
 **This file is advisory prose. It enforces nothing.** This repo has no hooks, no commit
 gates, and no governance scripts — that layer was deliberately removed on 2026-08-10.
@@ -11,11 +15,20 @@ Nothing here is checked mechanically at any point.
 A small assistant layer was added under `.claude/` on 2026-08-11 with this workspace. It is
 scoped and voluntary, and is not a return of the removed governance layer:
 
+*Writing workspace:*
 - `.claude/rules/mermaid.md` — path-scoped to `posts/**/*.md` by frontmatter, so it applies
   to nothing else in this repository.
-- `.claude/commands/slop-flag.md` — runs only when invoked.
+- `.claude/commands/slop-flag.md` — invoke-only. Flags LLM-slop in a draft without
+  rewriting, and ranks real client identifiers above every stylistic finding.
 
-Neither executes on commit, and neither can block anything.
+*Whole repository:*
+- `.claude/skills/client-data-preflight/` — invoke-only. What the privacy scanner covers,
+  the places it is blind, and how to redact narrowly for external review.
+- `.claude/skills/contract-change-rebuild/` — invoke-only. The rebuild order that stops the
+  desktop from testing green against a stale committed contract tarball.
+
+None of these executes on commit, and none can block anything. They are recipes, not gates —
+each records knowledge that has already been got wrong here, and nothing more.
 
 No voice rule and no voice-priming skill: both were removed on 2026-08-11. The workspace
 takes no position on how the author writes.
