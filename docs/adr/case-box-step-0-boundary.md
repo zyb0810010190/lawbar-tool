@@ -257,7 +257,7 @@ The project-requirements-brief (`docs/product/project-requirements-brief.md`, st
 
 ### Original-file retention (R-7) — promoted to load-bearing v1 cross-cutting invariant
 
-Add to the §"Cross-cutting Invariants" effective for v1 (recorded inline here because Step-0 has no separate Cross-cutting Invariants section heading — the closest analogue is §"Confidentiality posture summary" + §"Multi-user readiness summary" + the §"Decision" body itself; the invariant is stated here as a Step-0 addendum and mirrored in `docs/product/product-target-architecture.md` §"Cross-cutting Invariants (always-true, v1)" item 11):
+Add to the §"Cross-cutting Invariants" effective for v1 (recorded inline here because Step-0 has no separate Cross-cutting Invariants section heading — the closest analogue is §"Confidentiality posture summary" + §"Multi-user readiness summary" + the §"Decision" body itself; the invariant is stated here as a Step-0 addendum and mirrored in `docs/product/project-requirements-brief.md Appendix A` §"Cross-cutting Invariants (always-true, v1)" item 11):
 
 > **Original-file retention.** Every ingested file (Mac picker / URL / future WeChat upload / future scanner) is preserved verbatim, content-hash-addressed at a known `storage_uri`, and openable from the Mac desktop process. No extraction step (OCR, text-extraction, redaction, etc.) destroys or replaces the original. Extraction artifacts (OCR text, parsed Word, Markdown structure) are stored alongside, never in place of, the original.
 
@@ -286,7 +286,7 @@ This addendum does NOT modify the Step-8 ADR body (which is already correctly fr
 - `dev-memo/plan-client-00.md` — client surface reconciliation; CLIENT-00b authorization.
 - `docs/adr/client-application-surface.md` — v1 primary client = Mac desktop.
 - `docs/adr/sync-bridge-architecture.md` — opt-in companion HTTP bridge.
-- `docs/product/product-target-architecture.md` — companion product summary (target user, client surfaces, data residency, future WIs).
+- `docs/product/project-requirements-brief.md Appendix A` — companion product summary (target user, client surfaces, data residency, future WIs).
 - `docs/ui/current-ui-map.md`, `docs/ui/ui-state-contract.md`, `docs/ui/ui-gap-report.md` — UI inventory.
 - `docs/release/wi-03-security-signoff.md` — outbound HTTPS sign-off (preserved).
 - `docs/release/go-live-plan.md` — Stop-and-Ask gates, per-package test commands.

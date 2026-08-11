@@ -2,13 +2,23 @@
 status: READY
 date: 2026-05-22
 author: project-brief skill (run by Claude Code on user direction)
-authoritative_after: /cc-suite:review-plan returns READY (or only Low-risk clarifications remain)
+authoritative_after: reached READY via review; verdict retained after the 2026-08-10 configuration reset
 revision: 5 (post fourth review-plan: NEEDS-FIX → applied; R-5 item (j) expanded to four fields including contention_summary_text; R-5 proposed-resolution sentence corrected to (a)..(j); re-review required)
 ---
 
 ## Status banner
 
-This brief is NOT authoritative until `/cc-suite:review-plan` returns READY per `.claude/rules/cc-suite.md`. Until then, every section is INPUT to review. Existing reviewed ADRs under `docs/adr/` outrank this draft (per `.claude/rules/project-brief.md` §"Authority hierarchy"). Where this brief disagrees with an existing ADR, the `Reconciliation log` below names the conflict; the ADRs are not silently rewritten.
+**This brief is READY and authoritative for whole-product direction.** It reached READY through review; the
+review gate that produced that verdict has since been retired with the 2026-08-10 configuration reset, which
+does not revoke the verdict.
+
+Authority order: **reviewed ADRs under `docs/adr/` outrank this brief** for the specific technical decision
+each one documents; this brief outranks everything else on product direction. Where this brief disagrees
+with an existing ADR, the `Reconciliation log` below names the conflict; the ADRs are not silently
+rewritten.
+
+**Absorbed 2026-08-10:** the former `docs/product/product-target-architecture.md` — a derived
+single-page summary — now lives here as **Appendix A**. Content preserved.
 
 ## One-paragraph summary
 
@@ -345,6 +355,12 @@ Each item is STOP-AND-ASK regardless of workflow. Inherits and tightens `.claude
 
 ## Reconciliation log
 
+> **Reading note (2026-08-10).** Entries below were written while
+> `docs/product/product-target-architecture.md` was a separate file. That file is now **Appendix A of this
+> document**; every reference to it in these entries resolves there. The entries are left as originally
+> written — they are a record of how each conflict was resolved, and rewriting them would falsify that
+> record.
+
 Each entry: brief section, conflicting source, prior wording, brief's new wording, proposed resolution.
 
 ### R-1 — Mini-program login gate forces auth-seam contract planning (post-v1)
@@ -529,32 +545,173 @@ Restated for autopilot consultation. Autopilot stops on any of these.
 - [ ] Monetization decisions.
 - [ ] Redaction ADR (before any redaction code).
 
-## Required cc-suite review
-
-This brief is not authoritative until:
-1. /cc-suite:review-plan docs/product/project-requirements-brief.md returns READY
-   (or only Low-risk clarifications remain).
-2. Any Critical/High findings are fixed and the brief is re-reviewed.
-3. Each RECONCILIATION-NEEDED entry has either been resolved
-   (via a follow-up WI that updates the conflicting ADR/doc) or explicitly
-   accepted as a known divergence by the user.
-4. Each STOP-AND-ASK item in §"Hard-stop decisions" has been seen
-   and acknowledged by the user.
-
-Review focus per .claude/rules/project-brief.md §"cc-suite review focus":
-- Internal consistency across the twenty sections.
-- Consistency with existing ADRs and product docs (any drift goes into
-  the Reconciliation log, not silent override).
-- Scope creep (v1 day-one list vs deferred list vs post-v1).
-- Unsafe external-data assumptions (cloud / sync / LLM / multi-tenant).
-- Hard-stop clarity (§20 items must be unambiguous STOP-AND-ASK decisions).
-
 ## Stop condition
 
 This brief is stale or superseded when any of the following occurs:
 
 - A subsequent brief at the same path raises `supersedes: docs/product/project-requirements-brief.md` (in frontmatter) and reaches `READY`.
 - A product pivot (new matter category, new primary platform, new monetization shape) materially invalidates §1, §3, §7, or §17.
-- A reconciliation WI updates an ADR in a way that contradicts a section here without a matching brief amendment.
+- A reconciliation entry updates an ADR in a way that contradicts a section here without a matching brief amendment.
 
-In any of those cases, the user runs `/project-brief` again to write an amendment (status `AMENDMENT-PENDING-REVIEW`) and re-runs `/cc-suite:review-plan`.
+In any of those cases the brief is amended in place (status `AMENDMENT-PENDING-REVIEW`) and re-reviewed by
+whatever review path is then in force before returning to `READY`.
+
+---
+
+# Appendix A — Target architecture (v1)
+
+*Absorbed 2026-08-10 from `docs/product/product-target-architecture.md` (promoted 2026-05-20 from
+`dev-memo/plan-client-00.md`, commit `a07e5d1`). A derived single-page summary of the direction stated
+above; the deeper decisions live in the linked ADRs.*
+
+## A.1 v1 product shape
+
+The v1 product is a **case-box workspace for one lawyer**, running locally on a Mac. The OCR pipeline is a
+subordinate data feed: it turns scanned legal documents into searchable text that the case box references.
+The lawyer's daily work happens at the case (matter) level — facts, issues, claims, elements, evidence,
+deadlines, privilege markers, risks, next actions, audit trail — not at the OCR-job level.
+
+**Ships v1 day-one:** a Mac desktop application · a local case box per
+`docs/adr/case-box-step-0-boundary.md` · the existing OCR pipeline embedded in-process · an append-only
+hash-chained audit log under the lawyer's user-controlled path.
+
+**Does NOT ship v1 day-one:** any network surface on the default workflow · WeChat mini-program · browser /
+web UI · cloud sync · LLM candidate-fact extraction (**indefinitely postponed** per R-8; the deterministic
+stub is the v1 extractor) · deadline computation engine (data model present, engine post-MVP) ·
+multi-user auth.
+
+## A.2 Primary user
+
+A single lawyer (or law-firm staff working on the lawyer's behalf) on a Mac. They hold confidential
+documents that must not leave the machine by default; work one or more matters at a time; review OCR output,
+accept/reject candidate facts, bind facts to claim elements as evidence citations, mark privilege, track
+deadlines, export privilege logs. They do **not** administer a multi-tenant SaaS, register users, configure
+cloud backends, or write code.
+
+Browser users, multi-firm SaaS operators, and mobile-first paralegals are **not** v1 primary users.
+
+## A.3 Client surfaces
+
+| Surface | Status | Notes |
+|---|---|---|
+| Mac desktop app | **v1 primary** | In-process embedding of `ocr-*` and `case-box-*` libraries. No network on the default path. Per `docs/adr/client-application-surface.md`. |
+| WeChat mini-program | **Deferred companion** | Post-v1 only. Reaches the case box via the sync bridge (`docs/adr/sync-bridge-architecture.md`). Read-mostly + minimal write. Sees only what the lawyer explicitly exposes. |
+| Browser / web UI | **Indefinitely postponed** | No v1 or post-v1 architectural budget (§3). The Electron renderer is Mac-app-local, not a published web app. A standalone browser SPA is not planned. |
+| Windows / Linux desktop | Deferred | Mac-only v1. |
+| iPad / native mobile | Deferred | |
+| Multi-firm SaaS | **Not v1** | `tenant_id` retained in the data shape for forward compatibility only. |
+
+## A.4 Data residency
+
+| Aspect | v1 default | Opt-in path |
+|---|---|---|
+| Documents | Local filesystem under a user-controlled path (default `~/Library/Application Support/lawbar/`); identified by `content_hash`; SQLite stores metadata only. **Originals retained verbatim** (A.9 §11). | None v1; future per-document sync grant |
+| Case-box source of truth (cases, documents, facts, issues, claims, elements, evidence, deadlines, privilege, risks, actions) | Local SQLite under a user-controlled path | None v1; future per-matter sync grant |
+| Audit log | Separate local SQLite file with hash chain, user-controlled path | None v1 — the audit log stays local |
+| OCR engine | Local `paddleocr-onnx` — **scanned/image PDFs and image files/screenshots only** (§8) | Future external OCR worker, opt-in per document, restricted to `confidentiality_class = normal` |
+| Document text extraction (non-OCR) | **None v1.** PDF text-layer / Word / MD / other office formats retained verbatim; recourse for searchable text is manual paste (§6) | Post-v1 STOP-AND-ASK decision on engine + dispatch policy + text-layer detection |
+| LLM candidate-fact extraction | **Indefinitely postponed** (R-8); the deterministic stub remains the v1 extractor | None planned; re-opens only on explicit user authorization |
+| Encryption at rest | macOS FileVault (system-level) | Per-document encryption deferred post-MVP |
+
+**Default = no cloud, no network egress, no LLM remote call.** Sync is a deliberate user-driven act per
+document or per matter. The normal workflow produces zero outbound traffic apart from outbound OCR-source
+fetches when the lawyer explicitly submits a URL-sourced document (retaining WI-03's DNS-pinning / SSRF
+posture unchanged).
+
+## A.5 Sync-bridge role
+
+Per `docs/adr/sync-bridge-architecture.md`: **off by default** (no listener in the v1 default workflow) ·
+**opt-in per document or matter** (the bridge consults the grants table before exposing any record; no grant
+→ undifferentiated 404, which does not leak existence) · **narrow surface** (read endpoints first, writes
+routed through the coordinator; no bulk export, no submit-new-document, no privilege-log export at launch) ·
+**audits every operation** (hash-chained; reads MAY log, writes MUST log) · **authenticates** when it ships,
+though the auth provider is a stop-and-ask gate · **separate security sign-off** (WI-03 covers outbound
+only; the inbound surface needs its own).
+
+The bridge is the architectural seam through which **all** companion clients reach the case box. There is no
+other inbound network surface.
+
+## A.6 Mini-program and browser surfaces
+
+**WeChat mini-program** — a deferred companion channel. When it ships (post-v1, after the sync bridge):
+read-mostly (writes wait for SYNC-03); sees only what the lawyer explicitly exposes; authenticates through
+the bridge's auth seam; cannot consume Node libraries directly (HTTP-only). Publication requires a
+registered Chinese business entity and a WeChat developer account — out of v1 scope.
+
+**Browser / web UI** — indefinitely postponed. The Electron renderer IS a Chromium browser, but it is
+Mac-app-local, not a published web app. The GW-00 ADR's original framing of a public-internet API + browser
+SPA is explicitly rejected. Re-authorizing a browser SPA would open a new reconciliation entry.
+
+## A.7 Roadmap — future work items
+
+Priority order. **None is authorized by this document**; each requires its own gate per §20.
+
+| WI | Subject | Gate |
+|---|---|---|
+| **CLIENT-01** | Desktop shell framework selection (recommended: Electron) | Stop-and-ask: new runtime dependency |
+| **CLIENT-02** | Renderer UI framework selection | Stop-and-ask: new runtime dependency |
+| **CLIENT-03** | `apps/lawbar-desktop/` scaffold (main process, IPC bridge, preload, empty renderer) | after CLIENT-01 + 02 |
+| **CASE-BOX 1** | `case-box-contract`: schemas, state machines, validators, generated types | regular |
+| **CASE-BOX 2** | `case-box-persistence`: in-memory + SQLite conformance, replay-safe writers, audit hash chain | regular |
+| **CASE-BOX 3** | `case-box-ingestion`: case-create, document-upload, OCR submission, `ocr_job_link` sync | regular |
+| **CASE-BOX 4** | Candidate-fact stub extractor (deterministic; pluggable) | regular |
+| **CASE-BOX 5** | `case-box-review`: chronology, proof matrix, document index, privilege log | regular |
+| **CASE-BOX 6** | Privilege markers + audit + export hooks fully wired | regular |
+| **CLIENT-04+** | Per-screen implementation (S2 list → S3 detail → S4 read → S1 submission → S6 cancel → S5 manual review), then case-box screens | regular |
+| **CLIENT-05** | Coordinator-mediated cancel in `services/ocr-worker` | Stop-and-ask: contract / lifecycle change |
+| **AUTH** (deferred) | Auth provider selection; re-opens when the sync bridge ships, the multi-user phase begins, the mini-program ships, or a remote LLM extractor is enabled | Stop-and-ask: auth |
+| **TENANT** (indefinitely deferred) | Single-firm-multi-user phase — demoted per R-4 | Stop-and-ask after AUTH |
+| **SYNC-01** | Sync-bridge scaffold (package, auth seam, sync-grants persistence) | Stop-and-ask: inbound network surface |
+| **SYNC-02** | Bridge read endpoints | after SYNC-01 |
+| **SYNC-03** | Bridge write endpoints; first bridge security sign-off | Stop-and-ask: inbound write surface |
+| **SYNC-04** | Sync-grants management UI | regular |
+| **SYNC-05+** | Cloud-sync target adapters | Stop-and-ask: external account / cloud vendor |
+| **SYNC-06+** | WeChat mini-program client | Stop-and-ask: external account, third-party SDK, business entity |
+| **CASE-BOX 7** | Deadline declarative-rules engine (post-MVP) | regular |
+| **CASE-BOX 8** | LLM extractor — **indefinitely deferred** per R-8; the policy ADR applies only IF re-authorized | Stop-and-ask; explicit user authorization only |
+| **CASE-BOX 9** | Multi-user auth boundary | Stop-and-ask after AUTH |
+| **DEPLOYMENT** | macOS code-signing + notarization; distribution channel | Stop-and-ask: operational |
+| **GO-LIVE** | Final go-live readiness sign-off | hard stop (§20) |
+
+## A.8 Deployment (deferred)
+
+v1 ships as a single Mac binary. Deferred: macOS code-signing identity (Apple Developer ID) and notarization
+profile (required before non-developer distribution) · distribution channel (direct download, Mac App Store,
+in-firm IT) · auto-update strategy · crash-reporting backend, which must be **off by default** to preserve
+the confidentiality posture, opt-in if added. All remain stop-and-ask per §20.
+
+## A.9 Cross-cutting invariants (always true, v1)
+
+1. **Local-first by default.** No network egress on the default workflow except the OCR worker's outbound
+   HTTPS fetch (WI-03 hardened) when the lawyer explicitly submits a URL-sourced document.
+2. **Coordinator owns OCR lifecycle.** Renderer / case-box / sync bridge never write to `ocr-persistence`
+   directly; all state transitions go through `OcrProcessingCoordinator`.
+3. **Audit every write.** Every source-of-truth mutation produces a hash-chained audit event in the same
+   logical transaction.
+4. **LLM / automation outputs land as candidate.** Never auto-promoted to accepted.
+5. **Privilege defaults to unmarked = NOT privileged.** An explicit marker is required.
+6. **No deletion of legal artifacts.** Soft-delete with an audit reason; hard delete only via an explicit
+   retention policy (post-MVP).
+7. **`tenant_id` retained.** Single tenant in v1; the data shape stays multi-user-ready.
+8. **`actor_user_id = "local-user"`** is the v1 default, valid only while local-only (no sync bridge, no
+   remote LLM, no multi-user).
+9. **No foreign key from case-box to OCR.** Cross-boundary references by value (`ocr_job_id`) only.
+10. **No widening of the public error surface.** Internal `HttpsTransportError` discriminators never leak
+    through IPC, the bridge, or any client-facing surface.
+11. **Original-file retention.** Every ingested file is preserved verbatim, content-hash-addressed at a known
+    `storage_uri`, and openable from the Mac desktop process. No extraction step (OCR, text extraction,
+    redaction) destroys or replaces the original; extraction artifacts are stored alongside it, never in
+    place of it. (Per R-7.)
+
+## A.10 References
+
+`docs/adr/case-box-step-0-boundary.md` (case-box product boundary) ·
+`docs/adr/client-application-surface.md` (v1 primary client architecture) ·
+`docs/adr/sync-bridge-architecture.md` (opt-in companion HTTP surface) ·
+`docs/ui/sync-bridge-contract-draft.md` (bridge endpoint reference) ·
+`dev-memo/plan-client-00.md` (client-surface reconciliation; D2 source) ·
+`dev-memo/superseded/case-box-plan.md` (pre-Phase-0 plan, historical) ·
+`docs/ui/current-ui-map.md`, `docs/ui/ui-state-contract.md`, `docs/ui/ui-gap-report.md` (OCR-layer UI
+inventory) · `docs/release/wi-03-security-signoff.md` (outbound HTTPS / SSRF / DNS-pinning sign-off) ·
+`docs/release/go-live-plan.md` (gates, per-package test commands) ·
+`docs/product/evidence-m0-prd.md` (Evidence-Genie M0 product definition).

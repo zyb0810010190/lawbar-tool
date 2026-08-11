@@ -1,0 +1,374 @@
+diff --git a/scripts/workflow/a07-marker.test.sh b/scripts/workflow/a07-marker.test.sh
+index 8badee1..b39b83e 100755
+--- a/scripts/workflow/a07-marker.test.sh
++++ b/scripts/workflow/a07-marker.test.sh
+@@ -29,18 +29,25 @@ rc_of() { "$@" >/dev/null 2>&1; echo $?; }
+ sha_of() { python3 -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$1"; }
+ field()  { python3 -c "import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[2]])" "$1" "$2"; }
+ 
+-# stub_harness <path> <status> <classification> <pageCount>
++# stub_harness <path> <status> <classification> <pageCount> [forced-exit]
+ # Runnable stand-in for a07-harness-cli: prints the SAME one-line TSV contract on stdout and exits 0
+ # iff status=pass. The marker binds this file's sha256, so editing/rebuilding it must invalidate the
+-# markers it produced.
++# markers it produced. A forced-exit builds a LYING binary whose process outcome disagrees with the
++# line it prints — used to prove the writer checks the re-executed exit code, not just the claim.
+ stub_harness() {
+   mkdir -p "$(dirname "$1")"
+   cat > "$1" <<EOF
+ #!/bin/sh
+ printf '%s\t%s\t%s\n' '$2' '$3' '$4'
++EOF
++  if [ -n "${5:-}" ]; then
++    printf 'exit %s\n' "$5" >> "$1"
++  else
++    cat >> "$1" <<EOF
+ [ '$2' = pass ] && exit 0
+ exit 1
+ EOF
++  fi
+   chmod +x "$1"
+ }
+ 
+@@ -408,6 +415,126 @@ write_marker "$TP/dev-memo/run/evidence" aa11bb22 "$SBIN" "$SOUT" "$SRC" >/dev/n
+   && ok || bad "guard --scan should FAIL closed for a local marker when key is absent"
+ rm -rf "$TP"
+ 
++# ---------------------------------------------------------------------------------------------
++# Re-execution attestation (WI-A07-MARKER-REEXEC). Supplying bytes is not evidence that a gate RAN:
++# the writer RE-RUNS --harness-bin itself (absolute path, bounded timeout) against the same fixture +
++# oracle and refuses unless that run reproduces --harness-stdout byte-for-byte and exits with
++# --harness-exit, and unless the binary's sha256 is unchanged across its own execution.
++#
++# Scope honesty: this closes the FABRICATED-OUTPUT path only. It does not make a marker unforgeable,
++# and it CANNOT distinguish a stub that faithfully reproduces its own output from the real harness —
++# what separates those is the HMAC-bound harnessBinaryPath + harnessBinarySha256 the marker records,
++# which a consumer compares against the real built a07-harness-cli (case 91 below).
++# ---------------------------------------------------------------------------------------------
++# 72-73. THE DEFECT: hand-written stdout bytes the bound binary does not reproduce.
++T=$(mktemp -d); seed_run "$T" fail class_2_geometry_source_instability 2
++printf 'pass\tok\t2\n' > "$T/harness/fabricated.bin"
++[ "$(rc_of write_marker "$T/out" aa11bb22 "$SBIN" "$T/harness/fabricated.bin" 0)" = 7 ] \
++  && ok || bad "fabricated stdout the bound harness does not reproduce should exit 7"
++[ ! -e "$T/out/a07" ] && ok || bad "fabricated stdout must not create a marker"
++rm -rf "$T"
++
++# 74-75. the finding verbatim: ANY executable handed to --harness-bin + a hand-written pass line.
++T=$(mktemp -d); mkdir -p "$T/harness"
++printf 'pass\tok\t2\n' > "$T/harness/fabricated.bin"
++[ "$(rc_of write_marker "$T/out" aa11bb22 /bin/echo "$T/harness/fabricated.bin" 0)" = 7 ] \
++  && ok || bad "an unrelated executable as --harness-bin should exit 7"
++[ ! -e "$T/out/a07" ] && ok || bad "unrelated --harness-bin must not create a marker"
++rm -rf "$T"
++
++# 76-77. a fabricated page count (the binary prints 2) is refused even though status/class agree.
++T=$(mktemp -d); seed_run "$T" pass ok 2
++printf 'pass\tok\t3\n' > "$T/harness/inflated.bin"
++[ "$(rc_of write_marker "$T/out" aa11bb22 "$SBIN" "$T/harness/inflated.bin" 0)" = 7 ] \
++  && ok || bad "a fabricated page count should exit 7"
++[ ! -e "$T/out/a07" ] && ok || bad "fabricated page count must not create a marker"
++rm -rf "$T"
++
++# 78-79. a LYING binary: prints the pass line but really exits 1, while the caller claims exit 0.
++# The claimed pair is self-consistent (exit 0 <=> pass), so only re-execution catches it.
++T=$(mktemp -d); mkdir -p "$T/harness"
++stub_harness "$T/harness/liar" pass ok 2 1
++capture "$T/harness/liar" "$WFX" "$WOR" "$T/harness/liar.out" >/dev/null
++[ "$(rc_of write_marker "$T/out" aa11bb22 "$T/harness/liar" "$T/harness/liar.out" 0)" = 7 ] \
++  && ok || bad "a harness that really exits non-zero should exit 7"
++[ ! -e "$T/out/a07" ] && ok || bad "a lying exit code must not create a marker"
++rm -rf "$T"
++
++# 80-81. the binary is swapped between hashing and running: this stub appends to ITSELF while running,
++# printing identical bytes and exiting 0, so only the sha256 re-check across the execution can catch it.
++T=$(mktemp -d); mkdir -p "$T/harness"
++cat > "$T/harness/self-mutating" <<'EOF'
++#!/bin/sh
++printf 'pass\tok\t2\n'
++printf '# swapped %s\n' "$$" >> "$0"
++EOF
++chmod +x "$T/harness/self-mutating"
++SMRC="$(capture "$T/harness/self-mutating" "$WFX" "$WOR" "$T/harness/self-mutating.out")"
++[ "$(rc_of write_marker "$T/out" aa11bb22 "$T/harness/self-mutating" "$T/harness/self-mutating.out" "$SMRC")" = 7 ] \
++  && ok || bad "a binary that changes across its own execution should exit 7"
++[ ! -e "$T/out/a07" ] && ok || bad "a swapped binary must not create a marker"
++rm -rf "$T"
++
++# 82-84. a hanging harness is bounded by the timeout, refused, and does not wedge the writer.
++T=$(mktemp -d); seed_run "$T" pass ok 2
++cat > "$T/harness/hanging" <<'EOF'
++#!/bin/sh
++printf 'pass\tok\t2\n'
++sleep 45
++EOF
++chmod +x "$T/harness/hanging"
++export A07_MARKER_HARNESS_TIMEOUT_SEC=1
++t0=$SECONDS
++[ "$(rc_of write_marker "$T/out" aa11bb22 "$T/harness/hanging" "$SOUT" 0)" = 7 ] \
++  && ok || bad "a hanging harness should exit 7"
++[ "$((SECONDS - t0))" -lt 25 ] && ok || bad "a hanging harness must not wedge the writer past its timeout"
++unset A07_MARKER_HARNESS_TIMEOUT_SEC
++[ ! -e "$T/out/a07" ] && ok || bad "a hanging harness must not create a marker"
++rm -rf "$T"
++
++# 85-86. an "executable" that cannot be executed at all (no shebang, not a binary) is refused.
++T=$(mktemp -d); mkdir -p "$T/harness"
++printf 'definitely-not-a-binary\n' > "$T/harness/unrunnable"; chmod +x "$T/harness/unrunnable"
++printf 'pass\tok\t2\n' > "$T/harness/claim.bin"
++[ "$(rc_of write_marker "$T/out" aa11bb22 "$T/harness/unrunnable" "$T/harness/claim.bin" 0)" = 7 ] \
++  && ok || bad "an unrunnable harness binary should exit 7"
++[ ! -e "$T/out/a07" ] && ok || bad "an unrunnable harness binary must not create a marker"
++rm -rf "$T"
++
++# 87-89. a malformed / non-positive / unbounded timeout override fails closed (never an unbounded run).
++bad_timeout() { # <label> <value>
++  local T; T=$(mktemp -d); seed_run "$T" pass ok 2
++  export A07_MARKER_HARNESS_TIMEOUT_SEC="$2"
++  [ "$(rc_of write_marker "$T/out" aa11bb22 "$SBIN" "$SOUT" "$SRC")" = 7 ] && ok || bad "$1 should exit 7"
++  unset A07_MARKER_HARNESS_TIMEOUT_SEC
++  [ ! -e "$T/out/a07" ] && ok || bad "$1 must not create a marker"
++  rm -rf "$T"
++}
++bad_timeout "non-numeric timeout override" abc
++bad_timeout "zero timeout override" 0
++bad_timeout "unbounded timeout override" 100000
++
++# 90-92. POSITIVE: a genuine run is really re-executed by the writer, and still validates.
++T=$(mktemp -d); OUT="$T/evidence"; mkdir -p "$T/harness"
++cat > "$T/harness/counting" <<EOF
++#!/bin/sh
++printf 'pass\tok\t2\n'
++echo run >> "$T/harness/runs.log"
++EOF
++chmod +x "$T/harness/counting"
++CRC="$(capture "$T/harness/counting" "$WFX" "$WOR" "$T/harness/counting.out")"
++CMK="$(write_marker "$OUT" aa11bb22 "$T/harness/counting" "$T/harness/counting.out" "$CRC")"
++[ "$(wc -l < "$T/harness/runs.log" | tr -d ' ')" = 2 ] \
++  && ok || bad "the writer must itself execute the bound harness exactly once"
++{ [ -f "$CMK" ] && [ "$(val_rc "$CMK" "$OUT/ledger.jsonl")" = 0 ]; } \
++  && ok || bad "a genuine re-executed run should produce a marker that validates"
++# Documented limit: a faithful stub IS accepted. What the marker buys is attribution — the binary it
++# ran is HMAC-bound by path + sha256, so a consumer can compare it with the real a07-harness-cli.
++{ [ "$(field "$CMK" harnessBinaryPath)" = "$T/harness/counting" ] \
++  && [ "$(field "$CMK" harnessBinarySha256)" = "$(sha_of "$T/harness/counting")" ]; } \
++  && ok || bad "the marker must bind the path + sha256 of the binary the writer actually ran"
++rm -rf "$T"
++
+ [ -n "$skipped" ] && printf 'a07-marker.test.sh: SKIPPED:%b\n' "$skipped"
+ if [ "$fail" -eq 0 ]; then echo "a07-marker.test.sh: ALL $pass PASS"; exit 0
+ else echo "a07-marker.test.sh: $fail FAIL / $pass PASS"; printf '%b\n' "$failed"; exit 1; fi
+diff --git a/scripts/workflow/a07_marker.py b/scripts/workflow/a07_marker.py
+index 0b9aec0..5ecbf0b 100755
+--- a/scripts/workflow/a07_marker.py
++++ b/scripts/workflow/a07_marker.py
+@@ -1,5 +1,6 @@
+ #!/usr/bin/env python3
+-"""a07_marker.py — A0.7 marker write + provenance validation core (WI-ENA11; WI-A07-MARKER-BIND).
++"""a07_marker.py — A0.7 marker write + provenance validation core (WI-ENA11; WI-A07-MARKER-BIND;
++WI-A07-MARKER-REEXEC).
+ 
+ Implements ADR A07-MARK-00 for LOCAL-ONLY (gitignored) markers under dev-memo/run/evidence/**:
+ a marker is durable evidence of a real A0.7 harness PASS, bound to the exact fixture/oracle/harness/
+@@ -17,12 +18,30 @@ stdout and re-hashes the bound fixture/oracle/harness on disk, so a marker canno
+ the inputs or the binary it attests to, and a re-signed marker whose verdict disagrees with its own
+ recorded harness output is rejected.
+ 
+-What this does NOT achieve: it is not unforgeable. Anything that can run the harness and read the key
+-runs as the same uid as this script and can therefore produce a marker. The goal here is narrower and
+-achievable locally — the marker records WHAT WAS ACTUALLY RUN, so a marker that did not come from a
+-real harness invocation is DETECTABLE (its recorded binary/stdout/input hashes can be compared with
+-the real artifacts). Making production unforgeable requires a producer boundary outside the agent's
+-uid (CI), which is out of scope here.
++Re-execution attestation (WI-A07-MARKER-REEXEC). Accepting stdout bytes proved only that THESE BYTES
++WERE SIGNED, not that the gate RAN: a caller could write the pass line into a file, hand over any
++executable as --harness-bin, and claim --harness-exit 0. So `write` now RUNS --harness-bin itself
++(absolute path, `<binary> <fixture> <oracle>`, stdin closed, bounded timeout) against the same
++fixture/oracle it is about to bind, and refuses unless that run reproduces --harness-stdout
++BYTE-FOR-BYTE and exits with exactly --harness-exit. The binary's sha256 is recomputed immediately
++after the run and must equal the pre-run digest (the recorded one), so a binary swapped between
++hashing and running is refused rather than mis-attributed; the fixture/oracle digests are checked the
++same way, so the marker binds the bytes the run actually read. Any mismatch, timeout, or spawn failure
++is a refusal with NO marker written.
++
++What this does NOT achieve — stated plainly, because the gap matters:
++  * It is NOT unforgeable. Anything that can run the harness and read the key runs as the same uid as
++    this script and can therefore produce a marker. A producer boundary outside the agent's uid (CI)
++    is what would fix that, and it is out of scope here.
++  * It CANNOT distinguish a stub that faithfully reproduces its own output from the real harness. A
++    file that prints "pass\\tok\\t2" and exits 0 will re-execute consistently. What re-execution closes
++    is the FABRICATED-OUTPUT path (bytes nothing produced, or a binary that says something else);
++    what separates a stub from the real harness is the HMAC-bound harnessBinaryPath +
++    harnessBinarySha256, which a consumer compares against the real built a07-harness-cli. The marker
++    makes the substitution ATTRIBUTABLE, not impossible.
++  * The binary-swap check brackets the run with two digests. A swap performed AND reverted strictly
++    inside the execution window is not detectable by this check (a TOCTOU residue); closing it fully
++    needs an exec-by-descriptor primitive, which is not portable here.
+ 
+ Key custody (M0): the HMAC key is ENV-supplied via LAWBAR_A07_MARKER_HMAC_KEY (>= 32 chars). No key
+ is committed, generated long-lived, or fetched from cloud/keychain/network. Tests pass an ephemeral
+@@ -33,22 +52,38 @@ Subcommands:
+            --command CMD --platform PLAT --out-root DIR --repo-commit SHA --repo-tree SHA
+            --harness-commit SHA [--run-id HEX] [--produced-at TS]
+            -> writes <out-root>/a07/<repoCommit>.marker.json + appends <out-root>/ledger.jsonl.
+-              Refuses unless the harness's own output says pass+ok, its exit code agrees, and the
+-              key is valid. Prints the marker path.
++              Refuses unless the harness's own output says pass+ok, its exit code agrees, RE-RUNNING
++              --harness-bin reproduces that output exactly, and the key is valid. Prints the marker
++              path.
+   validate --marker P --ledger P
+            -> exit 0 iff the marker is provenance-valid + attestation-consistent + ledger-bound.
++              Read-only: validate never executes the harness (it runs on every guard scan), it
++              re-hashes the bound artifacts instead.
+ 
+ This module is the single source of truth for the canonical serialization so writer and validator
+-agree byte-for-byte. It performs NO network I/O, executes nothing, and writes nothing outside the
+-given --out-root.
++agree byte-for-byte. It performs NO network I/O and writes nothing outside the given --out-root; the
++ONLY process it ever starts is the bound harness binary, and only in `write`.
+ """
+-import argparse, base64, hashlib, hmac, json, os, re, sys
++import argparse, base64, hashlib, hmac, json, os, re, signal, subprocess, sys
+ 
+ HEXTOKEN = re.compile(r"\A[0-9a-fA-F]{7,64}\Z")  # git-sha-like; used for the path-bearing repo-commit
+ PAGECOUNT = re.compile(r"\A(0|[1-9][0-9]{0,8})\Z")  # the harness prints a plain non-negative integer
+ 
+ KEY_ENV = "LAWBAR_A07_MARKER_HMAC_KEY"
+ MIN_KEY_LEN = 32
++
++# Bound on the writer's own harness re-execution (WI-A07-MARKER-REEXEC). The A0.7 oracle mode renders
++# every page of the fixture, so the bound has to survive a large fixture on a cold page cache while
++# still guaranteeing a wedged/hanging harness can never block the writer indefinitely: 120s is ~2
++# orders of magnitude above the committed two-page fixture's runtime and still a hard ceiling. The env
++# override exists so tests can drive the timeout path in ~1s; it is range-checked (a malformed, zero,
++# negative, or effectively-unbounded value fails closed rather than silently restoring the default),
++# because an override that disables the bound would make "bounded" a lie.
++HARNESS_TIMEOUT_ENV = "A07_MARKER_HARNESS_TIMEOUT_SEC"
++DEFAULT_HARNESS_TIMEOUT_SEC = 120.0
++MAX_HARNESS_TIMEOUT_SEC = 900.0
++# Grace for reaping a killed harness process group before giving up on it entirely.
++HARNESS_KILL_GRACE_SEC = 10.0
+ SCHEMA_VERSION = "a07-marker/2.0.0"  # 2.0.0 = harness-attestation-bound (WI-A07-MARKER-BIND)
+ GATE_ID = "A07-GATE-00"
+ 
+@@ -174,6 +209,59 @@ def _parse_harness_stdout(raw):
+     return status, classification, int(pages)
+ 
+ 
++def _harness_timeout_or_die():
++    """Resolve the re-execution timeout, failing closed on any unusable override."""
++    raw = os.environ.get(HARNESS_TIMEOUT_ENV, "").strip()
++    if not raw:
++        return DEFAULT_HARNESS_TIMEOUT_SEC
++    try:
++        seconds = float(raw)
++    except ValueError:
++        seconds = float("nan")
++    # NaN and inf both fail this range test, so no unbounded/undefined wait can be configured.
++    if not (0 < seconds <= MAX_HARNESS_TIMEOUT_SEC):
++        _die(EX_ATTESTATION,
++             f"{HARNESS_TIMEOUT_ENV}={raw!r} is not a positive number of seconds "
++             f"<= {MAX_HARNESS_TIMEOUT_SEC:g}; fail-closed.")
++    return seconds
++
++
++def _reexecute_harness(harness_bin, fixture, oracle, timeout):
++    """Run the bound harness OURSELVES -> (stdout bytes, exit code). Never raises; refuses instead.
++
++    Invocation is the harness CLI's own documented contract (native/evidence-core-swift
++    Sources/A07HarnessCLI/main.swift, and scripts/workflow/a07-marker-write.sh): the binary at an
++    ABSOLUTE path, given the fixture and the oracle. stdin is closed so a harness that reads stdin
++    cannot stall; the child gets its own session so a timeout kills the whole process group — killing
++    only the direct child would leave a grandchild holding the stdout pipe open and the "bounded"
++    wait would not be bounded at all."""
++    try:
++        proc = subprocess.Popen(
++            [harness_bin, fixture, oracle],
++            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
++            start_new_session=True)
++    except OSError as e:
++        _die(EX_ATTESTATION, f"harness re-execution could not start {harness_bin}: {e}")
++    try:
++        out, _err = proc.communicate(timeout=timeout)
++    except subprocess.TimeoutExpired:
++        try:
++            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
++        except OSError:
++            proc.kill()
++        try:
++            proc.communicate(timeout=HARNESS_KILL_GRACE_SEC)
++        except Exception:
++            pass
++        _die(EX_ATTESTATION,
++             f"harness re-execution exceeded {timeout:g}s and was killed; a harness that does not "
++             "terminate cannot attest to anything (set "
++             f"{HARNESS_TIMEOUT_ENV} to change the bound).")
++    except OSError as e:
++        _die(EX_ATTESTATION, f"harness re-execution failed while reading its output: {e}")
++    return out, proc.returncode
++
++
+ def _oracle_tolerance(path):
+     """Read the tolerance the harness was measured against FROM the oracle (never from the caller)."""
+     with open(path, "r", encoding="utf-8") as f:
+@@ -237,11 +325,43 @@ def cmd_write(a):
+     except Exception as e:
+         _die(EX_BAD_INPUT, f"oracle tolerance unreadable at {a.oracle}: {e}")
+ 
+-    # Absolute paths: a bound artifact must be re-findable at validate time independent of cwd.
++    # Absolute paths: a bound artifact must be re-findable at validate time independent of cwd, and the
++    # harness is executed by absolute path so no PATH lookup can decide which binary actually ran.
+     fixture = os.path.abspath(a.fixture)
+     oracle = os.path.abspath(a.oracle)
+     harness_bin = os.path.abspath(a.harness_bin)
+ 
++    # --- Re-execution attestation (WI-A07-MARKER-REEXEC) ---------------------------------------
++    # Everything above only established that the SUPPLIED bytes are well-formed and eligible. Signing
++    # here would attest "these bytes were signed", not "the gate ran". So run the bound binary against
++    # the bound inputs and require it to reproduce the supplied evidence exactly. This is deliberately
++    # the LAST check: the cheap structural refusals above never pay for a process spawn, and a verdict
++    # that is not marker-eligible is refused without running anything.
++    timeout = _harness_timeout_or_die()
++    harness_sha, fixture_sha, oracle_sha = (_sha256_file(harness_bin), _sha256_file(fixture),
++                                            _sha256_file(oracle))
++    ran_stdout, ran_exit = _reexecute_harness(harness_bin, fixture, oracle, timeout)
++    # Re-hash AFTER the run: the digests recorded below must describe the bytes that were on disk
++    # across the whole execution, so a binary (or input) swapped between hashing and running is
++    # refused instead of being recorded under the wrong digest. Residual limit: a swap performed and
++    # reverted strictly inside the execution window is not visible to a bracketing check.
++    if _sha256_file(harness_bin) != harness_sha:
++        _die(EX_ATTESTATION,
++             "the harness binary changed across its own execution; the marker would attest to a "
++             "digest the run did not use")
++    if _sha256_file(fixture) != fixture_sha or _sha256_file(oracle) != oracle_sha:
++        _die(EX_ATTESTATION,
++             "fixture/oracle bytes changed across the harness run; the marker would bind inputs the "
++             "run did not read")
++    if ran_stdout != raw_stdout:
++        _die(EX_ATTESTATION,
++             "re-executing the harness did not reproduce --harness-stdout byte-for-byte; the supplied "
++             "output was not produced by this binary against these inputs")
++    if ran_exit != exit_code:
++        _die(EX_ATTESTATION,
++             f"re-executing the harness exited {ran_exit}, not the recorded --harness-exit {exit_code}")
++    raw_stdout = ran_stdout  # provenance: bind the bytes THIS process observed (proven identical)
++
+     run_id = a.run_id or os.urandom(16).hex()  # not derivable from the bound artifacts (anti-replay handle)
+     payload = {
+         "gateId": GATE_ID,
+@@ -250,11 +370,13 @@ def cmd_write(a):
+         "repoCommit": a.repo_commit,
+         "repoTreeHash": a.repo_tree,
+         "fixturePath": fixture,
+-        "fixtureSha256": _sha256_file(fixture),
++        # Digests verified stable across the re-execution above — never re-read here, so the marker
++        # cannot bind a different byte sequence than the one the attested run used.
++        "fixtureSha256": fixture_sha,
+         "oraclePath": oracle,
+-        "oracleSha256": _sha256_file(oracle),
++        "oracleSha256": oracle_sha,
+         "harnessBinaryPath": harness_bin,
+-        "harnessBinarySha256": _sha256_file(harness_bin),
++        "harnessBinarySha256": harness_sha,
+         # Verbatim bytes + their digest: the marker carries the evidence it summarizes, so validate
+         # can re-derive the verdict instead of trusting the summary.
+         "harnessStdoutBase64": base64.b64encode(raw_stdout).decode("ascii"),

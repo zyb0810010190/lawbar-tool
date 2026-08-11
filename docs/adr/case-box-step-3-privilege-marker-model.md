@@ -150,7 +150,7 @@ A waived marker is terminal. **A new marker on the same target after waiver is A
 
 ## Reconciliation with product / Step-0 wording
 
-`docs/product/product-target-architecture.md` cross-cutting invariant #5 reads "Privilege defaults to unmarked = NOT privileged. Explicit marker required." Step-0 confidentiality posture #4 reads "Privilege markers default to absent = unmarked (NOT privileged). Lawyer must explicitly mark privileged documents."
+`docs/product/project-requirements-brief.md Appendix A` cross-cutting invariant #5 reads "Privilege defaults to unmarked = NOT privileged. Explicit marker required." Step-0 confidentiality posture #4 reads "Privilege markers default to absent = unmarked (NOT privileged). Lawyer must explicitly mark privileged documents."
 
 Read literally, those phrases could be parsed two ways:
 
@@ -190,7 +190,7 @@ This ADR adopts the **strict reading**. The strict reading is what the user's WI
 
 - `docs/adr/case-box-step-0-boundary.md` — boundary and confidentiality posture.
 - `docs/adr/case-box-step-2-fact-promotion-and-provenance.md` — three-layer no-auto-X enforcement pattern this ADR mirrors.
-- `docs/product/product-target-architecture.md` — cross-cutting invariant #5 (see §"Reconciliation with product / Step-0 wording" above).
+- `docs/product/project-requirements-brief.md Appendix A` — cross-cutting invariant #5 (see §"Reconciliation with product / Step-0 wording" above).
 - `dev-memo/plan-case-box-step-3.md` — implementation plan; this ADR is the authoritative version of §3–§8 of the plan.
 - `dev-memo/superseded/case-box-plan.md` — historical privilege-marker shape.
 - `docs/contracts/case-box-contract/schemas/case-box-privilege-marker.schema.json` — schema.

@@ -184,7 +184,7 @@ For `case-box-persistence` (future WI):
 - `docs/adr/case-box-step-0-boundary.md` — boundary; confidentiality posture #4 (load-bearing); ADR-series Step list.
 - `docs/adr/case-box-step-3-privilege-marker-model.md` — privilege markers; combined with classification via `PrivilegeReviewState` input.
 - `docs/adr/case-box-step-4-audit-log-shape.md` — audit-log shape; extended here with 4 new kinds + 1 new entity_type enum value.
-- `docs/product/product-target-architecture.md` — cross-cutting invariants #1, #4, #5.
+- `docs/product/project-requirements-brief.md Appendix A` — cross-cutting invariants #1, #4, #5.
 - `docs/contracts/case-box-contract/schemas/case-box-confidentiality-classification.schema.json` — schema.
 - `docs/contracts/case-box-contract/src/confidentiality-invariants.ts` — all helpers.
 - `docs/contracts/case-box-contract/tests/*.test.mjs` — full coverage including load-bearing default-denies-external, multi-denial accumulation, action-specific opt-in routing, sealed/heightened categorical denials, downgrade-reason-required, no-green-light-field type test.

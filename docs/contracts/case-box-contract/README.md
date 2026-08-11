@@ -61,5 +61,5 @@ npm --prefix docs/contracts/case-box-contract test
 ## References
 
 - `docs/adr/case-box-step-0-boundary.md` — boundary, dependency direction, invariants.
-- `docs/product/product-target-architecture.md` — v1 product summary.
+- `docs/product/project-requirements-brief.md Appendix A` — v1 product summary.
 - `docs/contracts/` — sibling OCR contract package this one structurally mirrors.

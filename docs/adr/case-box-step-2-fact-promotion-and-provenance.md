@@ -132,7 +132,7 @@ Type: `type CaseBoxFact` from `src/generated/case-box-fact.ts`.
 ## Cross-references
 
 - `docs/adr/case-box-step-0-boundary.md` — the boundary this ADR ships inside; product invariant #4 is the load-bearing requirement.
-- `docs/product/product-target-architecture.md` — cross-cutting invariant #4 ("LLM/automation outputs land as candidate").
+- `docs/product/project-requirements-brief.md Appendix A` — cross-cutting invariant #4 ("LLM/automation outputs land as candidate").
 - `dev-memo/plan-case-box-step-2.md` — implementation plan; this ADR is the authoritative version of the decisions in §3–§7 of the plan.
 - `dev-memo/superseded/case-box-plan.md` — historical pre-Phase-0 plan; `fact` shape sketched here.
 - `docs/contracts/case-box-contract/schemas/case-box-fact.schema.json` — schema.
