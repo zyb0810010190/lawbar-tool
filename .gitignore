@@ -1,6 +1,8 @@
+# Build output and dependencies
 node_modules/
 dist/
 coverage/
+*.tsbuildinfo
 .DS_Store
 
 # Secrets / env
@@ -8,65 +10,19 @@ coverage/
 .env.*
 !.env.example
 
-# tdd-guardian generated artifacts
-.claude/tdd-guardian/
-.claude/tdd-guardian/state.json
-
-# >>> cc-suite >>>
-# AI assistant local state
+# AI assistant local state (settings and per-machine overrides are never shared)
 .claude/settings.json
 .claude/settings.local.json
 .claude/CLAUDE.local.md
 .claude/*.local.*
 CLAUDE.local.md
-
-# cc-suite plugin caches/state
+.claude/nlpm-history.json
 .cc-suite/
-
-# claude-english-buddy local config
 .claude-english-buddy.json
 
-# cc-suite plugin-dropped codex review commands (local plugin assets)
-.claude/commands/codex-*.md
-
-# superseded uncommitted historical drafts (preserved locally, never tracked)
+# Superseded historical drafts — preserved on disk, never tracked. Kept because
+# docs/product/project-requirements-brief.md Appendix A cites case-box-plan.md.
 dev-memo/superseded/
-
-# Codex CLI — local files, keep checked-in subdirs
-.codex/*
-!.codex/skills/
-!.codex/prompts/
-!.codex/hooks.json
-!.codex/hooks.cc-suite.json
-!.codex/config.toml
-
-# Gemini CLI — local files, keep checked-in subdirs
-.gemini/*
-!.gemini/skills/
-!.gemini/commands/
-# <<< cc-suite <<<
-
-*.tsbuildinfo
-
-# Auto-advance local run-state
-/dev-memo/run/last-batch-audit
-# Batch-closeout transient sentinel (BATCH-CLOSEOUT-AUTO-00); written/removed only by
-# scripts/workflow/batch-closeout.mjs, never committed.
-/dev-memo/run/.closeout-pending
-
-# A0.7 marker write — local-only run-state (WI-ENA11); markers/ledger are never committed.
-/dev-memo/run/evidence/
-
-# Local intake + run scratch (WI-13); never committed. `intake/` holds confidential
-# client legal documents; `reports/` holds generated cc-suite audit artifacts;
-# `override-reason.md` is consumed single-use override scratch (the reason is persisted
-# in the committed run log).
-/dev-memo/run/intake/
-/dev-memo/run/reports/
-/dev-memo/run/override-reason.md
-
-# nlpm scoring history (local telemetry; see /nlpm:score)
-.claude/nlpm-history.json
 
 # ClauDepot writing workspace (2026-08-11). Active drafts and scratch may hold real client
 # facts before anonymization, and posts/ + notes/ fall OUTSIDE the scan scope of
