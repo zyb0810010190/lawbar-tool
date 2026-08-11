@@ -67,3 +67,13 @@ dev-memo/superseded/
 
 # nlpm scoring history (local telemetry; see /nlpm:score)
 .claude/nlpm-history.json
+
+# ClauDepot writing workspace (2026-08-11). Active drafts and scratch may hold real client
+# facts before anonymization, and posts/ + notes/ fall OUTSIDE the scan scope of
+# apps/lawbar-desktop/scripts/check-no-real-data.mjs (SCOPE_HINTS covers case-box paths, the
+# renderer, and test/contract fixtures — not new top-level dirs). This repo's history already
+# carries one real-identifier leak that was never rewritten. Drafts stay out of git.
+/posts/*
+!/posts/.gitkeep
+/notes/*
+!/notes/.gitkeep
