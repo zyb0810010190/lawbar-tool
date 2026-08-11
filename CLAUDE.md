@@ -1,76 +1,51 @@
 # CLAUDE.md
 
-Two things live here: the **ClauDepot writing workspace** (`posts/`, `notes/`, submission),
-and a small **invoke-only assistant layer** under `.claude/`, two pieces of which serve the
-whole repository rather than the workspace.
+lawbar-tool — a macOS-only, local-first, court-facing legal desktop app for a single
+practising litigator. Electron desktop (`apps/lawbar-desktop`), Node services (`services/*`),
+a Swift/PDFKit evidence harness (`native/evidence-core-swift`), and a contract package
+(`docs/contracts/case-box-contract`).
 
-It does not govern the lawbar-tool application. Product direction lives in `docs/product/`,
-technical decisions in `docs/adr/` (which the product brief declares outrank it), and
-behaviour in the code.
+**Advisory only. Nothing here is enforced.** This repo has no hooks, no commit gates, and no
+governance scripts — that layer was deliberately removed on 2026-08-10 after an audit found
+its enforcement was substantially bypassable. What follows is knowledge, not a gate.
 
-**This file is advisory prose. It enforces nothing.** This repo has no hooks, no commit
-gates, and no governance scripts — that layer was deliberately removed on 2026-08-10.
-Nothing here is checked mechanically at any point.
+## Where authority lives
 
-A small assistant layer was added under `.claude/` on 2026-08-11 with this workspace. It is
-scoped and voluntary, and is not a return of the removed governance layer:
+| Question | Answer lives in |
+|---|---|
+| What the product is, and the roadmap | `docs/product/project-requirements-brief.md` (Appendix A = target architecture) |
+| Evidence-Genie M0 definition + invariants | `docs/product/evidence-m0-prd.md` |
+| Why a technical decision was made | `docs/adr/**` — these **outrank** the brief on the decision each documents |
+| Schemas and contracts | `docs/contracts/case-box-contract` (a real npm package, not documentation) |
+| Working notes code still cites | `dev-memo/` — see its README for what survived the 2026-08-11 prune |
 
-*Writing workspace:*
-- `.claude/rules/mermaid.md` — path-scoped to `posts/**/*.md` by frontmatter, so it applies
-  to nothing else in this repository.
-- `.claude/commands/slop-flag.md` — invoke-only. Flags LLM-slop in a draft without
-  rewriting, and ranks real client identifiers above every stylistic finding.
+## Two things that are easy to get wrong here
 
-*Whole repository:*
-- `.claude/skills/client-data-preflight/` — invoke-only. What the privacy scanner covers,
-  the places it is blind, and how to redact narrowly for external review.
-- `.claude/skills/contract-change-rebuild/` — invoke-only. The rebuild order that stops the
-  desktop from testing green against a stale committed contract tarball.
+**1. Real client data must never enter this repo.** The scanner
+(`apps/lawbar-desktop/scripts/check-no-real-data.mjs`) runs in the desktop `pretest`, but it
+is scoped — no `services/**` package runs it, new top-level directories are outside it, and
+it matches regex classes rather than case facts in prose. A green scanner is not clearance.
+The repo's history already contains identifiers from an earlier leak, scrubbed forward-only
+and still present in pushed history. Anything reaching a commit is permanent.
+→ `.claude/skills/client-data-preflight/`
 
-None of these executes on commit, and none can block anything. They are recipes, not gates —
-each records knowledge that has already been got wrong here, and nothing more.
+**2. The desktop consumes `case-box-contract` as a committed tarball, not from source.** Edit
+the contract without repacking and the desktop suite passes **green against stale code** —
+locally and in CI. This is not hypothetical: the tarballs drifted 14 files behind source
+between 2026-08-05 and 2026-08-11 before anyone noticed. Run `npm --prefix apps/lawbar-desktop
+run bootstrap` after touching contract or persistence source.
+→ `.claude/skills/contract-change-rebuild/`
 
-No voice rule and no voice-priming skill: both were removed on 2026-08-11. The workspace
-takes no position on how the author writes.
+Both are invoke-only skills. They run when called, never on commit, and block nothing.
 
-## Client confidentiality
+## Working agreements
 
-`posts/` and `notes/` are gitignored, contents and all. **That is the only real protection
-in this workspace**, so the rules below are about not defeating it:
-
-- **Never `git add -f`** anything under `posts/` or `notes/`. The ignore rule is the
-  mechanism; forcing past it removes the mechanism.
-- **The privacy scanner does not cover this workspace.**
-  `apps/lawbar-desktop/scripts/check-no-real-data.mjs` is scoped by `SCOPE_HINTS` to
-  case-box paths, `apps/lawbar-desktop/renderer/`, and test/contract fixtures. A file at
-  `posts/anything.md` matches none of them. It also matches regex classes — court names,
-  phone numbers, email addresses, ID numbers — and cannot recognize case facts written as
-  ordinary prose. Do not treat a passing test run as a privacy check.
-- **Anonymize before submitting, not before committing.** Nothing here is committed, so
-  submission to ClauDepot is the only moment where exposure actually happens.
-- **Real client material lives outside this repo and stays there.** Do not copy it in, not
-  as a file, not as a quotation, not as an example.
-- Why the caution is specific rather than generic: this repository's history already
-  contains real client identifiers. They were scrubbed forward-only and remain in the
-  pushed history and in remote branches, because rewriting was rejected. A client fact that
-  reaches a commit here is effectively permanent.
-
-## Layout
-
-| Path | Tracked | What it is |
-|---|---|---|
-| `posts/` | No | Drafts in progress. |
-| `notes/` | No | Working scratch, not for publish. |
-| `.env` | No | Holds `CLAUDEPOT_PAT`. Never read, print, echo, or commit it. |
-| `.env.example` | Yes | The shape. Its value stays empty. |
-| `.claude/rules/mermaid.md` | Yes | Diagram validation, path-scoped to `posts/**/*.md`. |
-| `.claude/commands/slop-flag.md` | Yes | Flags LLM-slop in a draft without rewriting it. |
-
-Only `.gitkeep` is tracked inside `posts/` and `notes/`, so the directories exist while
-their contents never enter git.
-
-## Token handling
-
-`CLAUDEPOT_PAT` carries `read:all`, `submission:write`, and `comment:write` — it can publish
-and comment as the account owner. It is written to `.env` by hand, in a terminal. It must
-never be pasted into a chat session, printed to stdout, or included in a commit.
+- Stage explicit paths. Never `git add -A` or `git add .`.
+- Push, PR, merge, and branch deletion need the author's per-instance authorization.
+- Never `git reset --hard`; prefer `git revert`.
+- Real client material lives outside this repo, is read in place, and is never copied in,
+  transmitted to an external service, or handed to a subagent. Refer to documents by
+  anonymous `DOC-nn` identifiers in anything committed.
+- A0.7 (renderer-conformance evidence gate) is **PROVISIONAL**, not green — four harness
+  defects remain open and its marker tooling was removed with the governance layer. Do not
+  describe it as passing.
