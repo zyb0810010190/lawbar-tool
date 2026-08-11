@@ -11,14 +11,14 @@ Nothing here is checked mechanically at any point.
 A small assistant layer was added under `.claude/` on 2026-08-11 with this workspace. It is
 scoped and voluntary, and is not a return of the removed governance layer:
 
-- `.claude/rules/mermaid.md` and `.claude/rules/voice.md` — path-scoped to `posts/**/*.md`
-  by frontmatter, so they apply to nothing else in this repository.
-- `.claude/skills/voice-prime/SKILL.md` — runs only when invoked.
+- `.claude/rules/mermaid.md` — path-scoped to `posts/**/*.md` by frontmatter, so it applies
+  to nothing else in this repository.
 - `.claude/commands/slop-flag.md` — runs only when invoked.
 
-None of these execute on commit, and none can block anything. `voice.md` ships as a
-skeleton: its substance has to be written by the author, because a voice rule guessed by an
-assistant would quietly steer every draft.
+Neither executes on commit, and neither can block anything.
+
+No voice rule and no voice-priming skill: both were removed on 2026-08-11. The workspace
+takes no position on how the author writes.
 
 ## Client confidentiality
 
@@ -50,8 +50,7 @@ in this workspace**, so the rules below are about not defeating it:
 | `notes/` | No | Working scratch, not for publish. |
 | `.env` | No | Holds `CLAUDEPOT_PAT`. Never read, print, echo, or commit it. |
 | `.env.example` | Yes | The shape. Its value stays empty. |
-| `.claude/rules/` | Yes | `mermaid.md`, `voice.md` — path-scoped to `posts/**/*.md`. |
-| `.claude/skills/voice-prime/` | Yes | Primes on recent published posts before drafting. |
+| `.claude/rules/mermaid.md` | Yes | Diagram validation, path-scoped to `posts/**/*.md`. |
 | `.claude/commands/slop-flag.md` | Yes | Flags LLM-slop in a draft without rewriting it. |
 
 Only `.gitkeep` is tracked inside `posts/` and `notes/`, so the directories exist while
