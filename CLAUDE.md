@@ -5,8 +5,20 @@ nothing about the lawbar-tool application, its contracts, its services, or its e
 harness — those are governed by `docs/product/`, `docs/adr/`, and the code itself.
 
 **This file is advisory prose. It enforces nothing.** This repo has no hooks, no commit
-gates, no agent rule layer, and no governance scripts — that layer was deliberately removed
-on 2026-08-10. Nothing here is checked mechanically at any point.
+gates, and no governance scripts — that layer was deliberately removed on 2026-08-10.
+Nothing here is checked mechanically at any point.
+
+A small assistant layer was added under `.claude/` on 2026-08-11 with this workspace. It is
+scoped and voluntary, and is not a return of the removed governance layer:
+
+- `.claude/rules/mermaid.md` and `.claude/rules/voice.md` — path-scoped to `posts/**/*.md`
+  by frontmatter, so they apply to nothing else in this repository.
+- `.claude/skills/voice-prime/SKILL.md` — runs only when invoked.
+- `.claude/commands/slop-flag.md` — runs only when invoked.
+
+None of these execute on commit, and none can block anything. `voice.md` ships as a
+skeleton: its substance has to be written by the author, because a voice rule guessed by an
+assistant would quietly steer every draft.
 
 ## Client confidentiality
 
@@ -38,6 +50,9 @@ in this workspace**, so the rules below are about not defeating it:
 | `notes/` | No | Working scratch, not for publish. |
 | `.env` | No | Holds `CLAUDEPOT_PAT`. Never read, print, echo, or commit it. |
 | `.env.example` | Yes | The shape. Its value stays empty. |
+| `.claude/rules/` | Yes | `mermaid.md`, `voice.md` — path-scoped to `posts/**/*.md`. |
+| `.claude/skills/voice-prime/` | Yes | Primes on recent published posts before drafting. |
+| `.claude/commands/slop-flag.md` | Yes | Flags LLM-slop in a draft without rewriting it. |
 
 Only `.gitkeep` is tracked inside `posts/` and `notes/`, so the directories exist while
 their contents never enter git.
