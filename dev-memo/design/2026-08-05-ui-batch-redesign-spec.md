@@ -41,6 +41,24 @@ primary = add/create/reveal + confirm-a-benign-step (`*-add-btn`, `view-links-cr
 any cancel / status toggles (`view-*-export*`, `view-docket-edit-btn`, `view-links-relink`,
 `view-deadlines-transition-btn`, all `*-cancel`).
 
+### Companion mockup APPROVED (2026-08-10)
+
+The interactive mockup — artifact `d817a6f0-ade6-4a68-aa6e-bf3295d4a566` ("Lawbar 界面重设计提案", with the
+before/after toggle and the 圈改 annotation layer) — was **explicitly approved by Frank on 2026-08-10**. It is
+the visual companion to this document; **this file remains the authoritative Design artifact** for the
+`Type: UI` requirement, and it is what the shipped commits cite.
+
+Verified at approval time: every decision the mockup renders matches what actually shipped —
+button weights (`c9e3187`), the 断开/确认断开 danger pair plus the two added 取消 (`f824ac2`), the naming
+table 添加X / 保存 / 确认+宾语 / ← 返回 (`52a8207`), and the 编辑…-primary / 归档…-in-危险操作 header split,
+which UI-4 confirmed already existed and therefore closed as a verified no-op (`d19b8c8`). The mockup's
+"全部 data-test-id 保持不变" promise held: id sets were diffed per screen, zero lost or renamed.
+
+Approval is therefore **retrospective and confirmatory** — the programme was already complete. No further
+UI batch is authorized by it. NOT independently re-verified at approval time: the exact CSS rendering of
+`.button--danger` (the mockup draws it as an outline; the shipped token may differ) — a cosmetic detail, not
+a decision.
+
 ### Open questions resolved (2026-08-06)
 
 - **(R) Settings utility row → DEFERRED to a separate WI.** The 打开数据目录 / 复制诊断信息 utilities require new
