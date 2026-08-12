@@ -65,11 +65,14 @@ export { CHANNEL };
 /**
  * Wiring for `registerCaseBoxIpcHandlers`. Every field is optional, but the
  * optionality is not uniform: `persistenceProvider` / `now` / `idFactory` fall
- * back to real defaults, whereas the remaining fields have no fallback and
- * their channels DEGRADE INSTEAD OF FAILING — the channel is still registered
+ * back to real defaults; `linkPersistenceProvider` falls back to a provider
+ * derived from `getCaseBoxRuntime()` when SQLite handles exist, and degrades
+ * only when BOTH the injection and those handles are absent; the remaining
+ * fields have no fallback at all. Degraded channels DEGRADE INSTEAD OF FAILING — the channel is still registered
  * and still answers, with `ok: false` / `not_implemented`. A main process
  * missing one of them therefore looks fully alive until a user attempts the
- * write. See `registerCaseBoxIpcHandlers` for the exact dep→channel map.
+ * affected operation — which includes reads: `linkList` and `linkExport`
+ * degrade too, not only writes. See `registerCaseBoxIpcHandlers` for the exact dep→channel map.
  */
 export interface RegisterCaseBoxIpcHandlersOptions {
   readonly persistenceProvider?: PersistenceProvider;
@@ -106,7 +109,8 @@ const LINK_UNAVAILABLE_ENVELOPE = {
  * missing dependencies never leave a channel unregistered. Instead the affected
  * channels degrade silently but safely, returning an `ok: false` /
  * `not_implemented` envelope, so a misconfigured main process presents a
- * complete API surface while quietly refusing the writes behind it. The
+ * complete API surface while quietly refusing the affected operations behind it
+ * — reads included, not only writes. The
  * degradations, all verified against the bodies below:
  *
  *  - `chooseDocumentFile` OR `storeDocumentFile` absent (both are required)

@@ -263,8 +263,12 @@ const KNOWN_EXTERNAL_ACTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Decides whether confidential client material may leave this machine. Despite
- * the `assert` name it NEVER throws — it RETURNS a decision, so ignoring the
+ * Pure helper for deciding whether confidential client material may leave this
+ * machine. **It is not currently wired into any production path** — outside
+ * tests and the export barrel there is no call site, so nothing today consults
+ * it before external handling. Any code that transmits client material must
+ * call it explicitly; it enforces nothing on its own. Despite the `assert` name
+ * it NEVER throws — it RETURNS a decision, so ignoring the
  * return value permits everything. Callers MUST branch on
  * `decision.allowed === true`; do not re-derive permission from `denialReasons`
  * or `evidence` (both are diagnostic, and the denial vocabulary is open to

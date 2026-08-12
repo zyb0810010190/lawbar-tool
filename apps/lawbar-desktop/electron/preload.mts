@@ -85,9 +85,11 @@ export interface ThemeApi {
 
 /**
  * The complete renderer→main capability surface for case material. The renderer
- * is sandboxed and has no filesystem or database access of its own, so every
- * read of and every write to local client material passes through one of these
- * methods. (`theme` and `appInfo` share the `window.lawbar` global but reach no
+ * has no filesystem or database access of its own, so every read of and every
+ * write to local client material passes through one of these methods. Note the
+ * boundary is `contextIsolation: true` + `nodeIntegration: false`; Electron's
+ * own `sandbox` is currently FALSE (`main.ts:50`, required for the ESM preload),
+ * so do not reason as though a renderer compromise is sandbox-contained. (`theme` and `appInfo` share the `window.lawbar` global but reach no
  * case material.)
  *
  * Every method resolves to a discriminated envelope — `{ ok: true, value }` or
@@ -100,8 +102,11 @@ export interface ThemeApi {
  * `getActiveTenantId()` / `getActiveActorUserId()`. Supplying `tenant_id`,
  * `actor_user_id` or any other server-authority field in a DTO does not
  * override them and is not ignored either — the per-channel forbidden-field
- * guard REJECTS the whole call. Responses are projected through per-entity
- * allowlists that strip that identity back out before it crosses the bridge.
+ * guard REJECTS the whole call. Responses that carry persistence ROWS are
+ * projected through per-entity allowlists that strip that identity back out
+ * before it crosses the bridge; non-row responses (chain head, T3
+ * preview/export, link citation export) are constructed values that never
+ * carry tenant or actor identity in the first place.
  *
  * Adding a method here widens the security boundary. A new method needs a
  * matching `CHANNEL` entry, a main-process handler, and that handler's own

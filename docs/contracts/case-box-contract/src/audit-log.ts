@@ -81,12 +81,19 @@ interface AuditKindMeta {
  * `validateAuditEvent` rejects every event carrying the new kind.
  *
  * RENAMING or REMOVING a key breaks stored events OF THAT KIND — not merely
- * their hashes. Those events fail the schema enum, and
- * `canonicalAuditEventHashInput` throws `unknown event_kind`, so chains
- * containing them stop verifying and cannot be re-hashed. Editing an existing
- * key's `action` or `entity_type`, or flipping `reasonRequired` false→true,
- * retroactively invalidates already-stored events of that kind at the verifier's
- * consistency check. Treat every entry below as append-only.
+ * their hashes — and it fails at a DIFFERENT point depending on what you remove:
+ *  - removed from the JSON Schema too: `verifyAuditChain` stops at
+ *    `event_schema_invalid`, before any metadata or hash check;
+ *  - removed from this map only, schema still permitting it: verification stops
+ *    at `event_kind_inconsistent`, still before hashing;
+ *  - re-hashing such an event directly: `canonicalAuditEventHashInput` throws
+ *    `unknown event_kind`. That is not the verifier's path.
+ *
+ * Editing an existing key's `action` or `entity_type` retroactively invalidates
+ * every already-stored event of that kind at the verifier's consistency check.
+ * Flipping `reasonRequired` false→true invalidates only those stored events of
+ * that kind that carry no non-empty `reason` — events already carrying one keep
+ * verifying. Treat every entry below as append-only.
  */
 export const CASE_BOX_AUDIT_EVENT_KINDS = Object.freeze({
   MATTER_REGISTERED:          { action: "create",          entity_type: "matter",           reasonRequired: false },
