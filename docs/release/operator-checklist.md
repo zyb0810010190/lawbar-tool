@@ -61,7 +61,13 @@ The original scaffold anticipated an OCR-worker **service** operator surface. Be
 - **Dependency audit** (`npm audit --omit=dev`) — `post-v1 / deferred` here; supply-chain auditing is **gate 19** (a separate lane), not this operator checklist.
 - **Production config preflight / fail-closed probes** (`OCR_WORKER_REQUIRE_REAL`, `OCR_WORKER=fake`, production profile) — `post-v1 / deferred`; these are OCR-service env-profile checks (see the runbook §"post-v1 server-mode"), not v1 Mac-client operation.
 - **Queue + persistence checks** (OCR queue rows, orphaned pending-retry) — `post-v1 / deferred`; these are OCR-service persistence checks. The v1 Mac client's own persistence integrity is covered by the gate-14 recovery verification + the gate-12 tamper-evidence drill.
-- **Commit / diff-hash evidence + audit checks** — satisfied by the governed-queue workflow (per-WI review artifacts under `dev-memo/run/reviews/`, cc-suite audit chain, `dev-memo/batch-closeout-log.md`); no separate operator action.
+- **Commit / diff-hash evidence + audit checks** — **RECONCILIATION-NEEDED (2026-08-12).** This was
+  previously marked "no separate operator action" because per-WI review artifacts lived under
+  `dev-memo/run/reviews/`. That tree was deleted on 2026-08-10; the artifacts remain recoverable from
+  git history at `49dd7ad^` but are not in the working tree. `dev-memo/batch-closeout-log.md` does still
+  exist. Until an evidence location is re-established, treat this as an **explicit operator action**:
+  record the commit range and diff hashes for the release yourself. Do not mark it satisfied by a
+  workflow that no longer runs.
 
 ## 6. Reconciliation note (RECONCILIATION-NEEDED)
 

@@ -21,7 +21,7 @@
 > 1. **Go-Live Readiness Blueprint** — `dev-memo/plan-go-live-readiness-00.md` (status READY at commit `1b92c58` on `origin/main`). Enumerates the **21 readiness gates** + the **23 STOP-AND-ASK items** that gate v1.
 > 2. **Legacy Reconciliation Report** — `dev-memo/plan-go-live-plan-reconcile-00.md` (status READY at commit `546fb09` on `origin/main`). Per-WI mapping of THIS file against the current state; proposes 8 amendment WIs (this banner is amendment WI #1).
 >
-> **Hard-stop posture**: go-live readiness still requires explicit user authorization for every item in `.claude/rules/autonomy.md` §"Hard-stop list" and brief §20. Phase B SQLite implementation completion does NOT imply go-live readiness.
+> **Hard-stop posture**: go-live readiness still requires explicit user authorization for every item in `docs/product/product-definition.md` Part I §20 "Hard-stop decisions". Phase B SQLite implementation completion does NOT imply go-live readiness.
 
 ## v1 Architecture (Post-Pivot)
 
@@ -2051,7 +2051,7 @@ Mapping to AGENTS.md go-live rule:
 
 **Status changes (amendment WI #3 only):**
 
-- **Case-box layer — STATUS CHANGED**: NO LONGER POST-v1. The case-box layer (confidentiality, privilege, audit, deadline, evidence, OCR-link mirror, read-side aggregations, replay-safe Once variants) is the **v1 core product** per `docs/product/product-definition.md (Part I)` §7. **Phase B SQLite implementation is COMPLETE at commit `98446aa`** on `origin/main` (B1-B11 shipped; Sqlite-Final no-filter sweep 276/0; deterministic test total across packages 1692/0; zero Critical/High/Medium audit findings). Go-live readiness for the case-box-shaped v1 product remains separately gated per `dev-memo/plan-go-live-readiness-00.md` (blueprint at `1b92c58`) and per `.claude/rules/autonomy.md` §"Hard-stop list".
+- **Case-box layer — STATUS CHANGED**: NO LONGER POST-v1. The case-box layer (confidentiality, privilege, audit, deadline, evidence, OCR-link mirror, read-side aggregations, replay-safe Once variants) is the **v1 core product** per `docs/product/product-definition.md (Part I)` §7. **Phase B SQLite implementation is COMPLETE at commit `98446aa`** on `origin/main` (B1-B11 shipped; Sqlite-Final no-filter sweep 276/0; deterministic test total across packages 1692/0; zero Critical/High/Medium audit findings). Go-live readiness for the case-box-shaped v1 product remains separately gated per `dev-memo/plan-go-live-readiness-00.md` (blueprint at `1b92c58`) and per `docs/product/product-definition.md` Part I §20 "Hard-stop decisions".
 
 **Retained post-v1 items (original framing preserved; future amendment WIs may revisit):**
 

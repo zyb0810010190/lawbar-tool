@@ -78,7 +78,17 @@ field(s), in canonical (alphabetical) order:
 
 - `audit_schema_version` (the integer `2`),
 - `event_kind` (the normalized key),
+- `changed_fields` — **conditional**, present only on `MATTER_DETAILS_UPDATED`; slots
+  alphabetically between `before_state_hash` and `entity_id`,
 - …plus the existing 12 v1 fields.
+
+> **Amended 2026-08-12.** `changed_fields` was added to this canonical input by commit `a1b55f0`
+> (2026-08-05, matter-details-edit Phase A) and was missing from this list for 58 days. It is a
+> security-boundary field: `canonicalAuditEventHashInput` **throws** if `changed_fields` appears on
+> any event whose kind is not `MATTER_DETAILS_UPDATED` (`case-box-contract/src/audit-log.ts:228`),
+> so a schema-bypassing malformed event cannot hash a smuggled value. Byte-preservation for existing
+> events was proven in that commit, so chain integrity was never affected — the defect was
+> documentary. A future v3 author reading §3.2 alone would have under-specified the serialization.
 
 `event_hash = sha256(canonicalAuditEventHashInput_v2(event))` for new events. Because v2 is a
 *different* serialization, a v2 event's hash is intrinsically different from what v1 would produce —

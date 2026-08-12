@@ -39,7 +39,7 @@ renderer modules cite these documents by name for their own behaviour.
 This is a **structured consolidation**, not a rewrite. Each source appears whole, under its
 own heading, with provenance stamped. That was deliberate: rewriting 3,652 lines from
 memory is how content silently disappears, and preserving it verbatim makes loss checkable —
-303 source headings were verified present after assembly, with none missing.
+303 source headings were verified present after assembly, with none missing. The file contains 339 headings in total; the extra 36 are this document's own structure — 4 H1 (title plus three Part dividers), 27 absorbed-source titles, and 5 front-matter sections.
 
 The consequence is repetition. Each Part III artifact carries its own status/scope preamble,
 and Parts I and II each restate the local-first and no-real-client-data posture. A
@@ -399,7 +399,17 @@ Per `case-box-step-3` (privilege markers), `case-box-step-4` (audit log), and `c
 
 #### §20 Hard-stop decisions
 
-Each item is STOP-AND-ASK regardless of workflow. Inherits and tightens `.claude/rules/autonomy.md`.
+Each item is STOP-AND-ASK regardless of workflow. **This list is self-contained and
+authoritative** — it is the product's hard-stop list, and nothing outside this document needs to
+be consulted to apply it.
+
+*Provenance (2026-08-12): this section formerly said it "inherits and tightens
+`.claude/rules/autonomy.md`". That file was deleted in the 2026-08-10 configuration reset, leaving
+the inheritance dangling. Its contents were reviewed and split: the product decisions below were
+already stated here or have been added; the agent-operation stops it also carried — `git reset
+--hard`, `git clean`, broad working-tree restore, auto-revert during unattended runs, editing
+`~/.claude`, deleting plugin state — are properties of whatever agent layer is in use, not of this
+product, and belong with that layer rather than here.*
 
 - Auth provider choice.
 - Cloud vendor choice.
@@ -422,6 +432,11 @@ Each item is STOP-AND-ASK regardless of workflow. Inherits and tightens `.claude
 - Real-data migration on live lawyer data.
 - Monetization decisions (billing / external accounts).
 - Redaction ADR (before any redaction code lands).
+- **Public API, wire-format, schema, or CLI breaking changes** — unless the active work item
+  explicitly authorizes the break. (Recovered 2026-08-12 from the deleted autonomy rule; it was
+  not otherwise stated here.)
+- **Final go-live approval.** Completing a sub-item never implies go-live readiness, however many
+  gates are green. (Same provenance.)
 
 ### Reconciliation log
 
@@ -567,7 +582,7 @@ Each carries its own `/cc-suite:review-plan` pass. NONE land in v1 day-one.
 - `docs/adr/sync-bridge-architecture.md`
 - `dev-memo/plan-client-00.md`
 - `dev-memo/project-brief-00.md`
-- `.claude/rules/autonomy.md`
+- ~~`.claude/rules/autonomy.md`~~ — deleted 2026-08-10; its product hard-stops are now §20 above.
 - `.claude/rules/cc-suite.md`
 - `.claude/rules/client-local-first.md`
 - `.claude/rules/project-brief.md`

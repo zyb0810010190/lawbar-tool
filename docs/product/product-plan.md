@@ -18,6 +18,14 @@ already shipped is a *record*, not a plan.**
 None of the eleven sources merged here was cited by source code — verified before merging, which
 is why they could move.
 
+> **Reading note (2026-08-12).** The absorbed sections below were written while
+> `.claude/rules/autonomy.md` existed, and twelve of them cite it as the hard-stop authority. That
+> file was deleted in the 2026-08-10 configuration reset. **Its product hard-stops now live in
+> `docs/product/product-definition.md` Part I §20 "Hard-stop decisions", which is self-contained
+> and authoritative.** The absorbed text is left as written — it is a record of what each lane
+> committed to at the time, and rewriting it would falsify that record. Read every
+> `autonomy.md` reference below as pointing at §20.
+
 ## Sequenced overview
 
 Ordering reflects what blocks what, not effort.
@@ -397,7 +405,7 @@ CREATED (single file):
 NOT touched by this plan-WI's commit:
 - `docs/ui/**` (the UI design surface; this file is upstream of any UI doc edit).
 - `docs/release/go-live-plan.md` (legacy plan; preserved post-WI-#8).
-- `docs/product/project-requirements-brief.md` (brief is READY; amendments only via `/project-brief`).
+- `docs/product/product-definition.md` Part I (brief is READY; amend in place).
 - `docs/adr/**`.
 - `services/**`, `docs/contracts/**`.
 - AGENTS.md.
@@ -429,7 +437,7 @@ NOT touched by this plan-WI's commit:
 
 #### Essential references
 
-- `docs/product/project-requirements-brief.md` §3 (platform ranking), §4 (Mac app expectations — offline default, no telemetry, signing STOP-AND-ASK), §20 (hard-stop list — framework, renderer, runtime deps).
+- `docs/product/product-definition.md` Part I §3 (platform ranking), §4 (Mac app expectations — offline default, no telemetry, signing STOP-AND-ASK), §20 (hard-stop list — framework, renderer, runtime deps).
 - `dev-memo/plan-client-00.md` §3-§6 (architecture decision matrix; framework caveat in §6).
 - `docs/ui/current-ui-map.md` (baseline zero — no UI code in repo).
 - `docs/ui/ui-state-contract.md` (state contract derived from backend; not theme-related but useful frame).
@@ -743,7 +751,7 @@ No Critical / High risks.
 
 ### §10 References
 
-- `docs/product/project-requirements-brief.md` (READY revision 5) §3, §4, §20.
+- `docs/product/product-definition.md` Part I (READY revision 5) §3, §4, §20.
 - `dev-memo/plan-client-00.md` §3-§6.
 - `docs/ui/current-ui-map.md` (baseline zero — no UI in repo).
 - `docs/ui/ui-state-contract.md`.
@@ -776,7 +784,7 @@ implementation-authorizing** and **NOT a product-scope decision**. Predecessor: 
 
 > **Binding inputs.** `dev-memo/forms-spec-a10-t3-t5-sample-adr-00.md` §C (T4 proof-model gaps) + §F Q6
 > (M0-vs-post-v1 `RECONCILIATION-NEEDED`) + Q7 (new persisted fields need a schema ADR + explicit approval);
-> `docs/product/project-requirements-brief.md` (status `READY`) §12 "Export (post-v1)" + §14 "Post-v1 export
+> `docs/product/product-definition.md` Part I (status `READY`) §12 "Export (post-v1)" + §14 "Post-v1 export
 > candidates" — **"PDF chronology / proof matrix / privilege log … each is a separate STOP-AND-ASK ADR"**;
 > the completed forms-T3 track (S0–S3) as the reuse baseline; `.claude/rules/{autonomy,project-brief,evidence-genie,client-local-first}.md`.
 
@@ -834,7 +842,7 @@ are the proof-model decision, §4 B2):
 ### 4. Hard blockers (must be resolved by the USER before any T4 implementation)
 
 **B1 — Product scope: M0 vs post-v1 (STOP-AND-ASK + RECONCILIATION-NEEDED).** The `READY` project brief
-(`docs/product/project-requirements-brief.md` §12 "Export (post-v1)" + §14) explicitly lists the **proof
+(`docs/product/product-definition.md` Part I §12 "Export (post-v1)" + §14) explicitly lists the **proof
 matrix** among **post-v1 export candidates, "each a separate STOP-AND-ASK ADR."** The PRD/forms-spec treated the
 three forms as an M0 promise (forms-spec §F Q6 flagged this exact conflict as `RECONCILIATION-NEEDED`). Per the
 `project-brief` authority hierarchy, the `READY` brief governs → **T4 is post-v1 + STOP-AND-ASK by default**.
@@ -883,7 +891,7 @@ product scope + proof model are still open, whereas T3's were resolved by DR-00.
 
 ### 7. References
 - `dev-memo/forms-spec-a10-t3-t5-sample-adr-00.md` §C/§E/§F (T4 proof-model gaps; non-decisions; open questions).
-- `docs/product/project-requirements-brief.md` (status `READY`) §12/§14 (proof matrix = post-v1 STOP-AND-ASK).
+- `docs/product/product-definition.md` Part I (status `READY`) §12/§14 (proof matrix = post-v1 STOP-AND-ASK).
 - `dev-memo/plan-forms-t3-evidence-catalog-00.md` + `dev-memo/adr-forms-t3-s0-schema.md` + the S1/S2/S3
   artifacts (the reuse baseline + the ADR/schema/impl chain pattern T4 will echo one step later).
 - `.claude/rules/autonomy.md` (product-direction + new-runtime-dependency hard stops),
