@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 2,
+  "enabled": true,
+  "_enforcement_rationale": [
+    "Blocking is OFF, decided after consulting Codex. Two reasons, both specific to this repo:",
+    "1. CI already runs every lane below — .github/workflows/ invokes these exact commands. A local",
+    "   blocking hook would duplicate the check while adding latency, and it would sit inside the",
+    "   same uid as the thing it gates. This repo deleted its hook-enforcement layer twice (2026-08-10,",
+    "   2026-08-12) after an audit concluded exactly that. CI is the enforcement boundary; this plugin",
+    "   is local visibility.",
+    "2. The desktop lane has a permanent known failure (see its description). With blocking on, it",
+    "   could never produce a fresh green gate, so every commit would be blocked indefinitely."
+  ],
+  "enforceOnTaskCompleted": false,
+  "blockCommitWithoutFreshGate": false,
+  "staleGateAction": "deny",
+  "gateFreshnessMinutes": 120,
+  "smartStaleness": true,
+  "bypassEnv": "TDD_GUARD_BYPASS",
+  "preflightCommand": "",
+  "lanes": [
+    {
+      "name": "contract",
+      "description": "case-box-contract — schemas, validators, transitions, audit-log. The published package both services and the desktop consume. Verified by execution 2026-08-12: 564 tests, 564 pass.",
+      "command": "npm --prefix docs/contracts/case-box-contract test",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 600000
+    },
+    {
+      "name": "case-box-persistence",
+      "description": "In-memory + SQLite conformance, audit chain, hardening and impl-parity suites. Verified 2026-08-12: 675 + 273 + 288, zero failures.",
+      "command": "npm --prefix services/case-box-persistence test",
+      "gateOn": [
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 900000
+    },
+    {
+      "name": "ocr-ingestion",
+      "description": "Verified 2026-08-12: 30 tests, 30 pass.",
+      "command": "npm --prefix services/ocr-ingestion test",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 300000
+    },
+    {
+      "name": "ocr-review",
+      "description": "Verified 2026-08-12: 38 tests, 38 pass.",
+      "command": "npm --prefix services/ocr-review test",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 300000
+    },
+    {
+      "name": "evidence-core-js",
+      "description": "The JS evidence-core shim. Verified 2026-08-12: 38 tests, 38 pass. Note its gates intentionally return not_implemented — that is the designed state, not a failure.",
+      "command": "npm --prefix native/evidence-core test",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 300000
+    },
+    {
+      "name": "ocr-persistence",
+      "description": "better-sqlite3 ABI smoke + queue conformance. Verified 2026-08-12: 232 tests, 232 pass.",
+      "command": "npm --prefix services/ocr-persistence test",
+      "gateOn": [
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 600000
+    },
+    {
+      "name": "ocr-worker-bakeoff",
+      "description": "Verified 2026-08-12: 98 tests, 92 pass, 0 fail (remainder skipped).",
+      "command": "npm --prefix services/ocr-worker-bakeoff test",
+      "gateOn": [
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 600000
+    },
+    {
+      "name": "ocr-worker",
+      "description": "Builds contracts + ocr-persistence + worker, then runs the worker suite. Includes a real-engine inference path, so it is slower than its siblings. Verified by execution 2026-08-12: 482 tests, 479 pass, 0 fail (remainder skipped). Run in CI by services-ci-ocr.yml.",
+      "command": "npm --prefix services/ocr-worker test",
+      "gateOn": [
+        "push"
+      ],
+      "coverage": "none",
+      "timeoutMs": 1800000
+    },
+    {
+      "name": "desktop",
+      "description": "KNOWN RED — 953 tests, 952 pass, 1 permanent failure: tests/smoke.electron.test.mjs:21 'Electron launches; window opens' fails with page.waitForSelector timeout on [data-test-id=\"list-empty\"]. It is environmental and has failed identically for days. It is ALSO the only test that verifies the app actually launches, so it is deliberately NOT excluded to make this lane green — a green gate that drops the launch test is less truthful than a red one. Read this lane as '952 expected passes plus one known failure'; a count other than 952/1 is the real signal.",
+      "command": "npm --prefix apps/lawbar-desktop test",
+      "gateOn": [
+        "push"
+      ],
+      "coverage": "none",
+      "timeoutMs": 1800000
+    },
+    {
+      "name": "evidence-core-swift",
+      "description": "Swift/PDFKit A0.7 harness (XCTest). Requires a swift build; run in CI by evidence-core-swift-smoke.yml, which is smoke-only and asserts no A0.7 conformance. NOT executed locally during init — see the Unverified note in the init report.",
+      "command": "swift test --package-path native/evidence-core-swift",
+      "gateOn": [
+        "push"
+      ],
+      "coverage": "none",
+      "timeoutMs": 1800000
+    }
+  ],
+  "_coverage_rationale": [
+    "coverage is 'none' on every lane and thresholds are 0, because NO coverage tooling exists:",
+    "no c8, no nyc, and no --experimental-test-coverage in any of the 9 package manifests.",
+    "A non-zero threshold here would be unmeasurable rather than merely unmet, and would produce a",
+    "permanent warning that trains the maintainer to ignore the gate. These lanes answer exactly one",
+    "question — do the asserted checks still pass — and nothing about which surfaces were exercised."
+  ],
+  "coverageThresholds": {
+    "lines": 0,
+    "functions": 0,
+    "branches": 0,
+    "statements": 0
+  },
+  "coverageMode": "absolute",
+  "requireMutation": false,
+  "mutationCommand": "",
+  "mutationGateOn": [
+    "taskCompleted"
+  ]
+}

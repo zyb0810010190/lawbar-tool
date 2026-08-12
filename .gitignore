@@ -26,3 +26,6 @@ dev-memo/superseded/
 
 # docs-guardian generated artifacts
 .claude/docs-guardian/audit-report.md
+
+# tdd-guardian generated artifacts
+.claude/tdd-guardian/state.json
