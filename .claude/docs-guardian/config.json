@@ -1,0 +1,65 @@
+{
+  "$comment": "docs-guardian config. Written 2026-08-12 by /docs-guardian:init.",
+
+  "language": "typescript",
+  "languageDetection": {
+    "autoDetectResult": "generic",
+    "autoDetectConfidence": "low",
+    "overriddenTo": "typescript",
+    "reason": "The detection skill matches marker files at the REPO ROOT only. This is a monorepo with no root package.json or tsconfig.json, so auto-detection returned 'generic'. TypeScript is correct: 7 tsconfig.json files under apps/ and services/, 165 non-test .ts source files. Swift is a second language (native/evidence-core-swift, 26 .swift files) that this plugin has no adapter for."
+  },
+
+  "framework": "plain-markdown",
+  "docRoot": "docs/",
+  "frameworkDetection": {
+    "confidence": "high",
+    "reason": "No mkdocs.yml, .vitepress/, docusaurus.config.*, or conf.py. docs/ exists with 94 real .md files, so priority-5 plain-markdown applies."
+  },
+
+  "hookStrictness": "off",
+  "hookStrictnessRationale": [
+    "Chosen after consulting Codex. Two independent reasons converge on 'off':",
+    "1. Zero of 165 source files currently map to a doc. Per-commit strictness would therefore measure whether a documentation architecture exists, not whether documentation drifted. A warning that fires on every commit teaches the maintainer to ignore it, and lets the repo claim a control it does not have.",
+    "2. Verified in the plugin source: scripts/docs-guardian/commit-guard.js:143 reads '// Always warn, never block' and returns permissionDecision:'allow' unconditionally. The documented 'block' level does not block. Selecting it would create exactly the false assurance this repo removed its own hook layer over on 2026-08-10 and again on 2026-08-12.",
+    "Re-evaluate when mapped/total source files exceeds 80% AND an audit produces few false positives. Measure that mechanically in CI, not from memory."
+  ],
+
+  "stalenessDays": 30,
+  "stalenessNote": "Plugin default, chosen by the maintainer. Expect most of the 60 ADRs to flag on the first audit: they are durable decision records, intentionally unchanged for long periods. An ADR does not rot with age — it rots when the code it describes changes.",
+
+  "coverageScope": "full-code-to-doc",
+  "coverageScopeNote": "Chosen by the maintainer after being told coverage reports 0% today and that /docs-guardian:generate would propose roughly 165 new files. Treat the first coverage number as a baseline to work down, not as a defect count.",
+
+  "sources": [
+    "apps/lawbar-desktop/src/**/*.ts",
+    "apps/lawbar-desktop/electron/**/*.ts",
+    "apps/lawbar-desktop/renderer/**/*.ts",
+    "services/*/src/**/*.ts",
+    "docs/contracts/case-box-contract/src/**/*.ts"
+  ],
+
+  "mappings": [],
+  "mappingsNote": "Empty on purpose. All four mapping strategies were applied: no config mappings existed, plain-markdown provides no framework convention, convention-based matching returned 0 hits across 165 source files, and no external doc layer exists to map to. Add entries here as documentation is written.",
+
+  "exclude": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/dist-tarballs/**",
+    "**/.build/**",
+    "**/coverage/**",
+    "**/*.test.ts",
+    "**/*.test.mjs",
+    "**/tests/**",
+    "docs/contracts/**/node_modules/**",
+    "docs/contracts/**/dist/**"
+  ],
+  "excludeNote": "docs/contracts is NOT excluded as a source root — case-box-contract/src is a real published package and its public API is the most doc-worthy code here. But its node_modules and dist are excluded, and it must never be treated as doc CONTENT: it is a package consumed by services via file: and shipped to the desktop as a committed tarball.",
+
+  "docKinds": {
+    "docs/adr/**": "decision-record",
+    "docs/release/**": "release-gate",
+    "docs/product/**": "product-definition",
+    "docs/ui/**": "contract-draft"
+  },
+  "docKindsNote": "This repo has no API-documentation layer. docs/ holds 60 ADRs, 24 release gates, 2 merged product documents, and a few UI drafts. Any audit should read these as decision and product records, not as code documentation."
+}

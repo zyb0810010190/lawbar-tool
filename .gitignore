@@ -21,5 +21,8 @@ CLAUDE.local.md
 .claude-english-buddy.json
 
 # Superseded historical drafts — preserved on disk, never tracked. Kept because
-# docs/product/project-requirements-brief.md Appendix A cites case-box-plan.md.
+# docs/product/product-definition.md Part I cites case-box-plan.md.
 dev-memo/superseded/
+
+# docs-guardian generated artifacts
+.claude/docs-guardian/audit-report.md
