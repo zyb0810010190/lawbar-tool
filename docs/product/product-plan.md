@@ -107,9 +107,18 @@ no finiteness guard anywhere in the file.
 non-representable coordinate. That is precisely the condition the gate exists to detect, and it is
 the one condition the gate is structurally blind to.
 
+**Scope — this is oracle mode only.** Stability mode has a SECOND, independent NaN path:
+`A07ConformanceHarness.swift:404-411` returns `pass/ok` when two reads produce identical canonical
+geometry strings, and two NaN reads do. `A07StabilityHarnessTests.swift:295` asserts exactly that
+— `evaluateStability(captures: [nan, nan]).status == .pass`. Arguably correct for the question
+stability mode asks (did two reads agree?), but it means "stable" is reported for geometry that
+is not a number.
+
 **Closing it:** reject non-finite observations explicitly before comparison, and classify that
-rejection — a NaN from the geometry source is a class-2 signal, not a normalization bug.
-**Acceptance:** a fixture whose observed geometry contains NaN must produce `fail`, never `pass`.
+rejection — a NaN from the geometry source is a class-2 signal, not a normalization bug. Decide
+separately whether stability mode should refuse NaN outright or keep reporting agreement.
+**Acceptance:** in oracle mode, a fixture whose observed geometry contains NaN produces `fail`,
+never `pass`. In stability mode, the decision is recorded either way and `:295` reflects it.
 
 ### D2 — an oracle with zero sample points can return `pass` *(class-1, fixable)*
 
@@ -127,10 +136,23 @@ through to `:315` returning `status: .pass, classification: .ok` — with the de
 So the harness can report a clean pass having never executed the coordinate-normalization check,
 which is the substance of what A0.7 is supposed to verify.
 
+**The test suite pins this behaviour as correct.** `A07ConformanceHarnessTests.swift` contains
+`testMessyCropBoxFixturePasses`, `testMessyRotatedFixturePasses` and
+`testMessyMixedSizesFixturePasses`, each asserting `XCTAssertEqual(r.status, .pass)` and
+`.classification == .ok` for exactly the three fixtures that carry zero sample points. Verified
+2026-08-12 by reading the assertions, not inferred from the names.
+
+That matters for whoever closes this: **the fix turns three green tests red**, and the obvious
+reading of a red `…FixturePasses` test is that the fix broke something. It did not — the test was
+encoding the gap. Their assertion messages ("must pass with cropBox observed distinctly") describe
+box-level intent, which the box assertions genuinely do check; the names simply promise more
+coverage than the oracles supply.
+
 **Closing it:** either require at least one sample point for a `pass` verdict, or introduce a
 distinct status meaning "box geometry verified, normalization unverified". A run that checked no
 sample points must not be reported the same way as one that checked several.
-**Acceptance:** a box-only oracle yields something other than `pass/ok`.
+**Acceptance:** a box-only oracle yields something other than `pass/ok`, AND the three tests above
+are updated to assert the new verdict — not deleted, and not reverted to green by relaxing the fix.
 
 ### D3 — three of five oracles assert no normalization at all *(fixture gap)*
 
@@ -164,14 +186,19 @@ fix the normalization math; **class-2 means the geometry source itself is unstab
 anchor, forms and UI work must stop**. Misclassifying a class-2 as class-1 does not produce a
 visible failure — it produces continued construction on an unsound foundation.
 
-A count mismatch means the harness observed a different number of sample points than the oracle
-recorded for the same fixture. That is at least as consistent with the renderer enumerating page
-geometry differently — a class-2 signal — as with arithmetic.
+My original framing was wrong and is corrected here: the renderer does not enumerate sample
+points. `run` computes `sampleNormalized` one-for-one from `oracle.expected.samplePoints`
+(`A07ConformanceHarness.swift:188-196`), so a count mismatch cannot mean "the renderer counted
+differently". It means the oracle's sample page was unavailable or invalid, or `evaluate` was
+called directly with mismatched inputs. The real gap is narrower: an invalid `samplePageIndex`
+probably belongs in `fixture_or_oracle_invalid`, and `page(at:)` returning nil despite a correct
+page count is arguably class-2 — neither has a stated policy.
 
-**This is stated as an open question, not a confirmed defect.** Deciding it requires reproducing a
-count mismatch and determining its cause; that has not been done.
-**Closing it:** either justify class-1 in a comment at `:301`, or reclassify. **Acceptance:** the
-choice is recorded with its reasoning, so the next reader does not have to re-derive it.
+The file's comments do settle the broad rule — structural geometry disagreement is class-2, wrong
+normalized values after correct boxes are class-1 (`:239-244`, `:298-303`) — but they do not
+address this edge.
+**Closing it:** state a policy for the two unhandled causes above, in a comment at `:301`.
+**Acceptance:** the choice is recorded with its reasoning, so the next reader need not re-derive it.
 
 ### D5 — nothing can prove the gate ran *(blocked on a decision, not on code)*
 
@@ -182,14 +209,21 @@ attestation is not a trust boundary at all — the producer and the verifier ran
 **Closing it is a product decision, not a repair.** The options are a CI job that runs the harness
 where this process cannot reach it, or accepting that A0.7 status is asserted by a human rather
 than attested. Either is defensible; leaving it implicit is not.
-**Acceptance:** the choice is written down, and no artifact in this repo claims the gate is green
-until it is satisfied.
+**Two artifacts already claim it is green**, and did when this lane was written:
+`docs/adr/ADR-evidence-a10-court-fileable-export.md:33` and `:106` both say A0.7 is "meaningfully
+green". Corrected 2026-08-12 — but the acceptance criterion below was false at the moment I wrote
+it, which is the same failure this lane exists to prevent.
+**Acceptance:** the attestation choice is written down, and a repo-wide grep for claims that A0.7
+is green returns only statements scoped as historical.
 
 ### Sequencing
 
-D1 and D2 are independent code fixes and can proceed in parallel. D3 depends on D2 — populating
-sample points is pointless while a zero-count oracle still passes. D4 is a decision that should
-precede any further class-1 fix, since it governs what "fixable" means. D5 gates the word *green*
+D1, D2 and D3 are independent and can proceed in parallel — an earlier draft claimed D3 depended
+on D2, which is wrong: populating the three empty oracles immediately makes those fixtures
+exercise normalization, whether or not the box-only pass path is closed. D2 remains necessary so
+that any FUTURE box-only oracle cannot pass. Close both before calling oracle-mode conformance
+meaningful. D4 is a decision that should precede any further class-1 fix, since it governs what
+"fixable" means. D5 gates the word *green*
 and nothing else; D1–D4 can all close while D5 remains open.
 
 **Nothing in this lane is authorized by being written here.** Each item is stop-and-ask per

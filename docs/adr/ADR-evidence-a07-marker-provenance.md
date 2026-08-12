@@ -25,7 +25,9 @@
 ## Context
 
 A07-GATE-00 fixed the gate design; WI-ENA7 materialized the independent fixture/oracle; WI-ENA8 implemented the
-A0.7 renderer-conformance harness, which now runs green on the committed fixture and **explicitly emits
+A0.7 renderer-conformance harness, which runs green on the committed fixture (still true, and
+misleading: per `docs/product/product-plan.md` §0, three of five oracles carry zero `samplePoints`,
+so "runs green" does not mean normalization was checked) and **explicitly emits
 `isMarker=false`** — a passing harness run is deliberately *not* a marker. What is still undefined is the
 **durable marker**: the tamper-evident record that a real harness run produced a classified pass against the
 reviewed fixture/oracle, such that a later reader (or gate) can trust A0.7 is green without re-running.
