@@ -123,7 +123,7 @@ Rather than re-run a live backup here, this runbook **cites that PASS as its ver
 
 | # | Section | Conflicting source | Prior wording | Reality (this doc) | Proposed resolution |
 |---|---|---|---|---|---|
-| R14-1 | §1 manifest | `docs/product/project-requirements-brief.md` §14 | Backup manifest = `case-box.sqlite` **+ `audit-log.sqlite`** + `blobs/` (two SQLite files + a `blobs/` store) | **One** `case-box.sqlite` (audit tables inside it) + `case-box-documents/` (not `blobs/`) + `theme-preference.json` | **`RECONCILIATION-NEEDED`.** Do NOT edit the brief in this lane. Open a bounded reconciliation WI to update brief §14's manifest wording to the shipped single-file + `case-box-documents/` layout (or to record the divergence as accepted), routed through `/cc-suite:review-plan` per `.claude/rules/project-brief.md` §"Conflict handling". Until then, **this runbook's §1 manifest is authoritative for backup** (generated output beats static doc). |
+| R14-1 | §1 manifest | `docs/product/product-definition.md (Part I)` §14 | Backup manifest = `case-box.sqlite` **+ `audit-log.sqlite`** + `blobs/` (two SQLite files + a `blobs/` store) | **One** `case-box.sqlite` (audit tables inside it) + `case-box-documents/` (not `blobs/`) + `theme-preference.json` | **`RECONCILIATION-NEEDED`.** Do NOT edit the brief in this lane. Open a bounded reconciliation WI to update brief §14's manifest wording to the shipped single-file + `case-box-documents/` layout (or to record the divergence as accepted), routed through `/cc-suite:review-plan` per `.claude/rules/project-brief.md` §"Conflict handling". Until then, **this runbook's §1 manifest is authoritative for backup** (generated output beats static doc). |
 
 ---
 

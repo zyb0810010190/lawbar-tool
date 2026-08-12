@@ -237,7 +237,7 @@ Inherited from `case-box-plan.md` "Open decisions" §pre-Phase-0 and recorded he
 
 ## Addendum (WI-brief-matter-type, 2026-05-22) — R-5 additive contract surface
 
-The project-requirements-brief (`docs/product/project-requirements-brief.md`, status `READY`, commit `fe09ea4`) reconciles two lawyer-facing workflow categories (litigation, counsel) against the existing `matter_type` enum and adds optional fields across matter / document / fact / evidence / docket-entry / deadline schemas. The detailed additions are in `dev-memo/plan-brief-matter-type.md` §3 and §4, cc-suite-reviewed at jobIds `review-plan-mpgi330d-48grud` and `review-plan-mpgiamit-mgk1j7`.
+The project-requirements-brief (`docs/product/product-definition.md (Part I)`, status `READY`, commit `fe09ea4`) reconciles two lawyer-facing workflow categories (litigation, counsel) against the existing `matter_type` enum and adds optional fields across matter / document / fact / evidence / docket-entry / deadline schemas. The detailed additions are in `dev-memo/plan-brief-matter-type.md` §3 and §4, cc-suite-reviewed at jobIds `review-plan-mpgi330d-48grud` and `review-plan-mpgiamit-mgk1j7`.
 
 Summary of additions (all optional fields or additive enum values; no existing fixture invalidated):
 
@@ -253,11 +253,11 @@ The v1 entity list above is extended only by the optional-field additions; no ne
 
 ## Addendum (WI-brief-doc-reconcile, 2026-05-22) — Original-file retention + OCR/text-extraction split + LLM indefinite postponement
 
-The project-requirements-brief (`docs/product/project-requirements-brief.md`, status `READY`, commit `fe09ea4`) and the reviewed plan at `dev-memo/plan-brief-doc-reconcile.md` (READY at jobId `review-plan-mpgknx49-ywpiv4`) tighten three Step-0 commitments:
+The project-requirements-brief (`docs/product/product-definition.md (Part I)`, status `READY`, commit `fe09ea4`) and the reviewed plan at `dev-memo/plan-brief-doc-reconcile.md` (READY at jobId `review-plan-mpgknx49-ywpiv4`) tighten three Step-0 commitments:
 
 ### Original-file retention (R-7) — promoted to load-bearing v1 cross-cutting invariant
 
-Add to the §"Cross-cutting Invariants" effective for v1 (recorded inline here because Step-0 has no separate Cross-cutting Invariants section heading — the closest analogue is §"Confidentiality posture summary" + §"Multi-user readiness summary" + the §"Decision" body itself; the invariant is stated here as a Step-0 addendum and mirrored in `docs/product/project-requirements-brief.md Appendix A` §"Cross-cutting Invariants (always-true, v1)" item 11):
+Add to the §"Cross-cutting Invariants" effective for v1 (recorded inline here because Step-0 has no separate Cross-cutting Invariants section heading — the closest analogue is §"Confidentiality posture summary" + §"Multi-user readiness summary" + the §"Decision" body itself; the invariant is stated here as a Step-0 addendum and mirrored in `docs/product/product-definition.md Part I` §"Cross-cutting Invariants (always-true, v1)" item 11):
 
 > **Original-file retention.** Every ingested file (Mac picker / URL / future WeChat upload / future scanner) is preserved verbatim, content-hash-addressed at a known `storage_uri`, and openable from the Mac desktop process. No extraction step (OCR, text-extraction, redaction, etc.) destroys or replaces the original. Extraction artifacts (OCR text, parsed Word, Markdown structure) are stored alongside, never in place of, the original.
 
@@ -281,12 +281,12 @@ This addendum does NOT modify the Step-8 ADR body (which is already correctly fr
 
 - `dev-memo/superseded/case-box-plan.md` — historical source (archived from `dev-memo/case-box-plan.md` in the same commit as this ADR).
 - `dev-memo/plan-brief-matter-type.md` — WI-brief-matter-type plan (READY).
-- `docs/product/project-requirements-brief.md` — project-level intake; R-5 is the source of the matter-type addendum; R-6/R-7/R-8 are the source of the doc-reconcile addendum.
+- `docs/product/product-definition.md (Part I)` — project-level intake; R-5 is the source of the matter-type addendum; R-6/R-7/R-8 are the source of the doc-reconcile addendum.
 - `dev-memo/plan-brief-doc-reconcile.md` — WI-brief-doc-reconcile plan (READY).
 - `dev-memo/plan-client-00.md` — client surface reconciliation; CLIENT-00b authorization.
 - `docs/adr/client-application-surface.md` — v1 primary client = Mac desktop.
 - `docs/adr/sync-bridge-architecture.md` — opt-in companion HTTP bridge.
-- `docs/product/project-requirements-brief.md Appendix A` — companion product summary (target user, client surfaces, data residency, future WIs).
+- `docs/product/product-definition.md Part I` — companion product summary (target user, client surfaces, data residency, future WIs).
 - `docs/ui/current-ui-map.md`, `docs/ui/ui-state-contract.md`, `docs/ui/ui-gap-report.md` — UI inventory.
 - `docs/release/wi-03-security-signoff.md` — outbound HTTPS sign-off (preserved).
 - `docs/release/go-live-plan.md` — Stop-and-Ask gates, per-package test commands.

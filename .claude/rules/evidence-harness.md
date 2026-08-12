@@ -15,7 +15,7 @@ the oracle contains no sample points has not demonstrated conformance.
 
 Standing consequences:
 
-- **`not_implemented` is a failure, never a pass.** Same for `inconclusive_*`.
+- **`not_implemented`**** is a failure, never a pass.** Same for `inconclusive_*`.
 - **A class-2 result is an architectural stop**, not a bug to work around. Class-1 is local
   normalization and fixable inline; class-2 means the geometry source itself is unstable, and
   anchors, forms, and UI must not be built on top of it.
@@ -24,7 +24,7 @@ Standing consequences:
   layer on 2026-08-10. There is currently **nothing that can prove this gate ran**, so no
   artifact in this repo should claim it did.
 
-Product invariants this gate protects are in `docs/product/evidence-m0-prd.md` §5.
+Product invariants this gate protects are in `docs/product/product-definition.md (Part II)` §5.
 
-*Trust: advisory here; `evidence-core-swift-smoke.yml` builds and smokes the package in CI,
+*Trust: advisory here; ****`evidence-core-swift-smoke.yml`**** builds and smokes the package in CI,
 but no CI job asserts A0.7 conformance.*

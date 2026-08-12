@@ -14,11 +14,11 @@ Real gates live in `.github/workflows/` — outside this process — and that is
 
 | Question | Answer |
 |---|---|
-| What the product is; the roadmap | `docs/product/project-requirements-brief.md` (Appendix A = architecture) |
-| Evidence-Genie M0 definition + invariants | `docs/product/evidence-m0-prd.md` |
-| Why a technical decision was made | `docs/adr/**` — **outranks** the brief on the decision it documents |
+| What the product is; how each screen behaves | `docs/product/product-definition.md` — Part I brief + architecture, Part II Evidence M0, Part III the 25 UI design artifacts |
+| Work not yet built | `docs/product/product-plan.md` — release lane, night mode, forms T4, WeChat companion |
+| Why a technical decision was made | `docs/adr/**` — **outranks** the definition on the decision it documents |
 | Schemas and contracts | `docs/contracts/case-box-contract` — a real npm package, not documentation |
-| Working notes code still cites | `dev-memo/` — see its README |
+| Plans and closeouts for work already shipped | `dev-memo/` — records, not plans; cited by source 77 times. See its README |
 
 ## Config layout
 

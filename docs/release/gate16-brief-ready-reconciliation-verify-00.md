@@ -7,7 +7,7 @@ Read-only inspection of the brief + reconciliation log + the T4 ADR; the brief w
 ---
 
 ## 1. Brief READY status
-`docs/product/project-requirements-brief.md` frontmatter **line 2: `status: READY`** (revision 5). Per `.claude/rules/project-brief.md` §"Status lifecycle", READY means the `authoritative_after` condition ("`/cc-suite:review-plan` returns READY") was met by the brief's promotion review — recorded (not re-run) from the brief's own frontmatter `revision: 5 (post fourth review-plan …)` + `## Sources consulted` (Codex review-plan thread `review-plan-mpgg9yrg-amf715`, NEEDS-FIX → applied). The brief's §"Required cc-suite review" gate #3 requires every RECONCILIATION-NEEDED entry to be resolved-or-accepted before READY — reconfirmed per-entry in §2.
+`docs/product/product-definition.md (Part I)` frontmatter **line 2: `status: READY`** (revision 5). Per `.claude/rules/project-brief.md` §"Status lifecycle", READY means the `authoritative_after` condition ("`/cc-suite:review-plan` returns READY") was met by the brief's promotion review — recorded (not re-run) from the brief's own frontmatter `revision: 5 (post fourth review-plan …)` + `## Sources consulted` (Codex review-plan thread `review-plan-mpgg9yrg-amf715`, NEEDS-FIX → applied). The brief's §"Required cc-suite review" gate #3 requires every RECONCILIATION-NEEDED entry to be resolved-or-accepted before READY — reconfirmed per-entry in §2.
 
 ## 2. Reconciliation-log per-entry classification
 The brief's `## Reconciliation log` has entries R-1…R-9 (+ the R-1/R-2/R-3 grouped resolution) plus the T4 proof-model divergence (recorded via the ADR, not a numbered R-entry). Each classified `resolved` / `accepted-divergence` / `post-v1` / `unresolved-M0-blocking`:

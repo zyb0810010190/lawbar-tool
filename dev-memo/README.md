@@ -1,20 +1,25 @@
 # dev-memo
 
-Working notes that the product still depends on. Pruned 2026-08-11 from 557 tracked files to 117: what
+Working notes that the product still depends on. Pruned 2026-08-11 from 557 files to 117, then to 87 on 2026-08-12 when forward-looking plans and design artifacts moved to `docs/product/`. What
 remained is what product code cites, what specifies shipped behaviour, or what records a product decision.
 
 ## What is here
 
 | Path | What it is |
 |---|---|
-| `design/` (25) | **Design artifacts** — one per shipped UI screen: intent, states, copy, edge cases. Six are cited directly from `apps/lawbar-desktop/renderer/**`. These are the UI specification. |
+| `design/` (6 stubs) | The 25 design artifacts moved into `docs/product/product-definition.md` Part III on 2026-08-12; six are cited by renderer source and remain here as pointer stubs. Formerly: **Design artifacts** — one per shipped UI screen: intent, states, copy, edge cases. Six are cited directly from `apps/lawbar-desktop/renderer/**`. These are the UI specification. |
 | `design-source/` (12) | Design provenance: the CSS token and component sources the app's `renderer/index.css` was ported from, plus the Plan-C symbol and `PROVENANCE.md`. |
 | `plan-*.md` | Implementation plans that surviving source code cites by name for its own behaviour, e.g. `plan-casebox-ui-plan-00.md`, referenced by nine renderer modules. |
 | `adr-*.md`, `forms-spec-*.md`, `*-spec-*.md` | Schema and forms specifications the contract package and tests depend on. |
 | `ocr-*.md` | OCR security, confidentiality, retention, and failure-mode boundaries — product posture, not process. |
-| `desktop-*.md`, `release-checklist.md` | Release, signing/notarization, migration-compatibility and launch-readiness lanes. |
-| `decision-*.md`, `plan-wechat-mini-program-00.md`, `plan-night-mode-foundation-00.md`, `plan-ui-substrate-decision-00.md` | Product decisions and forward-looking plans not yet executed. |
-| `superseded/` | Gitignored, untracked, retained on disk only because `docs/product/project-requirements-brief.md` Appendix A cites `case-box-plan.md` as historical context. |
+| `plan-ui-substrate-decision-00.md` | The ratified Electron substrate decision. A settled decision, so it stays here rather than moving to the plan. |
+| `superseded/` | Gitignored, untracked, retained on disk only because `docs/product/product-definition.md` Part I cites `case-box-plan.md` as historical context. |
+
+**Moved out on 2026-08-12.** Eleven forward-looking lane documents — signing/notarization,
+production-launch readiness, release checklist, smoke matrix, RC1 handoff, migration
+compatibility, CI release gates, forms T4, night mode, and the WeChat companion plan and its
+decision memo — are now `docs/product/product-plan.md`. None was cited by source code, which
+is why they could move. Work already shipped stays here as a record.
 
 ## Dead links are expected
 
