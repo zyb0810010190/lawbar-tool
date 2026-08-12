@@ -1,5 +1,22 @@
 # UI State Contract (UI-00 baseline)
 
+> ### ⚠️ SNAPSHOT OF A PRE-DESKTOP REPO — do not read as current
+>
+> **This document describes a repository state that no longer exists.** It asserts there is no UI
+> implementation. Verified 2026-08-12: `apps/lawbar-desktop/renderer/` ships 25 TypeScript
+> modules, `index.html`, `router.ts` declaring `#/matters`, `#/matters/new`, `#/matters/:id` and
+> `#/matters/:id/archive`, plus `screens/`, `nav.ts`, `i18n/` and `theme/`.
+>
+> Any row claiming zero `.html`/UI hits is false against the current tree.
+>
+> **The gap analysis rests on a void premise.** Surfaces are deferred here on the grounds that a
+> missing HTTP API gateway blocks every screen. The desktop client uses Electron IPC, not HTTP,
+> so that blocker never applied to it and the deferral verdicts do not follow.
+>
+> Retained as the UI-00 baseline record. For what the UI actually is, see
+> `docs/product/product-definition.md` Part III.
+
+
 **Date**: 2026-05-20
 **Status**: **No UI implementation. This document derives the UI-side state contract from the existing backend contracts.**
 

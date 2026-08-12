@@ -606,6 +606,16 @@ Each carries its own `/cc-suite:review-plan` pass. NONE land in v1 day-one.
 
 ### Hard-stop decisions (STOP-AND-ASK checklist)
 
+> **Reconciled 2026-08-12.** This restatement had 21 items while §20 above had 23 — it was
+> missing "Public API, wire-format, schema, or CLI breaking changes" and "Final go-live
+> approval". Since this list is addressed to an automated consumer, the divergence meant an
+> autopilot would not stop on either. **§20 is authoritative**; both missing items are added
+> below. If the two ever disagree again, §20 wins.
+
+- [ ] Public API, wire-format, schema, or CLI breaking changes (unless the active work item authorizes the break).
+- [ ] Final go-live approval — completing a sub-item never implies go-live readiness.
+
+
 Restated for autopilot consultation. Autopilot stops on any of these.
 
 - [ ] Auth provider choice.
@@ -1575,6 +1585,14 @@ OCR, facts, evidence links, deadlines, privilege, confidentiality, file preview/
 
 ## Design artifact — Case-box matter documents (read-only list/get)
 
+> **Screen removed 2026-08-05.** Parts of this section describe the in-app audit-chain viewer
+> (`renderer/screens/viewMatterAudit.ts`) and its label module (`auditEventLabels.ts`), both
+> deleted — the viewer in `2275551` (WI-UI-RESTYLE-2d), the labels in `93f4e95`. The audit chain
+> itself is untouched and still recorded; only the UI panel is gone. File:line coordinates below
+> point into deleted files and cannot be followed. Retained as the design record of what shipped,
+> not as a description of the current product.
+
+
 *Absorbed 2026-08-12 from `dev-memo/design/2026-06-03-casebox-documents-readonly.md`. Content verbatim; heading levels shifted one deeper.*
 
 
@@ -2363,6 +2381,14 @@ Implemented by WI-DT3; this artifact is retired when WI-DT3 merges. Superseded i
 
 ## Design artifact — Audit event-kind humanized labels
 
+> **Screen removed 2026-08-05.** Parts of this section describe the in-app audit-chain viewer
+> (`renderer/screens/viewMatterAudit.ts`) and its label module (`auditEventLabels.ts`), both
+> deleted — the viewer in `2275551` (WI-UI-RESTYLE-2d), the labels in `93f4e95`. The audit chain
+> itself is untouched and still recorded; only the UI panel is gone. File:line coordinates below
+> point into deleted files and cannot be followed. Retained as the design record of what shipped,
+> not as a description of the current product.
+
+
 *Absorbed 2026-08-12 from `dev-memo/design/2026-06-08-audit-event-kind-labels.md`. Content verbatim; heading levels shifted one deeper.*
 
 
@@ -2468,6 +2494,14 @@ Promoted to WI-U3 (renderer implementation); artifact retired once WI-U3 ships.
 ---
 
 ## Design artifact — Renderer accessibility + pagination-safety polish
+
+> **Screen removed 2026-08-05.** Parts of this section describe the in-app audit-chain viewer
+> (`renderer/screens/viewMatterAudit.ts`) and its label module (`auditEventLabels.ts`), both
+> deleted — the viewer in `2275551` (WI-UI-RESTYLE-2d), the labels in `93f4e95`. The audit chain
+> itself is untouched and still recorded; only the UI panel is gone. File:line coordinates below
+> point into deleted files and cannot be followed. Retained as the design record of what shipped,
+> not as a description of the current product.
+
 
 *Absorbed 2026-08-12 from `dev-memo/design/2026-06-08-renderer-a11y-pagination-polish.md`. Content verbatim; heading levels shifted one deeper.*
 
@@ -3005,6 +3039,14 @@ retired/realized), or when a superseding link-UX decision is recorded.
 
 ## Design note — A3 link audit-event labels (LINK_CREATED / LINK_UNLINKED / LINK_RELINKED)
 
+> **Screen removed 2026-08-05.** Parts of this section describe the in-app audit-chain viewer
+> (`renderer/screens/viewMatterAudit.ts`) and its label module (`auditEventLabels.ts`), both
+> deleted — the viewer in `2275551` (WI-UI-RESTYLE-2d), the labels in `93f4e95`. The audit chain
+> itself is untouched and still recorded; only the UI panel is gone. File:line coordinates below
+> point into deleted files and cannot be followed. Retained as the design record of what shipped,
+> not as a description of the current product.
+
+
 *Absorbed 2026-08-12 from `dev-memo/design/2026-06-28-a3-link-audit-event-labels.md`. Content verbatim; heading levels shifted one deeper.*
 
 
@@ -3434,6 +3476,14 @@ existing matter party-role labels if present.
 ---
 
 ## Design Artifact — app restyle to macOS-HIG structure (warm palette kept)
+
+> **Screen removed 2026-08-05.** Parts of this section describe the in-app audit-chain viewer
+> (`renderer/screens/viewMatterAudit.ts`) and its label module (`auditEventLabels.ts`), both
+> deleted — the viewer in `2275551` (WI-UI-RESTYLE-2d), the labels in `93f4e95`. The audit chain
+> itself is untouched and still recorded; only the UI panel is gone. File:line coordinates below
+> point into deleted files and cannot be followed. Retained as the design record of what shipped,
+> not as a description of the current product.
+
 
 *Absorbed 2026-08-12 from `dev-memo/design/2026-08-04-app-restyle-macos-hig.md`. Content verbatim; heading levels shifted one deeper.*
 
