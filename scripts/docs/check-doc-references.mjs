@@ -5,8 +5,14 @@
 // This documentation corpus contains ZERO markdown links. Every cross-reference is a backticked
 // path string, so no linter, renderer, or CI job can follow one. Dead references accumulated
 // unnoticed across two cleanups: the 2026-08-10 configuration reset and the 2026-08-12
-// product-doc consolidation. The count recorded when this guard was introduced was 213 (by the
-// extraction rules below; a looser hand count reported ~318).
+// product-doc consolidation.
+//
+// WHAT IT CHECKS, AND WHAT IT DOES NOT
+// Only backticked tokens beginning with one of REPO_ROOTS (see below) are evaluated. Package-
+// relative citations like `renderer/screens/x.ts` or `src/audit-log.ts` are NOT checked — they
+// are the corpus's largest unguarded class. Existence is resolved against the GIT INDEX, not the
+// working tree, so the result matches what CI sees on a clean checkout: an untracked or
+// gitignored path counts as dead even if it exists on your machine.
 //
 // WHY A RATCHET, NOT A GATE
 // Failing on every existing dead reference would require a 200+ item cleanup before the check
@@ -26,16 +32,28 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..");
-// Env override exists so tests can run against a temp baseline and never touch the real corpus.
-const BASELINE = process.env.DOC_REFS_BASELINE || path.join(HERE, "doc-references-baseline.json");
-// Env override for the scanned root, same reason. Defaults to this repo.
-const SCAN_ROOTS = process.env.DOC_REFS_ROOTS ? process.env.DOC_REFS_ROOTS.split(",") : null;
+// Test seams. DANGEROUS INDIVIDUALLY: narrowing DOC_REFS_ROOTS alone and running --update
+// rewrites the real baseline to cover only the narrowed subtree. Every omitted file reads as a
+// DECREASE, so the anti-raise guard is structurally blind to it. They must therefore be set
+// together — one without the other is a hard error.
+const ENV_BASELINE = process.env.DOC_REFS_BASELINE;
+const ENV_ROOTS = process.env.DOC_REFS_ROOTS;
+if (Boolean(ENV_BASELINE) !== Boolean(ENV_ROOTS)) {
+  console.error("[check-doc-references] DOC_REFS_BASELINE and DOC_REFS_ROOTS must be set together.");
+  console.error("  Setting only one points the scanner and the baseline at different trees.");
+  process.exit(2);
+}
+const BASELINE = ENV_BASELINE || path.join(HERE, "doc-references-baseline.json");
+const SCAN_ROOTS = ENV_ROOTS ? ENV_ROOTS.split(",") : null;
 
 // docs/contracts is an npm package, not documentation — never scanned.
 const DOC_ROOTS = ["docs/adr", "docs/release", "docs/product", "docs/ui", "docs/reference"];
+// Only tokens starting with one of these are evaluated. A token without a known root is assumed
+// to be package-relative or prose and is skipped — see the header note on unguarded classes.
 const REPO_ROOTS = ["apps/", "services/", "native/", "scripts/", "docs/", "dev-memo/", ".github/", ".claude/"];
 
 function walk(dir, out = []) {
@@ -50,20 +68,37 @@ function walk(dir, out = []) {
 }
 
 /**
- * Does this path exist with EXACTLY this casing?
- * fs.existsSync is case-insensitive on default macOS filesystems, so a reference whose casing is
- * wrong passes locally and breaks on Linux CI. Walk the path components and match real dirents.
+ * The set of paths git tracks, plus every ancestor directory, in git's exact casing.
+ *
+ * Resolving against the index rather than the working tree fixes two defects at once:
+ *   - CI parity. A gitignored or untracked path (node_modules/, release/, dev-memo/superseded/)
+ *     exists locally but never in CI, so a filesystem check passes here and fails there.
+ *   - Case exactness. fs.existsSync is case-insensitive on default macOS filesystems; git stores
+ *     exact path strings, so set membership is inherently case-sensitive.
  */
-function existsCaseExact(relPath) {
-  const parts = relPath.replace(/\/+$/, "").split("/").filter(Boolean);
-  let dir = REPO;
-  for (let i = 0; i < parts.length; i++) {
-    let entries;
-    try { entries = fs.readdirSync(dir); } catch { return false; }
-    if (!entries.includes(parts[i])) return false;  // exact-case membership
-    dir = path.join(dir, parts[i]);
+let TRACKED = null;
+function trackedPaths() {
+  if (TRACKED) return TRACKED;
+  let files;
+  try {
+    files = execFileSync("git", ["ls-files", "-z"], { cwd: REPO, maxBuffer: 64 * 1024 * 1024 })
+      .toString("utf8").split("\0").filter(Boolean);
+  } catch (e) {
+    console.error(`[check-doc-references] cannot read the git index: ${e.message}`);
+    console.error("  This guard resolves references against tracked paths and needs a git repo.");
+    process.exit(2);
   }
-  return true;
+  const set = new Set(files);
+  for (const f of files) {
+    let d = path.dirname(f);
+    while (d && d !== "." && d !== "/") { set.add(d); set.add(d + "/"); d = path.dirname(d); }
+  }
+  TRACKED = set;
+  return set;
+}
+function existsTracked(relPath) {
+  const set = trackedPaths();
+  return set.has(relPath) || set.has(relPath.replace(/\/+$/, ""));
 }
 
 /** Reject anything that escapes the repo (e.g. `docs/../../etc/hosts` passes a prefix check). */
@@ -93,6 +128,7 @@ export function extractRefs(text) {
         tok = tok.trim().replace(/^[('"[{]+/, "").replace(/[.,;:!?)\]}'"]+$/, "");
         tok = tok.replace(/:\d+(-\d+)?$/, "");       // file:line and file:line-line citations
         tok = tok.replace(/#.*$/, "");               // anchor fragments
+        tok = tok.replace(/^\.\//, "");             // ./-prefixed repo-relative paths
         if (!tok.includes("/")) continue;
         if (!REPO_ROOTS.some((r) => tok.startsWith(r))) continue;
         // globs, brace expansion (`a.{key,crt}`), and template placeholders are patterns, not paths
@@ -110,7 +146,7 @@ function scan() {
     for (const file of walk(path.join(REPO, root))) {
       const rel = path.relative(REPO, file);
       const missing = extractRefs(fs.readFileSync(file, "utf8"))
-        .filter((r) => !insideRepo(r) || !existsCaseExact(r))
+        .filter((r) => !insideRepo(r) || !existsTracked(r))
         .sort();
       if (missing.length) dead[rel] = missing;
     }
@@ -118,6 +154,11 @@ function scan() {
   return dead;
 }
 
+/**
+ * Read and validate the baseline. Returns null when the file is ABSENT (a legitimate first run),
+ * but exits 1 when it is present and malformed — a corrupt baseline must fail loudly rather than
+ * be silently treated as missing, which would let --check pass against nothing.
+ */
 function readBaseline() {
   if (!fs.existsSync(BASELINE)) return null;
   let b;
@@ -141,8 +182,19 @@ function readBaseline() {
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (!isMain) { /* imported as a module: export only */ } else {
 const argv = process.argv.slice(2);
+const KNOWN = new Set(["--check", "--update", "--list", "--force"]);
+const unknown = argv.filter((a) => !KNOWN.has(a));
+if (unknown.length) {
+  console.error(`[check-doc-references] unknown flag(s): ${unknown.join(", ")}`);
+  console.error("  usage: [--check] | --update [--force] | --list");
+  process.exit(2);
+}
 const mode = argv.includes("--update") ? "update" : argv.includes("--list") ? "list" : "check";
 const force = argv.includes("--force");
+if (force && mode !== "update") {
+  console.error("[check-doc-references] --force is only meaningful with --update.");
+  process.exit(2);
+}
 const dead = scan();
 const counts = Object.fromEntries(Object.entries(dead).map(([f, a]) => [f, a.length]));
 const total = Object.values(counts).reduce((n, x) => n + x, 0);
@@ -158,14 +210,17 @@ if (mode === "list") {
 
 if (mode === "update") {
   const base = readBaseline();
-  if (base && !force) {
-    const raised = Object.entries(counts).filter(([f, n]) => n > (base.counts[f] ?? 0));
-    if (raised.length) {
-      console.error("[check-doc-references] REFUSING to update — this would raise the ratchet:\n");
-      for (const [f, n] of raised) console.error(`  ${f}: ${base.counts[f] ?? 0} -> ${n}`);
-      console.error("\nFix the references, or pass --force to record the increase deliberately.");
-      process.exit(1);
-    }
+  // Compute the raised set ALWAYS — under --force it becomes the audit trail rather than a refusal.
+  const raised = base ? Object.entries(counts).filter(([f, n]) => n > (base.counts[f] ?? 0)) : [];
+  if (raised.length && !force) {
+    console.error("[check-doc-references] REFUSING to update — this would raise the ratchet:\n");
+    for (const [f, n] of raised) console.error(`  ${f}: ${base.counts[f] ?? 0} -> ${n}`);
+    console.error("\nFix the references, or pass --force to record the increase deliberately.");
+    process.exit(1);
+  }
+  if (raised.length && force) {
+    console.log("[check-doc-references] --force: recording an INCREASE for these files:");
+    for (const [f, n] of raised) console.log(`  ${f}: ${base.counts[f] ?? 0} -> ${n}`);
   }
   fs.writeFileSync(BASELINE, JSON.stringify({ total, counts }, null, 2) + "\n");
   console.log(`[check-doc-references] baseline updated: ${total} dead references across ${Object.keys(counts).length} files.`);
@@ -192,8 +247,9 @@ if (worse.length) {
     console.error(`  ${w.file}: ${w.was} -> ${w.now}`);
     for (const r of w.refs) console.error(`      ${r}`);
   }
-  console.error("\nEvery backticked path in docs/ must exist, with exact casing. Fix the reference,");
-  console.error("or repoint it if the target moved. Run --list to see all current dead references.");
+  console.error("\nEvery backticked path under a known repo root must be TRACKED BY GIT, with exact");
+  console.error("casing. Package-relative citations are not checked. Fix or repoint the reference;");
+  console.error("run --list to see all current dead references.");
   process.exit(1);
 }
 

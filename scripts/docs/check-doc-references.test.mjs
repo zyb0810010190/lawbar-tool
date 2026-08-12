@@ -180,3 +180,57 @@ test("CLI: a baseline entry for a deleted file is reported as stale", () => {
   assert.equal(r.code, 0);
   assert.match(r.out, /baseline entr(y|ies) for deleted file/);
 });
+
+// ------------------------------------------------- flags and env seam safety
+
+test("CLI: setting only one env seam is a hard error", () => {
+  // Regression: DOC_REFS_ROOTS alone + --update rewrote the REAL baseline to cover only the
+  // narrowed subtree. Every omission reads as a decrease, so the anti-raise guard never fired.
+  const r = (() => {
+    try {
+      execFileSync(process.execPath, [SCRIPT, "--list"], {
+        encoding: "utf8", env: { ...process.env, DOC_REFS_ROOTS: "docs/adr", DOC_REFS_BASELINE: "" },
+      });
+      return { code: 0, out: "" };
+    } catch (e) { return { code: e.status, out: (e.stdout || "") + (e.stderr || "") }; }
+  })();
+  assert.equal(r.code, 2);
+  assert.match(r.out, /must be set together/);
+});
+
+test("CLI: --update --force PRINTS the files it raised", () => {
+  // Regression: --force skipped the raised computation, so a forced increase left no audit trail.
+  const d = makeCorpus();
+  doc(d, "a.md", "dead: `docs/nope/x.md`\n");
+  run(d, ["--update"]);
+  doc(d, "a.md", "dead: `docs/nope/x.md` `docs/nope/y.md`\n");
+  const r = run(d, ["--update", "--force"]);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /recording an INCREASE/);
+  assert.match(r.out, /1 -> 2/, "the forced run must name what got worse");
+});
+
+test("CLI: an unknown flag is rejected rather than silently ignored", () => {
+  const d = makeCorpus();
+  doc(d, "a.md", "x\n");
+  const r = run(d, ["--nope"]);
+  assert.equal(r.code, 2);
+  assert.match(r.out, /unknown flag/);
+});
+
+test("CLI: bare --force without --update is rejected", () => {
+  const d = makeCorpus();
+  doc(d, "a.md", "x\n");
+  const r = run(d, ["--force"]);
+  assert.equal(r.code, 2);
+  assert.match(r.out, /only meaningful with --update/);
+});
+
+test("CLI: a gitignored-but-present path is dead, matching what CI sees", () => {
+  // The guard resolves against the git index, so working-tree presence cannot mask a dead ref.
+  const d = makeCorpus();
+  doc(d, "a.md", "ignored: `dev-memo/superseded/case-box-plan.md`\n");
+  const r = run(d, ["--list"]);
+  assert.match(r.out, /dev-memo\/superseded\/case-box-plan\.md/,
+    "an untracked path must count as dead even when it exists locally");
+});
