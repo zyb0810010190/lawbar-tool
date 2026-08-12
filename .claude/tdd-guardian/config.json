@@ -32,9 +32,10 @@
     },
     {
       "name": "case-box-persistence",
-      "description": "In-memory + SQLite conformance, audit chain, hardening and impl-parity suites. Verified 2026-08-12: 675 + 273 + 288, zero failures.",
+      "description": "In-memory + SQLite conformance, audit chain, hardening and impl-parity suites. Verified 2026-08-12: 675 + 273 + 288, zero failures. Measured 6s on 2026-08-12; trigger set from that measurement, not an estimate.",
       "command": "npm --prefix services/case-box-persistence test",
       "gateOn": [
+        "taskCompleted",
         "commit"
       ],
       "coverage": "none",
@@ -75,9 +76,10 @@
     },
     {
       "name": "ocr-persistence",
-      "description": "better-sqlite3 ABI smoke + queue conformance. Verified 2026-08-12: 232 tests, 232 pass.",
+      "description": "better-sqlite3 ABI smoke + queue conformance. Verified 2026-08-12: 232 tests, 232 pass. Measured 2s on 2026-08-12; trigger set from that measurement, not an estimate.",
       "command": "npm --prefix services/ocr-persistence test",
       "gateOn": [
+        "taskCompleted",
         "commit"
       ],
       "coverage": "none",
@@ -85,9 +87,10 @@
     },
     {
       "name": "ocr-worker-bakeoff",
-      "description": "Verified 2026-08-12: 98 tests, 92 pass, 0 fail (remainder skipped).",
+      "description": "Verified 2026-08-12: 98 tests, 92 pass, 0 fail (remainder skipped). Measured 16s on 2026-08-12; trigger set from that measurement, not an estimate.",
       "command": "npm --prefix services/ocr-worker-bakeoff test",
       "gateOn": [
+        "taskCompleted",
         "commit"
       ],
       "coverage": "none",
@@ -95,13 +98,14 @@
     },
     {
       "name": "ocr-worker",
-      "description": "Builds contracts + ocr-persistence + worker, then runs the worker suite. Includes a real-engine inference path, so it is slower than its siblings. Verified by execution 2026-08-12: 482 tests, 479 pass, 0 fail (remainder skipped). Run in CI by services-ci-ocr.yml.",
+      "description": "Builds contracts + ocr-persistence + worker, then runs the worker suite. Verified by execution 2026-08-12: 482 tests, 479 pass, 0 fail (remainder skipped). Run in CI by services-ci-ocr.yml, which invokes the real-engine inference smoke as a SEPARATE step — it is not part of this command. Measured 5s on 2026-08-12; trigger set from that measurement, not an estimate.",
       "command": "npm --prefix services/ocr-worker test",
       "gateOn": [
-        "push"
+        "taskCompleted",
+        "commit"
       ],
       "coverage": "none",
-      "timeoutMs": 1800000
+      "timeoutMs": 600000
     },
     {
       "name": "desktop",
