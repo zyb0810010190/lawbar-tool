@@ -26,7 +26,7 @@ Ordering reflects what blocks what, not effort.
 - **A0.7 renderer-conformance** is PROVISIONAL, not green. Four harness defects are open, and
   three of five oracles carry no sample points. No Evidence UI ships until it is genuinely
   green; a class-2 result reopens the geometry-source assumption entirely. Detail:
-  `.claude/rules/evidence-harness.md` and `docs/product/product-definition.md`.
+  `docs/product/product-definition.md`.
   *No lane document exists for closing these defects — that gap is itself outstanding work.*
 
 **Ship v1 (the release cluster — mostly READY, not executed)**
