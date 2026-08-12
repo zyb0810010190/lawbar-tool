@@ -29,7 +29,9 @@
     "apps/lawbar-desktop/electron/**/*.ts",
     "apps/lawbar-desktop/renderer/**/*.ts",
     "services/*/src/**/*.ts",
-    "docs/contracts/case-box-contract/src/**/*.ts"
+    "docs/contracts/case-box-contract/src/**/*.ts",
+    "apps/lawbar-desktop/electron/**/*.mts",
+    "apps/lawbar-desktop/electron/**/*.mjs"
   ],
   "mappings": [],
   "mappingsNote": "Empty on purpose. All four mapping strategies were applied: no config mappings existed, plain-markdown provides no framework convention, convention-based matching returned 0 hits across 165 source files, and no external doc layer exists to map to. Add entries here as documentation is written.",
@@ -65,5 +67,6 @@
     "**/tests/**",
     "docs/contracts/**/node_modules/**",
     "docs/contracts/**/dist/**"
-  ]
+  ],
+  "sourcesNote": "Globs must include *.mts: apps/lawbar-desktop/electron/preload.mts is the contextBridge trust boundary and was outside configured scope until 2026-08-12, so coverage runs reported it as neither documented nor undocumented — it simply did not exist to the tool."
 }

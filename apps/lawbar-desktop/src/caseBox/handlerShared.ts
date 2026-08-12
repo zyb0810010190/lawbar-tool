@@ -19,6 +19,18 @@ import type { IpcEnvelope } from "./dto.js";
 // @types/better-sqlite3 and adding a dependency is out of scope for this WI.
 type Database = OpenSqliteCaseBoxPersistenceResult["db"];
 
+/**
+ * The IPC wire names. These string VALUES are the contract between the two
+ * processes, and the link is convention only: `preload.mts` hardcodes the same
+ * literals rather than importing this map. Renaming a KEY is a compile error at
+ * the `ipcMain.handle(CHANNEL.x, …)` call sites; changing a VALUE compiles
+ * clean and silently breaks the preload method it backs, leaving the renderer
+ * calling a channel nothing handles. Only the per-key string-equality unit
+ * tests catch that, and they do not cover every key.
+ *
+ * `unregisterCaseBoxIpcHandlers` iterates this map, so a case-box channel
+ * registered under a literal absent from here is never torn down.
+ */
 export const CHANNEL = {
   matterCreate: "casebox:matter:create",
   matterGet: "casebox:matter:get",

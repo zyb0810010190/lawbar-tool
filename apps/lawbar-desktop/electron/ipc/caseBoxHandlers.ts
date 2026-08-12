@@ -62,6 +62,15 @@ import { newUlid } from "../../src/caseBox/ulid.js";
 
 export { CHANNEL };
 
+/**
+ * Wiring for `registerCaseBoxIpcHandlers`. Every field is optional, but the
+ * optionality is not uniform: `persistenceProvider` / `now` / `idFactory` fall
+ * back to real defaults, whereas the remaining fields have no fallback and
+ * their channels DEGRADE INSTEAD OF FAILING — the channel is still registered
+ * and still answers, with `ok: false` / `not_implemented`. A main process
+ * missing one of them therefore looks fully alive until a user attempts the
+ * write. See `registerCaseBoxIpcHandlers` for the exact dep→channel map.
+ */
 export interface RegisterCaseBoxIpcHandlersOptions {
   readonly persistenceProvider?: PersistenceProvider;
   readonly now?: ClockFn;
@@ -92,6 +101,28 @@ const LINK_UNAVAILABLE_ENVELOPE = {
   },
 };
 
+/**
+ * Binds an `ipcMain.handle` to EVERY entry in `CHANNEL`, unconditionally —
+ * missing dependencies never leave a channel unregistered. Instead the affected
+ * channels degrade silently but safely, returning an `ok: false` /
+ * `not_implemented` envelope, so a misconfigured main process presents a
+ * complete API surface while quietly refusing the writes behind it. The
+ * degradations, all verified against the bodies below:
+ *
+ *  - `chooseDocumentFile` OR `storeDocumentFile` absent (both are required)
+ *    → `documentRegister` only.
+ *  - `t3ExportDeps` absent → `t3ExportDocx` only.
+ *  - `linkPersistenceProvider` absent AND the runtime has no SQLite handles
+ *    → all five link channels (create / unlink / relink / list / export).
+ *    An explicitly injected provider is used as-is and is never checked for
+ *    being SQLite-backed.
+ *
+ * `persistenceProvider`, `now` and `idFactory` do not degrade; they default to
+ * `getCaseBoxRuntime`, `new Date()` and `newUlid`.
+ *
+ * The link check runs per invocation, not at registration, so link channels
+ * recover on their own once SQLite is available — no re-registration needed.
+ */
 export function registerCaseBoxIpcHandlers(
   options: RegisterCaseBoxIpcHandlersOptions = {},
 ): void {
@@ -238,6 +269,16 @@ export function registerCaseBoxIpcHandlers(
   });
 }
 
+/**
+ * Tears down exactly `Object.values(CHANNEL)` — it does not track what
+ * `registerCaseBoxIpcHandlers` actually bound. The two sets match today only
+ * because every registration goes through a `CHANNEL` key. A handler bound to a
+ * string literal that is not in `CHANNEL` survives this call and stays bound to
+ * its old closure, holding a stale persistence runtime across a teardown/
+ * re-register cycle. Any new case-box channel MUST be added to `CHANNEL`.
+ *
+ * Non-case-box channels (`theme:*`, `app:info`) are deliberately untouched.
+ */
 export function unregisterCaseBoxIpcHandlers(): void {
   for (const channel of Object.values(CHANNEL)) {
     ipcMain.removeHandler(channel);

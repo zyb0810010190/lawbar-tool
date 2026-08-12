@@ -371,6 +371,40 @@ function assertNonTerminal<S extends string>(
   }
 }
 
+// ---------------------------------------------------------------------------
+// The assertValid*Transition family
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared contract for the seven `assertValid*Transition` functions below. All
+ * seven THROW `IllegalTransitionError` and return nothing — there is no result
+ * to inspect, so a call whose return value is discarded still enforces.
+ *
+ * Each applies three checks in order: `from` must not be a terminal state for
+ * that entity; `from === to` is always rejected; and the full
+ * (from, to, controlled_by) triple must appear in that entity's
+ * `ALLOWED_*_EDGES` table.
+ *
+ * `controlled_by` is the load-bearing parameter and the reason a legal-looking
+ * edge can still throw. Every edge in every table names exactly ONE owning
+ * actor, so the same (from, to) pair is legal for its owner and illegal for
+ * everyone else. Only `ALLOWED_DOCUMENT_EDGES` grants a non-lawyer anything —
+ * `ingestion` may take a document registered → ocr_pending, `coordinator` may
+ * take it ocr_pending → ocr_complete | ocr_failed. Every promotion into a
+ * lawyer-owned state (document → triaged, fact → reviewed | accepted, evidence
+ * → accepted, docket entry → confirmed, privilege marker → confirmed | waived)
+ * is `by: ["lawyer"]`. That is the mechanism preventing the ingestion pipeline
+ * from promoting its own output: passing `"ingestion"` for a lawyer edge throws
+ * exactly as an undefined edge would. The `review` actor owns no edge in any
+ * table and can therefore transition nothing.
+ *
+ * Reason enforcement exists only in the three functions whose signature carries
+ * a `reason` parameter — deadline, privilege marker, docket entry — which are
+ * exactly the three tables declaring `reason_required`. The matter, document,
+ * evidence and fact asserts accept no reason at all, so adding a
+ * `reason_required` edge to one of those tables would NOT be enforced. The
+ * lookup matches on (from, to) and ignores the actor.
+ */
 export function assertValidMatterTransition(
   from: MatterState,
   to: MatterState,
@@ -385,6 +419,7 @@ export function assertValidMatterTransition(
   }
 }
 
+/** See the family contract on `assertValidMatterTransition`. */
 export function assertValidDocumentTransition(
   from: DocumentState,
   to: DocumentState,
@@ -399,6 +434,7 @@ export function assertValidDocumentTransition(
   }
 }
 
+/** See the family contract on `assertValidMatterTransition`. */
 export function assertValidEvidenceTransition(
   from: EvidenceState,
   to: EvidenceState,
@@ -413,6 +449,7 @@ export function assertValidEvidenceTransition(
   }
 }
 
+/** See the family contract on `assertValidMatterTransition`. Reason-enforcing. */
 export function assertValidDeadlineTransition(
   from: DeadlineState,
   to: DeadlineState,
@@ -438,6 +475,7 @@ export function assertValidDeadlineTransition(
   }
 }
 
+/** See the family contract on `assertValidMatterTransition`. */
 export function assertValidFactTransition(
   from: FactState,
   to: FactState,
@@ -452,6 +490,7 @@ export function assertValidFactTransition(
   }
 }
 
+/** See the family contract on `assertValidMatterTransition`. Reason-enforcing. */
 export function assertValidPrivilegeMarkerTransition(
   from: PrivilegeMarkerState,
   to: PrivilegeMarkerState,
@@ -480,6 +519,7 @@ export function assertValidPrivilegeMarkerTransition(
 // Generic state-machine transition for docket entries. Date_only confirmation
 // safety is owned by assertValidDocketEntryConfirmation in docket-invariants.ts;
 // callers performing a confirmation MUST use that helper, not this one.
+/** See the family contract on `assertValidMatterTransition`. Reason-enforcing. */
 export function assertValidDocketEntryTransition(
   from: DocketEntryState,
   to: DocketEntryState,

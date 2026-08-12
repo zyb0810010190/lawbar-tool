@@ -65,6 +65,16 @@ import type {
   T3ExportDocxResult,
 } from "../src/caseBox/dto.js";
 
+/**
+ * The theme bridge — the one `window.lawbar` surface that does NOT follow the
+ * `CaseBoxApi` envelope convention. `get`/`set` resolve to a bare value and
+ * REJECT when the main-process handler throws, so call sites need try/catch;
+ * there is no `ok` flag to branch on.
+ *
+ * `onSystemChange` only adds an `ipcRenderer.on` listener and hands back no
+ * unsubscribe handle. Every call permanently adds another listener for the
+ * lifetime of the window — subscribe once at startup, never per render.
+ */
 export interface ThemeApi {
   get(): Promise<{ preference: ThemePreference; resolved: ResolvedTheme }>;
   set(mode: ThemePreference): Promise<{ preference: ThemePreference; resolved: ResolvedTheme }>;
@@ -73,6 +83,31 @@ export interface ThemeApi {
   ): void;
 }
 
+/**
+ * The complete renderer→main capability surface for case material. The renderer
+ * is sandboxed and has no filesystem or database access of its own, so every
+ * read of and every write to local client material passes through one of these
+ * methods. (`theme` and `appInfo` share the `window.lawbar` global but reach no
+ * case material.)
+ *
+ * Every method resolves to a discriminated envelope — `{ ok: true, value }` or
+ * `{ ok: false, error }` — because the main-process handlers convert persistence
+ * throws into `ok: false`. A REJECTED promise therefore means the main process
+ * itself is broken, not that the operation was refused. Never treat a resolved
+ * promise as success; branch on `ok`.
+ *
+ * Tenant and actor identity are server authority: main injects them from
+ * `getActiveTenantId()` / `getActiveActorUserId()`. Supplying `tenant_id`,
+ * `actor_user_id` or any other server-authority field in a DTO does not
+ * override them and is not ignored either — the per-channel forbidden-field
+ * guard REJECTS the whole call. Responses are projected through per-entity
+ * allowlists that strip that identity back out before it crosses the bridge.
+ *
+ * Adding a method here widens the security boundary. A new method needs a
+ * matching `CHANNEL` entry, a main-process handler, and that handler's own
+ * shape guard, forbidden-field guard, tenant/matter preflight and response
+ * projection. Nothing in this interface enforces any of that.
+ */
 export interface CaseBoxApi {
   createMatter(dto: CreateMatterDto): Promise<CreateMatterResult>;
   getMatter(dto: GetMatterDto): Promise<GetMatterResult>;

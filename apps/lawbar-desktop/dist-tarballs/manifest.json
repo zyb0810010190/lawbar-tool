@@ -4,10 +4,10 @@
       "name": "case-box-contract",
       "sourceDir": "docs/contracts/case-box-contract",
       "tarball": "dist-tarballs/case-box-contract-0.1.0.tgz",
-      "sizeBytes": 86348,
-      "integrity": "sha512-Hae3yvfyUHIDljOP+rh1ZZkpwA/f8n8MbssEB/62kPg2mpJRgjpD0EYXsNZHQm3dxZ5lZaSceoDZUzygtuBMXg==",
+      "sizeBytes": 92173,
+      "integrity": "sha512-1SAIBzgR/quuvKt9e3mq25Q8oUZPVrNuVvIVDKklx5gp4ROS1hHkW26Pa3JPY86adYjB4MvpuYUp11FBSu+u3A==",
       "rewrites": {},
-      "packedAt": "2026-08-12T06:23:07.436Z"
+      "packedAt": "2026-08-12T12:37:03.997Z"
     },
     {
       "name": "case-box-persistence",
@@ -18,7 +18,7 @@
       "rewrites": {
         "case-box-contract": "0.1.0"
       },
-      "packedAt": "2026-08-12T06:23:07.763Z"
+      "packedAt": "2026-08-12T12:37:04.308Z"
     }
   ],
   "generator": "scripts/pack-internal-packages.mjs",

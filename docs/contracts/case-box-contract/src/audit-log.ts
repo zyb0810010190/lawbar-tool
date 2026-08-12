@@ -69,6 +69,25 @@ interface AuditKindMeta {
   readonly reasonRequired: boolean;
 }
 
+/**
+ * The frozen audit vocabulary. A key's NAME is not a label — for v2 events both
+ * `event_kind` and `audit_schema_version` are fields of the canonical hash
+ * input, so the name is part of what every stored event's hash commits to, and
+ * `verifyAuditChain` additionally re-checks that a stored kind's declared
+ * `{action, entity_type, reasonRequired}` still matches the event it is on.
+ *
+ * ADDING a key is additive-safe: no existing event's canonical bytes change.
+ * The JSON-Schema `event_kind` enum must be extended in the same commit, or
+ * `validateAuditEvent` rejects every event carrying the new kind.
+ *
+ * RENAMING or REMOVING a key breaks stored events OF THAT KIND — not merely
+ * their hashes. Those events fail the schema enum, and
+ * `canonicalAuditEventHashInput` throws `unknown event_kind`, so chains
+ * containing them stop verifying and cannot be re-hashed. Editing an existing
+ * key's `action` or `entity_type`, or flipping `reasonRequired` false→true,
+ * retroactively invalidates already-stored events of that kind at the verifier's
+ * consistency check. Treat every entry below as append-only.
+ */
 export const CASE_BOX_AUDIT_EVENT_KINDS = Object.freeze({
   MATTER_REGISTERED:          { action: "create",          entity_type: "matter",           reasonRequired: false },
   MATTER_ARCHIVED:            { action: "update",          entity_type: "matter",           reasonRequired: false },
@@ -163,6 +182,7 @@ export type CaseBoxAuditEventKind = keyof typeof CASE_BOX_AUDIT_EVENT_KINDS;
 // Reason-required helper
 // ---------------------------------------------------------------------------
 
+/** Thrown only by `assertReasonForAuditEventKind`; the builder never throws it. */
 export class AuditEventReasonRequiredError extends Error {
   readonly kind: CaseBoxAuditEventKind;
   constructor(kind: CaseBoxAuditEventKind) {
@@ -172,6 +192,23 @@ export class AuditEventReasonRequiredError extends Error {
   }
 }
 
+/**
+ * Enforces the kind's `reasonRequired` flag by THROWING
+ * `AuditEventReasonRequiredError`.
+ *
+ * The same invariant is enforced a second time, in the opposite error style, by
+ * `buildCaseBoxAuditEvent`, which returns `ok: false` with a `required-by-kind`
+ * error and never throws. This is not redundancy to pick from at random: the
+ * builder is the emission path (persistence MUST emit through it, per the
+ * module header), and only the builder's output reaches the chain. Use this
+ * throwing helper only to reject a missing reason at a call site EARLIER than
+ * event construction — e.g. validating user input before a write is attempted.
+ * Calling both on one path adds no protection.
+ *
+ * Both check `length === 0` only, so a whitespace-only reason (`" "`) passes
+ * here and in `verifyAuditChain`. Persistence guards trim separately; the
+ * contract layer does not.
+ */
 export function assertReasonForAuditEventKind(
   kind: CaseBoxAuditEventKind,
   reason: string | null | undefined,
@@ -191,6 +228,16 @@ export type AuditEventHash = string & { readonly __brand: "AuditEventHash" };
 
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 
+/**
+ * The only gate that mints the `AuditEventHash` brand — nothing revalidates the
+ * brand afterwards, so a value that bypasses this function via a cast is
+ * indistinguishable from a real digest downstream.
+ *
+ * Accepts `/^[0-9a-f]{64}$/` exactly: 64 characters, lowercase hex only. An
+ * uppercase digest, a `0x` prefix, surrounding whitespace, or any other length
+ * is rejected. Rejection is a plain `Error`, not a typed contract error, so it
+ * cannot be caught by class.
+ */
 export function asAuditEventHash(value: string): AuditEventHash {
   if (!SHA256_HEX_RE.test(value)) {
     throw new Error(
@@ -200,6 +247,18 @@ export function asAuditEventHash(value: string): AuditEventHash {
   return value as AuditEventHash;
 }
 
+/**
+ * The hasher `verifyAuditChain` requires. It is a REQUIRED member of that
+ * function's options and has deliberately no default — the verifier can never
+ * silently fall back to a weak or absent hash.
+ *
+ * The verifier trusts whatever this returns: the value becomes the expected
+ * `prev_event_hash` of the next event. Supplying a non-cryptographic
+ * implementation (a constant, say) makes a forged chain verify. The production
+ * implementation is `eventHashFn` in
+ * `services/case-box-persistence/src/auditChain.ts` — SHA-256 over
+ * `canonicalAuditEventHashInput`.
+ */
 export type EventHashFn = (event: CaseBoxAuditEvent) => AuditEventHash;
 
 // ---------------------------------------------------------------------------

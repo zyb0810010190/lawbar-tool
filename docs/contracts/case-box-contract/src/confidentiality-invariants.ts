@@ -104,6 +104,25 @@ export function isDowngrade(
   return nextOrdinal < priorOrdinal;
 }
 
+/**
+ * Gate on a classification change. Unlike `assertExternalHandlingAllowed` in
+ * this same file, it THROWS `ConfidentialityTransitionError` and returns
+ * nothing — there is no decision object to inspect.
+ *
+ * Only two moves cost a reason code, and both are loosenings of protection:
+ *  - `isDowngrade` — a move to a lower `LATTICE_ORDINAL` with both endpoints
+ *    inside the lattice.
+ *  - `isResetToUnclassified` — leaving a real level for `unclassified`.
+ *
+ * Everything else is free: first classification (`prior === null`), every
+ * upgrade, and any move OUT of `unclassified`. `unclassified` sits outside the
+ * ordinal lattice, so `unclassified → normal` is not a downgrade even though it
+ * is operationally a loosening — the reset direction is the one guarded.
+ *
+ * Only the PRESENCE of `change_reason_code` is checked; whether the code fits
+ * the move is not. Note that `isFirstClassification` is exported but is not
+ * consulted here.
+ */
 export function assertValidConfidentialityTransition(
   prior: ConfidentialityLevel | null,
   next: ConfidentialityLevel,
@@ -243,6 +262,33 @@ const KNOWN_EXTERNAL_ACTIONS: ReadonlySet<string> = new Set([
   "llm_extraction",
 ]);
 
+/**
+ * Decides whether confidential client material may leave this machine. Despite
+ * the `assert` name it NEVER throws — it RETURNS a decision, so ignoring the
+ * return value permits everything. Callers MUST branch on
+ * `decision.allowed === true`; do not re-derive permission from `denialReasons`
+ * or `evidence` (both are diagnostic, and the denial vocabulary is open to
+ * extension, so "no reason I recognise" is not permission).
+ *
+ * DENY BY DEFAULT. `allowed` is true only when ALL of the following hold:
+ *  - `externalAction` is one of the three known actions. An unknown action
+ *    short-circuits: it returns `["external_action_not_recognized"]` alone and
+ *    NO other check runs, so that lone reason is not evidence the rest passed.
+ *  - The effective level — the latest classification row for the target, or
+ *    `unclassified` when there are none — is exactly `normal`. Each of
+ *    `unclassified`, `confidential`, `highly_confidential` and `restricted`
+ *    denies. `confidential` denies for every action in v1.
+ *  - `matter.confidentiality_class` is `normal`; `heightened` and `sealed`
+ *    both deny categorically.
+ *  - `privilegeReviewState` is exactly `reviewed_no_privilege_applies`.
+ *    `not_reviewed` denies, and BOTH `privileged_protected` and
+ *    `privileged_with_waiver` deny — v1 has no per-action waiver.
+ *  - The opt-in flag for THIS action is true (`externalOcrAuthorized` /
+ *    `syncGrantPresent` / `llmExtractionOptIn`); the other two are ignored.
+ *
+ * Reasons accumulate, so a denial list normally names every failing condition
+ * at once — except in the unknown-action case above.
+ */
 export function assertExternalHandlingAllowed(
   input: AssertExternalHandlingInput,
 ): HandlingDecision {
