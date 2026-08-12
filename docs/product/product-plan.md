@@ -18,13 +18,13 @@ already shipped is a *record*, not a plan.**
 None of the eleven sources merged here was cited by source code — verified before merging, which
 is why they could move.
 
-> **Reading note (2026-08-12).** The absorbed sections below were written while
-> `.claude/rules/autonomy.md` existed, and twelve of them cite it as the hard-stop authority. That
-> file was deleted in the 2026-08-10 configuration reset. **Its product hard-stops now live in
-> `docs/product/product-definition.md` Part I §20 "Hard-stop decisions", which is self-contained
-> and authoritative.** The absorbed text is left as written — it is a record of what each lane
-> committed to at the time, and rewriting it would falsify that record. Read every
-> `autonomy.md` reference below as pointing at §20.
+> **Repaired 2026-08-12.** The absorbed sections below were written while
+> `.claude/rules/autonomy.md` was the hard-stop authority. That file was deleted in the
+> 2026-08-10 configuration reset, and its product hard-stops now live in
+> `docs/product/product-definition.md` Part I §20, which is self-contained and authoritative.
+> **Every such citation below has been repointed there.** This is forward-looking plan text, not
+> a historical record — a plan citing a deleted authority is a live defect, so the references
+> were repaired rather than annotated. The original wording named `.claude/rules/autonomy.md`.
 
 ## Sequenced overview
 
@@ -56,6 +56,7 @@ Ordering reflects what blocks what, not effort.
 
 ## Contents
 
+0. **A0.7 defect closure — the blocking lane** *(written 2026-08-12, not absorbed)*
 1. WeChat Mini Program companion (Gate 0) — plan
 2. WeChat Mini Program companion (Gate 0) — decision memo
 3. Night-mode / dark-mode theme foundation
@@ -68,14 +69,137 @@ Ordering reflects what blocks what, not effort.
 10. Desktop CI release gates
 11. Release checklist
 
-Each section below is its source document verbatim, with heading levels shifted one deeper so
-the file reads as one document. Provenance is stamped at the top of each.
+Sections 1–11 are their source documents verbatim, with heading levels shifted one deeper so the
+file reads as one document. Provenance is stamped at the top of each. Section 0 was written
+directly into this file — it is the one lane with no source document, which is why it did not
+exist until now.
+
+---
+
+## A0.7 defect closure — the blocking lane
+
+*Written directly 2026-08-12. Every claim below was verified against
+`native/evidence-core-swift/Sources/EvidenceCoreSmoke/A07ConformanceHarness.swift` (460 lines) and
+the oracle JSON before being written; file:line citations are the evidence.*
+
+**Why this lane exists.** A0.7 (`renderer-conformance`) is the first real Evidence architecture
+gate: it validates that PDFKit reports page geometry reproducibly enough for citations and anchors
+to be stable. No Evidence UI ships before it is genuinely green. It is **PROVISIONAL, not green**,
+and until 2026-08-12 it was the only outstanding item in this product with no plan at all —
+including in the file you are reading.
+
+**What "green" cannot currently mean.** The marker/attestation tooling that used to record a gate
+run was deleted on 2026-08-10 with the governance layer. Nothing in this repository can presently
+prove the gate ran, so "A0.7 is green" is not a claim any artifact here is entitled to make. That
+is a separate gap from the four defects below and is listed last.
+
+### D1 — NaN silently passes every tolerance check *(class-1, fixable)*
+
+Every geometry comparison in the harness has the form `if abs(observed - expected) > tol` —
+`A07ConformanceHarness.swift:269` (box width/height), `:276` (origin), `:289-290` (cropBox),
+`:307` (normalized sample points).
+
+In IEEE 754, `NaN > tol` evaluates to **false**. So an observation of `NaN` does not trip any
+check; it passes. A grep for `isNaN` or `isFinite` across all 460 lines returns nothing — there is
+no finiteness guard anywhere in the file.
+
+**Why it matters here:** a NaN reaching the comparison means the renderer returned a
+non-representable coordinate. That is precisely the condition the gate exists to detect, and it is
+the one condition the gate is structurally blind to.
+
+**Closing it:** reject non-finite observations explicitly before comparison, and classify that
+rejection — a NaN from the geometry source is a class-2 signal, not a normalization bug.
+**Acceptance:** a fixture whose observed geometry contains NaN must produce `fail`, never `pass`.
+
+### D2 — an oracle with zero sample points can return `pass` *(class-1, fixable)*
+
+`A07ConformanceHarness.swift:119`:
+
+```swift
+var hasCheckableAssertions: Bool { !expected.perPageMediaBox.isEmpty || !expected.samplePoints.isEmpty }
+```
+
+The operator is `||`. An oracle carrying box assertions but **no** sample points therefore clears
+the guard at `:249`, the sample-comparison loop at `:305` iterates zero times, and execution falls
+through to `:315` returning `status: .pass, classification: .ok` — with the detail string
+`"all N box + 0 sample assertions within tolerance"`.
+
+So the harness can report a clean pass having never executed the coordinate-normalization check,
+which is the substance of what A0.7 is supposed to verify.
+
+**Closing it:** either require at least one sample point for a `pass` verdict, or introduce a
+distinct status meaning "box geometry verified, normalization unverified". A run that checked no
+sample points must not be reported the same way as one that checked several.
+**Acceptance:** a box-only oracle yields something other than `pass/ok`.
+
+### D3 — three of five oracles assert no normalization at all *(fixture gap)*
+
+Measured 2026-08-12, re-counted for this lane:
+
+| Oracle | samplePoints |
+|---|---|
+| `a07-renderer-conformance/oracle.json` | 5 |
+| `messy/synthetic-nonzero-origin.oracle.json` | 3 |
+| `messy/synthetic-cropbox.oracle.json` | **0** |
+| `messy/synthetic-mixed-sizes.oracle.json` | **0** |
+| `messy/synthetic-rotated.oracle.json` | **0** |
+
+The three carrying zero are exactly the hardest renderer conditions the messy fixtures exist to
+exercise — a cropBox/mediaBox mismatch, mixed page sizes, and rotation. Combined with D2, each of
+them currently returns a clean pass while testing nothing about coordinates.
+
+**Closing it:** populate `samplePoints` for those three, derived from how the fixture was
+constructed — **never back-filled from harness output**, which would make the oracle agree with
+whatever the code currently does. If a fixture genuinely cannot carry sample points, say so in the
+oracle and in the fixtures README rather than leaving an empty array that reads as coverage.
+**Acceptance:** each of the three either carries sample points or states in-file why it cannot.
+
+### D4 — a sample-count mismatch is classified class-1, and may not be *(classification risk)*
+
+`A07ConformanceHarness.swift:300-303` treats `observed.sampleNormalized.count !=
+oracle.expected.samplePoints.count` as `class_1_normalization_math_bug` — a fixable local bug.
+
+The class-1/class-2 distinction is the most consequential judgement this gate makes: class-1 means
+fix the normalization math; **class-2 means the geometry source itself is unstable and downstream
+anchor, forms and UI work must stop**. Misclassifying a class-2 as class-1 does not produce a
+visible failure — it produces continued construction on an unsound foundation.
+
+A count mismatch means the harness observed a different number of sample points than the oracle
+recorded for the same fixture. That is at least as consistent with the renderer enumerating page
+geometry differently — a class-2 signal — as with arithmetic.
+
+**This is stated as an open question, not a confirmed defect.** Deciding it requires reproducing a
+count mismatch and determining its cause; that has not been done.
+**Closing it:** either justify class-1 in a comment at `:301`, or reclassify. **Acceptance:** the
+choice is recorded with its reasoning, so the next reader does not have to re-derive it.
+
+### D5 — nothing can prove the gate ran *(blocked on a decision, not on code)*
+
+Even with D1–D4 closed, "A0.7 is green" is unverifiable: the marker writer and validator were
+deleted on 2026-08-10, and the audit that preceded their deletion concluded that agent-side
+attestation is not a trust boundary at all — the producer and the verifier ran as the same uid.
+
+**Closing it is a product decision, not a repair.** The options are a CI job that runs the harness
+where this process cannot reach it, or accepting that A0.7 status is asserted by a human rather
+than attested. Either is defensible; leaving it implicit is not.
+**Acceptance:** the choice is written down, and no artifact in this repo claims the gate is green
+until it is satisfied.
+
+### Sequencing
+
+D1 and D2 are independent code fixes and can proceed in parallel. D3 depends on D2 — populating
+sample points is pointless while a zero-count oracle still passes. D4 is a decision that should
+precede any further class-1 fix, since it governs what "fixable" means. D5 gates the word *green*
+and nothing else; D1–D4 can all close while D5 remains open.
+
+**Nothing in this lane is authorized by being written here.** Each item is stop-and-ask per
+`docs/product/product-definition.md` Part I §20.
 
 ---
 
 ## PLAN — WeChat Mini Program companion (Gate 0)
 
-*Absorbed 2026-08-12 from `dev-memo/plan-wechat-mini-program-00.md`. Content verbatim; heading levels shifted one deeper.*
+*Absorbed 2026-08-12 from dev-memo/plan-wechat-mini-program-00.md (source deleted in the same commit). Content verbatim; heading levels shifted one deeper.*
 
 
 **Status**: Gate-0 plan (doc-only). **Authorizes nothing.**
@@ -88,7 +212,7 @@ the file reads as one document. Provenance is stamped at the top of each.
 > precede any WeChat Mini Program effort. It does **not** authorize implementation, a Mini
 > Program skeleton, a bridge, an API service, new dependencies, cloud/public deployment, or
 > any contact with real matter data. Every item below that touches a hard stop in
-> `.claude/rules/autonomy.md` remains an explicit STOP-AND-ASK.
+> `docs/product/product-definition.md` Part I §20 remains an explicit STOP-AND-ASK.
 
 ### 1. Backend / API finding — **Category B**
 
@@ -159,7 +283,7 @@ filing decisions enumerated in §4.
    expose legal-document data off the lawyer's Mac — the exact posture the rule forbids
    without deliberate, per-action authorization.
 
-#### 3.1 Hard-stop gates that block implementation (`.claude/rules/autonomy.md`)
+#### 3.1 Hard-stop gates that block implementation (`docs/product/product-definition.md` Part I §20)
 
 - Choosing an auth provider.
 - Choosing a cloud vendor / any public deployment mode.
@@ -228,12 +352,12 @@ Each line above re-triggers one or more §3.1 hard stops and is gated accordingl
 
 ### References
 
-- `.claude/rules/client-local-first.md` — WeChat deferred companion; cloud opt-in; no public
+- `docs/product/product-definition.md` Part I §3 (local-first posture) — WeChat deferred companion; cloud opt-in; no public
   HTTP API in v1.
-- `.claude/rules/autonomy.md` — hard-stop list (auth provider, cloud vendor, external
+- `docs/product/product-definition.md` Part I §20 — hard-stop list (auth provider, cloud vendor, external
   document exposure, new deps, public API).
-- `.claude/rules/security-boundary.md` — security-sensitive surface discipline.
-- `.claude/rules/cc-suite.md` — review-plan broker; required before any high-risk impl WI.
+- the deleted .claude/rules/security-boundary.md rule — security-sensitive surface discipline.
+- the deleted .claude/rules/cc-suite.md rule — review-plan broker; required before any high-risk impl WI.
 - `docs/contracts/case-box-contract/`, `services/case-box-persistence/`,
   `apps/lawbar-desktop/electron/ipc/caseBoxHandlers.ts` — Category-B evidence (§1.1).
 
@@ -241,7 +365,7 @@ Each line above re-triggers one or more §3.1 hard stops and is gated accordingl
 
 ## DECISION MEMO — WeChat Mini Program companion (Gate 0)
 
-*Absorbed 2026-08-12 from `dev-memo/decision-wechat-mini-program-gate0-00.md`. Content verbatim; heading levels shifted one deeper.*
+*Absorbed 2026-08-12 from dev-memo/decision-wechat-mini-program-gate0-00.md (source deleted in the same commit). Content verbatim; heading levels shifted one deeper.*
 
 
 **Status**: decision memo (doc-only). **Authorizes nothing.**
@@ -249,11 +373,11 @@ Each line above re-triggers one or more §3.1 hard stops and is gated accordingl
 **Date**: 2026-06-13.
 **Author**: Claude Code.
 **Input evidence**: WI-WX0 plan commit `1b34bb4`
-(`dev-memo/plan-wechat-mini-program-00.md`) — backend/API finding **Category B**, Gate 0
+(§1 of this plan) — backend/API finding **Category B**, Gate 0
 **HOLD**, implementation **BLOCKED**.
 
 > This memo resolves what it can from repo evidence and **explicitly marks unresolved** every
-> item that depends on a hard-stop decision (`.claude/rules/autonomy.md`) or an external fact
+> item that depends on a hard-stop decision (`docs/product/product-definition.md` Part I §20) or an external fact
 > not present in the repo. A memo cannot grant a hard-stop authorization; only the user can.
 
 ### Repo constraints carried in (input, not re-decided here)
@@ -263,7 +387,7 @@ Each line above re-triggers one or more §3.1 hard stops and is gated accordingl
 - **No Category-A authenticated HTTPS backend exists.**
 - `client-local-first.md`: WeChat = **deferred companion only**; cloud/sync **opt-in, never
   default-on**; **"Public HTTP API" is a forbidden v1 framing**.
-- `autonomy.md` hard-stops: auth-provider choice, cloud vendor / public deployment, external
+- hard-stops (product-definition Part I §20): auth-provider choice, cloud vendor / public deployment, external
   document exposure, new runtime dependencies.
 
 ### Decisions
@@ -289,19 +413,19 @@ cannot be authorized until #1 (product-direction move), #4 (auth), #5 (cloud), a
 #### 4. Auth-provider decision required?
 **REQUIRED; provider NOT selected.** A Mini Program backend needs identity + session +
 tenant/matter authorization (today `tenant_id` is forward-compat-only, no auth surface
-exists). Choosing an auth provider is an `autonomy.md` **hard stop** — STOP-AND-ASK. This
+exists). Choosing an auth provider is an **hard stop** (product-definition Part I §20) — STOP-AND-ASK. This
 memo records that the decision is required and **does not select one** (no prior
 authorization exists).
 
 #### 5. Public cloud / public deployment allowed?
 **UNRESOLVED — hard stop; vendor NOT selected.** Cloud vendor and public deployment are
-`autonomy.md` hard stops and conflict with the local-first default-off posture. This memo
+hard stop (product-definition Part I §20)s and conflict with the local-first default-off posture. This memo
 records the decision is required and **selects no vendor and no deployment mode** (no prior
 authorization exists). **Default state: not allowed.**
 
 #### 6. Expose legal matter metadata or documents to an external service?
 **NOT ALLOWED by default → document/file content is OUT OF SCOPE.** Exposing legal documents
-(real or production-shaped) to external/cloud services is an `autonomy.md` hard stop and a
+(real or production-shaped) to external/cloud services is an hard stop (product-definition Part I §20) and a
 `client-local-first.md` forbidden framing. Until #1 is authorized with an explicit,
 per-action, opt-in exposure model, **file/document content stays out of scope entirely**, and
 even matter *metadata* exposure remains unresolved (a companion may at most see an
@@ -354,19 +478,19 @@ user decision, not a further technical artifact.
 
 ### References
 
-- `dev-memo/plan-wechat-mini-program-00.md` (commit `1b34bb4`) — Gate-0 plan, Category-B
+- §1 of this plan (commit `1b34bb4`) — Gate-0 plan, Category-B
   finding, HOLD/BLOCKED.
-- `.claude/rules/client-local-first.md` — WeChat deferred companion; cloud opt-in; no public
+- `docs/product/product-definition.md` Part I §3 (local-first posture) — WeChat deferred companion; cloud opt-in; no public
   HTTP API in v1.
-- `.claude/rules/autonomy.md` — hard-stop list.
-- `.claude/rules/security-boundary.md`, `.claude/rules/cc-suite.md` — security + review
+- `docs/product/product-definition.md` Part I §20 — hard-stop list.
+- the deleted .claude/rules/security-boundary.md rule, the deleted .claude/rules/cc-suite.md rule — security + review
   discipline for any future high-risk WI.
 
 ---
 
 ## Plan: Night-Mode / Dark-Mode Theme Foundation (PLAN-ONLY)
 
-*Absorbed 2026-08-12 from `dev-memo/plan-night-mode-foundation-00.md`. Content verbatim; heading levels shifted one deeper.*
+*Absorbed 2026-08-12 from dev-memo/plan-night-mode-foundation-00.md (source deleted in the same commit). Content verbatim; heading levels shifted one deeper.*
 
 
 > **ENUMERATION + DESIGN ONLY.** This document specifies the theme-foundation contract that any future Mac-client UI must implement. It does NOT author UI code, does NOT make a desktop framework decision (Electron / Tauri / native — STOP-AND-ASK per brief §20 + `dev-memo/plan-client-00.md` §6), does NOT add any new runtime dependency, does NOT activate production, does NOT make legal / vendor / signing / external-exposure decisions. Each follow-up implementation WI requires SEPARATE explicit user authorization.
@@ -395,12 +519,12 @@ This plan defines:
 7. **§7 STOP-AND-ASK gates** — framework choice; renderer UI framework choice; new runtime dependency (e.g., color library or contrast checker); Apple Developer ID + notarization (orthogonal to theme; flagged for completeness).
 8. **§8 Suggested follow-up WIs** — each separately authorized.
 
-Plan-only file: `dev-memo/plan-night-mode-foundation-00.md` (THIS FILE).
+Plan-only file: §3 of this plan (THIS FILE).
 
 #### Exact target files (THIS plan-WI)
 
 CREATED (single file):
-- `dev-memo/plan-night-mode-foundation-00.md` — THIS FILE.
+- §3 of this plan — THIS FILE.
 
 NOT touched by this plan-WI's commit:
 - `docs/ui/**` (the UI design surface; this file is upstream of any UI doc edit).
@@ -444,7 +568,7 @@ NOT touched by this plan-WI's commit:
 - `docs/ui/ui-gap-report.md` (gaps between contracts and a future UI).
 - `docs/ui/sync-bridge-contract-draft.md` (companion channel — post-v1; not theme-related).
 - `dev-memo/plan-go-live-readiness-00.md` gate #3 (Mac-client surface — OPEN) + gate #4 (distribution + signing — STOP-AND-ASK).
-- `.claude/rules/autonomy.md` §"Hard-stop list".
+- `docs/product/product-definition.md` Part I §20.
 - WCAG 2.1 §1.4.3 (contrast minimum) + §1.4.11 (non-text contrast) — referenced by name only; do NOT cite external URLs.
 
 #### Review questions for the reviewer
@@ -773,7 +897,7 @@ This plan is stale or superseded when:
 
 ## Forms-spec design note — T4 举证质证表 (proof / cross-examination table) (FORMS-T4-SPEC-00)
 
-*Absorbed 2026-08-12 from `dev-memo/forms-t4-spec-00.md`. Content verbatim; heading levels shifted one deeper.*
+*Absorbed 2026-08-12 from dev-memo/forms-t4-spec-00.md (source deleted in the same commit). Content verbatim; heading levels shifted one deeper.*
 
 
 **Date**: 2026-07-04. **Type**: design/spec note (documentation only — no implementation, no schema, no
@@ -894,15 +1018,15 @@ product scope + proof model are still open, whereas T3's were resolved by DR-00.
 - `docs/product/product-definition.md` Part I (status `READY`) §12/§14 (proof matrix = post-v1 STOP-AND-ASK).
 - `dev-memo/plan-forms-t3-evidence-catalog-00.md` + `dev-memo/adr-forms-t3-s0-schema.md` + the S1/S2/S3
   artifacts (the reuse baseline + the ADR/schema/impl chain pattern T4 will echo one step later).
-- `.claude/rules/autonomy.md` (product-direction + new-runtime-dependency hard stops),
-  `.claude/rules/project-brief.md` (authority hierarchy; `READY` brief governs product direction),
-  `.claude/rules/evidence-genie.md` (manual-truth invariant), `.claude/rules/client-local-first.md`.
+- `docs/product/product-definition.md` Part I §20 (product-direction + new-runtime-dependency hard stops),
+  the deleted .claude/rules/project-brief.md rule (authority hierarchy; `READY` brief governs product direction),
+  `docs/product/product-definition.md` Part II §5 (Evidence invariants, migrated there when the rule was deleted) (manual-truth invariant), `docs/product/product-definition.md` Part I §3 (local-first posture).
 
 ---
 
 ## macOS Developer-ID signing + notarization — lane (READY, not executed)
 
-*Absorbed 2026-08-12 from `dev-memo/desktop-macos-signing-notarization.md`. Content verbatim; heading levels shifted one deeper.*
+*Absorbed 2026-08-12 from dev-memo/desktop-macos-signing-notarization.md (source deleted in the same commit). Content verbatim; heading levels shifted one deeper.*
 
 
 **WI**: `WI-DESKTOP-MACOS-SIGNING-NOTARIZATION-07`. **Status**: config + docs prepared; **NOT signed / NOT
@@ -1013,20 +1137,20 @@ distribute that adhoc build to off-machine users without accepting the Gatekeepe
 RC1 handoff.
 
 ### References
-- `dev-memo/desktop-rc1-artifact-handoff.md` — RC1 artifacts + Gatekeeper open steps.
-- `dev-memo/release-checklist.md` — the release checklist.
+- §8 of this plan — RC1 artifacts + Gatekeeper open steps.
+- §11 of this plan — the release checklist.
 - electron-builder code signing / notarization docs (v25).
 
 ---
 
 ## Desktop production-launch readiness
 
-*Absorbed 2026-08-12 from `dev-memo/desktop-production-launch-readiness.md`. Content verbatim; heading levels shifted one deeper.*
+*Absorbed 2026-08-12 from dev-memo/desktop-production-launch-readiness.md (source deleted in the same commit). Content verbatim; heading levels shifted one deeper.*
 
 
 **WI**: `WI-DESKTOP-PRODUCTION-LAUNCH-READINESS-09`. **`main` @** `7d96a7b`. **Docs/verification only — no product change.**
 Verifies the **production** launch path (no `LAWBAR_MODE=dev`): FileVault enforcement, first-run, local data
-location, and Chinese UI. The app is an **unsigned** RC (see `dev-memo/desktop-macos-signing-notarization.md`).
+location, and Chinese UI. The app is an **unsigned** RC (see §5 of this plan).
 
 ### TL;DR
 
@@ -1139,8 +1263,8 @@ On a Mac with **FileVault ON** (System Settings → Privacy & Security → FileV
 4. **Version 0.1.0** placeholder; no auto-update.
 
 ### References
-- `dev-memo/desktop-rc1-artifact-handoff.md`, `dev-memo/desktop-macos-signing-notarization.md`,
-  `dev-memo/desktop-release-smoke-matrix.md`, `dev-memo/release-checklist.md`.
+- §8 of this plan, §5 of this plan,
+  §7 of this plan, §11 of this plan.
 - `apps/lawbar-desktop/electron/main.ts` (whenReady block), `src/security/fileVaultProbe.ts`
   (`probeFileVault` / `resolveMode` / `decideAction`), `tests/main.test.mjs` (enforcement unit tests).
 
@@ -1148,7 +1272,7 @@ On a Mac with **FileVault ON** (System Settings → Privacy & Security → FileV
 
 ## Desktop release smoke matrix — WI-DESKTOP-RELEASE-SMOKE-MATRIX-05
 
-*Absorbed 2026-08-12 from `dev-memo/desktop-release-smoke-matrix.md`. Content verbatim; heading levels shifted one deeper.*
+*Absorbed 2026-08-12 from dev-memo/desktop-release-smoke-matrix.md (source deleted in the same commit). Content verbatim; heading levels shifted one deeper.*
 
 
 A small, durable **packaged-app** smoke that proves the core lawyer workflows still work after
@@ -1166,7 +1290,7 @@ npm --prefix apps/lawbar-desktop run dist            # build the packaged app fi
 npm --prefix apps/lawbar-desktop run test:smoke-matrix   # alias of test:ui-packaged
 ```
 
-The wrapper (`scripts/test-packaged-wrapper.mjs`) launches the packaged bundle with a temp
+The wrapper (`apps/lawbar-desktop/scripts/test-packaged-wrapper.mjs`) launches the packaged bundle with a temp
 `--user-data-dir` and `LAWBAR_MODE=dev` (FileVault bypass in dev), and post-scans for stray DB files
 in the repo tree (local-first / no-leak guard).
 
@@ -1203,20 +1327,20 @@ Plus the **local-first invariant**: post-run scan asserts the SQLite DB lives on
 - Deep sub-screen CRUD (add document / deadline / fact / link) — covered by the pure-Node renderer unit
   tests; adding them to the packaged smoke would lengthen it without new release-risk signal.
 - Multiple-matter / pagination / cursor flows — unit-tested; not a launch-smoke concern.
-- Windows/Linux packaged runs — v1 is macOS-only (`.claude/rules/client-local-first.md`).
+- Windows/Linux packaged runs — v1 is macOS-only (`docs/product/product-definition.md` Part I §3 (local-first posture)).
 - IPC-failure error banners in the packaged app — no failure-injection seam; unit-tested instead.
 
 ---
 
 ## Lawbar desktop — RC1 artifact handoff
 
-*Absorbed 2026-08-12 from `dev-memo/desktop-rc1-artifact-handoff.md`. Content verbatim; heading levels shifted one deeper.*
+*Absorbed 2026-08-12 from dev-memo/desktop-rc1-artifact-handoff.md (source deleted in the same commit). Content verbatim; heading levels shifted one deeper.*
 
 
 **WI**: `WI-DESKTOP-RC1-ARTIFACT-HANDOFF-06`. **`main` @** `16a8f85`. **App version** 0.1.0 (`io.lawbar.desktop`, productName `lawbar`).
 **Status**: internal release candidate. **Docs only — no product change.** ⚠️ **Unsigned / not notarized** (see §Signing).
 
-Repeatable handoff for the macOS desktop build: what to build, what it produces, how to verify it, and how to open + confirm it. The `.app` bundles are **not** committed (`release/` is gitignored — 300 MB+ each); this doc + `dev-memo/release/rc1-checksums.txt` are the committed handoff; the artifacts are produced locally by `npm run dist`.
+Repeatable handoff for the macOS desktop build: what to build, what it produces, how to verify it, and how to open + confirm it. The `.app` bundles are **not** committed (`release/` is gitignored — 300 MB+ each); this doc + the deleted dev-memo/release/rc1-checksums.txt record are the committed handoff; the artifacts are produced locally by `npm run dist`.
 
 ### 1. Verification sequence (run from clean `main`)
 
@@ -1245,7 +1369,7 @@ npm --prefix apps/lawbar-desktop run test:smoke-matrix # packaged M1-M9 smoke ag
 
 ### 3. Checksums (SHA256)
 
-The `.app` is a **directory bundle**, so the manifest checksums its single-file, content-bearing parts (`Contents/Resources/app.asar` — the bundled renderer+main code; and the arch-specific electron launcher stub). Full manifest: **`dev-memo/release/rc1-checksums.txt`**.
+The `.app` is a **directory bundle**, so the manifest checksums its single-file, content-bearing parts (`Contents/Resources/app.asar` — the bundled renderer+main code; and the arch-specific electron launcher stub). Full manifest: **the deleted dev-memo/release/rc1-checksums.txt record**.
 
 | Arch | `app.asar` SHA256 | bytes |
 |---|---|---|
@@ -1331,7 +1455,7 @@ This is asserted automatically by the packaged smoke matrix (M1/M2/M3/M5/M8/M9):
 
 ## Desktop local data — schema migration / upgrade compatibility
 
-*Absorbed 2026-08-12 from `dev-memo/desktop-data-migration-compat.md`. Content verbatim; heading levels shifted one deeper.*
+*Absorbed 2026-08-12 from dev-memo/desktop-data-migration-compat.md (source deleted in the same commit). Content verbatim; heading levels shifted one deeper.*
 
 
 **WI**: `WI-DESKTOP-DATA-MIGRATION-COMPAT-16`. Confidence that an existing local case-box SQLite store created by
@@ -1386,7 +1510,7 @@ It exercises the **real runtime entrypoint** with **synthetic data** in temp fil
 
 **Synthetic only, and guarded.** An `assertSafeTempRoot()` **preflight** refuses to run if `os.tmpdir()` resolves
 inside the repo tree or `~/Library`. Everything is a temp file under `os.tmpdir()`; nothing is written into the repo
-tree or `~/Library`, and no real client data / `dev-memo/run/intake/` is touched.
+tree or `~/Library`, and no real client data / the deleted dev-memo/run/intake/ tree is touched.
 
 ### 4. Test-layer decision (why the persistence package, not `apps/lawbar-desktop`)
 
@@ -1424,7 +1548,7 @@ entrypoint, so a green test here **is** the desktop compatibility guarantee.
 
 ## Desktop CI release gates
 
-*Absorbed 2026-08-12 from `dev-memo/desktop-ci-release-gates.md`. Content verbatim; heading levels shifted one deeper.*
+*Absorbed 2026-08-12 from dev-memo/desktop-ci-release-gates.md (source deleted in the same commit). Content verbatim; heading levels shifted one deeper.*
 
 
 **WI**: `WI-DESKTOP-CI-RELEASE-GATES-10`. **Docs + CI workflow only — no product change.** Adds an automated
@@ -1469,14 +1593,14 @@ Native `better-sqlite3` is rebuilt per run (fast; `postdist` restores the host b
 #### Signing / notarization
 **None in CI.** The default `dist` is unsigned (`identity: null`); `dist:release` (the signed path) is **not**
 invoked and would fail-closed without credentials anyway. No Apple secrets are referenced, read, or required.
-The signing lane stays credential-gated (`dev-memo/desktop-macos-signing-notarization.md`).
+The signing lane stays credential-gated (§5 of this plan).
 
 #### Artifacts
 Generated `release/**` bundles are **not** uploaded or committed (300 MB+, gitignored). The gate proves the
 release path builds + smokes; it does not publish artifacts.
 
 ### `check-ui-design-artifact`
-**Unchanged.** It remains a separate workflow (`.github/workflows/ui-design-artifact.yml`), untouched by this WI.
+**Unchanged.** It remains a separate workflow (the deleted .github/workflows/ui-design-artifact.yml gate), untouched by this WI.
 
 ### Local verification (this machine, before push)
 - `npm --prefix apps/lawbar-desktop ci` → exit 0 (lock in sync; committed tarballs install).
@@ -1499,12 +1623,12 @@ The new gate is **required for merge** by policy (do not merge a PR whose deskto
 
 ## Lawbar desktop — release checklist
 
-*Absorbed 2026-08-12 from `dev-memo/release-checklist.md`. Content verbatim; heading levels shifted one deeper.*
+*Absorbed 2026-08-12 from dev-memo/release-checklist.md (source deleted in the same commit). Content verbatim; heading levels shifted one deeper.*
 
 
 A repeatable pre-release checklist for the macOS desktop app. Tick top-to-bottom. Companion docs:
-`dev-memo/desktop-rc1-artifact-handoff.md` (artifacts + open steps), `dev-memo/desktop-macos-signing-notarization.md`
-(signing/notarization lane), `dev-memo/desktop-release-smoke-matrix.md` (smoke matrix).
+§8 of this plan (artifacts + open steps), §5 of this plan
+(signing/notarization lane), §7 of this plan (smoke matrix).
 
 ### 0. Preconditions
 - [ ] On a clean `main` (or the release branch): `git status --short` shows no unexpected changes.
@@ -1519,11 +1643,11 @@ A repeatable pre-release checklist for the macOS desktop app. Tick top-to-bottom
 
 ### 2. Artifacts
 - [ ] `apps/lawbar-desktop/release/` contains the intended bundles for the chosen target (dev: `mac-arm64`/`mac` `.app`; release: `.dmg` + `.zip`).
-- [ ] Record filenames, sizes, arch, SHA256 → refresh `dev-memo/release/rc1-checksums.txt` (or a versioned copy).
+- [ ] Record filenames, sizes, arch, SHA256 → refresh the deleted dev-memo/release/rc1-checksums.txt record (or a versioned copy).
 - [ ] Confirm `release/**` is NOT committed (gitignored).
 
 ### 3. Signing / notarization (release builds only)
-- [ ] Credentials present (see `dev-memo/desktop-macos-signing-notarization.md` §4): Developer ID cert (keychain or `CSC_LINK`/`CSC_KEY_PASSWORD`) + notary creds (`APPLE_ID`+`APPLE_APP_SPECIFIC_PASSWORD`+`APPLE_TEAM_ID`, or `APPLE_API_KEY*`+`APPLE_TEAM_ID`).
+- [ ] Credentials present (see §5 of this plan §4): Developer ID cert (keychain or `CSC_LINK`/`CSC_KEY_PASSWORD`) + notary creds (`APPLE_ID`+`APPLE_APP_SPECIFIC_PASSWORD`+`APPLE_TEAM_ID`, or `APPLE_API_KEY*`+`APPLE_TEAM_ID`).
 - [ ] `npm --prefix apps/lawbar-desktop run dist:release` → signs + notarizes + staples.
 - [ ] `npm --prefix apps/lawbar-desktop run verify:signing -- release/mac-arm64/lawbar.app`:
   - [ ] `Authority=Developer ID Application: <Name> (<TEAMID>)`
