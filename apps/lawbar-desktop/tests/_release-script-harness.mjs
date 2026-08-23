@@ -163,19 +163,39 @@ function sq(s) {
   return `'${String(s).split("'").join(`'\\''`)}'`;
 }
 
-// One log record per invocation, assembled in a variable and written with ONE
-// `printf` — a single write(2) to an O_APPEND fd, so concurrent stubs inside a
-// pipeline (e.g. `security … | grep -q …`) cannot interleave mid-record.
-// Format: name line, one line per argv element, blank-line terminator. One argv
-// element per line means arguments containing SPACES round-trip exactly (T7.8).
-// Known limit: an argv element that is itself the empty string would read as a
-// terminator. No case in this suite passes one.
+// One log record per invocation, written under a MUTEX.
+//
+// This used to rely on a single `printf` being a single write(2) to an O_APPEND fd, and
+// asserted in a comment that concurrent stubs in a pipeline "cannot interleave mid-record".
+// That is false once a record exceeds the stdio buffer, and CI proved it: the anchored
+// Developer-ID regex added to the preflight made the `grep` record long enough to split, and
+// on a clean macOS runner the `security` and `grep` records of `security … | grep -Eq …`
+// interleaved into one corrupt record. It had passed on every local run.
+//
+// The two sides of that pipeline are genuinely concurrent, so the fix is an actual lock
+// rather than a bigger buffer. `mkdir` is atomic on every POSIX filesystem, needs no tools
+// beyond the shell, and works on bash 3.2. The spin is bounded so a stub that dies holding
+// the lock degrades to a possibly-interleaved record instead of hanging the suite.
+//
+// Format: name line, one line per argv element, blank-line terminator. One argv element per
+// line means arguments containing SPACES round-trip exactly (T7.8). Known limit: an argv
+// element that is itself the empty string would read as a terminator. No case here passes one.
 function logPrelude(name) {
   return [
     `__rec=${sq(name)}`,
     `for __a in "$@"; do __rec="$__rec`,
     `$__a"; done`,
-    `printf '%s\\n\\n' "$__rec" >> "\${LAWBAR_STUB_LOG:-/dev/null}"`,
+    `__log="\${LAWBAR_STUB_LOG:-/dev/null}"`,
+    `if [ "$__log" != "/dev/null" ]; then`,
+    `  __i=0`,
+    `  while ! mkdir "$__log.lock" 2>/dev/null; do`,
+    `    __i=$((__i + 1)); [ "$__i" -gt 5000 ] && break`,
+    `  done`,
+    `  printf '%s\\n\\n' "$__rec" >> "$__log"`,
+    `  rmdir "$__log.lock" 2>/dev/null`,
+    `else`,
+    `  printf '%s\\n\\n' "$__rec" >> "$__log"`,
+    `fi`,
   ].join("\n");
 }
 
