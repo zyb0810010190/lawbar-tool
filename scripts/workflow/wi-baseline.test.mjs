@@ -459,3 +459,16 @@ test("B-16 an unknown subcommand fails loudly rather than doing nothing", () => 
   assert.equal(r.status, 2);
   assert.match(r.out, /unknown command/);
 });
+
+// GAP 3 — recorded as a todo so it is visible in the lane it belongs to.
+//
+// Most of the stage-2/stage-5 shell moved out of the workflow document into this script and
+// is covered above. The DESKTOP worktree baseline did not: it clones 613 MB of node_modules,
+// restores committed tarballs and runs a full build, which is heavy to fixture. It remains a
+// markdown code block, and historically that block has been the most defect-prone text in the
+// repo — four audits found defects in it.
+//
+// `package-baseline` is NOT a substitute: it clones node_modules from the LIVE tree, which for
+// the desktop means HEAD source against current tarballs — the mixed tree the desktop
+// procedure exists to avoid.
+test("GAP-3 the desktop worktree baseline procedure is covered by a test", { todo: "heavy fixture: 613 MB clone + tarball restore + full build; still prose in development-workflow.md" }, () => {});

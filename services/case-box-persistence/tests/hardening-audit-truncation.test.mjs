@@ -363,3 +363,14 @@ test("WI05-5 both implementations share ONE invariant, so they cannot drift", as
       /assertAuditChainNotErased/, `${f} must use the shared invariant, not its own copy`);
   }
 });
+
+// GAP 2 — recorded as a todo, with its scope CORRECTED.
+//
+// An earlier summary said "partial tampering needs a full chain walk", which read as though
+// no such walk existed. It does, and it is tested: verifyAuditChainForMatter returns
+// prev_event_hash_mismatch for both a mutated and a deleted mid-chain event, covered by
+// auditChain.test.mjs 6.3.4 and four other assertions. The capability is present.
+//
+// The actual remainder is narrower: NO IPC exposes verification to the renderer, so a user
+// cannot trigger it from the app. Anyone with the API can; the litigator cannot.
+test("GAP-2 the renderer can trigger a full chain verification", { todo: "verify IPC surface not yet exposed; the persistence-level walk exists and is tested" }, () => {});

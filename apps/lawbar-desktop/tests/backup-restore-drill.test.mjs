@@ -240,3 +240,15 @@ test("WI04 backup round-trip is EQUAL, not merely openable", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// GAP 1 — recorded as a todo so it surfaces on every lane run rather than sitting in prose.
+//
+// The backup script DOES copy the -wal/-shm sidecars (backup-local-data.mjs), so this is a
+// COVERAGE gap, not a correctness one: no test exercises that path. Removing the sidecar loop
+// from the script still passes the suite, which was confirmed by mutation.
+//
+// What blocks it: producing a genuinely hot WAL in a fixture. Closing the database
+// checkpoints it, and the CLI closes cleanly on exit, so the obvious fixtures all leave the
+// sidecars empty or absent. It needs a process killed mid-transaction, which is more fixture
+// engineering than WI-04's three stated criteria justified.
+test("GAP-1 a backup captures uncheckpointed WAL data", { todo: "needs a fixture that leaves a hot WAL; see WI-04 notes" }, () => {});
