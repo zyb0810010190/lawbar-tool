@@ -410,11 +410,12 @@ export function listEvidenceItems(
 // ---------------------------------------------------------------------------
 
 import type { CaseBoxMatter as _CBM7Ev } from "case-box-contract";
+import { InMemoryAuditLog } from "./auditHeadAnchor.js";
 
 interface EvidenceRepoView {
   matters: Map<string, _CBM7Ev>;
   documents: Map<string, { document: import("case-box-contract").CaseBoxDocument; matter_id: string }>;
-  auditByMatter: Map<string, StoredAuditEvent[]>;
+  audit: InMemoryAuditLog;
 }
 interface EvidenceCDeps { generateId: () => string; nowIso: () => string; }
 
@@ -435,7 +436,7 @@ export function applyAppendEvidenceItem(
     nowIso: deps.nowIso,
     storedAuditEventsForMatter: () => {
       if (typeof matterIdFromInput !== "string") return [];
-      return repo.auditByMatter.get(matterIdFromInput) ?? [];
+      return repo.audit.get(matterIdFromInput);
     },
     getDocument: (documentId) => {
       const entry = repo.documents.get(documentId);
@@ -458,8 +459,6 @@ export function applyAppendEvidenceItem(
   state.evidenceIds.add(prepared.row.id);
   state.evidenceIndex.set(prepared.row.id, prepared.matterId);
   state.evidenceById.set(prepared.row.id, prepared.row);
-  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
-  stored.push(prepared.audit);
-  repo.auditByMatter.set(prepared.matterId, stored);
+  repo.audit.append(prepared.matterId, prepared.audit);
   return structuredClone(prepared.row) as CaseBoxEvidenceItem;
 }

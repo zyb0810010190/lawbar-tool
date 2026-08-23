@@ -428,11 +428,12 @@ import type { CaseBoxMatter } from "case-box-contract";
 import type {
   GetPrivilegeStatusQuery,
 } from "./types.js";
+import { InMemoryAuditLog } from "./auditHeadAnchor.js";
 
 interface RepoView {
   matters: Map<string, CaseBoxMatter>;
   documents: Map<string, { document: import("case-box-contract").CaseBoxDocument; matter_id: string }>;
-  auditByMatter: Map<string, StoredAuditEvent[]>;
+  audit: InMemoryAuditLog;
 }
 interface CDeps {
   generateId: () => string;
@@ -456,7 +457,7 @@ export function applyAppendPrivilegeMarker(
     nowIso: deps.nowIso,
     storedAuditEventsForMatter: () => {
       if (typeof matterIdFromInput !== "string") return [];
-      return repo.auditByMatter.get(matterIdFromInput) ?? [];
+      return repo.audit.get(matterIdFromInput);
     },
     getDocument: (documentId) => {
       const entry = repo.documents.get(documentId);
@@ -471,9 +472,7 @@ export function applyAppendPrivilegeMarker(
   state.markersByMatter.set(prepared.matterId, arr);
   state.privilegeIds.add(prepared.row.id);
   state.markerIndex.set(prepared.row.id, prepared.matterId);
-  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
-  stored.push(prepared.audit);
-  repo.auditByMatter.set(prepared.matterId, stored);
+  repo.audit.append(prepared.matterId, prepared.audit);
   return structuredClone(prepared.row) as CaseBoxPrivilegeMarker;
 }
 

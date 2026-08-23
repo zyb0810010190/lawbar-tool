@@ -36,6 +36,7 @@ import type {
 
 import { eventHashFn, type StoredAuditEvent } from "../auditChain.js";
 import { CaseBoxPersistenceError } from "../errors.js";
+import { assertAuditChainNotErased } from "../auditChainInvariant.js";
 import { prepareRegisterDocument } from "../inMemoryDocument.js";
 import {
   listAuditEventsSqlite,
@@ -524,7 +525,23 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
     return listDocumentsSqlite(this.#db, query);
   }
   async listAuditEvents(query: ListAuditEventsQuery): Promise<ListAuditEventsPage> {
-    return listAuditEventsSqlite(this.#db, query);
+    const page = listAuditEventsSqlite(this.#db, query);
+    // WI-05: an empty FIRST page for a matter that exists is erasure, not absence of history.
+    //
+    // The cursor exemption is DEFENSIVE, not load-bearing, and mutation testing proved it:
+    // removing it changes no reachable behaviour today, because normal paging never asks for
+    // an empty page (next_cursor is null on the last page) and a malformed cursor throws
+    // invalid_argument before reaching here. It stays because a future paging change could
+    // make an empty trailing page reachable, and a false "your history was deleted" on
+    // ordinary paging would be nearly as damaging as missing a real erasure. Do not read the
+    // surviving mutant as a test gap — it is an equivalent mutant.
+    if (page.rows.length === 0 && query.cursor === undefined) {
+      const exists = this.#db
+        .prepare("SELECT 1 FROM case_box_matters WHERE id = ?")
+        .get(query.matter_id);
+      if (exists !== undefined) assertAuditChainNotErased(query.matter_id, 0);
+    }
+    return page;
   }
   // Implemented in B1 (not stubbed) because the case_box_audit_chain_heads
   // table is introduced by B1's DDL (matter writes update it from day one);
@@ -549,8 +566,15 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
       | { head_hash: string | null; last_event_id: string | null; event_count: number }
       | undefined;
     if (row === undefined) {
+      // WI-05: the matter exists (checked above), so a missing head row is a deleted chain,
+      // not a fresh one. Returning count:0 here is what let the app show erasure as "empty".
+      assertAuditChainNotErased(matterId, 0);
+    }
+    if (row === undefined) {
+      /* unreachable: assertAuditChainNotErased always throws for count 0 */
       return { headHash: null, lastEventId: null, count: 0 };
     }
+    assertAuditChainNotErased(matterId, row.event_count);
     return {
       headHash: row.head_hash as AuditChainHead["headHash"],
       lastEventId: row.last_event_id,

@@ -532,11 +532,12 @@ export function listDocketEntries(
 // ---------------------------------------------------------------------------
 
 import type { CaseBoxMatter as _CBM7Docket } from "case-box-contract";
+import { InMemoryAuditLog } from "./auditHeadAnchor.js";
 
 interface DocketRepoView {
   matters: Map<string, _CBM7Docket>;
   documents: Map<string, { document: import("case-box-contract").CaseBoxDocument; matter_id: string }>;
-  auditByMatter: Map<string, StoredAuditEvent[]>;
+  audit: InMemoryAuditLog;
 }
 interface DocketCDeps { generateId: () => string; nowIso: () => string; }
 
@@ -557,7 +558,7 @@ export function applyAppendDocketEntry(
     nowIso: deps.nowIso,
     storedAuditEventsForMatter: () => {
       if (typeof matterIdFromInput !== "string") return [];
-      return repo.auditByMatter.get(matterIdFromInput) ?? [];
+      return repo.audit.get(matterIdFromInput);
     },
     getDocument: (documentId) => {
       const entry = repo.documents.get(documentId);
@@ -580,9 +581,7 @@ export function applyAppendDocketEntry(
   state.docketIds.add(prepared.row.id);
   state.docketIndex.set(prepared.row.id, prepared.matterId);
   state.docketById.set(prepared.row.id, prepared.row);
-  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
-  stored.push(prepared.audit);
-  repo.auditByMatter.set(prepared.matterId, stored);
+  repo.audit.append(prepared.matterId, prepared.audit);
   return structuredClone(prepared.row) as CaseBoxDocketEntry;
 }
 
@@ -717,15 +716,13 @@ export function applyEditDocketEntry(
   const prepared = prepareEditDocketEntry(state, opts, {
     generateId: deps.generateId,
     nowIso: deps.nowIso,
-    storedAuditEventsForMatter: (matterId) => repo.auditByMatter.get(matterId) ?? [],
+    storedAuditEventsForMatter: (matterId) => repo.audit.get(matterId),
   });
   const arr = state.entriesByMatter.get(prepared.matterId) ?? [];
   const idx = arr.findIndex((e) => e.id === opts.entry_id);
   if (idx >= 0) arr[idx] = prepared.next;
   state.entriesByMatter.set(prepared.matterId, arr);
   state.docketById.set(opts.entry_id, prepared.next);
-  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
-  stored.push(prepared.audit);
-  repo.auditByMatter.set(prepared.matterId, stored);
+  repo.audit.append(prepared.matterId, prepared.audit);
   return structuredClone(prepared.next) as CaseBoxDocketEntry;
 }

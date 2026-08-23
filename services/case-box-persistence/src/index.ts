@@ -111,3 +111,4 @@ export type {
   DeadlineCalendarQuery,
   GetFactSupersessionChainQuery,
 } from "./types.js";
+export { assertAuditChainNotErased } from "./auditChainInvariant.js";

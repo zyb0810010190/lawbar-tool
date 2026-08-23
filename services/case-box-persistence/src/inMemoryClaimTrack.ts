@@ -25,6 +25,7 @@ import {
   priorHeadOf,
   type StoredAuditEvent,
 } from "./auditChain.js";
+import { InMemoryAuditLog } from "./auditHeadAnchor.js";
 
 export interface ClaimTrackState {
   /** Per-matter array in insertion order. */
@@ -209,7 +210,7 @@ export function prepareCreateClaimTrack(
 
 interface ClaimTrackRepoView {
   matters: Map<string, CaseBoxMatter>;
-  auditByMatter: Map<string, StoredAuditEvent[]>;
+  audit: InMemoryAuditLog;
 }
 interface ClaimTrackCDeps {
   generateId: () => string;
@@ -230,7 +231,7 @@ export function applyCreateClaimTrack(
     nowIso: deps.nowIso,
     storedAuditEventsForMatter: () => {
       if (typeof matterIdFromInput !== "string") return [];
-      return repo.auditByMatter.get(matterIdFromInput) ?? [];
+      return repo.audit.get(matterIdFromInput);
     },
     getMatterPartyRef: (matterId) => matterPartyRefOf(repo.matters.get(matterId)),
   });
@@ -240,9 +241,7 @@ export function applyCreateClaimTrack(
   state.claimTrackIds.add(prepared.row.id);
   state.claimTrackIndex.set(prepared.row.id, prepared.matterId);
   state.claimTrackById.set(prepared.row.id, prepared.row);
-  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
-  stored.push(prepared.audit);
-  repo.auditByMatter.set(prepared.matterId, stored);
+  repo.audit.append(prepared.matterId, prepared.audit);
   return structuredClone(prepared.row) as CaseBoxClaimTrack;
 }
 
