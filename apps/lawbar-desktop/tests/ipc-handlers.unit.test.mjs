@@ -7,6 +7,7 @@ import {
   listMattersHandler,
   archiveMatterHandler,
   chainHeadHandler,
+  verifyChainHandler,
   listAuditEventsHandler,
   listDocumentsHandler,
   getDocumentHandler,
@@ -46,6 +47,7 @@ function makeProvider(overrides) {
       opts,
     }),
     getAuditChainHead: async (id) => ({ headHash: null, lastEventId: null, count: 0, _matterId: id }),
+    verifyAuditChainForMatter: async () => ({ ok: true, verifiedCount: 0, headHash: null }),
     listAuditEvents: async (q) => ({ rows: [], next_cursor: null, query: q }),
     listDocuments: async (q) => ({ rows: [], next_cursor: null, query: q }),
     getDocument: async () => null,
@@ -1056,4 +1058,128 @@ test("registerDocument schema violation (negative byte_size from storeFile) → 
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "invalid_payload");
   assert.equal(registered, false);
+});
+
+// ---- GAP-2: casebox:audit:verifyChain -------------------------------------------------------
+//
+// These sit alongside the chainHead cases deliberately: the two channels take the same one-field
+// DTO over the same matter, so any guard chainHead has and verify lacks is a weaker door onto the
+// same data.
+
+test("verifyChain happy path: intact chain returns the projected ok result", async () => {
+  const provide = makeProvider({
+    verifyAuditChainForMatter: async () => ({
+      ok: true,
+      verifiedCount: 7,
+      headHash: "sha256:abc",
+    }),
+  });
+  const result = await verifyChainHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, true);
+  assert.equal(result.value.ok, true);
+  assert.equal(result.value.verifiedCount, 7);
+  assert.equal(result.value.headHash, "sha256:abc");
+});
+
+// The single most important behaviour of this channel. A tampered chain is a SUCCESSFUL
+// verification with a negative finding, so the transport envelope must stay ok:true. If this ever
+// collapses to ok:false the renderer shows a generic IPC error and a real tamper becomes
+// indistinguishable from a network-shaped bug — silently destroying the feature's whole purpose.
+test("verifyChain: a DETECTED TAMPER is ok:true outer / ok:false inner, never an IPC error", async () => {
+  const provide = makeProvider({
+    verifyAuditChainForMatter: async () => ({
+      ok: false,
+      errorIndex: 3,
+      errorReason: "prev_event_hash_mismatch",
+      detail: "event[3].prev_event_hash (...) does not match prior event hash (...)",
+    }),
+  });
+  const result = await verifyChainHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, true, "verification RAN, so the envelope must report success");
+  assert.equal(result.error, undefined);
+  assert.equal(result.value.ok, false, "the chain itself is broken");
+  assert.equal(result.value.errorIndex, 3);
+  assert.equal(result.value.errorReason, "prev_event_hash_mismatch");
+});
+
+// Boundary projection. Two of the nine verifier branches interpolate tenant_id / matter_id into
+// `detail`, and this boundary excludes those fields everywhere else (see
+// LIST_AUDIT_EVENTS_RESPONSE_FIELDS). A `{...result}` spread in the handler would pass this string
+// through unnoticed, so this asserts on the ABSENCE of the key AND on the absence of the leaked
+// value anywhere in the serialized payload.
+test("verifyChain: the persistence `detail` string never crosses the boundary", async () => {
+  const provide = makeProvider({
+    verifyAuditChainForMatter: async () => ({
+      ok: false,
+      errorIndex: 1,
+      errorReason: "tenant_id_mismatch",
+      detail: 'event[1].tenant_id ("SECRET-TENANT-abc") does not match prior chain tenant_id ("default-tenant")',
+    }),
+  });
+  const result = await verifyChainHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, true);
+  assert.equal("detail" in result.value, false, "`detail` must be dropped, not forwarded");
+  const wire = JSON.stringify(result);
+  assert.equal(
+    wire.includes("SECRET-TENANT-abc"),
+    false,
+    "a tenant id embedded in `detail` reached the renderer payload",
+  );
+});
+
+test("verifyChain absent matter → unknown_matter; the verifier is never called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    verifyAuditChainForMatter: async () => {
+      called = true;
+      return { ok: true, verifiedCount: 0, headHash: null };
+    },
+  });
+  const result = await verifyChainHandler({ matterId: "01jznope00000000000000000z" }, provide);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "unknown_matter");
+  assert.equal(called, false, "an unknown matter must be rejected before any chain walk");
+});
+
+test("verifyChain tenant mismatch → tenant_mismatch; the verifier is never called", async () => {
+  let called = false;
+  const provide = makeProvider({
+    getMatter: async () => ({ id: FIXED_ID, tenant_id: "other-tenant", status: "active" }),
+    verifyAuditChainForMatter: async () => {
+      called = true;
+      return { ok: true, verifiedCount: 0, headHash: null };
+    },
+  });
+  const result = await verifyChainHandler({ matterId: FIXED_ID }, provide);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "tenant_mismatch");
+  assert.equal(called, false);
+});
+
+test("verifyChain rejects a non-object payload", async () => {
+  const provide = makeProvider();
+  for (const bad of [null, undefined, "x", 3, []]) {
+    const result = await verifyChainHandler(bad, provide);
+    assert.equal(result.ok, false, `payload ${JSON.stringify(bad) ?? "undefined"} must be rejected`);
+  }
+});
+
+test("verifyChain rejects an unknown field and each forbidden authority field", async () => {
+  const provide = makeProvider();
+  const unknown = await verifyChainHandler({ matterId: FIXED_ID, limit: 5 }, provide);
+  assert.equal(unknown.ok, false);
+  assert.equal(unknown.error.code, "invalid_payload");
+  for (const f of ["tenant_id", "actor_user_id"]) {
+    const r = await verifyChainHandler({ matterId: FIXED_ID, [f]: "x" }, provide);
+    assert.equal(r.ok, false, `${f} must be refused, not silently ignored`);
+  }
+});
+
+test("verifyChain rejects a missing or empty matterId", async () => {
+  const provide = makeProvider();
+  for (const bad of [{}, { matterId: "" }, { matterId: 7 }]) {
+    const r = await verifyChainHandler(bad, provide);
+    assert.equal(r.ok, false);
+    assert.equal(r.error.code, "invalid_payload");
+  }
 });

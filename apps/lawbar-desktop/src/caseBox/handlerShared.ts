@@ -39,6 +39,7 @@ export const CHANNEL = {
   matterUpdateDetails: "casebox:matter:updateDetails",
   auditChainHead: "casebox:audit:chainHead",
   auditListEvents: "casebox:audit:listEvents",
+  auditVerifyChain: "casebox:audit:verifyChain",
   documentList: "casebox:document:list",
   documentGet: "casebox:document:get",
   documentRegister: "casebox:document:register",

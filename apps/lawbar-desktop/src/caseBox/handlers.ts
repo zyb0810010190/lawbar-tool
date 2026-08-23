@@ -14,7 +14,7 @@ export {
   archiveMatterHandler,
 } from "./matterHandlers.js";
 
-export { chainHeadHandler, listAuditEventsHandler } from "./auditHandlers.js";
+export { chainHeadHandler, listAuditEventsHandler, verifyChainHandler } from "./auditHandlers.js";
 
 export {
   listDocumentsHandler,

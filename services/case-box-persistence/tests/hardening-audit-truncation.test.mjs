@@ -364,13 +364,22 @@ test("WI05-5 both implementations share ONE invariant, so they cannot drift", as
   }
 });
 
-// GAP 2 — recorded as a todo, with its scope CORRECTED.
+// GAP 2 — CLOSED. Kept as a pointer rather than deleted, because the todo that sat here for
+// several sessions described the gap accurately and the record of where it went is worth having.
 //
-// An earlier summary said "partial tampering needs a full chain walk", which read as though
-// no such walk existed. It does, and it is tested: verifyAuditChainForMatter returns
-// prev_event_hash_mismatch for both a mutated and a deleted mid-chain event, covered by
-// auditChain.test.mjs 6.3.4 and four other assertions. The capability is present.
+// The scope was always narrower than it first read. `verifyAuditChainForMatter` has long returned
+// prev_event_hash_mismatch for both a mutated and a deleted mid-chain event (auditChain.test.mjs
+// 6.3.4 plus four further assertions). The capability was never missing; only its exposure was.
 //
-// The actual remainder is narrower: NO IPC exposes verification to the renderer, so a user
-// cannot trigger it from the app. Anyone with the API can; the litigator cannot.
-test("GAP-2 the renderer can trigger a full chain verification", { todo: "verify IPC surface not yet exposed; the persistence-level walk exists and is tested" }, () => {});
+// It also turned out not to be an oversight. The in-app audit view was REMOVED deliberately on
+// 2026-08-05 (commit 2275551) at the user's request, and the todo was written without that fact.
+// The view has since been reinstated by decision, together with the verification action that never
+// existed before it.
+//
+// The renderer path cannot be exercised from this lane — it is IPC + DOM, not persistence. It is
+// covered in the desktop lane:
+//   apps/lawbar-desktop/tests/ipc-handlers.unit.test.mjs   — casebox:audit:verifyChain, 8 cases,
+//       including that a detected tamper is a SUCCESSFUL call and that the persistence `detail`
+//       string (which can embed tenant_id / matter_id) never crosses the boundary.
+//   apps/lawbar-desktop/tests/renderer-view-matter.test.mjs — the verify control, 7 cases,
+//       including that a tampered chain renders as a finding and never reads as intact.

@@ -11,6 +11,7 @@ import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
 import {
   VALID_ULID,
   VALID_ULID_2,
+  EVENT_ULID,
   SAMPLE_HASH,
   MockText,
   MockDoc,
@@ -23,6 +24,7 @@ import {
   syntheticMatter,
   makeStubApi,
   captureWarn,
+  auditEvent,
   deadlineRow,
 } from "./_view-matter-dom.mjs";
 
@@ -327,6 +329,129 @@ test("HTML-shaped matter name + party display_name render as text only", async (
   );
 });
 
+test("chain head disclosure: NOT loaded until summary clicked", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let chainCalls = 0;
+  const api = makeStubApi({
+    chainHead: async () => {
+      chainCalls++;
+      return { ok: true, value: { headHash: null, lastEventId: null, count: 0 } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  assert.equal(chainCalls, 0);
+  const summary = findByTestId(root, "view-chain-summary");
+  summary.dispatchEvent({ type: "click" });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(chainCalls, 1);
+});
+
+test("chain head: count=0 renders 'No audit events recorded yet.'", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: null, lastEventId: null, count: 0 },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await new Promise((r) => setImmediate(r));
+  const empty = findByTestId(root, "view-chain-empty");
+  assert.ok(empty !== null);
+  assert.equal(collectText(empty), "暂无审计事件记录。");
+});
+
+test("chain head: present hash renders truncated form via §6.5 rule + full hash inside <details>", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 5 },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await new Promise((r) => setImmediate(r));
+  // Truncated = first 8 + "..." + last 8
+  const trunc = findByTestId(root, "view-chain-headhash-truncated");
+  assert.equal(
+    collectText(trunc),
+    `${SAMPLE_HASH.slice(0, 8)}...${SAMPLE_HASH.slice(-8)}`,
+  );
+  // Full hash present inside its own disclosure.
+  const full = findByTestId(root, "view-chain-headhash-full");
+  assert.equal(collectText(full), SAMPLE_HASH);
+  // Count rendered.
+  const count = findByTestId(root, "view-chain-count");
+  assert.equal(collectText(count), "5");
+  // Last event short tag = first 8 chars
+  const lastShort = findByTestId(root, "view-chain-lastevent-short");
+  assert.equal(collectText(lastShort), EVENT_ULID.slice(0, 8));
+});
+
+test("chain head: clipboard unavailable in Node → copy button disabled with tooltip", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 1 },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await new Promise((r) => setImmediate(r));
+  const copy = findByTestId(root, "view-chain-copy");
+  assert.ok(copy !== null);
+  assert.equal(copy.hasAttribute("disabled"), true);
+  assert.equal(copy.getAttribute("title"), "当前环境不支持复制。");
+});
+
+test("chain head: envelope error renders inline with role=alert", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: false,
+      error: {
+        kind: "case_box_persistence_error",
+        code: "unknown_matter",
+        message: "unknown matter",
+      },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await new Promise((r) => setImmediate(r));
+  const err = findByTestId(root, "view-chain-error");
+  assert.equal(collectText(err), CATALOG["error.unknown_matter"]);
+  assert.doesNotMatch(collectText(err), /unknown matter/);
+  assert.equal(err.getAttribute("role"), "alert");
+});
+
+test("chain head: clicking summary twice triggers IPC ONCE (lazy + memoized)", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let chainCalls = 0;
+  const api = makeStubApi({
+    chainHead: async () => {
+      chainCalls++;
+      return { ok: true, value: { headHash: null, lastEventId: null, count: 0 } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  const summary = findByTestId(root, "view-chain-summary");
+  summary.dispatchEvent({ type: "click" });
+  await new Promise((r) => setImmediate(r));
+  summary.dispatchEvent({ type: "click" });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(chainCalls, 1);
+});
+
 test("normal active render emits NO console.warn", async () => {
   const doc = new MockDoc();
   const root = doc.createElement("main");
@@ -385,6 +510,137 @@ test("full ULID disclosure: short tag (8) + full ULID present", async () => {
   assert.match(collectText(summary), new RegExp(VALID_ULID_2.slice(0, 8)));
   const full = findByTestId(root, "view-full-id");
   assert.equal(collectText(full), VALID_ULID_2);
+});
+
+// --- BRCBW... no: audit-event log viewer (this WI) ---
+
+// Flush several macro/microtask turns: the disclosure click triggers
+
+test("audit events: disclosure renders ordered event list (count>0)", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 2 },
+    }),
+    listAuditEvents: async () => ({
+      ok: true,
+      value: {
+        rows: [
+          auditEvent({ action: "matter.created" }),
+          auditEvent({ action: "matter.archived", reason: "closed" }),
+        ],
+        next_cursor: null,
+      },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const list = findByTestId(root, "view-audit-list");
+  assert.ok(list !== null, "audit list rendered");
+  assert.equal(list.tagName, "OL");
+  const events = findAllByTestId(root, "view-audit-event");
+  assert.equal(events.length, 2);
+  const actions = findAllByTestId(root, "view-audit-action").map(collectText);
+  assert.deepEqual(actions, ["matter.created", "matter.archived"]);
+  // reason shown only when present
+  const reasons = findAllByTestId(root, "view-audit-reason").map(collectText);
+  assert.deepEqual(reasons, ["原因：closed"]);
+  // no "Show more" when next_cursor is null
+  assert.equal(findByTestId(root, "view-audit-more"), null);
+});
+
+test("audit events: count=0 shows no event list (existing empty copy only)", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let listCalls = 0;
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: null, lastEventId: null, count: 0 },
+    }),
+    listAuditEvents: async () => {
+      listCalls++;
+      return { ok: true, value: { rows: [], next_cursor: null } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.ok(findByTestId(root, "view-chain-empty") !== null);
+  assert.equal(findByTestId(root, "view-audit-list"), null);
+  assert.equal(listCalls, 0, "listAuditEvents not called for an empty chain");
+});
+
+test("audit events: envelope error renders inline role=alert; head summary intact", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 1 },
+    }),
+    listAuditEvents: async () => ({
+      ok: false,
+      error: {
+        kind: "case_box_persistence_error",
+        code: "invalid_payload",
+        message: "audit list failed",
+      },
+    }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const err = findByTestId(root, "view-audit-error");
+  assert.ok(err !== null);
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err), CATALOG["error.invalid_payload"]);
+  assert.doesNotMatch(collectText(err), /audit list failed/);
+  // chain head summary still shown (count rendered)
+  assert.equal(collectText(findByTestId(root, "view-chain-count")), "1");
+});
+
+test("audit events: next_cursor → 'Show more' appends next page then disappears", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let call = 0;
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 3 },
+    }),
+    listAuditEvents: async (dto) => {
+      call++;
+      if (call === 1) {
+        return {
+          ok: true,
+          value: {
+            rows: [auditEvent({ action: "ev.one" }), auditEvent({ action: "ev.two" })],
+            next_cursor: "cursor-2",
+          },
+        };
+      }
+      // second page: cursor must be threaded through
+      assert.equal(dto.cursor, "cursor-2");
+      return {
+        ok: true,
+        value: { rows: [auditEvent({ action: "ev.three" })], next_cursor: null },
+      };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-audit-event").length, 2);
+  const more = findByTestId(root, "view-audit-more");
+  assert.ok(more !== null, "Show more present after first page");
+  more.dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-audit-event").length, 3, "second page appended");
+  assert.equal(findByTestId(root, "view-audit-more"), null, "Show more removed when cursor exhausted");
 });
 
 // --- Documents section (B2 WI-2a) ---
@@ -868,13 +1124,213 @@ test("facts: rapid double-click on Show more does not double-fetch or double-app
   assert.equal(findAllByTestId(root, "view-facts-row").length, 2, "second page appended exactly once");
 });
 
-test("a11y: document controls expose aria-labels", async () => {
+test("audit: rapid double-click on Show more does not double-fetch or double-append", async () => {
   const doc = new MockDoc();
   const root = doc.createElement("main");
-  const api = makeStubApi();
+  let call = 0;
+  const api = makeStubApi({
+    chainHead: async () => ({ ok: true, value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 3 } }),
+    listAuditEvents: async () => {
+      call++;
+      if (call === 1) return { ok: true, value: { rows: [auditEvent({ action: "ev.one" })], next_cursor: "cur-2" } };
+      return { ok: true, value: { rows: [auditEvent({ action: "ev.two" })], next_cursor: null } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const more = findByTestId(root, "view-audit-more");
+  more.dispatchEvent({ type: "click" });
+  more.dispatchEvent({ type: "click" }); // concurrent — guard must drop this
+  await flush();
+  assert.equal(call, 2, "exactly one extra fetch despite the double-click");
+  assert.equal(findAllByTestId(root, "view-audit-event").length, 2, "second page appended exactly once");
+});
+
+test("audit: Show more is disabled while a page load is in flight", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  let call = 0;
+  let releaseSecond;
+  const api = makeStubApi({
+    chainHead: async () => ({ ok: true, value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 3 } }),
+    listAuditEvents: async () => {
+      call++;
+      if (call === 1) return { ok: true, value: { rows: [auditEvent({ action: "ev.one" })], next_cursor: "cur-2" } };
+      return new Promise((resolve) => {
+        releaseSecond = () => resolve({ ok: true, value: { rows: [auditEvent({ action: "ev.two" })], next_cursor: null } });
+      });
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  const more = findByTestId(root, "view-audit-more");
+  more.dispatchEvent({ type: "click" }); // starts page-2 load; promise stays pending
+  assert.equal(more.hasAttribute("disabled"), true, "Show more disabled while the page load is in flight");
+  releaseSecond();
+  await flush();
+  assert.equal(findByTestId(root, "view-audit-more"), null, "cursor exhausted → Show more removed");
+  assert.equal(findAllByTestId(root, "view-audit-event").length, 2, "second page appended exactly once");
+});
+
+test("a11y: document, audit, and copy controls expose aria-labels", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({ ok: true, value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 3 } }),
+    listAuditEvents: async () => ({ ok: true, value: { rows: [auditEvent()], next_cursor: "cur-2" } }),
+  });
   await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
   findByTestId(root, "view-docs-summary").dispatchEvent({ type: "click" });
   await flush();
   assert.equal(findByTestId(root, "view-docs-add-type").getAttribute("aria-label"), "文档类型");
   assert.equal(findByTestId(root, "view-docs-add").getAttribute("aria-label"), "添加文档");
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findByTestId(root, "view-chain-summary").getAttribute("aria-label"), "审计链头详情");
+  assert.equal(findByTestId(root, "view-audit-more").getAttribute("aria-label"), "加载更多审计事件");
+  assert.equal(findByTestId(root, "view-chain-copy").getAttribute("aria-label"), "复制链头哈希");
 });
+
+test("audit events list is an aria-live polite region", async () => {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({ ok: true, value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 1 } }),
+    listAuditEvents: async () => ({ ok: true, value: { rows: [auditEvent()], next_cursor: null } }),
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findByTestId(root, "view-audit-list").getAttribute("aria-live"), "polite");
+});
+
+// ---- GAP-2: in-app chain verification -------------------------------------------------------
+//
+// Context worth keeping: this whole surface was deleted on 2026-08-05 (commit 2275551) at the
+// user's request, and reinstated deliberately. The verify action is the part that did NOT exist
+// before — the persistence walk was always there, but nothing in the UI could invoke it.
+
+// A helper that opens the disclosure and clicks verify, so each case below states only what
+// distinguishes it.
+async function mountAndVerify(verifyChain) {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 2 },
+    }),
+    listAuditEvents: async () => ({
+      ok: true,
+      value: { rows: [auditEvent({ action: "matter.created" })], next_cursor: null },
+    }),
+    verifyChain,
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  findByTestId(root, "view-audit-verify-btn").dispatchEvent({ type: "click" });
+  await flush();
+  return root;
+}
+
+test("verify: the action is present in the chain disclosure and IPC is not called on open", async () => {
+  let called = 0;
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  const api = makeStubApi({
+    chainHead: async () => ({
+      ok: true,
+      value: { headHash: SAMPLE_HASH, lastEventId: EVENT_ULID, count: 2 },
+    }),
+    verifyChain: async () => {
+      called += 1;
+      return { ok: true, value: { ok: true, verifiedCount: 2, headHash: SAMPLE_HASH } };
+    },
+  });
+  await mountViewMatter(root, { api, navigate: () => {}, doc }, VALID_ULID);
+  findByTestId(root, "view-chain-summary").dispatchEvent({ type: "click" });
+  await flush();
+  assert.ok(findByTestId(root, "view-audit-verify-btn"), "the verify control must be reachable");
+  assert.equal(called, 0, "a full chain walk must be user-initiated, never automatic on open");
+});
+
+test("verify: an intact chain reports the verified count", async () => {
+  const root = await mountAndVerify(async () => ({
+    ok: true,
+    value: { ok: true, verifiedCount: 2, headHash: SAMPLE_HASH },
+  }));
+  const ok = findByTestId(root, "view-audit-verify-ok");
+  assert.ok(ok, "an intact result must render");
+  assert.ok(ok.textContent.includes("2"), "the number of verified events must be shown");
+});
+
+// The result this feature exists to surface. It arrives as a SUCCESSFUL call (outer ok:true), so a
+// handler or screen that treats the inner ok:false as a transport error would show a generic
+// failure instead — and a real tamper would look like a bug.
+test("verify: a tampered chain renders as a FINDING, not as an error", async () => {
+  const root = await mountAndVerify(async () => ({
+    ok: true,
+    value: { ok: false, errorIndex: 2, errorReason: "prev_event_hash_mismatch" },
+  }));
+  const failed = findByTestId(root, "view-audit-verify-failed");
+  assert.ok(failed, "a broken chain must render its own failed state");
+  assert.equal(findByTestId(root, "view-audit-verify-error"), null, "it is not a transport error");
+  assert.equal(findByTestId(root, "view-audit-verify-ok"), null, "and must never read as intact");
+  assert.equal(failed.getAttribute("role"), "alert");
+  assert.ok(
+    failed.textContent.includes(CATALOG["audit.verify.reason.prev_event_hash_mismatch"]),
+    "the humanized zh-CN reason must be shown, not the raw enum token",
+  );
+  assert.ok(failed.textContent.includes("3"), "errorIndex 2 displays 1-based as event 3");
+});
+
+test("verify: a transport failure says verification did not run, and claims nothing about the chain", async () => {
+  const root = await mountAndVerify(async () => ({
+    ok: false,
+    error: { code: "unknown_matter", message: "unknown matter" },
+  }));
+  assert.ok(findByTestId(root, "view-audit-verify-error"), "the IPC failure must surface");
+  assert.equal(findByTestId(root, "view-audit-verify-ok"), null, "and must NOT read as intact");
+  assert.equal(findByTestId(root, "view-audit-verify-failed"), null);
+});
+
+// Version skew: a packaged main process newer than this renderer could return a tenth reason. The
+// only unacceptable outcome is softening into "intact".
+test("verify: an unrecognised reason still reports failure and carries the raw token", async () => {
+  const root = await mountAndVerify(async () => ({
+    ok: true,
+    value: { ok: false, errorIndex: 0, errorReason: "some_future_reason" },
+  }));
+  const failed = findByTestId(root, "view-audit-verify-failed");
+  assert.ok(failed, "an unknown reason must still render as a failure");
+  assert.equal(findByTestId(root, "view-audit-verify-ok"), null);
+  assert.ok(failed.textContent.includes("some_future_reason"), "the raw token stays visible");
+});
+
+// The scope note is the product's own statement of what an in-app check does and does not
+// establish. It matters most on the intact path, which is the one likeliest to be over-read.
+test("verify: the evidentiary scope note accompanies BOTH outcomes", async () => {
+  for (const [label, value] of [
+    ["intact", { ok: true, verifiedCount: 1, headHash: SAMPLE_HASH }],
+    ["tampered", { ok: false, errorIndex: 0, errorReason: "missing_genesis_event" }],
+  ]) {
+    const root = await mountAndVerify(async () => ({ ok: true, value }));
+    const note = findByTestId(root, "view-audit-verify-scope");
+    assert.ok(note, `the scope note must render on the ${label} path`);
+    assert.equal(note.textContent, CATALOG["audit.verify.scopeNote"]);
+  }
+});
+
+test("verify: the result region is an aria-live polite region with a label", async () => {
+  const root = await mountAndVerify(async () => ({
+    ok: true,
+    value: { ok: true, verifiedCount: 1, headHash: SAMPLE_HASH },
+  }));
+  const region = findByTestId(root, "view-audit-verify-result");
+  assert.equal(region.getAttribute("aria-live"), "polite");
+  assert.equal(region.getAttribute("aria-label"), CATALOG["audit.verify.resultAria"]);
+});
+

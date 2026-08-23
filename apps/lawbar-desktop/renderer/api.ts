@@ -9,6 +9,7 @@
 import type {
   ArchiveMatterDto,
   ChainHeadDto,
+  VerifyChainDto,
   ConfirmDocketEntryDto,
   CreateDocketEntryDto,
   CreateFactDto,
@@ -43,6 +44,7 @@ import {
   RENDERER_ARCHIVE_MATTER_DTO_FIELDS,
   RENDERER_UPDATE_MATTER_DETAILS_DTO_FIELDS,
   RENDERER_CHAIN_HEAD_DTO_FIELDS,
+  RENDERER_VERIFY_CHAIN_DTO_FIELDS,
   RENDERER_CONFIRM_DOCKET_DTO_FIELDS,
   RENDERER_CREATE_DOCKET_DTO_FIELDS,
   RENDERER_CREATE_FACT_DTO_FIELDS,
@@ -80,6 +82,7 @@ export interface CaseBoxClient {
   updateMatterDetails(dto: UpdateMatterDetailsDto): Promise<IpcEnvelope<unknown>>;
   chainHead(dto: ChainHeadDto): Promise<IpcEnvelope<unknown>>;
   listAuditEvents(dto: ListAuditEventsDto): Promise<IpcEnvelope<unknown>>;
+  verifyChain(dto: VerifyChainDto): Promise<IpcEnvelope<unknown>>;
   listDocuments(dto: ListDocumentsDto): Promise<IpcEnvelope<unknown>>;
   getDocument(dto: GetDocumentDto): Promise<IpcEnvelope<unknown>>;
   registerDocument(dto: RegisterDocumentDto): Promise<IpcEnvelope<unknown>>;
@@ -112,6 +115,7 @@ export interface CaseBoxApi {
   updateMatterDetails(dto: UpdateMatterDetailsDto): Promise<IpcEnvelope<unknown>>;
   chainHead(dto: ChainHeadDto): Promise<IpcEnvelope<unknown>>;
   listAuditEvents(dto: ListAuditEventsDto): Promise<IpcEnvelope<unknown>>;
+  verifyChain(dto: VerifyChainDto): Promise<IpcEnvelope<unknown>>;
   listDocuments(dto: ListDocumentsDto): Promise<IpcEnvelope<unknown>>;
   getDocument(dto: GetDocumentDto): Promise<IpcEnvelope<unknown>>;
   registerDocument(dto: RegisterDocumentDto): Promise<IpcEnvelope<unknown>>;
@@ -174,6 +178,8 @@ export function createCaseBoxApi(client: CaseBoxClient): CaseBoxApi {
       client.chainHead(stripDtoFields(dto, RENDERER_CHAIN_HEAD_DTO_FIELDS)),
     listAuditEvents: (dto) =>
       client.listAuditEvents(stripDtoFields(dto, RENDERER_LIST_AUDIT_EVENTS_DTO_FIELDS)),
+    verifyChain: (dto) =>
+      client.verifyChain(stripDtoFields(dto, RENDERER_VERIFY_CHAIN_DTO_FIELDS)),
     listDocuments: (dto) =>
       client.listDocuments(stripDtoFields(dto, RENDERER_LIST_DOCUMENTS_DTO_FIELDS)),
     getDocument: (dto) =>

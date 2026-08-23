@@ -12,6 +12,7 @@ import type {
   UpdateMatterDetailsDto,
   ChainHeadDto,
   ListAuditEventsDto,
+  VerifyChainDto,
   ListDocumentsDto,
   GetDocumentDto,
   RegisterDocumentDto,
@@ -41,6 +42,7 @@ import type {
   UpdateMatterDetailsResult,
   ChainHeadResult,
   ListAuditEventsResult,
+  VerifyChainResult,
   ListDocumentsResult,
   GetDocumentResult,
   RegisterDocumentResult,
@@ -124,6 +126,7 @@ export interface CaseBoxApi {
   updateMatterDetails(dto: UpdateMatterDetailsDto): Promise<UpdateMatterDetailsResult>;
   chainHead(dto: ChainHeadDto): Promise<ChainHeadResult>;
   listAuditEvents(dto: ListAuditEventsDto): Promise<ListAuditEventsResult>;
+  verifyChain(dto: VerifyChainDto): Promise<VerifyChainResult>;
   listDocuments(dto: ListDocumentsDto): Promise<ListDocumentsResult>;
   getDocument(dto: GetDocumentDto): Promise<GetDocumentResult>;
   registerDocument(dto: RegisterDocumentDto): Promise<RegisterDocumentResult>;
@@ -187,6 +190,7 @@ const caseBoxApi: CaseBoxApi = {
   updateMatterDetails: (dto) => ipcRenderer.invoke("casebox:matter:updateDetails", dto),
   chainHead: (dto) => ipcRenderer.invoke("casebox:audit:chainHead", dto),
   listAuditEvents: (dto) => ipcRenderer.invoke("casebox:audit:listEvents", dto),
+  verifyChain: (dto) => ipcRenderer.invoke("casebox:audit:verifyChain", dto),
   listDocuments: (dto) => ipcRenderer.invoke("casebox:document:list", dto),
   getDocument: (dto) => ipcRenderer.invoke("casebox:document:get", dto),
   registerDocument: (dto) => ipcRenderer.invoke("casebox:document:register", dto),

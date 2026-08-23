@@ -165,6 +165,17 @@ export function syntheticMatter(overrides = {}) {
   };
 }
 
+export function auditEvent(overrides = {}) {
+  return {
+    timestamp: "2026-05-27T10:30:00Z",
+    action: "matter.created",
+    entity_type: "matter",
+    entity_id: EVENT_ULID,
+    after_state_hash: SAMPLE_HASH,
+    ...overrides,
+  };
+}
+
 export function makeStubApi(impl = {}) {
   return {
     createMatter: async () => ({ ok: true, value: {} }),
@@ -174,6 +185,12 @@ export function makeStubApi(impl = {}) {
     chainHead: impl.chainHead ?? (async () => ({ ok: true, value: { headHash: null, lastEventId: null, count: 0 } })),
     listAuditEvents:
       impl.listAuditEvents ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
+    // GAP-2. Default is a SUCCESSFUL call reporting an INTACT chain: note the double envelope —
+    // outer ok = verification ran, inner ok = the chain is sound. A test for tamper reporting
+    // overrides this with { ok: true, value: { ok: false, ... } }, NOT with { ok: false }.
+    verifyChain:
+      impl.verifyChain ??
+        (async () => ({ ok: true, value: { ok: true, verifiedCount: 0, headHash: null } })),
     listDocuments:
       impl.listDocuments ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
     getDocument: impl.getDocument ?? (async () => ({ ok: true, value: null })),

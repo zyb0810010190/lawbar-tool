@@ -404,6 +404,32 @@ export const CATALOG = {
   "audit.events.reason": "原因：{reason}",
   "audit.events.showMoreAria": "加载更多审计事件",
 
+  // ---- chain verification (GAP-2) ----
+  // The verify action walks the whole chain, so it is deliberately explicit rather than automatic:
+  // the litigator chooses when to check, and the result is phrased as a finding about the record,
+  // never as a claim about the software.
+  "audit.verify.button": "验证审计链",
+  "audit.verify.buttonAria": "验证本案件的审计链完整性",
+  "audit.verify.running": "正在验证审计链…",
+  "audit.verify.ok": "链完整：已逐条验证 {count} 条事件，链头一致。",
+  "audit.verify.failed": "链不一致：第 {index} 条事件——{reason}",
+  "audit.verify.resultAria": "审计链验证结果",
+  "audit.verify.scopeNote": "本结果由本机记录自证，不能替代第三方鉴定。",
+  // The nine ChainVerifyErrorReason values. Kept as separate keys rather than one interpolated
+  // string so each reads as natural Chinese instead of a translated enum name.
+  "audit.verify.reason.missing_genesis_event": "案件存在但没有任何审计事件；按构造这不可能发生，说明记录曾被删除",
+  "audit.verify.reason.prev_event_hash_mismatch": "与前一条事件的哈希对不上，中间的事件被改动或删除",
+  "audit.verify.reason.prev_event_hash_non_null_for_first_event": "首条事件本应没有前序哈希，却带有一个",
+  "audit.verify.reason.before_state_hash_not_null_on_create": "创建类事件本应没有前状态哈希，却带有一个",
+  "audit.verify.reason.missing_after_state_hash": "缺少后状态哈希",
+  "audit.verify.reason.event_schema_invalid": "事件结构不符合契约规范",
+  "audit.verify.reason.event_kind_inconsistent": "事件类型与其动作、实体类型不一致",
+  "audit.verify.reason.tenant_id_mismatch": "事件的租户标识与本链其余事件不一致",
+  "audit.verify.reason.matter_id_mismatch": "事件的案件标识与本链其余事件不一致",
+  // Reached only if persistence adds a tenth reason before the renderer learns it. Says plainly
+  // that the chain failed and the cause is unrecognised — never silently renders as "intact".
+  "audit.verify.reason.unknown": "校验未通过，但本版本无法识别其原因（{reason}）",
+
   // ---- document sub-screen (WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00 P3) ----
   "document.disclosure.summary": "查看文档",
   "document.docType.pleading": "诉讼文书",

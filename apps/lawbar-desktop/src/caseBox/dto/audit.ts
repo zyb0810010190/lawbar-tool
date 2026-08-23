@@ -77,3 +77,46 @@ export interface RendererAuditEventsPage {
 }
 
 export type ListAuditEventsResult = IpcEnvelope<RendererAuditEventsPage>;
+
+
+export interface VerifyChainDto {
+  readonly matterId: string;
+}
+
+
+export const VERIFY_CHAIN_DTO_FIELDS = Object.freeze([
+  "matterId",
+] as const);
+
+
+export const VERIFY_CHAIN_FORBIDDEN_FIELDS = Object.freeze([
+  "tenant_id",
+  "actor_user_id",
+] as const);
+
+// GAP-2: renderer-facing projection of the persistence `VerifyAuditChainResult`.
+//
+// The persistence result is `ChainVerifyOk | ChainVerifyErr`. ChainVerifyErr carries a free-text
+// `detail` built by the contract verifier, and two of its nine branches INTERPOLATE SERVER-AUTHORITY
+// FIELDS into that string:
+//
+//   event[i].tenant_id (...) does not match prior chain tenant_id (...)
+//   event[i].matter_id (...) does not match prior chain matter_id (...)
+//
+// LIST_AUDIT_EVENTS_RESPONSE_FIELDS above deliberately EXCLUDES tenant_id / matter_id from the
+// neighbouring channel; passing `detail` through verbatim would reintroduce exactly those values
+// via a string the allowlist cannot inspect. So `detail` is DROPPED at the boundary, not forwarded.
+//
+// Nothing diagnostic is lost to the user: `errorReason` names which of the nine invariants broke and
+// `errorIndex` names the offending event's position, which is what the UI renders. The unprojected
+// `detail` remains available to a forensic examiner through the persistence API and the database —
+// the two places an expert would actually look, and neither of which crosses this boundary.
+export type RendererChainVerifyResult =
+  | { readonly ok: true; readonly verifiedCount: number; readonly headHash: string | null }
+  | { readonly ok: false; readonly errorIndex: number; readonly errorReason: string };
+
+// NOTE the deliberate double envelope: a DETECTED TAMPER IS A SUCCESSFUL CALL. The outer
+// IpcEnvelope reports whether verification RAN; the inner `ok` reports what it FOUND. Collapsing
+// the two would render a broken chain — the one result this feature exists to surface — as a
+// generic IPC failure, indistinguishable from a bug.
+export type VerifyChainResult = IpcEnvelope<RendererChainVerifyResult>;

@@ -3,7 +3,7 @@
 // Read-only detail view. Validates the supplied id against the router's ULID
 // regex BEFORE making any IPC call (rejects garbage routes without round-trip
 // to main). Per-matter sections (documents, deadlines, facts, claim tracks,
-// links, T3 catalog) are loaded LAZILY on first <details> click.
+// links, T3 catalog, audit chain) are loaded LAZILY on first <details> click.
 
 import type { CaseBoxApi } from "../api.js";
 import type {
@@ -23,6 +23,7 @@ import {
   statusLabel,
 } from "../i18n/labels.js";
 import { t } from "../i18n/t.js";
+import { renderChainHeadDisclosure } from "./viewMatterAudit.js";
 import { renderDocumentsDisclosure } from "./viewMatterDocuments.js";
 import { renderDeadlinesDisclosure } from "./viewMatterDeadlines.js";
 import { renderFactsDisclosure } from "./viewMatterFacts.js";
@@ -434,6 +435,7 @@ function renderDetail(
   const claimTracksDetails = renderClaimTracksDisclosure(doc, deps.api, row.id, row.parties);
   const linksDetails = renderLinksDisclosure(doc, deps.api, row.id);
   const t3CatalogDetails = renderT3CatalogDisclosure(doc, deps.api, row.id);
+  const chainHeadDetails = renderChainHeadDisclosure(doc, deps.api, row.id);
 
   const mainCol = el(
     "div",
@@ -442,7 +444,7 @@ function renderDetail(
     doc,
   );
 
-  // Right column — colophon (id/created dispatch) + archive zone.
+  // Right column — colophon (id/created dispatch) + audit chain + archive zone.
   const colophon = el(
     "aside",
     { class: "colophon" },
@@ -521,7 +523,7 @@ function renderDetail(
   const aside = el(
     "div",
     { class: "view-aside" },
-    [colophon, archiveBlock],
+    [colophon, chainHeadDetails, archiveBlock],
     doc,
   );
 
