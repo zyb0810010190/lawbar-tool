@@ -138,8 +138,8 @@
     },
     {
       "name": "workflow-scripts",
-      "description": "Behavioural tests for the repo-workflow shell in scripts/workflow/. Discovered by GLOB, deliberately: scripts.test elsewhere is a hand-maintained list and refresh-internal-lock-integrity.test.mjs sat in this same directory unregistered and unrun. A glob cannot forget a new file. measured 2026-08-23: 36 tests, 36 pass (17 wi-baseline + 19 refresh-internal-lock-integrity, the latter previously dark).",
-      "command": "node --test 'scripts/workflow/*.test.mjs'",
+      "description": "Behavioural tests for the repo-workflow shell in scripts/workflow/. Discovered by a RECURSIVE glob over scripts/, deliberately: a hand-maintained list is how refresh-internal-lock-integrity.test.mjs AND check-doc-references.test.mjs both ended up unregistered and unrun — 46 passing tests that protected nothing. A glob cannot forget a new file, and scripts/** cannot forget a new directory. measured 2026-08-23: 73 tests, 73 pass.",
+      "command": "node --test 'scripts/**/*.test.mjs'",
       "gateOn": [
         "taskCompleted",
         "commit"

@@ -257,3 +257,37 @@ test("stripping a citation does not swallow a real path segment", () => {
   assert.deepEqual(extractRefs("`docs/adr/a.md`"), ["docs/adr/a.md"]);
   assert.deepEqual(extractRefs("`docs/adr/sub.dir/a.md:12`"), ["docs/adr/sub.dir/a.md"]);
 });
+
+// ---------------------------------------------------------------------------
+// D-4 — the checker's own scope.
+//
+// DOC_ROOTS was five hand-listed subdirectories, so the three governance documents at
+// `docs/` root — development-workflow.md, wi-loop.md, wi-queue.md — were outside the checker
+// entirely. They are the most heavily edited docs in the repo and full of repo-path
+// references, and a dead one in them was invisible: verified by adding a reference to a
+// nonexistent file and watching the count stay put.
+//
+// A hand-maintained root list has the same failure mode as a hand-maintained test list: what
+// is not on it is invisible, and nothing says so.
+
+test("D4-1 the governance docs at docs/ root are inside the checker's scope", () => {
+  const src = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "check-doc-references.mjs"), "utf8");
+  const m = src.match(/const DOC_ROOTS = (\[[^\]]*\])/);
+  assert.ok(m, "DOC_ROOTS must exist");
+  const roots = JSON.parse(m[1].replace(/'/g, '"'));
+  const covers = (f) => roots.some((r) => f === r || f.startsWith(r.endsWith("/") ? r : r + "/"));
+  for (const f of ["docs/development-workflow.md", "docs/wi-loop.md", "docs/wi-queue.md"]) {
+    assert.ok(covers(f), `${f} must be scanned — it was not, and dead references in it were invisible`);
+  }
+});
+
+test("D4-2 the walker skips node_modules, or widening a root scans dependencies", () => {
+  // docs/contracts/ carries 48 MB of node_modules. Without the exclusion, widening DOC_ROOTS
+  // to `docs` pulls in thousands of third-party .md files and their references.
+  const src = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "check-doc-references.mjs"), "utf8");
+  assert.match(src, /node_modules/, "the walker must exclude node_modules");
+  const walkBody = src.slice(src.indexOf("function walk("), src.indexOf("function walk(") + 600);
+  assert.match(walkBody, /node_modules/, "and the exclusion must be in walk(), not merely mentioned");
+});

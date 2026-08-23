@@ -50,13 +50,14 @@
     "dev": "npm run build && electron .",
     "dist": "npm run build && electron-builder",
     "postdist": "electron-builder install-app-deps",
-    "dist:release": "bash scripts/release-preflight.sh && npm run build && electron-builder --config electron-builder.signed.cjs",
+    "dist:release": "bash scripts/release-preflight.sh && npm run build && electron-builder --config electron-builder.signed.cjs && npm run verify:signing:release",
     "postdist:release": "electron-builder install-app-deps",
     "verify:signing": "bash scripts/verify-macos-signing.sh",
     "verify:signing:report": "bash scripts/verify-macos-signing.sh --report",
     "backup:local": "node scripts/backup-local-data.mjs",
     "postinstall": "electron-builder install-app-deps",
-    "test:wrapper": "node --test tests/wrapper.test.mjs"
+    "test:wrapper": "node --test tests/wrapper.test.mjs",
+    "verify:signing:release": "bash scripts/verify-macos-signing-all.sh"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
@@ -81,7 +82,13 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
-        { "target": "dir", "arch": ["arm64", "x64"] }
+        {
+          "target": "dir",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "identity": null
     },

@@ -1649,8 +1649,15 @@ Likely files:
 - `docs/release/ocr-worker-runbook.md`
 - `docs/release/operator-checklist.md`
 - `docs/contracts/README.md`
-- `services/ocr-worker/README.md`
-- `services/ocr-persistence/README.md`
+<!-- D-3, resolved 2026-08-23: two service READMEs were listed here and never written.
+     Dropped rather than authored. Every acceptance criterion below is about the RUNBOOK —
+     production env vars, fail-closed behaviour and exit code 2, source-kind policy,
+     pending-retry recovery. Not one of them mentions a service README. They were a
+     speculative "likely files" entry, and 4 of the 6 services have no README, so no repo
+     convention required them either. Writing two would have meant generating confident prose
+     about production behaviour nobody had verified — the failure mode this repo exists to
+     avoid. If operator docs later need per-service detail, add it to the runbook, which is
+     what the criteria actually gate. -->
 - `AGENTS.md`
 
 Acceptance criteria:
@@ -1670,7 +1677,7 @@ Tests to run:
 
 Verification command: `/cc-suite:verify WI-09b`
 
-Audit command: `/cc-suite:audit --mini docs/release/ocr-worker-runbook.md docs/release/operator-checklist.md docs/contracts/README.md services/ocr-worker/README.md services/ocr-persistence/README.md AGENTS.md`
+Audit command: `/cc-suite:audit --mini docs/release/ocr-worker-runbook.md docs/release/operator-checklist.md docs/contracts/README.md AGENTS.md`
 
 Risk level: Low
 

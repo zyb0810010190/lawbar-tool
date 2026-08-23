@@ -51,7 +51,13 @@ const BASELINE = ENV_BASELINE || path.join(HERE, "doc-references-baseline.json")
 const SCAN_ROOTS = ENV_ROOTS ? ENV_ROOTS.split(",") : null;
 
 // docs/contracts is an npm package, not documentation — never scanned.
-const DOC_ROOTS = ["docs/adr", "docs/release", "docs/product", "docs/ui", "docs/reference"];
+// `docs` rather than five hand-listed subdirectories. The governance documents that drive
+// this repo's workflow live at `docs/` root — development-workflow.md, wi-loop.md,
+// wi-queue.md — and were therefore outside the reference checker entirely, despite being the
+// most heavily edited docs in the repo and full of repo-path references. A hand-maintained
+// list of roots has the same failure mode as the hand-maintained test list: what is not on
+// it is invisible, and nothing says so.
+const DOC_ROOTS = ["docs"];
 // Only tokens starting with one of these are evaluated. A token without a known root is assumed
 // to be package-relative or prose and is skipped — see the header note on unguarded classes.
 const REPO_ROOTS = ["apps/", "services/", "native/", "scripts/", "docs/", "dev-memo/", ".github/", ".claude/"];
@@ -60,6 +66,11 @@ function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     if (e.isSymbolicLink()) continue;               // no symlink cycles
+    // Installed dependencies and build output are not this repo's documentation, and
+    // `docs/contracts/` carries 48 MB of node_modules. Without this the walker would pull in
+    // thousands of third-party .md files the moment any root above them is widened — which
+    // is exactly what widening DOC_ROOTS to `docs` does below.
+    if (e.name === "node_modules" || e.name === "dist" || e.name === ".git") continue;
     const p = path.join(dir, e.name);
     if (e.isDirectory()) walk(p, out);
     else if (e.name.endsWith(".md")) out.push(p);

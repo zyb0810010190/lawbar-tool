@@ -1,5 +1,5 @@
 {
-  "total": 175,
+  "total": 173,
   "counts": {
     "docs/adr/ADR-evidence-a07-key-custody-operating-model.md": 9,
     "docs/adr/ADR-evidence-a07-marker-provenance.md": 2,
@@ -29,6 +29,8 @@
     "docs/adr/ocr-real-worker-source-access-step-11a-0.md": 2,
     "docs/adr/ocr-worker-runtime-step-11b.md": 1,
     "docs/adr/sync-bridge-architecture.md": 4,
+    "docs/product/product-definition.md": 37,
+    "docs/product/product-plan.md": 2,
     "docs/release/casebox-persistence-security-audit-00.md": 2,
     "docs/release/electron-runtime-advisory-bump-00.md": 2,
     "docs/release/gate12-audit-chain-recovery-00.md": 2,
@@ -44,14 +46,12 @@
     "docs/release/gate6-full-project-audit-00.md": 3,
     "docs/release/gate7-robustness-policy-00.md": 2,
     "docs/release/gate8-deferred-lows-reconfirm-00.md": 2,
-    "docs/release/go-live-plan.md": 9,
+    "docs/release/go-live-plan.md": 7,
     "docs/release/go-live-readiness-report.md": 1,
     "docs/release/ocr-worker-runbook.md": 1,
     "docs/release/operator-checklist.md": 2,
     "docs/release/privacy-notice-00.md": 1,
     "docs/release/user-decision-record-00.md": 3,
-    "docs/product/product-definition.md": 37,
-    "docs/product/product-plan.md": 2,
     "docs/ui/sync-bridge-contract-draft.md": 2,
     "docs/ui/ui-gap-report.md": 1
   }

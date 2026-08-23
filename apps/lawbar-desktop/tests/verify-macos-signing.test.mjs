@@ -661,3 +661,58 @@ test("T8.24 a release-ready bundle reports authority: Developer ID Application",
   assert.equal(r.status, 0, r.combined);
   assert.ok(lines(r.out).includes("  authority: Developer ID Application"), r.out);
 });
+
+// ---------------------------------------------------------------------------
+// D-5 — verify-macos-signing-all.sh, the stage `dist:release` was missing.
+//
+// The recipe used to end at electron-builder, so no ship path ran the signing exit contract:
+// the app was built, signed and shipped without anything checking the tool's own claim about
+// it, the stapling half least of all. A single `verify:signing` would not have been enough
+// either — the signed config targets arm64 AND x64, and the verifier defaults to the arm64
+// path, so one call verifies one architecture and silently ignores the other.
+
+import { execFileSync as execAll, spawnSync as spawnAll } from "node:child_process";
+import { mkdtempSync as mkdtempAll, mkdirSync as mkdirAll, rmSync as rmAll } from "node:fs";
+import osAll from "node:os";
+
+const ALL_SCRIPT = path.join(PKG_DIR ?? path.join(__dirname, ".."), "scripts", "verify-macos-signing-all.sh");
+
+function runAll(root) {
+  return spawnAll("bash", [ALL_SCRIPT, root], { encoding: "utf8" });
+}
+
+test("D5-1 finding NO bundles is a FAILURE, not a quiet pass", () => {
+  // The exact shape this repo keeps hitting: a scanner reporting clean having scanned zero
+  // files. A release that verified nothing must not exit 0.
+  const root = mkdtempAll(path.join(osAll.tmpdir(), "vs-all-"));
+  try {
+    mkdirAll(path.join(root, "release"), { recursive: true });
+    const r = runAll(path.join(root, "release"));
+    assert.equal(r.status, 1, "zero bundles must not report success");
+    assert.match(r.stdout + r.stderr, /NO \.app bundles found/);
+    assert.match(r.stdout + r.stderr, /must not report success/);
+  } finally { rmAll(root, { recursive: true, force: true }); }
+});
+
+test("D5-2 a missing build output directory fails with an actionable message", () => {
+  const r = runAll("/nonexistent-release-dir-d5");
+  assert.equal(r.status, 1);
+  assert.match(r.stdout + r.stderr, /no build output/);
+  assert.match(r.stdout + r.stderr, /run the build first/);
+});
+
+test("D5-3 EVERY architecture's bundle is checked, not just the first", () => {
+  // The reason this script exists rather than a single path argument. Two unsigned stubs:
+  // both must be visited and both must fail, so a build that signs one arch and not the
+  // other cannot pass.
+  const root = mkdtempAll(path.join(osAll.tmpdir(), "vs-all-"));
+  try {
+    for (const arch of ["mac-arm64", "mac-x64"]) {
+      mkdirAll(path.join(root, "release", arch, "lawbar.app", "Contents"), { recursive: true });
+    }
+    const r = runAll(path.join(root, "release"));
+    assert.match(r.stdout, /checking .*mac-arm64.*lawbar\.app/, "arm64 bundle must be visited");
+    assert.match(r.stdout, /checking .*mac-x64.*lawbar\.app/, "x64 bundle must be visited too");
+    assert.equal(r.status, 1, "unsigned stubs must not pass the exit contract");
+  } finally { rmAll(root, { recursive: true, force: true }); }
+});

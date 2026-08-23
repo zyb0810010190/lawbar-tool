@@ -39,9 +39,14 @@ const manifest = JSON.parse(readFileSync(path.join(PKG_DIR, "package.json"), "ut
 test("T5.1 dist:release is &&-chained with preflight first and electron-builder last", () => {
   const raw = manifest.scripts["dist:release"];
   const stages = raw.split(" && ");
-  assert.equal(stages.length, 3, `unexpected stage count in: ${raw}`);
+  // FOUR stages since D-5. The recipe used to end at electron-builder, so no ship path ever
+  // ran the signing exit contract — the tool built a signed app and never checked its own
+  // claim about it, the stapling half least of all.
+  assert.equal(stages.length, 4, `unexpected stage count in: ${raw}`);
   assert.equal(stages[0], "bash scripts/release-preflight.sh");
   assert.match(stages[2], /^electron-builder\b/);
+  assert.match(stages[3], /verify:signing:release|verify-macos-signing-all/,
+    "the build must be followed by verification, or dist:release asserts nothing about signing");
   // The load-bearing pair: `;` would run the build regardless of preflight's exit
   // status, and `||` would run it ONLY when preflight fails. Both preserve the
   // recipe's shape while inverting its meaning.
