@@ -234,3 +234,26 @@ test("CLI: a gitignored-but-present path is dead, matching what CI sees", () => 
   assert.match(r.out, /dev-memo\/superseded\/case-box-plan\.md/,
     "an untracked path must count as dead even when it exists locally");
 });
+
+// Regression, 2026-08-22. The ratchet reported two TRACKED files as dead references —
+// `…/caseBoxRuntime.ts:14,42` and `…/retryPolicy.ts:classifyOcrFailureForRetry` — purely
+// because only `:N` and `:N-M` were stripped. Two live citation forms in this corpus were
+// not: a comma-separated line list, and a `:symbolName` reference. Both inflate the very
+// number the ratchet exists to drive down, which makes the instrument the defect.
+test("strips a comma-separated line list, not just a single line or a range", () => {
+  assert.deepEqual(extractRefs("`docs/adr/a.md:14,42`"), ["docs/adr/a.md"]);
+  assert.deepEqual(extractRefs("`docs/adr/a.md:1,2,3`"), ["docs/adr/a.md"]);
+  assert.deepEqual(extractRefs("`docs/adr/a.md:10-18,25`"), ["docs/adr/a.md"]);
+});
+
+test("strips a :symbolName citation", () => {
+  assert.deepEqual(extractRefs("`docs/adr/a.md:someFunctionName`"), ["docs/adr/a.md"]);
+  assert.deepEqual(extractRefs("`docs/adr/a.md:CONSTANT_CASE`"), ["docs/adr/a.md"]);
+});
+
+test("stripping a citation does not swallow a real path segment", () => {
+  // The suffix is only stripped after the final path segment, so a colon inside a
+  // directory name must survive. Guards against over-stripping.
+  assert.deepEqual(extractRefs("`docs/adr/a.md`"), ["docs/adr/a.md"]);
+  assert.deepEqual(extractRefs("`docs/adr/sub.dir/a.md:12`"), ["docs/adr/sub.dir/a.md"]);
+});

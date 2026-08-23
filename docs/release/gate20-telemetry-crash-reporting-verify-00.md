@@ -1,5 +1,13 @@
 # Gate 20 — Telemetry / Crash-Reporting Verification (v1 Mac client)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status:** telemetry / crash-reporting verification **PASS** — the v1 Mac client ships **no telemetry** and **crash reporting OFF by default**. **Gate 20 stays `PARTIAL`** (enriched with the verified marker — a code verification is not a go-live sign-off, and dependent gates remain unresolved). This is **NOT** a clearance of gates 4/6/7/11/12/14/15/18/19/21, and is **NOT** a go-live decision. **Date:** 2026-07-07. **Author:** Claude Code (WI-RELEASE-G20-TELEMETRY-CRASH-REPORTING-VERIFY-00 execution lane). **Governed by:** `dev-memo/run/queue.md` (queue.governed sha256 `c904ab6b…`, PRs #207/#208), review `dev-memo/run/reviews/queue-review-154.md`.
 
 This is a **read-only** inspection (grep + dependency listing) of the shipped client surface; it changed **no** source/test/package/config and added **no** dependency. Environment of record: macOS · git 2.53.0 · Node v24.14.0 · date 2026-07-07 · `CURRENT_SCHEMA_VERSION = 12`. Verifies the brief §4 posture (fully offline; no telemetry; crash reporting OFF by default) + `.claude/rules/evidence-genie.md` invariant 1 (App Sandbox no-network entitlement is the OS-enforced offline backstop — verified at gate-4 packaging, see §5).

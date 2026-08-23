@@ -1,5 +1,13 @@
 # ADR — T4 举证质证表 proof-model + scope decision foundation (FORMS-T4-S0-00)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Date**: 2026-07-04. **Type**: ADR / decision record (documentation only — no implementation, no schema,
 no code/tests). **Lane**: WI-FORMS-T4-S0-SPEC-FOUNDATION-00 (design/decision-foundation, executed). **Status**:
 **DECIDED** for B1 (scope) + B2 (proof model) on explicit user authority (2026-07-04); B3 (schema/data

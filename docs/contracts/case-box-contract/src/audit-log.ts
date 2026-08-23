@@ -445,6 +445,15 @@ export function buildCaseBoxAuditEvent(
 // ---------------------------------------------------------------------------
 
 export type ChainVerifyErrorReason =
+  /**
+   * An existing matter was found to hold ZERO audit events. Impossible by
+   * construction — createMatter always appends a MATTER_REGISTERED genesis
+   * event — so a zero-event chain for a live matter is evidence of deletion,
+   * not an empty state. Reported by the persistence-layer verifiers, which are
+   * the only callers that know a matter exists; the pure chain verifier over an
+   * empty array stays `ok` because an empty array carries no such claim.
+   */
+  | "missing_genesis_event"
   | "prev_event_hash_mismatch"
   | "prev_event_hash_non_null_for_first_event"
   | "before_state_hash_not_null_on_create"

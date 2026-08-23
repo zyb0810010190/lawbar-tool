@@ -1,5 +1,13 @@
 # ADR A3-DB-00 — Evidence-Genie M0 A3 persistence substrate decision
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status**: Accepted (substrate DECISION — design only; adds no dependency, migration, schema, or key
 management).
 **Date**: 2026-06-23.

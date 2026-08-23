@@ -126,7 +126,12 @@ export function extractRefs(text) {
     for (const span of line.matchAll(/(`+)([^`]|[^`][\s\S]*?)\1(?!`)/g)) {
       for (let tok of String(span[2]).split(/\s+/)) {
         tok = tok.trim().replace(/^[('"[{]+/, "").replace(/[.,;:!?)\]}'"]+$/, "");
-        tok = tok.replace(/:\d+(-\d+)?$/, "");       // file:line and file:line-line citations
+        // file:line, file:line-line, file:line,line,... and file:symbolName citations.
+        // Only :N and :N-M were stripped until 2026-08-22, so a comma list or a symbol
+        // reference left the suffix attached and the tracked target was miscounted as
+        // dead — inflating the number this ratchet exists to reduce.
+        tok = tok.replace(/:\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/, "");
+        tok = tok.replace(/:[A-Za-z_$][A-Za-z0-9_$]*$/, "");
         tok = tok.replace(/#.*$/, "");               // anchor fragments
         tok = tok.replace(/^\.\//, "");             // ./-prefixed repo-relative paths
         if (!tok.includes("/")) continue;

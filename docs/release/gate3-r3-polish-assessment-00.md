@@ -1,5 +1,13 @@
 # Gate 3 — R3 Error / Empty-State Polish Assessment
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status:** R3 assessment **COMPLETE** — decision outcome **(b) `R3 non-M0 / deferred with evidence`**. A read-only inspection of the 11 v1 Mac-client renderer screens found **no M0-blocking error/empty-state defect** (no crash-on-empty, no white-screening unhandled rejection on the happy path, no silent loss of lawyer-entered input). R3 reduces to **bounded post-v1 polish** (a transport-error-`catch` inconsistency on 3 list-load paths + cosmetic copy/i18n consistency), documented as a residual. This **CONFIRMS** the gate-3 doc's prior ("none is an M0 correctness blocker"). **Gate 3 stays `PARTIAL`** and remains at-least-partially blocked by **gate 4** (R1 signing/distribution, user-owned). This is **NOT** a gate-3 clearance, **NOT** a gate-4 decision, **NOT** a gate-6 run, and **NOT** a go-live decision. **Date:** 2026-07-08. **Author:** Claude Code (WI-RELEASE-G3-R3-POLISH-ASSESS-00 execution lane). **Governed by:** `dev-memo/run/queue.md` (queue.governed sha256 `a515ee2a…`, amended rev 1, PR #224 merge `e3cbd51`), review `dev-memo/run/reviews/queue-review-169.md`.
 
 Read-only inspection of the renderer screens + the gate-3 docs; **no UI/source/test edited.** No product change. `CURRENT_SCHEMA_VERSION` 12.

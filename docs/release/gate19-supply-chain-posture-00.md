@@ -1,5 +1,13 @@
 # Gate 19 — Supply-Chain Posture (v1 dependency inventory + audit + provenance)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status:** supply-chain inventory + `npm audit` + provenance sweep **RECORDED** — the v1 production dependency surface is clean (`npm audit --omit=dev` = **0 vulnerabilities** across all six packages), native-binary + tarball provenance is traced, and the license inventory is descriptive-only. **One surfaced Electron-runtime risk item (covering two HIGH advisories on the shipped `electron` runtime) is recorded** (not fixed here; a follow-up dependency WI + gate 4). **Gate 19 stays `OPEN`** (a posture record is not a go-live sign-off). This is **NOT** a clearance of gates 4/6/12/13/17/20, **NOT** a license/legal/business decision (gate 17, user-owned), and **NOT** a go-live decision. **Date:** 2026-07-08. **Author:** Claude Code (WI-RELEASE-G19-SUPPLY-CHAIN-POSTURE-00 execution lane). **Governed by:** `dev-memo/run/queue.md` (queue.governed sha256 `2744e686…`, PR #218 merge `50377fd`), review `dev-memo/run/reviews/queue-review-164.md`.
 
 **Read-only sweep.** This lane read manifests + lockfiles + tarball metadata and ran `npm audit` / `npm ls`. It ran **no** `npm install` / `npm audit fix` / `npm update` and mutated **no** `package.json` / `package-lock.json` / dependency / tarball. Environment: Node `v24.14.0`, npm `11.9.0`, 2026-07-08.
@@ -30,7 +38,7 @@
 **Native deps:** `better-sqlite3 ^12.9.0` appears in three manifests (`apps/lawbar-desktop`, `services/ocr-persistence`, `services/case-box-persistence`).
 
 ## 3. Native-binary + tarball provenance
-- **`better-sqlite3` 12.10.0 (MIT).** Install script `prebuild-install || node-gyp rebuild --release` — a prebuilt binary with a compile-from-source fallback. In the current host tree the compiled `build/Release/better_sqlite3.node` is present (no `prebuilds/` dir → built from source via node-gyp on this host). ABI integrity is guarded by the `services/ocr-persistence` `abi-smoke` pretest (`scripts/abi-smoke.mjs`), which fails a stale native binding as a clear `[abi-smoke] FAIL` rather than an opaque `ERR_DLOPEN_FAILED` (`AGENTS.md` §"Repo brief"). Packaging rebuilds the binding for the electron-builder `mac.target` arches (arm64 + x64) with a `postdist` host-restore (`AGENTS.md` §"Test-environment notes").
+- **`better-sqlite3` 12.10.0 (MIT).** Install script `prebuild-install || node-gyp rebuild --release` — a prebuilt binary with a compile-from-source fallback. In the current host tree the compiled `build/Release/better_sqlite3.node` is present (no `prebuilds/` dir → built from source via node-gyp on this host). ABI integrity is guarded by the `services/ocr-persistence` `abi-smoke` pretest (`services/ocr-persistence/scripts/abi-smoke.mjs`), which fails a stale native binding as a clear `[abi-smoke] FAIL` rather than an opaque `ERR_DLOPEN_FAILED` (`AGENTS.md` §"Repo brief"). Packaging rebuilds the binding for the electron-builder `mac.target` arches (arm64 + x64) with a `postdist` host-restore (`AGENTS.md` §"Test-environment notes").
 - **OCR engine `@gutenye/ocr-node` 1.4.8 (MIT)** + `@gutenye/ocr-models` 1.4.2 (MIT). Provenance: npm registry. Not wired into the v1 client; the real engine path is model-gated / post-v1.
 - **Committed internal tarballs** (`apps/lawbar-desktop/dist-tarballs/`): `case-box-contract-0.1.0.tgz` (`package/dist/**` — built from the in-repo `docs/contracts/case-box-contract`) + `case-box-persistence-0.1.0.tgz` (built from in-repo `services/case-box-persistence`). Both are **first-party** artifacts (no declared `license` field — in-repo source, not third-party redistribution) traceable to in-repo source packages. Note (residual R-G19-2): a committed pre-built tarball's byte-provenance is only as good as its rebuild discipline; a reproducible-rebuild check is a post-v1 hardening candidate.
 

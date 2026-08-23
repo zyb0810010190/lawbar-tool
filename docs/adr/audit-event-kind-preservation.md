@@ -207,7 +207,7 @@ The two mechanisms are complementary: consistency rejects *incoherent* rows; has
   `audit_schema_version` to `docs/contracts/case-box-contract/schemas/case-box-audit-event.schema.json`.
   Because the schema is `additionalProperties:false` (`:83`), the fields MUST be declared before any
   event carries them — **contract-first ordering** is mandatory.
-- Regenerate `src/generated/case-box-audit-event.ts` (auto-gen via `scripts/gen-types.mjs`).
+- Regenerate `src/generated/case-box-audit-event.ts` (auto-gen via `docs/contracts/scripts/gen-types.mjs`).
 - `buildCaseBoxAuditEvent` stops dropping the kind: it stamps `event_kind` + `audit_schema_version=2`.
 - Add `canonicalAuditEventHashInput_v2` and version selection in `verifyAuditChain`; keep v1 and the
   golden test byte-identical.
