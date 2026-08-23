@@ -32,7 +32,7 @@
     },
     {
       "name": "case-box-persistence",
-      "description": "In-memory + SQLite conformance, audit chain, hardening and impl-parity suites. Verified 2026-08-12: 675 + 273 + 288, zero failures. Measured 6s on 2026-08-12; trigger set from that measurement, not an estimate.",
+      "description": "In-memory + SQLite conformance, audit chain, hardening and impl-parity suites. Measured 2026-08-22: 692 + 273 + 288 = 1253 tests, zero failures, ONE todo (T-TRUNC-3, the consistent-truncation gap, which is unmet by design until an external anchor exists). A todo count other than 1 is the real signal. Runs ~6s.",
       "command": "npm --prefix services/case-box-persistence test",
       "gateOn": [
         "taskCompleted",
@@ -109,7 +109,7 @@
     },
     {
       "name": "desktop",
-      "description": "KNOWN RED — 953 tests, 952 pass, 1 permanent failure: tests/smoke.electron.test.mjs:21 'Electron launches; window opens' fails with page.waitForSelector timeout on [data-test-id=\"list-empty\"]. It is environmental and has failed identically for days. It is ALSO the only test that verifies the app actually launches, so it is deliberately NOT excluded to make this lane green — a green gate that drops the launch test is less truthful than a red one. Read this lane as '952 expected passes plus one known failure'; a count other than 952/1 is the real signal.",
+      "description": "KNOWN RED — measured 2026-08-23: 1099 tests, 1098 pass, 1 permanent failure: tests/smoke.electron.test.mjs 'Electron launches; window opens' fails with a page.waitForSelector timeout. Environmental, and it is ALSO the only test proving the app launches, so it is deliberately NOT excluded to make this lane green. Read the lane as '1098 expected passes plus one known failure'; any other SHAPE is the real signal. This count goes stale the day anyone adds a test — it has already been wrong twice — so re-measure it in the same commit that changes the lane.",
       "command": "npm --prefix apps/lawbar-desktop test",
       "gateOn": [
         "push"
@@ -126,6 +126,26 @@
       ],
       "coverage": "none",
       "timeoutMs": 1800000
+    },
+    {
+      "name": "release-signing-real-bundle",
+      "description": "Opt-in real-tool verification of verify-macos-signing.sh against the real adhoc bundle at apps/lawbar-desktop/release/mac-arm64/lawbar.app. NOT bound to any trigger: spctl/xcrun stapler may perform an online notarization lookup, and the project forbids network access in gated tests. Added 2026-08-13 for review finding T-2 — the file existed but no lane or command could invoke it, which is the exact \"looks like coverage, provides none\" state the work item targets. Run deliberately: /tdd-guardian:gate release-signing-real-bundle",
+      "command": "LAWBAR_SIGNING_REAL_BUNDLE=1 node --test tests/verify-macos-signing.real-bundle.test.mjs",
+      "cwd": "apps/lawbar-desktop",
+      "gateOn": [],
+      "coverage": "none",
+      "timeoutMs": 300000
+    },
+    {
+      "name": "workflow-scripts",
+      "description": "Behavioural tests for the repo-workflow shell in scripts/workflow/. Discovered by GLOB, deliberately: scripts.test elsewhere is a hand-maintained list and refresh-internal-lock-integrity.test.mjs sat in this same directory unregistered and unrun. A glob cannot forget a new file. measured 2026-08-23: 36 tests, 36 pass (17 wi-baseline + 19 refresh-internal-lock-integrity, the latter previously dark).",
+      "command": "node --test 'scripts/workflow/*.test.mjs'",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 300000
     }
   ],
   "_coverage_rationale": [

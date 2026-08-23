@@ -11,7 +11,10 @@
   "enabledPlugins": {
     "cc-suite@xiaolai": true,
     "loc-guardian@xiaolai": true,
-    "echo-sleuth@xiaolai": true
+    "echo-sleuth@xiaolai": true,
+    "grill@xiaolai": true,
+    "tdd-guardian@xiaolai": true,
+    "docs-guardian@xiaolai": true
   },
   "extraKnownMarketplaces": {
     "xiaolai": {
