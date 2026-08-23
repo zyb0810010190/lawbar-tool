@@ -716,3 +716,18 @@ test("D5-3 EVERY architecture's bundle is checked, not just the first", () => {
     assert.equal(r.status, 1, "unsigned stubs must not pass the exit contract");
   } finally { rmAll(root, { recursive: true, force: true }); }
 });
+
+test("D5-4 a build missing ONE architecture fails, even if the other verifies", () => {
+  // The hole the review found: the first version required at least ONE bundle and verified
+  // whatever it discovered, so if the x64 output silently vanished the arm64 bundle would
+  // verify and the gate would pass — contradicting the reason discovery was added at all.
+  const root = mkdtempAll(path.join(osAll.tmpdir(), "vs-all-"));
+  try {
+    mkdirAll(path.join(root, "release", "mac-arm64", "lawbar.app", "Contents"), { recursive: true });
+    const r = runAll(path.join(root, "release"));
+    assert.equal(r.status, 1);
+    assert.match(r.stdout + r.stderr, /expecting a signed bundle for each of: arm64 x64/,
+      "the expectation must come from the signed config, not a hardcoded guess");
+    assert.match(r.stdout + r.stderr, /INCOMPLETE — no bundle found for: x64/);
+  } finally { rmAll(root, { recursive: true, force: true }); }
+});

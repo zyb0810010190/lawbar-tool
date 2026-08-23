@@ -22,6 +22,24 @@ if [ ! -d "$ROOT" ]; then
   exit 1
 fi
 
+# WHICH bundles must exist. Reviewing the first version found the hole: it required at least
+# ONE .app and verified whatever it discovered, so if the x64 build silently vanished the
+# arm64 bundle would verify and the gate would pass — contradicting the very reason discovery
+# was added. Requiring a count is not enough either; it must be the RIGHT bundles.
+#
+# The expectation is derived from the signed config rather than hardcoded, so it cannot drift
+# away from what the build is actually told to produce.
+EXPECTED_ARCHES="$(node -p "
+  const t = require('./electron-builder.signed.cjs').mac.target;
+  [...new Set([].concat(...t.map((x) => x.arch)))].sort().join(' ')
+" 2>/dev/null)"
+if [ -z "$EXPECTED_ARCHES" ]; then
+  echo "verify:all: could not read the target architectures from electron-builder.signed.cjs." >&2
+  echo "            Refusing rather than verifying an unknown subset." >&2
+  exit 1
+fi
+echo "verify:all: expecting a signed bundle for each of: $EXPECTED_ARCHES"
+
 found=0
 failed=0
 # -maxdepth 3: release/<mac-arch>/<name>.app. Deeper matches are nested bundles inside an
@@ -43,8 +61,23 @@ if [ "$found" -eq 0 ]; then
   echo "            must not report success — that is a pass with no evidence behind it." >&2
   exit 1
 fi
+
+# Every expected architecture must be represented. A build that produced one and lost the
+# other must not ship on the strength of the survivor.
+missing=""
+for arch in $EXPECTED_ARCHES; do
+  if ! find "$ROOT" -maxdepth 3 -type d -name "*.app" 2>/dev/null | grep -q -- "$arch"; then
+    missing="$missing $arch"
+  fi
+done
+if [ -n "$missing" ]; then
+  echo "verify:all: the build is INCOMPLETE — no bundle found for:$missing" >&2
+  echo "            $found bundle(s) were checked, but a release missing an architecture" >&2
+  echo "            must not pass on the strength of the ones that survived." >&2
+  exit 1
+fi
 if [ "$failed" -gt 0 ]; then
   echo "verify:all: $failed of $found bundle(s) failed the exit contract" >&2
   exit 1
 fi
-echo "verify:all: $found bundle(s) passed the signing exit contract"
+echo "verify:all: $found bundle(s) passed, covering every expected architecture"

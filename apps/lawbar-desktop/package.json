@@ -57,7 +57,8 @@
     "backup:local": "node scripts/backup-local-data.mjs",
     "postinstall": "electron-builder install-app-deps",
     "test:wrapper": "node --test tests/wrapper.test.mjs",
-    "verify:signing:release": "bash scripts/verify-macos-signing-all.sh"
+    "verify:signing:release": "bash scripts/verify-macos-signing-all.sh",
+    "predist:release": "rm -rf release"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",

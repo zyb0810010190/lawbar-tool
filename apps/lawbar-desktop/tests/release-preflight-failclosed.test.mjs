@@ -36,7 +36,7 @@ const manifest = JSON.parse(readFileSync(path.join(PKG_DIR, "package.json"), "ut
 // T5.1–T5.3 — the `dist:release` recipe is a gate, not a suggestion
 // ===========================================================================
 
-test("T5.1 dist:release is &&-chained with preflight first and electron-builder last", () => {
+test("T5.1 dist:release is &&-chained: preflight first, build, then signing verification", () => {
   const raw = manifest.scripts["dist:release"];
   const stages = raw.split(" && ");
   // FOUR stages since D-5. The recipe used to end at electron-builder, so no ship path ever
@@ -45,8 +45,18 @@ test("T5.1 dist:release is &&-chained with preflight first and electron-builder 
   assert.equal(stages.length, 4, `unexpected stage count in: ${raw}`);
   assert.equal(stages[0], "bash scripts/release-preflight.sh");
   assert.match(stages[2], /^electron-builder\b/);
-  assert.match(stages[3], /verify:signing:release|verify-macos-signing-all/,
+  // EXACT, not a substring match. `/verify:signing:release/` alone is satisfied by
+  // `echo verify:signing:release` or `npm run not-verify:signing:release` — a shape test that
+  // accepts a decoy is not a gate.
+  assert.equal(stages[3], "npm run verify:signing:release",
     "the build must be followed by verification, or dist:release asserts nothing about signing");
+  assert.equal(manifest.scripts["verify:signing:release"],
+    "bash scripts/verify-macos-signing-all.sh",
+    "and that script must be the real verifier, not a stand-in");
+  // Stale bundles from an earlier build must not be able to satisfy the verifier, so the
+  // output directory is cleared first. npm runs `pre<script>` automatically.
+  assert.equal(manifest.scripts["predist:release"], "rm -rf release",
+    "release/ must be cleaned before the build, or the gate can pass on last week's artifacts");
   // The load-bearing pair: `;` would run the build regardless of preflight's exit
   // status, and `||` would run it ONLY when preflight fails. Both preserve the
   // recipe's shape while inverting its meaning.

@@ -37,16 +37,30 @@ metadata is not categorically different from the OCR and sync flows that contrac
 `(matter_id, …)` emitted on a schedule is a stable per-matter fingerprint of privileged
 representation leaving the machine.
 
-And they would not close the gap anyway. An attacker truncates to the last externally
-anchored state and updates the local anchor; everything after that anchor point disappears
-undetectably. RFC 3161 proves existence-before-a-time, not completeness-after-it — the newer
-tokens are deleted along with the newer events. Both buy a bounded window, not completeness,
-at the cost of the confidentiality contract.
+They would also not close the gap — though they are not worthless, and an earlier draft of
+this section came close to implying they were. What external anchoring genuinely buys is
+**bounded completeness**: deletion of any event that was already anchored becomes detectable,
+which is a real evidentiary gain. What it cannot give is completeness *after* the last
+anchor. An attacker truncates to the last externally anchored state and updates the local
+anchor, and everything since then disappears undetectably. RFC 3161 has the same shape: it
+proves existence-before-a-time, not completeness-after-it, and the newer tokens are deleted
+alongside the newer events.
 
-The signed local checkpoint is weaker still: an attacker able to rewrite the chain and the
-head anchor can rewrite and re-sign the checkpoint, since the key is on the same machine. It
-stops only an attacker who can edit the database but cannot reach the signing operation —
-narrower than the one in the gap — while adding key lifecycle to explain in court.
+So the trade is a bounded loss window against this product's first network egress and a
+stable per-matter fingerprint leaving the machine on a schedule. That trade is declined here.
+It is not declined because anchoring is useless; it is declined because the confidentiality
+contract is enforced code and the gain is bounded.
+
+The signed local checkpoint, **as ordinarily built**, is weaker still: an attacker able to
+rewrite the chain and the head anchor can rewrite and re-sign the checkpoint, because the key
+is usable on the same machine. It then stops only an attacker who can edit the database but
+cannot reach the signing operation — narrower than the one in the gap — while adding key
+lifecycle to explain in court.
+
+That verdict is specific to a locally usable key, and the distinction matters: a
+hardware-backed key requiring user presence, or a checkpoint exported to external media,
+separates the signer from the file-editing adversary and would be a different proposition.
+Neither is proposed here, and neither should be dismissed by citing the paragraph above.
 
 ## The witness that does exist
 
@@ -56,6 +70,16 @@ retained backup**. `apps/lawbar-desktop/scripts/backup-local-data.mjs` archives 
 comparison is arithmetic: an earlier archive whose chain is *longer* than the current one is
 proof of removal.
 
-This requires no network egress, no third party, and no new key. It requires that backups are
-actually taken and retained, which is an operational commitment, not a code guarantee — and
-saying so plainly is the point of this document.
+**This is weaker than it first sounds, and the weakness is the point.** A backup written by
+this machine, to this machine, is under the same write authority as the database: the same
+adversary can delete it, overwrite it, or retain only the archives that agree with the
+truncated chain. It is a witness **only when retained outside that authority** — on external
+media that is disconnected, on storage the app cannot write to, or in a custody arrangement
+where the retention itself is independently evidenced.
+
+So the honest formulation is: a retained backup *can reveal* truncation, and does so
+arithmetically when it exists and is trustworthy. It is not proof by itself, and this document
+must not be read as saying the chain's completeness is established by a mechanism the same
+attacker controls. That requires no network egress, no third party and no new key — but it
+does require an operational commitment about where backups live, which is not a code
+guarantee and cannot be made into one here.
