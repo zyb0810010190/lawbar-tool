@@ -60,6 +60,19 @@ jobs:
       # nothing reported it. Fix on failure:
       #   npm --prefix apps/lawbar-desktop run bootstrap
       # then commit dist-tarballs/ + package-lock.json.
+      # The tarball guard below compares the committed tarballs against a FRESH PACK OF
+      # SOURCE. `dist/` is gitignored, so on a clean CI checkout there is nothing compiled to
+      # pack and every payload file reads as "EXTRA". That made the guard pass on any machine
+      # where someone had built recently and fail on every clean one — it has in fact never
+      # passed in CI, because the step was added after this workflow's last green run and
+      # this PR is its first execution. Build first, then compare.
+      - name: Build the internal packages the tarballs are packed from
+        run: |
+          npm --prefix docs/contracts/case-box-contract ci
+          npm --prefix docs/contracts/case-box-contract run build
+          npm --prefix services/case-box-persistence ci
+          npm --prefix services/case-box-persistence run build
+
       - name: Internal tarballs match current source (else the suite below tests stale code)
         run: |
           npm --prefix apps/lawbar-desktop run check:internal-tarballs
