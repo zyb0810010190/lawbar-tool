@@ -225,7 +225,7 @@ export function prepareTransitionFact(
 
   // Reason pre-validation for rejected edges (mirrors A3's pattern).
   if (opts.to === "rejected") {
-    if (typeof opts.rejection_reason !== "string" || opts.rejection_reason.length === 0) {
+    if (typeof opts.rejection_reason !== "string" || opts.rejection_reason.trim().length === 0) {
       throw new CaseBoxPersistenceError(
         "invalid_argument",
         `transition to rejected requires a non-empty rejection_reason`,
@@ -498,11 +498,12 @@ export function listFacts(
 // ---------------------------------------------------------------------------
 
 import type { CaseBoxMatter } from "case-box-contract";
+import { InMemoryAuditLog } from "./auditHeadAnchor.js";
 
 interface FactRepoView {
   matters: Map<string, CaseBoxMatter>;
   documents: Map<string, { document: import("case-box-contract").CaseBoxDocument; matter_id: string }>;
-  auditByMatter: Map<string, StoredAuditEvent[]>;
+  audit: InMemoryAuditLog;
 }
 interface FactCDeps { generateId: () => string; nowIso: () => string; }
 
@@ -523,7 +524,7 @@ export function applyAppendFact(
     nowIso: deps.nowIso,
     storedAuditEventsForMatter: () => {
       if (typeof matterIdFromInput !== "string") return [];
-      return repo.auditByMatter.get(matterIdFromInput) ?? [];
+      return repo.audit.get(matterIdFromInput);
     },
     getDocument: (documentId) => {
       const entry = repo.documents.get(documentId);
@@ -546,9 +547,7 @@ export function applyAppendFact(
   state.factIds.add(prepared.row.id);
   state.factIndex.set(prepared.row.id, prepared.matterId);
   state.factById.set(prepared.row.id, prepared.row);
-  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
-  stored.push(prepared.audit);
-  repo.auditByMatter.set(prepared.matterId, stored);
+  repo.audit.append(prepared.matterId, prepared.audit);
   return structuredClone(prepared.row) as CaseBoxFact;
 }
 

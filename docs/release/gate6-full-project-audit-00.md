@@ -1,5 +1,13 @@
 # Gate 6 — Full-Project Audit (final autonomous sweep)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status:** **PASS — full-project audit clean (C0 / H0 / M0, documented Lows only)** at `main` HEAD `57a746f313ea46ff923ccab7c74c80c3fd11176f`. Gate 6's "Full audit clean (no C/H/M)" condition is **MET**. This moves the **gate-6 row only** OPEN → CLEARED (full-project audit clean at HEAD). It is **NOT** a clearance of the user-owned gates 4 (signing/distribution) / 11 (律师法) / 17 (license/business) / 21 (final sign-off); it does **NOT** decide gate-7 D-G7-1/D-G7-2; it does **NOT** run the holistic readiness refresh (a separate later lane); and it does **NOT** imply a final GO/NO-GO. **Date:** 2026-07-08. **Author:** Claude Code (WI-RELEASE-G6-FULL-PROJECT-AUDIT-00 execution lane). **Governed by:** `dev-memo/run/queue.md` (queue.governed sha256 `0b1a2dce…`, PR #228 merge `888b205`), review `dev-memo/run/reviews/queue-review-173.md`.
 
 Read-only inspection of the product/code surfaces (no product source/test/config edited, no finding fixed in-lane); this WI updates only release documentation (this audit doc + the gate-6 readiness row). `CURRENT_SCHEMA_VERSION` (case-box) 12.

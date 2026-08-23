@@ -1,5 +1,27 @@
 # ADR: Evidence-Genie M0 × xiaolai Workflow Composition (EVW-00)
 
+> ### ⚠️ SUPERSEDED IN FACT — 2026-08-10
+>
+> **The enforcement machinery this ADR describes in the present tense no longer exists.** It was
+> deleted in the configuration reset of 2026-08-10 (commit `49dd7ad`) and the follow-up reset of
+> 2026-08-12 (`e67b047`). Verified 2026-08-12:
+>
+> - `scripts/workflow/` contains only `check-internal-tarballs.mjs`,
+>   `refresh-internal-lock-integrity.mjs` and its test. **`check-a07-gate.sh`,
+>   `a07-marker-write.sh`, `a07_marker.py`, `check-marker-guard.sh` and `check-gates.sh` are gone.**
+> - `.claude/` holds only `settings.json` and `docs-guardian/`. No `rules/`, `commands/`,
+>   `agents/`, `skills/`, or hooks.
+> - `dev-memo/run/` — the governed queue, its markers and its review archive — does not exist.
+>
+> **Consequences for anything read below.** There is no A0.7 gate, so nothing "fails closed": an
+> A0.7-dependent action proceeds unchecked. There is no marker writer or validator, so a file that
+> merely looks like a marker cannot be distinguished from a real one. There is no run-control
+> guard, so any marker-forgery hole this ADR describes as closed is **open**.
+>
+> A0.7 is **PROVISIONAL, not green**. This ADR now records intent and reasoning only. Read every
+> "is built / is enforced / fails closed / is wired" claim in it as past tense.
+
+
 ## Status
 
 **Proposed** — 2026-06-22. Doc-only. Records a composition model and decisions.

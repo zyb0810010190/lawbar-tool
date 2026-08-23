@@ -231,7 +231,7 @@ For the future LLM-extraction implementation WI (NOT authorized here):
 - `docs/adr/sync-bridge-architecture.md` — companion-bridge per-document opt-in pattern that the LLM grant model mirrors.
 - `docs/adr/client-application-surface.md` — v1 default workflow has no LLM enablement; matter-level + document-level opt-in is the only path.
 - `docs/contracts/case-box-contract/src/invariants.ts` — `LOCAL_ONLY_ACTOR_USER_ID`, `isLocalOnlyActor`.
-- `docs/product/product-target-architecture.md` §"Data Residency" row "LLM candidate-fact extraction" + §"Cross-cutting Invariants" #4 (no auto-accept).
+- `docs/product/product-definition.md Part I` §"Data Residency" row "LLM candidate-fact extraction" + §"Cross-cutting Invariants" #4 (no auto-accept).
 - `docs/release/go-live-plan.md` — Stop-and-Ask gates.
 - `AGENTS.md` — Stop-and-Ask gates including external account, runtime dependency, security-sensitive rewrites.
 

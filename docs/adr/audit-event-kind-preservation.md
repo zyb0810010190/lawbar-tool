@@ -17,19 +17,19 @@ The CaseBox audit panel renders each event as raw `action · entity_type` — e.
 status transition shows as **"update · deadline"**, indistinguishable between *met*, *missed*, and
 *withdrawn*. The information to humanize the label is lost at persistence:
 
-- The rich event **kind** (`CASE_BOX_AUDIT_EVENT_KINDS`, `docs/contracts/case-box-contract/src/audit-log.ts:66-118`)
-  is a compile-time discriminator. `buildCaseBoxAuditEvent` (`audit-log.ts:223-264`, drop at `:249`)
+- The rich event **kind** (`CASE_BOX_AUDIT_EVENT_KINDS`, `docs/contracts/case-box-contract/src/audit-log.ts:72`)
+  is a compile-time discriminator. `buildCaseBoxAuditEvent` (`audit-log.ts:328`, verified 2026-08-12)
   maps each kind to `{action, entity_type, reasonRequired}` and **discards the kind** — only
   `action` + `entity_type` reach the persisted event.
 - Crucially, several kinds **collapse to the same persisted pair**. Verified:
   `DEADLINE_MET`, `DEADLINE_MISSED`, `DEADLINE_WITHDRAWN` are all
   `{action:"update", entity_type:"deadline", reasonRequired:false}`.
-- The per-event hash (`canonicalAuditEventHashInput`, `audit-log.ts:177-198`) covers an explicit
+- The per-event hash (`canonicalAuditEventHashInput`, `audit-log.ts:217`, verified 2026-08-12) covers an explicit
   **12-field** allow-list: `action, actor_user_id, after_state_hash, before_state_hash, entity_id,
   entity_type, id, matter_id, prev_event_hash, reason, tenant_id, timestamp`. `verifyAuditChain`
   (`audit-log.ts:~310`) validates shape then recomputes each event's hash from that input and checks
   the `prev_event_hash` links. The exact canonical string is pinned by a golden test
-  (`docs/contracts/case-box-contract/tests/validators.test.mjs:585-622`).
+  (`docs/contracts/case-box-contract/tests/audit-event-kind-v2.test.mjs:52`).
 
 **The integrity problem.** If we preserve `event_kind` but leave it **outside** the hash, the audit
 record becomes tamper-editable in exactly the dimension we are trying to surface. A direct edit of a
@@ -68,9 +68,13 @@ review-plan `review-plan-mq4v6gfn-cdy5f7` correctly flagged FAIL/BLOCK on this e
 
 ### 3.1 v1 (legacy) — unchanged
 `canonicalAuditEventHashInput_v1(event)` is **exactly** today's function: the 12-field alphabetical
-object, identical bytes. The golden test (`validators.test.mjs:585-622`) must remain **unchanged** —
+object, identical bytes. The golden test (`audit-event-kind-v2.test.mjs:52`, "v1: canonicalAuditEventHashInput is byte-identical for legacy events") must remain **unchanged** —
 that is the proof v1 is untouched. Every event written before the implementation ships is a v1 event
 and verifies under v1 forever.
+
+> **Line numbers re-derived 2026-08-12.** §1's anchors had drifted 6-112 lines since 2026-06-08
+> and pointed at unrelated functions. All citations in this document are now verified against
+> the current file.
 
 ### 3.2 v2 (kind-bearing) — additive
 `canonicalAuditEventHashInput_v2(event)` extends the v1 object with the new integrity-bearing
@@ -78,7 +82,17 @@ field(s), in canonical (alphabetical) order:
 
 - `audit_schema_version` (the integer `2`),
 - `event_kind` (the normalized key),
+- `changed_fields` — **conditional**, present only on `MATTER_DETAILS_UPDATED`; slots
+  alphabetically between `before_state_hash` and `entity_id`,
 - …plus the existing 12 v1 fields.
+
+> **Amended 2026-08-12.** `changed_fields` was added to this canonical input by commit `a1b55f0`
+> (2026-08-05, matter-details-edit Phase A) and was missing from this list for 58 days. It is a
+> security-boundary field: `canonicalAuditEventHashInput` **throws** if `changed_fields` appears on
+> any event whose kind is not `MATTER_DETAILS_UPDATED` (`docs/contracts/case-box-contract/src/audit-log.ts:228`),
+> so a schema-bypassing malformed event cannot hash a smuggled value. Byte-preservation for existing
+> events was proven in that commit, so chain integrity was never affected — the defect was
+> documentary. A future v3 author reading §3.2 alone would have under-specified the serialization.
 
 `event_hash = sha256(canonicalAuditEventHashInput_v2(event))` for new events. Because v2 is a
 *different* serialization, a v2 event's hash is intrinsically different from what v1 would produce —
@@ -193,7 +207,7 @@ The two mechanisms are complementary: consistency rejects *incoherent* rows; has
   `audit_schema_version` to `docs/contracts/case-box-contract/schemas/case-box-audit-event.schema.json`.
   Because the schema is `additionalProperties:false` (`:83`), the fields MUST be declared before any
   event carries them — **contract-first ordering** is mandatory.
-- Regenerate `src/generated/case-box-audit-event.ts` (auto-gen via `scripts/gen-types.mjs`).
+- Regenerate `src/generated/case-box-audit-event.ts` (auto-gen via `docs/contracts/scripts/gen-types.mjs`).
 - `buildCaseBoxAuditEvent` stops dropping the kind: it stamps `event_kind` + `audit_schema_version=2`.
 - Add `canonicalAuditEventHashInput_v2` and version selection in `verifyAuditChain`; keep v1 and the
   golden test byte-identical.
@@ -223,7 +237,7 @@ The two mechanisms are complementary: consistency rejects *incoherent* rows; has
 
 ## 10. Test plan (for the implementation batch — not run in this ADR batch)
 
-- The **golden v1** canonical-hash string remains **unchanged** (`validators.test.mjs:585-622`).
+- The **golden v1** canonical-hash string remains **unchanged** (`audit-event-kind-v2.test.mjs:52`).
 - A **v2** canonical-hash test pins the new string and asserts `event_kind` + `audit_schema_version`
   are included.
 - **Tampering `event_kind`** on a v2 event (within the same action/entity_type) breaks verification.

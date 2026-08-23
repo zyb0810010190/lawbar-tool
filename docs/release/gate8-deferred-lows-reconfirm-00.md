@@ -1,5 +1,13 @@
 # Gate 8 — Deferred-Lows Reconfirmation (gate-close triage)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status:** deferred-Lows reconfirmation **PASS** — all **37** open deferred findings reconfirmed **Low + Safe=YES + not an M0-product blocker**; **0 Medium-or-higher** open; 0 require escalation. **Gate 8 stays `PARTIAL`** (enriched with the reconfirmed marker — a triage is not a go-live sign-off, and the registry accrues new Lows that the next gate-close re-triages). This is **NOT** a clearance of gates 2/6/12/13/16/19/20, and is **NOT** a go-live decision. **Date:** 2026-07-07. **Author:** Claude Code (WI-RELEASE-G8-DEFERRED-LOWS-RECONFIRM-00 execution lane). **Governed by:** `dev-memo/run/queue.md` (queue.governed sha256 `1a151c5c…`, PR #212 merge `55365de`), review `dev-memo/run/reviews/queue-review-158.md`.
 
 Read-only factual reconfirmation of `dev-memo/deferred-audit-findings.md` (analysis read-only; the only writes are this doc + the gate-8 evidence row). No Low was implemented/fixed, no finding invented, no severity changed, no wholesale rewrite. No product source/test/dependency change. `CURRENT_SCHEMA_VERSION` 12.

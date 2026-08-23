@@ -48,7 +48,7 @@ import type { Database } from "better-sqlite3";
 
 import { CaseBoxPersistenceError } from "../errors.js";
 
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;
 
 // ---------------------------------------------------------------------------
 // Per-version DDL.
@@ -645,6 +645,49 @@ const DDL_STATEMENTS_V12: ReadonlyArray<string> = [
   `ALTER TABLE case_box_links ADD COLUMN unlink_reason TEXT;`,
 ];
 
+// ---------------------------------------------------------------------------
+// Version 13 (Pre-trial/Trial ClaimTrack, WI-PTA-VS1): case_box_claim_tracks.
+//
+// The first PTA persistence table — a matter's claim/counterclaim reasoning
+// tracks (CaseBoxClaimTrack, contract shipped in PTA-04). Create/get/list only;
+// no update/withdraw/resolve/delete path (a later slice), so only the
+// CLAIM_TRACK_CREATED audit kind is ever emitted. Single-table mirror of the
+// facts/evidence-item shape.
+//
+// Lifted columns are filter/seek keys only; `payload_json` is canonical
+// (read = JSON.parse(payload_json), never re-derived). The
+// (matter_id, sort_order, created_at, id) index matches the deterministic list
+// ORDER BY sort_order ASC, created_at ASC, id ASC exactly (the in-memory
+// comparator uses the same 3-key order; parity is tested). `created_at` is the
+// only lifted timestamp (seek key); `updated_at` stays canonical in
+// payload_json (createClaimTrack requires updated_at === created_at at create,
+// so a later update slice owns updated_at's lifting + parity).
+//
+// No value CHECKs (validation is validateClaimTrack; mirrors facts/evidence).
+// NO FOREIGN KEY (case-box convention, schema.ts header §3): matter_id ->
+// case_box_matters.id and the claimant/respondent party-in-matter existence are
+// APP-LAYER invariants (prepareCreateClaimTrack), not SQLite FKs.
+// ---------------------------------------------------------------------------
+
+const DDL_STATEMENTS_V13: ReadonlyArray<string> = [
+  `CREATE TABLE IF NOT EXISTS case_box_claim_tracks (
+     id                       TEXT    PRIMARY KEY,
+     tenant_id                TEXT    NOT NULL,
+     matter_id                TEXT    NOT NULL,
+     track_type               TEXT    NOT NULL,
+     status                   TEXT    NOT NULL,
+     sort_order               INTEGER NOT NULL,
+     created_at               TEXT    NOT NULL COLLATE BINARY,
+     payload_json             TEXT    NOT NULL
+   );`,
+
+  // Per-matter deterministic list seek. Matches ORDER BY sort_order ASC,
+  // created_at ASC, id ASC exactly (lawyer-controlled order first, then a
+  // fully-deterministic tiebreak).
+  `CREATE INDEX IF NOT EXISTS idx_case_box_claim_tracks_by_matter_sort
+     ON case_box_claim_tracks (matter_id, sort_order, created_at, id);`,
+];
+
 const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [1, DDL_STATEMENTS_V1],
   [2, DDL_STATEMENTS_V2],
@@ -658,6 +701,7 @@ const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
   [10, DDL_STATEMENTS_V10],
   [11, DDL_STATEMENTS_V11],
   [12, DDL_STATEMENTS_V12],
+  [13, DDL_STATEMENTS_V13],
 ]);
 
 /**

@@ -9,6 +9,7 @@ import type {
   GetMatterDto,
   ListMattersDto,
   ArchiveMatterDto,
+  UpdateMatterDetailsDto,
   ChainHeadDto,
   ListAuditEventsDto,
   ListDocumentsDto,
@@ -24,6 +25,8 @@ import type {
   EditDocketEntryDto,
   TransitionFactDto,
   TransitionDeadlineDto,
+  CreateClaimTrackDto,
+  ListClaimTracksDto,
   CreateLinkDto,
   UnlinkLinkDto,
   RelinkLinkDto,
@@ -35,6 +38,7 @@ import type {
   GetMatterResult,
   ListMattersResult,
   ArchiveMatterResult,
+  UpdateMatterDetailsResult,
   ChainHeadResult,
   ListAuditEventsResult,
   ListDocumentsResult,
@@ -50,6 +54,8 @@ import type {
   EditDocketEntryResult,
   TransitionFactResult,
   TransitionDeadlineResult,
+  CreateClaimTrackResult,
+  ListClaimTracksResult,
   CreateLinkResult,
   UnlinkLinkResult,
   RelinkLinkResult,
@@ -59,6 +65,16 @@ import type {
   T3ExportDocxResult,
 } from "../src/caseBox/dto.js";
 
+/**
+ * The theme bridge — the one `window.lawbar` surface that does NOT follow the
+ * `CaseBoxApi` envelope convention. `get`/`set` resolve to a bare value and
+ * REJECT when the main-process handler throws, so call sites need try/catch;
+ * there is no `ok` flag to branch on.
+ *
+ * `onSystemChange` only adds an `ipcRenderer.on` listener and hands back no
+ * unsubscribe handle. Every call permanently adds another listener for the
+ * lifetime of the window — subscribe once at startup, never per render.
+ */
 export interface ThemeApi {
   get(): Promise<{ preference: ThemePreference; resolved: ResolvedTheme }>;
   set(mode: ThemePreference): Promise<{ preference: ThemePreference; resolved: ResolvedTheme }>;
@@ -67,11 +83,45 @@ export interface ThemeApi {
   ): void;
 }
 
+/**
+ * The complete renderer→main capability surface for case material. The renderer
+ * has no filesystem or database access of its own, so every read of and every
+ * write to local client material passes through one of these methods. Note the
+ * boundary is `contextIsolation: true` + `nodeIntegration: false`; Electron's
+ * own `sandbox` is currently FALSE (`main.ts:50`, required for the ESM preload),
+ * so do not reason as though a renderer compromise is sandbox-contained. (`theme` and `appInfo` share the `window.lawbar` global but reach no
+ * case material.)
+ *
+ * Every method resolves to a discriminated envelope — `{ ok: true, value }` or
+ * `{ ok: false, error }` — because the main-process handlers convert persistence
+ * throws into `ok: false`. A REJECTED promise therefore means the main process
+ * itself is broken, not that the operation was refused. Never treat a resolved
+ * promise as success; branch on `ok`.
+ *
+ * Tenant and actor identity are server authority: main injects them from
+ * `getActiveTenantId()` / `getActiveActorUserId()`. Supplying `tenant_id`,
+ * `actor_user_id` or any other server-authority field in a DTO does not
+ * override them and is not ignored either — the per-channel forbidden-field
+ * guard REJECTS the whole call. Responses that carry persistence ROWS are
+ * projected through per-entity allowlists that strip that identity back out
+ * before it crosses the bridge; non-row responses (chain head, T3
+ * preview/export, link citation export) are constructed values that never
+ * carry tenant or actor identity in the first place.
+ *
+ * Adding a method here widens the security boundary. A new method needs a
+ * matching `CHANNEL` entry, a main-process handler, and that handler's own
+ * shape guard, forbidden-field guard, tenant/matter preflight and response
+ * projection. Nothing in this interface enforces any of that.
+ */
 export interface CaseBoxApi {
   createMatter(dto: CreateMatterDto): Promise<CreateMatterResult>;
   getMatter(dto: GetMatterDto): Promise<GetMatterResult>;
   listMatters(dto: ListMattersDto): Promise<ListMattersResult>;
   archiveMatter(dto: ArchiveMatterDto): Promise<ArchiveMatterResult>;
+  // matter-details-edit Phase C: edit a matter's 6 editable free-text fields. The
+  // write surface is guarded server-side (tenant/matter preflight + forbidden-field
+  // rejection + server-authority injection); the renderer edit SCREEN is Phase D.
+  updateMatterDetails(dto: UpdateMatterDetailsDto): Promise<UpdateMatterDetailsResult>;
   chainHead(dto: ChainHeadDto): Promise<ChainHeadResult>;
   listAuditEvents(dto: ListAuditEventsDto): Promise<ListAuditEventsResult>;
   listDocuments(dto: ListDocumentsDto): Promise<ListDocumentsResult>;
@@ -88,6 +138,11 @@ export interface CaseBoxApi {
   createDocketEntry(dto: CreateDocketEntryDto): Promise<CreateDocketEntryResult>;
   confirmDocketEntry(dto: ConfirmDocketEntryDto): Promise<ConfirmDocketEntryResult>;
   transitionFact(dto: TransitionFactDto): Promise<TransitionFactResult>;
+  // WI-PTA-VS2: the ClaimTrack IPC layer (list + create). The write surface is
+  // guarded server-side (matter/tenant preflight + party-ref preflight +
+  // forbidden-field rejection + server-authority injection); renderer UI is VS-3.
+  createClaimTrack(dto: CreateClaimTrackDto): Promise<CreateClaimTrackResult>;
+  listClaimTracks(dto: ListClaimTracksDto): Promise<ListClaimTracksResult>;
   listDocketEntries(dto: ListDocketEntriesDto): Promise<ListDocketEntriesResult>;
   dismissDocketEntry(dto: DismissDocketEntryDto): Promise<DismissDocketEntryResult>;
   // WI-DPE4: edit a proposed docket entry (IPC/DTO only; renderer call sites are DPE5).
@@ -129,6 +184,7 @@ const caseBoxApi: CaseBoxApi = {
   getMatter: (dto) => ipcRenderer.invoke("casebox:matter:get", dto),
   listMatters: (dto) => ipcRenderer.invoke("casebox:matter:list", dto),
   archiveMatter: (dto) => ipcRenderer.invoke("casebox:matter:archive", dto),
+  updateMatterDetails: (dto) => ipcRenderer.invoke("casebox:matter:updateDetails", dto),
   chainHead: (dto) => ipcRenderer.invoke("casebox:audit:chainHead", dto),
   listAuditEvents: (dto) => ipcRenderer.invoke("casebox:audit:listEvents", dto),
   listDocuments: (dto) => ipcRenderer.invoke("casebox:document:list", dto),
@@ -141,6 +197,8 @@ const caseBoxApi: CaseBoxApi = {
   createDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:create", dto),
   confirmDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:confirm", dto),
   transitionFact: (dto) => ipcRenderer.invoke("casebox:fact:transition", dto),
+  createClaimTrack: (dto) => ipcRenderer.invoke("casebox:claimTrack:create", dto),
+  listClaimTracks: (dto) => ipcRenderer.invoke("casebox:claimTrack:list", dto),
   listDocketEntries: (dto) => ipcRenderer.invoke("casebox:docket:list", dto),
   dismissDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:dismiss", dto),
   editDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:edit", dto),

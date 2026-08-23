@@ -1,5 +1,13 @@
 # Gate 14 — Backup + Recovery Procedure (v1 local-first, macOS)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status:** procedure documented + drill-verified. **Gate 14 is NOT CLEARED** (a documented procedure is evidence, not a go-live sign-off; a brief §14 manifest reconciliation remains, and export-format certification is gate 18). **Date:** 2026-07-07. **Author:** Claude Code (WI-RELEASE-G14-BACKUP-RECOVERY-00 execution lane). **Governed by:** `dev-memo/run/queue.md` (queue.governed sha256 `3e8a9f7b…`, PR #196 merge `abab91f`), review `dev-memo/run/reviews/queue-review-146.md`.
 
 This is the operator-facing data-survival runbook for the single-Mac v1 client. Robustness bar = **local-first data survival + recovery on one Mac** (`.claude/rules/client-local-first.md`), NOT distributed/replicated backup. All command examples use **fixture/placeholder paths** — no real lawyer data appears in any transcript.
@@ -123,7 +131,7 @@ Rather than re-run a live backup here, this runbook **cites that PASS as its ver
 
 | # | Section | Conflicting source | Prior wording | Reality (this doc) | Proposed resolution |
 |---|---|---|---|---|---|
-| R14-1 | §1 manifest | `docs/product/project-requirements-brief.md` §14 | Backup manifest = `case-box.sqlite` **+ `audit-log.sqlite`** + `blobs/` (two SQLite files + a `blobs/` store) | **One** `case-box.sqlite` (audit tables inside it) + `case-box-documents/` (not `blobs/`) + `theme-preference.json` | **`RECONCILIATION-NEEDED`.** Do NOT edit the brief in this lane. Open a bounded reconciliation WI to update brief §14's manifest wording to the shipped single-file + `case-box-documents/` layout (or to record the divergence as accepted), routed through `/cc-suite:review-plan` per `.claude/rules/project-brief.md` §"Conflict handling". Until then, **this runbook's §1 manifest is authoritative for backup** (generated output beats static doc). |
+| R14-1 | §1 manifest | `docs/product/product-definition.md (Part I)` §14 | Backup manifest = `case-box.sqlite` **+ `audit-log.sqlite`** + `blobs/` (two SQLite files + a `blobs/` store) | **One** `case-box.sqlite` (audit tables inside it) + `case-box-documents/` (not `blobs/`) + `theme-preference.json` | **`RECONCILIATION-NEEDED`.** Do NOT edit the brief in this lane. Open a bounded reconciliation WI to update brief §14's manifest wording to the shipped single-file + `case-box-documents/` layout (or to record the divergence as accepted), routed through `/cc-suite:review-plan` per `.claude/rules/project-brief.md` §"Conflict handling". Until then, **this runbook's §1 manifest is authoritative for backup** (generated output beats static doc). |
 
 ---
 

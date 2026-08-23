@@ -88,6 +88,11 @@ export const DEFAULT_FACT_ID = "01jcasefactmockid000000001";
 export const DEFAULT_DOCKET_ENTRY_ID = "01jcasedockmockid000000001";
 export const DEFAULT_DEADLINE_ID = "01jcasedlinemockid00000001";
 export const DEFAULT_EVIDENCE_ID = "01jcaseevidmockid000000001";
+export const DEFAULT_CLAIM_TRACK_ID = "01jcasecltrmockid000000001";
+// Party ULIDs planted on the matter so makeClaimTrackInput's claimant/respondent
+// references EXIST on the matter's parties[] (VS-0 preserves caller-supplied ids).
+export const DEFAULT_CLAIMANT_PARTY_ID = "01jcaseclaimantpty00000001";
+export const DEFAULT_RESPONDENT_PARTY_ID = "01jcaserespondentpt0000001";
 
 export function makeOcrLinkInput(overrides = {}) {
   return {
@@ -114,6 +119,50 @@ export function makeEvidenceItemInput(overrides = {}) {
     status: "proposed",
     supersedes_evidence_id: null,
     created_at: "2026-05-21T22:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/**
+ * A matter variant carrying two explicit-id parties (claimant + respondent) so a
+ * claim track's party references resolve. VS-0 preserves caller-supplied party ids
+ * at create, so these ids survive verbatim onto the stored matter's parties[].
+ */
+export function makeMatterWithClaimPartiesInput(overrides = {}) {
+  return makeMatterInput({
+    parties: [
+      { id: DEFAULT_CLAIMANT_PARTY_ID, role: "client", display_name: "Claimant Co", party_kind: "organization" },
+      { id: DEFAULT_RESPONDENT_PARTY_ID, role: "opposing", display_name: "Respondent Co", party_kind: "organization" },
+    ],
+    ...overrides,
+  });
+}
+
+/**
+ * WI-PTA-VS1: a full CaseBoxClaimTrack input (16 required fields). status "active",
+ * sort_order 0, created_at === updated_at, and claimant/respondent party ids that
+ * exist on makeMatterWithClaimPartiesInput's matter. The four required-but-empty
+ * summary fields default to "" (schema allows the empty string).
+ */
+export function makeClaimTrackInput(overrides = {}) {
+  return {
+    id: DEFAULT_CLAIM_TRACK_ID,
+    tenant_id: VALID_TENANT_ID,
+    actor_user_id: "local-user",
+    matter_id: VALID_MATTER_ID,
+    track_type: "main_claim",
+    claimant_party_id: DEFAULT_CLAIMANT_PARTY_ID,
+    respondent_party_id: DEFAULT_RESPONDENT_PARTY_ID,
+    our_role: "asserting",
+    title: "Main claim",
+    claim_summary: "",
+    response_summary: "",
+    legal_basis: "",
+    calculation_summary: "",
+    status: "active",
+    sort_order: 0,
+    created_at: "2026-05-22T09:00:00.000Z",
+    updated_at: "2026-05-22T09:00:00.000Z",
     ...overrides,
   };
 }

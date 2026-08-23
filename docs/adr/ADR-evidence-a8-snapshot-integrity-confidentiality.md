@@ -1,5 +1,13 @@
 # ADR — Evidence-Genie A8: Snapshot Integrity & Confidentiality (A8-DESIGN-00)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 - **Status:** Accepted (design-only; cc-suite review-plan `review-plan-mqz8ldue-ut1pn0` READY-WITH-LOW). **Authorizes no code, schema, migration, crypto, or export implementation.** Implementation happens only via the downstream governed WIs in §12, each separately authorized.
 - **Date:** 2026-06-29.
 - **WI:** WI-EVIDENCE-A8-DESIGN-00 (Type: PLAN; docs/ADR-only).

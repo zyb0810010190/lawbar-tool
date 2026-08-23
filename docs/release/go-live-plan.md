@@ -2,7 +2,7 @@
 
 > **⚠ RECONCILIATION REQUIRED — this plan is NOT the current go-live readiness source of truth.**
 >
-> This plan was authored when the project's v1 framing was OCR-pipeline-as-product with case-box layer DEFERRED. The product direction has since pivoted: the case-box layer is now the v1 core product (Phase B SQLite implementation complete at `98446aa`), and the OCR pipeline is one supporting input. The v1 client is a Mac desktop application for a single lawyer, local-first, per `docs/product/project-requirements-brief.md` (status READY revision 5).
+> This plan was authored when the project's v1 framing was OCR-pipeline-as-product with case-box layer DEFERRED. The product direction has since pivoted: the case-box layer is now the v1 core product (Phase B SQLite implementation complete at `98446aa`), and the OCR pipeline is one supporting input. The v1 client is a Mac desktop application for a single lawyer, local-first, per `docs/product/product-definition.md (Part I)` (status READY revision 5).
 >
 > As a result, this file's WI list (WI-00..WI-13) is partially obsolete and partially in-scope:
 >
@@ -21,11 +21,11 @@
 > 1. **Go-Live Readiness Blueprint** — `dev-memo/plan-go-live-readiness-00.md` (status READY at commit `1b92c58` on `origin/main`). Enumerates the **21 readiness gates** + the **23 STOP-AND-ASK items** that gate v1.
 > 2. **Legacy Reconciliation Report** — `dev-memo/plan-go-live-plan-reconcile-00.md` (status READY at commit `546fb09` on `origin/main`). Per-WI mapping of THIS file against the current state; proposes 8 amendment WIs (this banner is amendment WI #1).
 >
-> **Hard-stop posture**: go-live readiness still requires explicit user authorization for every item in `.claude/rules/autonomy.md` §"Hard-stop list" and brief §20. Phase B SQLite implementation completion does NOT imply go-live readiness.
+> **Hard-stop posture**: go-live readiness still requires explicit user authorization for every item in `docs/product/product-definition.md` Part I §20 "Hard-stop decisions". Phase B SQLite implementation completion does NOT imply go-live readiness.
 
 ## v1 Architecture (Post-Pivot)
 
-Authored as amendment WI #2 per `dev-memo/plan-go-live-plan-reconcile-00.md` §4 (commit `546fb09` on `origin/main`). Content sourced from `docs/product/project-requirements-brief.md` (status READY revision 5) §3-§7. Cite the brief for any conflict; this section is a derived summary.
+Authored as amendment WI #2 per `dev-memo/plan-go-live-plan-reconcile-00.md` §4 (commit `546fb09` on `origin/main`). Content sourced from `docs/product/product-definition.md (Part I)` (status READY revision 5) §3-§7. Cite the brief for any conflict; this section is a derived summary.
 
 ### Product framing
 
@@ -1649,8 +1649,15 @@ Likely files:
 - `docs/release/ocr-worker-runbook.md`
 - `docs/release/operator-checklist.md`
 - `docs/contracts/README.md`
-- `services/ocr-worker/README.md`
-- `services/ocr-persistence/README.md`
+<!-- D-3, resolved 2026-08-23: two service READMEs were listed here and never written.
+     Dropped rather than authored. Every acceptance criterion below is about the RUNBOOK —
+     production env vars, fail-closed behaviour and exit code 2, source-kind policy,
+     pending-retry recovery. Not one of them mentions a service README. They were a
+     speculative "likely files" entry, and 4 of the 6 services have no README, so no repo
+     convention required them either. Writing two would have meant generating confident prose
+     about production behaviour nobody had verified — the failure mode this repo exists to
+     avoid. If operator docs later need per-service detail, add it to the runbook, which is
+     what the criteria actually gate. -->
 - `AGENTS.md`
 
 Acceptance criteria:
@@ -1670,7 +1677,7 @@ Tests to run:
 
 Verification command: `/cc-suite:verify WI-09b`
 
-Audit command: `/cc-suite:audit --mini docs/release/ocr-worker-runbook.md docs/release/operator-checklist.md docs/contracts/README.md services/ocr-worker/README.md services/ocr-persistence/README.md AGENTS.md`
+Audit command: `/cc-suite:audit --mini docs/release/ocr-worker-runbook.md docs/release/operator-checklist.md docs/contracts/README.md AGENTS.md`
 
 Risk level: Low
 
@@ -2051,7 +2058,7 @@ Mapping to AGENTS.md go-live rule:
 
 **Status changes (amendment WI #3 only):**
 
-- **Case-box layer — STATUS CHANGED**: NO LONGER POST-v1. The case-box layer (confidentiality, privilege, audit, deadline, evidence, OCR-link mirror, read-side aggregations, replay-safe Once variants) is the **v1 core product** per `docs/product/project-requirements-brief.md` §7. **Phase B SQLite implementation is COMPLETE at commit `98446aa`** on `origin/main` (B1-B11 shipped; Sqlite-Final no-filter sweep 276/0; deterministic test total across packages 1692/0; zero Critical/High/Medium audit findings). Go-live readiness for the case-box-shaped v1 product remains separately gated per `dev-memo/plan-go-live-readiness-00.md` (blueprint at `1b92c58`) and per `.claude/rules/autonomy.md` §"Hard-stop list".
+- **Case-box layer — STATUS CHANGED**: NO LONGER POST-v1. The case-box layer (confidentiality, privilege, audit, deadline, evidence, OCR-link mirror, read-side aggregations, replay-safe Once variants) is the **v1 core product** per `docs/product/product-definition.md (Part I)` §7. **Phase B SQLite implementation is COMPLETE at commit `98446aa`** on `origin/main` (B1-B11 shipped; Sqlite-Final no-filter sweep 276/0; deterministic test total across packages 1692/0; zero Critical/High/Medium audit findings). Go-live readiness for the case-box-shaped v1 product remains separately gated per `dev-memo/plan-go-live-readiness-00.md` (blueprint at `1b92c58`) and per `docs/product/product-definition.md` Part I §20 "Hard-stop decisions".
 
 **Retained post-v1 items (original framing preserved; future amendment WIs may revisit):**
 

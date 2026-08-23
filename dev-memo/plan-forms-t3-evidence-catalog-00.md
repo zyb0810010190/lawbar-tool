@@ -46,7 +46,7 @@ implementation is **BLOCKED pending a schema ADR** (see §3 verdict).
   layout reference only — for internal review it may render as blank labels or be omitted; that is a
   rendering-phase choice, not a compliance requirement.
 - Fidelity target is the *content shape* of the real sample
-  (`dev-memo/run/intake/forms-samples/孙乐驰-证据目录及说明-一审.pdf`, read-only input, never
+  (`dev-memo/run/intake/forms-samples/示例-证据目录及说明-一审.pdf`, read-only input, never
   committed): title, submitter litigation status (☑原告/被告), submitter name, 4-column table,
   sequential rows, copies/originals footer note.
 

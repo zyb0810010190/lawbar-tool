@@ -64,6 +64,12 @@ test("v2: canonicalAuditEventHashInput pins the 14-field string with audit_schem
   assert.notEqual(canonicalAuditEventHashInput(v2Event()), V1_CANONICAL);
 });
 
+// Byte-preservation guard (plan-matter-details-edit Phase A #1 invariant): the changed_fields addition
+// MUST NOT introduce a "changed_fields" token into the canonical string of any event that has none.
+test("v2: byte-preservation — an existing-kind event canonical has NO changed_fields token", () => {
+  assert.ok(!canonicalAuditEventHashInput(v2Event()).includes("changed_fields"));
+});
+
 // --- 3. buildCaseBoxAuditEvent sets both v2 fields ---
 
 test("v2: buildCaseBoxAuditEvent sets event_kind and audit_schema_version on new events", () => {
@@ -156,6 +162,40 @@ test("v2 (WI-PTA-03): a delete-hard event whose kind mismatches its action is re
     event_kind: "CLAIM_TRACK_UPDATED", before_state_hash: "sha256:prev",
   });
   assert.equal(verifyAuditChain([bad], { eventHashFn }).ok, false);
+});
+
+// --- 5c. WI-PTA-VS0: MATTER_PARTY_IDS_ASSIGNED — audited party-id assignment/backfill on a matter ---
+
+test("MATTER_PARTY_IDS_ASSIGNED is a known kind declaring {update, matter, reasonRequired:false}", () => {
+  const meta = CASE_BOX_AUDIT_EVENT_KINDS.MATTER_PARTY_IDS_ASSIGNED;
+  assert.ok(meta, "MATTER_PARTY_IDS_ASSIGNED must be in CASE_BOX_AUDIT_EVENT_KINDS");
+  assert.equal(meta.action, "update");
+  assert.equal(meta.entity_type, "matter");
+  assert.equal(meta.reasonRequired, false);
+});
+
+test("v2 (WI-PTA-VS0): a MATTER_PARTY_IDS_ASSIGNED event (update/matter) verifies without a reason", () => {
+  // A party-id backfill rewrites the matter → an audited matter update with before/after state hashes.
+  const ev = v2Event({
+    action: "update", entity_type: "matter", entity_id: ID_M,
+    event_kind: "MATTER_PARTY_IDS_ASSIGNED", before_state_hash: "sha256:prev",
+  });
+  const canonical = canonicalAuditEventHashInput(ev);
+  assert.match(canonical, /"event_kind":"MATTER_PARTY_IDS_ASSIGNED"/);
+  assert.match(canonical, /"entity_type":"matter"/);
+  const r = verifyAuditChain([ev], { eventHashFn });
+  assert.equal(r.ok, true);
+});
+
+test("v2 (WI-PTA-VS0): a MATTER_PARTY_IDS_ASSIGNED event whose action mismatches the kind is rejected", () => {
+  // declares {update}; pairing it with create must fail the tuple class check at the verify boundary.
+  const bad = v2Event({
+    action: "create", entity_type: "matter", entity_id: ID_M,
+    event_kind: "MATTER_PARTY_IDS_ASSIGNED",
+  });
+  const r = verifyAuditChain([bad], { eventHashFn });
+  assert.equal(r.ok, false);
+  assert.equal(r.errorReason, "event_kind_inconsistent");
 });
 
 // --- 6. event_kind tampering breaks verification for v2 rows (the load-bearing property) ---

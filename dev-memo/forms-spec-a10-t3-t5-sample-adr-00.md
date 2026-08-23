@@ -19,21 +19,21 @@ first evidence, not its conclusion.
 
 Two local, untracked input files under `dev-memo/run/intake/forms-samples/` (kept unstaged — raw client
 material never enters git):
-- **T3 reference** — `孙乐驰-证据目录及说明-一审.pdf` (a filed 证据目录及说明, 2 pages, 25 evidence rows;
+- **T3 reference** — `示例-证据目录及说明-一审.pdf` (a filed 证据目录及说明, 2 pages, 25 evidence rows;
   scanned/image PDF — no text layer).
-- **T5 reference** — `【一审】质证意见-孙乐驰20260629.docx` (a filed 质证意见 narrative brief; ~60 paragraphs).
+- **T5 reference** — `【一审】质证意见-示例20260101.docx` (a filed 质证意见 narrative brief; ~60 paragraphs).
 
-Both are one real 劳动合同纠纷 (labor-contract dispute) first-instance (一审) case. They are a single data point,
+Both are one real first-instance (一审) case. They are a single data point,
 not a template authority — see §5 non-decisions and §6 open questions.
 
 ## A. T3 — 证据目录及说明 (evidence catalogue + description)
 
-Observed structure (from `孙乐驰-证据目录及说明-一审.pdf`, treated as the current visual/content reference):
+Observed structure (from `示例-证据目录及说明-一审.pdf`, treated as the current visual/content reference):
 
 1. **Title** (centered): `证据目录及说明`.
 2. **提交人诉讼地位：** a checkbox status — the sample shows `☑原告` (submitter's litigation status;
    原告/被告 selectable).
-3. **名称/姓名：** the submitter name field — sample `孙乐驰`.
+3. **名称/姓名：** the submitter name field — sample `张三`.
 4. **Evidence table** — exactly four columns:
    | # | Column | Sample content |
    |---|---|---|
@@ -64,13 +64,13 @@ static header/footer — the lowest-risk of the three forms.
 
 ## B. T5 — 质证意见 / 质证记录 (cross-examination)
 
-Observed pattern (from `【一审】质证意见-孙乐驰20260629.docx`, treated as a **narrative 质证意见 brief**, NOT a
+Observed pattern (from `【一审】质证意见-示例20260101.docx`, treated as a **narrative 质证意见 brief**, NOT a
 finalized structured table):
 
-1. **Case-number header**: `粤0304民初15872号、16806号`.
+1. **Case-number header**: `示例民初0001号、0002号`.
 2. **Title**: `质证意见`.
 3. **Salutation**: `尊敬的审判庭：`.
-4. **Intro**: `孙乐驰诉航天建设集团深圳有限公司劳动合同纠纷一案，原告孙乐驰发表质证意见如下：`.
+4. **Intro**: `张三诉示例建设有限公司劳动合同纠纷一案，原告张三发表质证意见如下：`.
 5. **Body organized by OPPOSING evidence**, one section per item (`一、二、三…`), each keyed to the opposing
    evidence number + name (e.g. `关于被告提交的证据一《薪酬制度管理办法》`). Each section:
    - States the **三性** position — 真实性 / 合法性 / 关联性 — as accept / reject / **partial** (the sample shows
@@ -117,8 +117,8 @@ design-gated** — this note does not prove their required fields are sufficient
   the CanonicalExportModel is the *logical* layer, not a `.docx`/PDF writer.
 - **No custody / seal / tamper-evidence approved.** If forms must be sealed, that is A8 snapshot/seal design,
   not this note and not direct A10 (§6 Q8).
-- **No court-specific jurisdiction variant approved** beyond what the single sample shows (a 深圳 一审
-  劳动争议 filing). One sample is not a multi-court template authority.
+- **No court-specific jurisdiction variant approved** beyond what the single sample shows (a single 一审
+  filing). One sample is not a multi-court template authority.
 - **No A8 implementation approved.**
 - **No forms implementation approved in this lane.** This is a design/spec note only.
 

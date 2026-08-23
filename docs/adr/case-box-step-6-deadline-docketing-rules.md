@@ -1,5 +1,13 @@
 # ADR: Case-Box Step 6 — Deadline / Docketing Rules
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 ## Status
 
 **Accepted** — 2026-05-20. Implements ADR-series Step 6 per `docs/adr/case-box-step-0-boundary.md`. Co-committed with `CaseBoxDocketEntry` entity, helpers, and tiny additive Step-4 schema change. Planning record: `dev-memo/plan-case-box-step-6.md` (revised four times through plan-review threads `019e47e0`, `019e47ed`, `019e47f5`, `019e47fc`, verified `019e4802`).

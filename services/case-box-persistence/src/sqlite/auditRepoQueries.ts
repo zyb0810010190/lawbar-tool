@@ -139,6 +139,46 @@ export function verifyAuditChainForMatterSqlite(
     .all(matterId) as { event_json: string }[];
   const events = rows.map((r) => JSON.parse(r.event_json) as CaseBoxAuditEvent);
 
+  // 2b. Genesis guard. requireMatterTenant above proved the matter EXISTS, and
+  //     createMatter always appends a MATTER_REGISTERED genesis event, so a live
+  //     matter can never legitimately hold zero audit events. Without this check
+  //     the pure verifier returns ok/headHash=null for an empty array and the
+  //     head-anchor cross-check below also passes when the anchor row was deleted
+  //     too — so deleting BOTH the events and the anchor verified clean. Deleting
+  //     either one alone was already caught; only the coordinated pair was not.
+  if (events.length === 0) {
+    return {
+      ok: false,
+      errorIndex: 0,
+      errorReason: "missing_genesis_event",
+      detail: `matter ${matterId} exists but holds zero audit events; its MATTER_REGISTERED genesis event is missing, which means the audit history was deleted`,
+    };
+  }
+
+  // Genesis SHAPE guard (Codex audit finding D1, 2026-08-22). The length check above only
+  // catches TOTAL erasure. Deleting the genesis and RE-CHAINING the survivors yields a
+  // chain that is internally perfect and verified ok — but it necessarily now BEGINS with
+  // a non-genesis event, and `createMatter` is the only writer of a matter's first event.
+  // This is the one part of the otherwise-undetectable re-forge class that IS checkable.
+  // Predicate uses action/entity_type/before_state_hash, NOT the v2-only event_kind, so
+  // legacy v1 rows carrying no event_kind are not rejected.
+  // events.length === 0 returned above, so index 0 exists; the explicit check keeps
+  // noUncheckedIndexedAccess satisfied without a non-null assertion.
+  const first = events[0];
+  if (
+    first === undefined ||
+    first.action !== "create" ||
+    first.entity_type !== "matter" ||
+    (first.before_state_hash ?? null) !== null
+  ) {
+    return {
+      ok: false,
+      errorIndex: 0,
+      errorReason: "missing_genesis_event",
+      detail: `matter ${matterId}: the chain does not begin with a matter-create genesis event (first event action=${String(first?.action)}, entity_type=${String(first?.entity_type)}), which means the original genesis was removed`,
+    };
+  }
+
   // 3. Contract verifier — REUSED VERBATIM. No chain logic re-implementation.
   const result = verifyAuditChain(events, { eventHashFn });
 

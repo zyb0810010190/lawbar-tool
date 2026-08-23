@@ -11,9 +11,10 @@ name: Services CI
 #
 # Merge posture: required for merge BY POLICY (do not merge on a red run), but
 # technically advisory — this repo lacks enforceable branch protection / required
-# status checks (private repo under the current account; see dev-memo/run/log.md
-# §"Workflow note — GitHub private-repo branch protection limitation" and
-# dev-memo/services-ci-gates.md §Guardrails). Mirrors the desktop-release-gates posture.
+# status checks, because it is a private repo under the current account and that
+# plan does not offer them. Nothing mechanically blocks a merge on red; the policy
+# is the only thing holding. See dev-memo/services-ci-gates.md §Guardrails.
+# Mirrors the desktop-release-gates posture.
 
 on:
   pull_request:

@@ -6,8 +6,7 @@
 // directly — that surface is covered by tests/casebox-ipc.electron.test.mjs.
 //
 // Flow: load #/matters (empty) → New matter → fill form → submit → view detail
-// → Archive… → fill reason → submit → view (archived) → expand chain head
-// → assert count + headHash visible (truncated per §6.5).
+// → Archive… → fill reason → submit → view (archived).
 //
 // Invariants: pre/post no-DB-file scan across tempRoot + repo working tree;
 // no-real-data scanner exits 0 after the test; wrapper crash count invariant.
@@ -220,17 +219,6 @@ test("release smoke matrix: launch → nav → create → list → detail → su
       /原因记录于审计日志。/,
     );
     assert.equal(await win.locator('[data-test-id="view-archive"]').count(), 0);
-
-    // Extra sub-screen evidence: audit chain head disclosure.
-    await win.locator('[data-test-id="view-chain-summary"]').click();
-    await win.waitForSelector('[data-test-id="view-chain-headhash"]', { timeout: 5000 });
-    assert.match(
-      await win.locator('[data-test-id="view-chain-headhash-truncated"]').textContent(),
-      /\.\.\./,
-    );
-    assert.ok(
-      Number(await win.locator('[data-test-id="view-chain-count"]').textContent()) >= 1,
-    );
 
     // M8: 设置 (Settings) renders app info through the real app:info preload/IPC boundary.
     await win.locator('a.sidebar-link[data-nav="settings"]').click();

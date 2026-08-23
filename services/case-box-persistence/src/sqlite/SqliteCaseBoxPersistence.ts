@@ -21,6 +21,7 @@ import type { Database } from "better-sqlite3";
 
 import type {
   CaseBoxAuditEvent,
+  CaseBoxClaimTrack,
   CaseBoxMatter,
   CaseBoxConfidentialityClassification,
   CaseBoxDocument,
@@ -35,6 +36,7 @@ import type {
 
 import { eventHashFn, type StoredAuditEvent } from "../auditChain.js";
 import { CaseBoxPersistenceError } from "../errors.js";
+import { assertAuditChainNotErased } from "../auditChainInvariant.js";
 import { prepareRegisterDocument } from "../inMemoryDocument.js";
 import {
   listAuditEventsSqlite,
@@ -87,6 +89,11 @@ import {
   listEvidenceItemsSqlite,
 } from "./evidenceRepoQueries.js";
 import {
+  applyCreateClaimTrackSqlite,
+  getClaimTrackSqlite,
+  listClaimTracksSqlite,
+} from "./claimTrackRepoQueries.js";
+import {
   applyUpsertOcrLinkSqlite,
   getOcrLinkSqlite,
   listOcrLinksSqlite,
@@ -98,7 +105,12 @@ import {
   getMatterSummarySqlite,
   listMattersSqlite,
 } from "./aggregationsRepoQueries.js";
-import { prepareCreateMatter, prepareMatterTransition } from "../inMemoryMatter.js";
+import {
+  prepareCreateMatter,
+  prepareEnsureMatterPartyIds,
+  prepareMatterDetailsUpdate,
+  prepareMatterTransition,
+} from "../inMemoryMatter.js";
 import { generateUlid } from "../ulid.js";
 import {
   hasDocumentId,
@@ -109,8 +121,10 @@ import {
   selectMatterForDocument,
 } from "./documentRepoQueries.js";
 import {
+  assertMatterAuditHeadConsistent,
   insertAuditEvent,
   insertMatterRow,
+  selectLatestMatterEvent,
   updateMatterRow,
   upsertAuditChainHead,
 } from "./matterRepoQueries.js";
@@ -124,16 +138,20 @@ import type {
   DeadlineTransitionOpts,
   DismissDocketEntryOpts,
   EditDocketEntryOpts,
+  EnsureMatterPartyIdsOpts,
+  UpdateMatterDetailsOpts,
   DocumentDetail,
   EffectiveClassificationResult,
   EvidenceTransitionOpts,
   FactTransitionOpts,
+  GetClaimTrackQuery,
   GetDeadlineQuery,
   GetDocketEntryQuery,
   GetDocumentDetailQuery,
   GetEffectiveClassificationQuery,
   GetEvidenceItemQuery,
   GetFactQuery,
+  ListClaimTracksQuery,
   GetFactSupersessionChainQuery,
   GetMatterSummaryQuery,
   GetOcrLinkQuery,
@@ -342,6 +360,101 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
     return Promise.resolve(structuredClone(resultMatter!) as CaseBoxMatter);
   }
 
+  async ensureMatterPartyIds(matterId: string, opts: EnsureMatterPartyIdsOpts): Promise<CaseBoxMatter> {
+    const db = this.#db;
+    const now = this.#now;
+    const generateId = this.#generateId;
+    let resultMatter: CaseBoxMatter | null = null;
+
+    const run = db.transaction(() => {
+      const row = db
+        .prepare("SELECT payload_json FROM case_box_matters WHERE id = ?")
+        .get(matterId) as { payload_json: string } | undefined;
+      if (row === undefined) {
+        throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
+      }
+      const matter = JSON.parse(row.payload_json) as CaseBoxMatter;
+
+      const prepared = prepareEnsureMatterPartyIds(matter, opts, {
+        generateId,
+        nowIso: () => now().toISOString(),
+        storedAuditEventsForMatter: () => loadSyntheticStoredEvents(db, matterId),
+      });
+      if (!prepared.changed) {
+        // Idempotent: every party already has an id — no write, no event.
+        resultMatter = matter;
+        return;
+      }
+
+      const eventHash = eventHashFn(prepared.audit!.event);
+      updateMatterRow(db, prepared.next);
+      insertAuditEvent(db, prepared.audit!, eventHash);
+      upsertAuditChainHead(
+        db,
+        prepared.next.id,
+        prepared.audit!.event.id,
+        prepared.audit!.sequence,
+        prepared.audit!.event.timestamp,
+        eventHash,
+      );
+      resultMatter = prepared.next;
+    });
+    run.immediate();
+
+    return structuredClone(resultMatter!) as CaseBoxMatter;
+  }
+
+  async updateMatterDetails(matterId: string, opts: UpdateMatterDetailsOpts): Promise<CaseBoxMatter> {
+    const db = this.#db;
+    const now = this.#now;
+    const generateId = this.#generateId;
+    let resultMatter: CaseBoxMatter | null = null;
+
+    // ONE transaction: read payload → hash → D4a continuity → append event →
+    // update row, all under BEGIN IMMEDIATE. A thrown guard rolls the whole
+    // transaction back (no event row, no head advance, no payload rewrite).
+    const run = db.transaction(() => {
+      const row = db
+        .prepare("SELECT payload_json FROM case_box_matters WHERE id = ?")
+        .get(matterId) as { payload_json: string } | undefined;
+      if (row === undefined) {
+        throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
+      }
+      const matter = JSON.parse(row.payload_json) as CaseBoxMatter;
+
+      // audit finding H (SQLite-only, defense-in-depth): refuse to append onto an
+      // inconsistent audit head BEFORE deriving the next sequence, so a stale /
+      // corrupted head row rolls the whole BEGIN IMMEDIATE back (no event, no head
+      // advance, no payload rewrite). The in-memory impl derives sequence from the
+      // real event array and is immune. archiveMatter / ensureMatterPartyIds share
+      // this gap and are hardened in a separate follow-up WI (left unchanged here).
+      assertMatterAuditHeadConsistent(db, matterId);
+
+      const prepared = prepareMatterDetailsUpdate(matter, opts, {
+        generateId,
+        nowIso: () => now().toISOString(),
+        storedAuditEventsForMatter: () => loadSyntheticStoredEvents(db, matterId),
+        latestPriorMatterEvent: () => selectLatestMatterEvent(db, matterId),
+      });
+
+      const eventHash = eventHashFn(prepared.audit.event);
+      updateMatterRow(db, prepared.next);
+      insertAuditEvent(db, prepared.audit, eventHash);
+      upsertAuditChainHead(
+        db,
+        prepared.next.id,
+        prepared.audit.event.id,
+        prepared.audit.sequence,
+        prepared.audit.event.timestamp,
+        eventHash,
+      );
+      resultMatter = prepared.next;
+    });
+    run.immediate();
+
+    return structuredClone(resultMatter!) as CaseBoxMatter;
+  }
+
   // -------------------------------------------------------------------------
   // Matter — read paths
   // -------------------------------------------------------------------------
@@ -412,7 +525,23 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
     return listDocumentsSqlite(this.#db, query);
   }
   async listAuditEvents(query: ListAuditEventsQuery): Promise<ListAuditEventsPage> {
-    return listAuditEventsSqlite(this.#db, query);
+    const page = listAuditEventsSqlite(this.#db, query);
+    // WI-05: an empty FIRST page for a matter that exists is erasure, not absence of history.
+    //
+    // The cursor exemption is DEFENSIVE, not load-bearing, and mutation testing proved it:
+    // removing it changes no reachable behaviour today, because normal paging never asks for
+    // an empty page (next_cursor is null on the last page) and a malformed cursor throws
+    // invalid_argument before reaching here. It stays because a future paging change could
+    // make an empty trailing page reachable, and a false "your history was deleted" on
+    // ordinary paging would be nearly as damaging as missing a real erasure. Do not read the
+    // surviving mutant as a test gap — it is an equivalent mutant.
+    if (page.rows.length === 0 && query.cursor === undefined) {
+      const exists = this.#db
+        .prepare("SELECT 1 FROM case_box_matters WHERE id = ?")
+        .get(query.matter_id);
+      if (exists !== undefined) assertAuditChainNotErased(query.matter_id, 0);
+    }
+    return page;
   }
   // Implemented in B1 (not stubbed) because the case_box_audit_chain_heads
   // table is introduced by B1's DDL (matter writes update it from day one);
@@ -437,8 +566,15 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
       | { head_hash: string | null; last_event_id: string | null; event_count: number }
       | undefined;
     if (row === undefined) {
+      // WI-05: the matter exists (checked above), so a missing head row is a deleted chain,
+      // not a fresh one. Returning count:0 here is what let the app show erasure as "empty".
+      assertAuditChainNotErased(matterId, 0);
+    }
+    if (row === undefined) {
+      /* unreachable: assertAuditChainNotErased always throws for count 0 */
       return { headHash: null, lastEventId: null, count: 0 };
     }
+    assertAuditChainNotErased(matterId, row.event_count);
     return {
       headHash: row.head_hash as AuditChainHead["headHash"],
       lastEventId: row.last_event_id,
@@ -552,6 +688,16 @@ export class SqliteCaseBoxPersistence implements CaseBoxPersistence {
   }
   async listEvidenceItems(query: ListEvidenceItemsQuery): Promise<ListEvidenceItemsPage> {
     return listEvidenceItemsSqlite(this.#db, query);
+  }
+  async createClaimTrack(input: unknown): Promise<CaseBoxClaimTrack> {
+    const row = this.#runImmediateWrite((db, deps) => applyCreateClaimTrackSqlite(db, input, deps));
+    return structuredClone(row) as CaseBoxClaimTrack;
+  }
+  async getClaimTrack(query: GetClaimTrackQuery): Promise<CaseBoxClaimTrack | null> {
+    return getClaimTrackSqlite(this.#db, query);
+  }
+  async listClaimTracks(query: ListClaimTracksQuery): Promise<ReadonlyArray<CaseBoxClaimTrack>> {
+    return listClaimTracksSqlite(this.#db, query);
   }
   async upsertOcrLink(input: unknown): Promise<UpsertOcrLinkResult> {
     const result = this.#runImmediateWrite((db, deps) => applyUpsertOcrLinkSqlite(db, input, deps));

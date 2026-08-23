@@ -1,6 +1,16 @@
 # ADR — A0.7 renderer-conformance gate (design only)
 
-- **ID**: A07-GATE-00 (WI-ENA6).
+> ### ⚠️ SUPERSEDED IN FACT — 2026-08-10
+>
+> **The machinery this ADR designs was never retained.** This document is `Status: Proposed —
+> design only, non-authorizing`: it makes no claim that any gate, marker writer, validator, or
+> guard was ever built. The tooling it anticipated — `scripts/workflow/check-a07-gate.sh`,
+> `a07-marker-write.sh`, `a07_marker.py`, `check-marker-guard.sh` — was created and then deleted
+> in the 2026-08-10 configuration reset (`49dd7ad`), so nothing in this design is currently
+> implemented. A0.7 is **PROVISIONAL, not green**. Read this as an unexecuted design, not as a
+> description of anything in force.
+> *(Corrected 2026-08-12: an earlier banner asserted this ADR made present-tense enforcement
+> claims. It does not — that banner was applied uniformly to six ADRs, and was wrong for this one.)*
 - **Status**: Proposed — **design only, non-authorizing**. This ADR designs the future A0.7
   renderer-conformance gate; it does **not** authorize, implement, or enable any harness, fixture, oracle,
   marker, provenance, anchor, persistence, UI, or network behavior. Each implementation step named in §8 is a

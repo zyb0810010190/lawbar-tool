@@ -30,7 +30,7 @@ A10 comprises seven tickets (handover §A10), order **T1→T2→T3→T4→T5→T
 
 ## 2. Why A10 now (honest build state)
 
-A10 is the remaining **hard-invariant** architecture design target (A1/A3/A8/A10). It is **not** "the only unbuilt runtime gate": A0.7 is now meaningfully green (messy-fixture coverage merged) but its marker/custody is a separate WI; **A8 is design-only/decided, not implemented**; **A1 is PARTIAL** (citation persistence built, A1-T6 native gate `not_implemented`); **A3 is built** (persistence/IPC/UI) but its `a3-regression` native gate is `not_implemented`; **A10 itself is SPEC-ONLY** (no `CanonicalExportModel` type; only the A3 precursor `ExportCitationResult` + the BUILT A3-EXPORT-00 degradation contract). A10 is designed now because **A8.6 restore-and-reproduce cannot close until A10-T1 (contract) + A10-T6 (golden `CanonicalExportModel`) exist** (A8 ADR §6/§8); deciding the canonical export model unblocks A8's capstone.
+A10 is the remaining **hard-invariant** architecture design target (A1/A3/A8/A10). It is **not** "the only unbuilt runtime gate": A0.7 was described here as "meaningfully green (messy-fixture coverage merged)" — **CORRECTED 2026-08-12: it is PROVISIONAL, not green.** Three of the five oracles carry zero `samplePoints`, so the messy fixtures assert box geometry only and exercise no coordinate normalization; see `docs/product/product-plan.md` §0 but its marker/custody is a separate WI; **A8 is design-only/decided, not implemented**; **A1 is PARTIAL** (citation persistence built, A1-T6 native gate `not_implemented`); **A3 is built** (persistence/IPC/UI) but its `a3-regression` native gate is `not_implemented`; **A10 itself is SPEC-ONLY** (no `CanonicalExportModel` type; only the A3 precursor `ExportCitationResult` + the BUILT A3-EXPORT-00 degradation contract). A10 is designed now because **A8.6 restore-and-reproduce cannot close until A10-T1 (contract) + A10-T6 (golden `CanonicalExportModel`) exist** (A8 ADR §6/§8); deciding the canonical export model unblocks A8's capstone.
 
 ## 3. What A10 must NOT do
 
@@ -103,7 +103,7 @@ Threats A10 defends: (a) **non-reproducible export** → byte-identical `Canonic
 
 ## 12. Dependency / sequencing summary (A0.7 / A1 / A3 / A8)
 
-- **A0.7:** meaningfully green (messy fixtures merged); A10 geometry-derived citations rest on it. (Marker/custody = separate WI.)
+- **A0.7:** ~~meaningfully green (messy fixtures merged)~~ **PROVISIONAL, not green (corrected 2026-08-12)** — the merged messy fixtures assert box geometry only; three of five oracles have zero `samplePoints`. A10 geometry-derived citations rest on it, so this correction matters to A10's premise. (Marker/custody = separate WI, and its tooling was deleted 2026-08-10.)
 - **A1:** PARTIAL — citation persistence built; **A1-T6** `citation-stability-gate` (`not_implemented`) feeds A8.6, and A10-T1 must preserve A1 citation identity.
 - **A3:** built; **A3-T10** `a3-regression` (`not_implemented`) feeds A8.6; A10 consumes resolved link status (INV-A3-1..10).
 - **A8:** decided (design); **A8.6 hard-blocks on A10-T1 + A10-T6**. A10 gives it the target; A10 does not implement A8.

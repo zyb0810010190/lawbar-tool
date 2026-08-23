@@ -1,5 +1,13 @@
 # User Decision Record — remaining user-owned gates (gates 4/7/11/17/21)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status:** records the user's explicit decisions on the five user-owned go-live gates. **Date:** 2026-07-08. **Authority:** these are the **user's own STOP-AND-ASK decisions** (`.claude/rules/autonomy.md` hard-stop list) — this document RECORDS them; the agent decided nothing. **Governed by:** `dev-memo/run/queue.md` (queue.governed sha256 `c2afd998…`, WI-RELEASE-USER-DECISION-RECORD-00, PR #232 merge `fd1e5aa`), review `dev-memo/run/reviews/queue-review-177.md`.
 
 **Overall product status per these decisions: INTERNAL / DEV USE authorized; NO PUBLIC GO-LIVE.** Public distribution + 律师法 confidentiality + external license/privacy review remain the user's, pending, for any external release. This record asserts **no external-distribution readiness and no public go-live**.

@@ -146,7 +146,7 @@ function renderAddControl(
   );
   const btn = el(
     "button",
-    { type: "button", class: "view-docs-add-btn", "data-test-id": "view-docs-add", "aria-label": t("document.add.button") },
+    { type: "button", class: "button button--primary view-docs-add-btn", "data-test-id": "view-docs-add", "aria-label": t("document.add.button") },
     [t("document.add.button")],
     doc,
   );
@@ -337,7 +337,7 @@ async function loadDocuments(
     if (cursor !== null) {
       const btn = el(
         "button",
-        { type: "button", class: "view-docs-more", "data-test-id": "view-docs-more" },
+        { type: "button", class: "button button--secondary view-docs-more", "data-test-id": "view-docs-more" },
         [t("common.loadMore")],
         doc,
       );

@@ -1,5 +1,14 @@
 # Plan: Go-Live Readiness Blueprint (PLAN-ONLY)
 
+> **Reading note (2026-08-12).** This blueprint is named the canonical go-live source by
+> `docs/release/go-live-plan.md`, and it derives its hard-stop authority from two files that no
+> longer exist: `.claude/rules/autonomy.md` (deleted 2026-08-10) and
+> `docs/product/project-requirements-brief.md` (absorbed 2026-08-12). **The authoritative
+> hard-stop list is now `docs/product/product-definition.md` Part I §20**, which is self-contained
+> and carries 23 items. Read every reference below to either deleted file as pointing there.
+> The blueprint's own enumeration and gate structure are unaffected.
+
+
 > **ENUMERATION ONLY.** NO WI, dependency adoption, signing, release, push, migration, external service, or go-live action is authorized by this file. Every hard-stop item per `.claude/rules/autonomy.md` §"Hard-stop list" and `docs/product/project-requirements-brief.md` §20 remains a discrete STOP-AND-ASK gate. **Fix-forward only**, unless STOP-FOR-ROLLBACK is explicitly authorized. The user authorizes each gate-clearing WI separately.
 
 **Status**: READY (revision 4 — Path 1 native --background rev-3 review returned READY (Low-risk clarifications); 2 Lows applied opportunistically: §7 risk #6 mitigation text aligned with §5 WI #14 widened prerequisites; §"Review questions" gate-count + STOP-AND-ASK count normalized to 21 / 23.) rev-3 — Path 1 native --background rev-2 review returned NEEDS-FIX with 1 High + 3 Mediums + 1 Low; rev-3 applies them: §5 WI #14 final-audit prerequisites widened (WIs 4,5,6,7,9,10,11,12,13 + gate #11 legal-compliance); gate-count drift normalized from 18 → 21 across §1, §3 (WI-13 → gate #21), §9 stop-condition; §4 "verbatim" softened to "inherits and enumerates" per rev-2 L D4#1; §4.1 #1 auth-provider cross-ref to gate #11 removed.) rev-2 — Path 1 native --background rev-1 review returned NEEDS-FIX with 2 Highs + 6 Mediums + 4 Lows; rev-2 applies them. Summary of rev-2 changes: header banner added; §2 authority hierarchy split into "product-direction authority" (matches `.claude/rules/project-brief.md` §"Authority hierarchy" verbatim) + "non-bypassable global constraints"; §4 STOP-AND-ASK expanded to mirror brief §20 + autonomy hard-stops in full; gate #4 reframed to brief-correct (manual download v1; auto-update post-v1); gate #5 hardened (flake must be deterministically resolved or quarantined; documented-acceptance not sufficient for GO); gate #7 reclassified as OPEN "robustness policy decision"; new gates #19 supply-chain + #20 telemetry / crash-reporting added; §5 WI ordering revised (baseline audit → Mac client + distribution + docs → FINAL audit); §3 explicit "provisional until WI-11 status verified" note; §7 risk #1 raised to High with header-banner mitigation; §7 missing-gate residual raised to Medium).

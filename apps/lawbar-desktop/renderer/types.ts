@@ -26,6 +26,11 @@ export type MatterStatus = "active" | "archived";
 export type LedgerCategory = "litigation" | "counsel" | "non_litigation";
 
 export interface Party {
+  // Party ULID (VS-0 assigns at matter-create; legacy parties may lack it until a
+  // deferred backfill). The data already flows through MATTER_RESPONSE_FIELDS.parties;
+  // this optional widening lets the ClaimTrack selects address a party by id
+  // (WI-PTA-VS3). No DTO field-name array changes, so renderer-dto-sync is unaffected.
+  readonly id?: string;
   readonly role: string;
   readonly display_name: string;
   readonly party_kind: string;
@@ -62,6 +67,26 @@ export interface ListMattersDto {
 
 export interface ArchiveMatterDto {
   readonly matterId: string;
+  readonly reason: string;
+}
+
+// Renderer-supplied fields for casebox:matter:updateDetails (matter-details-edit
+// Phase C). Mirrors the canonical UpdateMatterDetailsDto in src/caseBox/dto/matter.ts.
+// The server injects actor_user_id + enforces tenant scope; the renderer forwards
+// only { matterId, patch, reason }. A patch value is a string (new value), null
+// (explicit clear — not for `name`), or absent (no change).
+export interface UpdateMatterDetailsPatch {
+  readonly name?: string | null;
+  readonly retainer_scope?: string | null;
+  readonly case_type_text?: string | null;
+  readonly case_progress_text?: string | null;
+  readonly court_contact_text?: string | null;
+  readonly contention_summary_text?: string | null;
+}
+
+export interface UpdateMatterDetailsDto {
+  readonly matterId: string;
+  readonly patch: UpdateMatterDetailsPatch;
   readonly reason: string;
 }
 
@@ -217,6 +242,36 @@ export interface CreateFactDto {
   readonly as_of_date?: string;
 }
 
+// ClaimTrack track_type / our_role controlled vocab (WI-PTA-VS2). Mirrors the
+// canonical CreateClaimTrackDto in src/caseBox/dto/claimTrack.ts.
+export type ClaimTrackType = "main_claim" | "counterclaim";
+export type ClaimTrackOurRole = "asserting" | "responding";
+
+// Renderer-supplied fields for casebox:claimTrack:create (WI-PTA-VS2). The server
+// injects every authority / lifecycle field (id / tenant_id / actor_user_id /
+// status="active" / created_at === updated_at); the renderer forwards only these.
+// The four summaries are optional (server defaults them to ""); sort_order is a
+// lawyer-controlled integer >= 0.
+export interface CreateClaimTrackDto {
+  readonly matterId: string;
+  readonly track_type: ClaimTrackType;
+  readonly claimant_party_id: string;
+  readonly respondent_party_id: string;
+  readonly our_role: ClaimTrackOurRole;
+  readonly title: string;
+  readonly claim_summary?: string;
+  readonly response_summary?: string;
+  readonly legal_basis?: string;
+  readonly calculation_summary?: string;
+  readonly sort_order: number;
+}
+
+// Renderer-supplied fields for casebox:claimTrack:list (WI-PTA-VS2): the scope
+// (matterId) only. The server injects tenant_id and returns a projected array.
+export interface ListClaimTracksDto {
+  readonly matterId: string;
+}
+
 export interface IpcErrorEnvelope {
   readonly kind: "case_box_persistence_error";
   readonly code: string;
@@ -257,6 +312,27 @@ export const RENDERER_LIST_MATTERS_DTO_FIELDS = Object.freeze([
 export const RENDERER_ARCHIVE_MATTER_DTO_FIELDS = Object.freeze([
   "matterId",
   "reason",
+] as const);
+
+// matter-details-edit Phase C: the update-details bridge allowlists. The top-level
+// set-equals UPDATE_MATTER_DETAILS_DTO_FIELDS and the patch set-equals
+// UPDATE_MATTER_DETAILS_PATCH_FIELDS in src/caseBox/dto/matter.ts (both asserted by
+// tests/renderer-dto-sync.test.mjs). stripDtoFields drops any extra TOP-LEVEL key
+// before the IPC call (defense-in-depth); main's UPDATE_MATTER_DETAILS_FORBIDDEN_FIELDS
+// + the per-key patch allowlist remain the authority.
+export const RENDERER_UPDATE_MATTER_DETAILS_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "patch",
+  "reason",
+] as const);
+
+export const RENDERER_UPDATE_MATTER_DETAILS_PATCH_FIELDS = Object.freeze([
+  "name",
+  "retainer_scope",
+  "case_type_text",
+  "case_progress_text",
+  "court_contact_text",
+  "contention_summary_text",
 ] as const);
 
 export const RENDERER_CHAIN_HEAD_DTO_FIELDS = Object.freeze([
@@ -358,6 +434,30 @@ export const RENDERER_TRANSITION_DEADLINE_DTO_FIELDS = Object.freeze([
   "deadlineId",
   "to",
   "transition_reason",
+] as const);
+
+// WI-PTA-VS2: the ClaimTrack create/list bridge allowlists. Each set-equals its
+// canonical *_CLAIM_TRACK*_DTO_FIELDS counterpart in
+// src/caseBox/dto/claimTrack.ts (asserted by tests/renderer-dto-sync.test.mjs).
+// Authority/lifecycle fields (id/tenant_id/actor_user_id/matter_id/status/
+// created_at/updated_at) are absent, so stripDtoFields drops them before the IPC
+// call (defense-in-depth; main's CREATE_CLAIM_TRACK_FORBIDDEN_FIELDS is the authority).
+export const RENDERER_CREATE_CLAIM_TRACK_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "track_type",
+  "claimant_party_id",
+  "respondent_party_id",
+  "our_role",
+  "title",
+  "claim_summary",
+  "response_summary",
+  "legal_basis",
+  "calculation_summary",
+  "sort_order",
+] as const);
+
+export const RENDERER_LIST_CLAIM_TRACKS_DTO_FIELDS = Object.freeze([
+  "matterId",
 ] as const);
 
 // ---------------------------------------------------------------------------

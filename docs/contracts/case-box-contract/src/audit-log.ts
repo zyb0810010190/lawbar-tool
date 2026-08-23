@@ -69,10 +69,42 @@ interface AuditKindMeta {
   readonly reasonRequired: boolean;
 }
 
+/**
+ * The frozen audit vocabulary. A key's NAME is not a label — for v2 events both
+ * `event_kind` and `audit_schema_version` are fields of the canonical hash
+ * input, so the name is part of what every stored event's hash commits to, and
+ * `verifyAuditChain` additionally re-checks that a stored kind's declared
+ * `{action, entity_type, reasonRequired}` still matches the event it is on.
+ *
+ * ADDING a key is additive-safe: no existing event's canonical bytes change.
+ * The JSON-Schema `event_kind` enum must be extended in the same commit, or
+ * `validateAuditEvent` rejects every event carrying the new kind.
+ *
+ * RENAMING or REMOVING a key breaks stored events OF THAT KIND — not merely
+ * their hashes — and it fails at a DIFFERENT point depending on what you remove:
+ *  - removed from the JSON Schema too: `verifyAuditChain` stops at
+ *    `event_schema_invalid`, before any metadata or hash check;
+ *  - removed from this map only, schema still permitting it: verification stops
+ *    at `event_kind_inconsistent`, still before hashing;
+ *  - re-hashing such an event directly: `canonicalAuditEventHashInput` throws
+ *    `unknown event_kind`. That is not the verifier's path.
+ *
+ * Editing an existing key's `action` or `entity_type` retroactively invalidates
+ * every already-stored event of that kind at the verifier's consistency check.
+ * Flipping `reasonRequired` false→true invalidates only those stored events of
+ * that kind that carry no non-empty `reason` — events already carrying one keep
+ * verifying. Treat every entry below as append-only.
+ */
 export const CASE_BOX_AUDIT_EVENT_KINDS = Object.freeze({
   MATTER_REGISTERED:          { action: "create",          entity_type: "matter",           reasonRequired: false },
   MATTER_ARCHIVED:            { action: "update",          entity_type: "matter",           reasonRequired: false },
   MATTER_UNARCHIVED:          { action: "update",          entity_type: "matter",           reasonRequired: false },
+  // WI-PTA-VS0: audited assignment/backfill of party ULIDs on a matter (parties live in the matter
+  // payload; assigning an id rewrites the matter → an audited matter update, never an unaudited migration).
+  MATTER_PARTY_IDS_ASSIGNED:  { action: "update",          entity_type: "matter",           reasonRequired: false },
+  // matter-details-edit Phase A: audited correction of the 6 free-text descriptive fields (D1/D4). The
+  // narrow structured `changed_fields` (D5a) records WHAT changed and is HASHED in the v2 canonicalization.
+  MATTER_DETAILS_UPDATED:     { action: "update",          entity_type: "matter",           reasonRequired: true  },
   DOCUMENT_REGISTERED:        { action: "create",          entity_type: "document",         reasonRequired: false },
   DOCUMENT_OCR_SUBMITTED:     { action: "update",          entity_type: "document",         reasonRequired: false },
   DOCUMENT_OCR_COMPLETE:      { action: "update",          entity_type: "document",         reasonRequired: false },
@@ -157,6 +189,7 @@ export type CaseBoxAuditEventKind = keyof typeof CASE_BOX_AUDIT_EVENT_KINDS;
 // Reason-required helper
 // ---------------------------------------------------------------------------
 
+/** Thrown only by `assertReasonForAuditEventKind`; the builder never throws it. */
 export class AuditEventReasonRequiredError extends Error {
   readonly kind: CaseBoxAuditEventKind;
   constructor(kind: CaseBoxAuditEventKind) {
@@ -166,6 +199,23 @@ export class AuditEventReasonRequiredError extends Error {
   }
 }
 
+/**
+ * Enforces the kind's `reasonRequired` flag by THROWING
+ * `AuditEventReasonRequiredError`.
+ *
+ * The same invariant is enforced a second time, in the opposite error style, by
+ * `buildCaseBoxAuditEvent`, which returns `ok: false` with a `required-by-kind`
+ * error and never throws. This is not redundancy to pick from at random: the
+ * builder is the emission path (persistence MUST emit through it, per the
+ * module header), and only the builder's output reaches the chain. Use this
+ * throwing helper only to reject a missing reason at a call site EARLIER than
+ * event construction — e.g. validating user input before a write is attempted.
+ * Calling both on one path adds no protection.
+ *
+ * Both check `length === 0` only, so a whitespace-only reason (`" "`) passes
+ * here and in `verifyAuditChain`. Persistence guards trim separately; the
+ * contract layer does not.
+ */
 export function assertReasonForAuditEventKind(
   kind: CaseBoxAuditEventKind,
   reason: string | null | undefined,
@@ -185,6 +235,16 @@ export type AuditEventHash = string & { readonly __brand: "AuditEventHash" };
 
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 
+/**
+ * The only gate that mints the `AuditEventHash` brand — nothing revalidates the
+ * brand afterwards, so a value that bypasses this function via a cast is
+ * indistinguishable from a real digest downstream.
+ *
+ * Accepts `/^[0-9a-f]{64}$/` exactly: 64 characters, lowercase hex only. An
+ * uppercase digest, a `0x` prefix, surrounding whitespace, or any other length
+ * is rejected. Rejection is a plain `Error`, not a typed contract error, so it
+ * cannot be caught by class.
+ */
 export function asAuditEventHash(value: string): AuditEventHash {
   if (!SHA256_HEX_RE.test(value)) {
     throw new Error(
@@ -194,6 +254,18 @@ export function asAuditEventHash(value: string): AuditEventHash {
   return value as AuditEventHash;
 }
 
+/**
+ * The hasher `verifyAuditChain` requires. It is a REQUIRED member of that
+ * function's options and has deliberately no default — the verifier can never
+ * silently fall back to a weak or absent hash.
+ *
+ * The verifier trusts whatever this returns: the value becomes the expected
+ * `prev_event_hash` of the next event. Supplying a non-cryptographic
+ * implementation (a constant, say) makes a forged chain verify. The production
+ * implementation is `eventHashFn` in
+ * `services/case-box-persistence/src/auditChain.ts` — SHA-256 over
+ * `canonicalAuditEventHashInput`.
+ */
 export type EventHashFn = (event: CaseBoxAuditEvent) => AuditEventHash;
 
 // ---------------------------------------------------------------------------
@@ -214,6 +286,16 @@ export function canonicalAuditEventHashInput(event: CaseBoxAuditEvent): string {
   // event_kind present) or a valid v2 event (audit_schema_version === 2 AND a known event_kind), and
   // THROWS on anything else (partial pair / unsupported version / unknown kind). This defensive
   // validation at the canonicalizer is a security-boundary requirement, not merely defensive.
+  // matter-details-edit Phase A (audit finding M): `changed_fields` is a security-boundary field permitted
+  // ONLY on a MATTER_DETAILS_UPDATED v2 event. Reject it on ANY other kind (incl. v1 legacy) at the
+  // canonicalizer — defense-in-depth mirroring the partial-pair / unknown-kind throws below, so a
+  // schema-bypassing malformed event can never hash a smuggled `changed_fields`. Byte-safe: this only fires
+  // for events that actually carry the field, so every existing event's canonical bytes are unchanged.
+  if (event.changed_fields !== undefined && event.event_kind !== "MATTER_DETAILS_UPDATED") {
+    throw new Error(
+      "canonicalAuditEventHashInput: changed_fields is only allowed on MATTER_DETAILS_UPDATED v2 events",
+    );
+  }
   const hasVer = event.audit_schema_version !== undefined && event.audit_schema_version !== null;
   const hasKind = event.event_kind !== undefined && event.event_kind !== null;
   if (hasVer || hasKind) {
@@ -233,12 +315,19 @@ export function canonicalAuditEventHashInput(event: CaseBoxAuditEvent): string {
       );
     }
     // v2: existing 12 fields PLUS audit_schema_version + event_kind, in alphabetical (canonical) order.
+    // matter-details-edit Phase A (D5a): `changed_fields` is included ONLY when present, in its
+    // alphabetical slot (between before_state_hash and entity_id). This conditional spread is the #1
+    // byte-preservation invariant — an event with NO changed_fields produces a canonical string
+    // BYTE-IDENTICAL to the pre-change v2 shape, so every existing event's hash is unchanged. Do NOT
+    // add changed_fields unconditionally (a null/default would rewrite every existing v2 event's string
+    // and break the chain).
     const canonical = {
       action: event.action,
       actor_user_id: event.actor_user_id,
       after_state_hash: event.after_state_hash,
       audit_schema_version: event.audit_schema_version,
       before_state_hash: event.before_state_hash,
+      ...(event.changed_fields !== undefined ? { changed_fields: event.changed_fields } : {}),
       entity_id: event.entity_id,
       entity_type: event.entity_type,
       event_kind: event.event_kind,
@@ -356,6 +445,15 @@ export function buildCaseBoxAuditEvent(
 // ---------------------------------------------------------------------------
 
 export type ChainVerifyErrorReason =
+  /**
+   * An existing matter was found to hold ZERO audit events. Impossible by
+   * construction — createMatter always appends a MATTER_REGISTERED genesis
+   * event — so a zero-event chain for a live matter is evidence of deletion,
+   * not an empty state. Reported by the persistence-layer verifiers, which are
+   * the only callers that know a matter exists; the pure chain verifier over an
+   * empty array stays `ok` because an empty array carries no such claim.
+   */
+  | "missing_genesis_event"
   | "prev_event_hash_mismatch"
   | "prev_event_hash_non_null_for_first_event"
   | "before_state_hash_not_null_on_create"

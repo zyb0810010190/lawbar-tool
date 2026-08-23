@@ -6,6 +6,7 @@
 //   #/matters/new              → "new"
 //   #/matters/:id              → "view"   (id must match ULID regex)
 //   #/matters/:id/archive      → "archive" (id must match ULID regex)
+//   #/matters/:id/edit         → "edit"   (id must match ULID regex)
 //   #/settings                 → "settings"
 //   anything else              → "not-found"
 
@@ -14,6 +15,7 @@ export type RouteName =
   | "new"
   | "view"
   | "archive"
+  | "edit"
   | "settings"
   | "not-found";
 
@@ -59,6 +61,13 @@ export function parseHash(hash: string): ParsedRoute {
     }
     return { name: "not-found", params: {} };
   }
+  if (parts.length === 3 && parts[0] === "matters" && parts[2] === "edit") {
+    const id = parts[1];
+    if (ULID_RE.test(id)) {
+      return { name: "edit", params: { id } };
+    }
+    return { name: "not-found", params: {} };
+  }
 
   return { name: "not-found", params: {} };
 }
@@ -77,6 +86,9 @@ export function buildHash(name: RouteName, params: { id?: string } = {}): string
     case "archive":
       if (params.id === undefined) throw new Error("buildHash(archive): id required");
       return `#/matters/${params.id}/archive`;
+    case "edit":
+      if (params.id === undefined) throw new Error("buildHash(edit): id required");
+      return `#/matters/${params.id}/edit`;
     case "not-found":
       return "#/not-found";
   }

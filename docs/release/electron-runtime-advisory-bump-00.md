@@ -1,5 +1,13 @@
 # Electron Runtime-Advisory Remediation — R-G19-1 (WI-RELEASE-ELECTRON-RUNTIME-ADVISORY-BUMP-00)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status:** **FULL-REMEDIATION PASS.** The v1 Mac client's Electron runtime is bumped **34.5.8 → 39.8.5** (the minimal published version above the advisory's vulnerable range), which **clears the R-G19-1 HIGH advisories**; the desktop test suite is green (**801/0**), `npm run dist` **packaging is green** on both mac arches, and the `better-sqlite3` native binding is rebuilt + validated for the new Electron ABI. **Gate 19 stays `OPEN`** (a remediation is not a go-live sign-off); this is **NOT** a clearance of gates 4/6/12/13/17/20 and **NOT** a signing/notarization/distribution (gate 4) or license (gate 17) or GO/NO-GO (gate 21) decision. **Date:** 2026-07-08. **Environment:** Node `v24.14.0`, npm `11.9.0`, electron-builder `25.1.8`, macOS (arm64 host). **Governed by:** `dev-memo/run/queue.md` (queue.governed sha256 `812e4590…`, amended rev 1, PR #221 merge `6af416d`), review `dev-memo/run/reviews/queue-review-167.md`.
 
 ---

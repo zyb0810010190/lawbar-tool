@@ -1,5 +1,13 @@
 # Gate 16 — Project Brief READY + Reconciliation-Log Verification
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status:** brief-READY + reconciliation-log verification **PASS** — the brief is `status: READY`, its reconciliation log has **0 unresolved M0-blocking entries** (the one v1-day-one entry, R-5, is RESOLVED; all others are post-v1 or accepted-divergence), and the accepted divergences — including the **T4 proof-model** (`ADR-forms-t4-proof-model-scope.md`, DECIDED) — are documented. **Gate 16 stays `PARTIAL`** (a verification is not a go-live sign-off). This is **NOT** a clearance of gates 2/6/8/12/13/19/20, and is **NOT** a go-live decision. **Date:** 2026-07-07. **Author:** Claude Code (WI-RELEASE-G16-BRIEF-READY-RECONCILIATION-VERIFY-00 execution lane). **Governed by:** `dev-memo/run/queue.md` (queue.governed sha256 `6acc360f…`, PR #214 merge `5785fbb`), review `dev-memo/run/reviews/queue-review-160.md`.
 
 Read-only inspection of the brief + reconciliation log + the T4 ADR; the brief was **not edited** (a brief amendment is a separate governed project-brief WI). No product source/test/dependency change. `CURRENT_SCHEMA_VERSION` 12.
@@ -7,7 +15,7 @@ Read-only inspection of the brief + reconciliation log + the T4 ADR; the brief w
 ---
 
 ## 1. Brief READY status
-`docs/product/project-requirements-brief.md` frontmatter **line 2: `status: READY`** (revision 5). Per `.claude/rules/project-brief.md` §"Status lifecycle", READY means the `authoritative_after` condition ("`/cc-suite:review-plan` returns READY") was met by the brief's promotion review — recorded (not re-run) from the brief's own frontmatter `revision: 5 (post fourth review-plan …)` + `## Sources consulted` (Codex review-plan thread `review-plan-mpgg9yrg-amf715`, NEEDS-FIX → applied). The brief's §"Required cc-suite review" gate #3 requires every RECONCILIATION-NEEDED entry to be resolved-or-accepted before READY — reconfirmed per-entry in §2.
+`docs/product/product-definition.md (Part I)` frontmatter **line 2: `status: READY`** (revision 5). Per `.claude/rules/project-brief.md` §"Status lifecycle", READY means the `authoritative_after` condition ("`/cc-suite:review-plan` returns READY") was met by the brief's promotion review — recorded (not re-run) from the brief's own frontmatter `revision: 5 (post fourth review-plan …)` + `## Sources consulted` (Codex review-plan thread `review-plan-mpgg9yrg-amf715`, NEEDS-FIX → applied). The brief's §"Required cc-suite review" gate #3 requires every RECONCILIATION-NEEDED entry to be resolved-or-accepted before READY — reconfirmed per-entry in §2.
 
 ## 2. Reconciliation-log per-entry classification
 The brief's `## Reconciliation log` has entries R-1…R-9 (+ the R-1/R-2/R-3 grouped resolution) plus the T4 proof-model divergence (recorded via the ADR, not a numbered R-entry). Each classified `resolved` / `accepted-divergence` / `post-v1` / `unresolved-M0-blocking`:

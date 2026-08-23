@@ -228,15 +228,17 @@ test("T3-S0: notes and document filename are NOT promoted into evidence_title/pr
   assert.ok(!("evidence_title" in got) && !("proof_statement" in got));
 });
 
-test("T3-S0: no DDL — CURRENT_SCHEMA_VERSION remains 12 and no migration ran past it", async () => {
+test("T3-S0: no DDL — CURRENT_SCHEMA_VERSION is 13 (VS-1) and T3-S0 itself ran no migration", async () => {
+  // T3-S0 (evidence payload fields) added no DDL; the current version is 13 because WI-PTA-VS1 added
+  // case_box_claim_tracks (v13). The pin tracks the current version, which T3-S0 does not itself bump.
   const { CURRENT_SCHEMA_VERSION } = await import("../dist/index.js");
-  assert.equal(CURRENT_SCHEMA_VERSION, 12, "S0 Option A must not bump CURRENT_SCHEMA_VERSION");
+  assert.equal(CURRENT_SCHEMA_VERSION, 13, "S0 Option A must not bump CURRENT_SCHEMA_VERSION");
   const { db } = openSqliteCaseBoxPersistence({
     now: makeClock("2026-07-03T09:00:00.000Z"),
     generateId: makeIdGenerator("t3e"),
   });
   const max = db.prepare("SELECT MAX(version) AS v FROM schema_version").get();
-  assert.equal(max.v, 12);
+  assert.equal(max.v, 13);
 });
 
 test("T3-S0: no T4/T5 leakage — this WI adds no named proof-model properties and T3 round-trips do not synthesize them (schemas remain open; closed-schema rejection is NOT claimed)", async () => {

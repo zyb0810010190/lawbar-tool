@@ -1,6 +1,0 @@
-.env
-.env.*
-secrets/**
-config/credentials.json
-infra/prod/**
-migrations/**

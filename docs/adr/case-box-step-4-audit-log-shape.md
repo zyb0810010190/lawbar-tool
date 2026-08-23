@@ -140,7 +140,7 @@ These obligations are part of this ADR; `case-box-persistence` (future WI) MUST 
 - `docs/adr/case-box-step-0-boundary.md` — boundary and cross-cutting invariant #3 ("Audit every write").
 - `docs/adr/case-box-step-2-fact-promotion-and-provenance.md` — Step 2 fact lifecycle that consumes the audit log.
 - `docs/adr/case-box-step-3-privilege-marker-model.md` — Step 3 privilege-marker lifecycle that consumes the audit log.
-- `docs/product/product-target-architecture.md` — cross-cutting invariant #3.
+- `docs/product/product-definition.md Part I` — cross-cutting invariant #3.
 - `docs/contracts/case-box-contract/schemas/case-box-audit-event.schema.json` — pre-existing Step-1 schema, TINY ADDITIVE CHANGE in this WI.
 - `docs/contracts/case-box-contract/src/audit-log.ts` — all Step-4 TS helpers.
 - `docs/contracts/case-box-contract/tests/*.test.mjs` — full coverage including pinned canonical-output, chain happy path with real SHA-256, tamper detection, tenant/matter homogeneity, branded-hash validation, drift guards.

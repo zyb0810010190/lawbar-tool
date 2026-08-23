@@ -1,5 +1,13 @@
 # Gate 18 — Data-Export / Backup-Format Certification (v1 bounded surface)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status:** the **bounded v1 export/backup formats are certified** (surface enumerated + fidelity evidence run green). This is **NOT** a clearance of gate 12 (audit-chain), gate 14 (backup+recovery — cited here as *supporting evidence*, not cleared), or gate 15 (rollback); it does **NOT** imply gate 7 is cleared; and a v1-surface certification is **NOT** a go-live sign-off (gate 21 STOP-AND-ASK, user). **Date:** 2026-07-07. **Author:** Claude Code (WI-RELEASE-G18-EXPORT-BACKUP-FORMAT-CERT-00 execution lane). **Governed by:** `dev-memo/run/queue.md` (queue.governed sha256 `bd85b206…`, PR #198 merge `ff40720`), review `dev-memo/run/reviews/queue-review-148.md`.
 
 Environment of record: macOS 15.6.1 · Node v24.14.0 · `CURRENT_SCHEMA_VERSION = 12`. Fidelity evidence RUN 2026-07-07 (see §2). No export functionality is created or altered by this certification — the T3 export + A10 model + their tests are read-only evidence.

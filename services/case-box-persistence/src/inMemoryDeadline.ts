@@ -121,7 +121,7 @@ export function prepareTransitionDeadline(
   // Pre-validate transition_reason for missed → met (only edge that requires it).
   const isMissedToMet = prior.status === "missed" && opts.to === "met";
   if (isMissedToMet) {
-    if (typeof opts.transition_reason !== "string" || opts.transition_reason.length === 0) {
+    if (typeof opts.transition_reason !== "string" || opts.transition_reason.trim().length === 0) {
       throw new CaseBoxPersistenceError(
         "invalid_argument",
         `missed → met transition requires non-empty transition_reason`,

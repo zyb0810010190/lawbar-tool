@@ -1,5 +1,13 @@
 # Gate 2 — OCR Pipeline Verification (per-package test sweep + integration)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status:** OCR pipeline verification **PASS** — the four production OCR packages test green (0 failures) with the `better-sqlite3` ABI smoke passing and the `AGENTS.md` critical invariants directly asserted. **Gate 2 stays `PARTIAL`** (enriched with the verified marker — a test sweep is not a go-live sign-off, and dependent gates remain unresolved). This is **NOT** a clearance of gates 5/6/9/12/14/15/18/19/20, and is **NOT** a go-live decision. **Date:** 2026-07-07. **Author:** Claude Code (WI-RELEASE-G2-OCR-PIPELINE-VERIFY-00 execution lane). **Governed by:** `dev-memo/run/queue.md` (queue.governed sha256 `b35f06af…`, PR #210 merge `958df51`), review `dev-memo/run/reviews/queue-review-156.md`.
 
 This is a **test-only** verification (runs the existing per-package suites + inspects the surfaces); it changed **no** OCR source/test, renamed **no** error code, and added **no** dependency. Environment of record: macOS 15.6.1 (Darwin 24.6.0) · Node v24.14.0 · `CURRENT_SCHEMA_VERSION = 12`. `dist/` rebuilds performed by the test commands are gitignored (no tracked change). No real user documents — fixtures only.

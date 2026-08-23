@@ -259,7 +259,7 @@ export function renderT3CatalogDisclosure(
   );
   const exportButton = el(
     "button",
-    { type: "button", class: "view-t3-export-button", "data-test-id": "view-t3-export-docx" },
+    { type: "button", class: "button button--secondary view-t3-export-button", "data-test-id": "view-t3-export-docx" },
     [t("viewT3.export.button")],
     doc,
   );

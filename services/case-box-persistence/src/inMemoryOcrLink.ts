@@ -35,6 +35,7 @@ import {
   type StoredAuditEvent,
 } from "./auditChain.js";
 import { resolveDocumentTarget } from "./resolveTarget.js";
+import { InMemoryAuditLog } from "./auditHeadAnchor.js";
 
 export interface OcrLinkState {
   /** document_id → snapshot row (single row per document). */
@@ -53,7 +54,7 @@ export function createOcrLinkState(): OcrLinkState {
 interface RepoView {
   matters: Map<string, CaseBoxMatter>;
   documents: Map<string, { document: CaseBoxDocument; matter_id: string }>;
-  auditByMatter: Map<string, StoredAuditEvent[]>;
+  audit: InMemoryAuditLog;
 }
 interface CDeps {
   generateId: () => string;
@@ -151,7 +152,7 @@ export function prepareUpsertOcrLink(
 
   const isCreate = prior === undefined;
   const stamp = deps.nowIso();
-  const stored = repo.auditByMatter.get(matterId) ?? [];
+  const stored = repo.audit.get(matterId);
   const prevHash = priorHeadOf(stored);
   const kind: CaseBoxAuditEventKind = isCreate ? "OCR_LINK_SNAPSHOTTED" : "OCR_LINK_REFRESHED";
   const built = buildCaseBoxAuditEvent({
@@ -196,9 +197,7 @@ export function applyUpsertOcrLink(
     state.linksByMatter.set(prepared.matterId, matterSet);
   }
   matterSet.add(prepared.link.document_id);
-  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
-  stored.push(prepared.audit);
-  repo.auditByMatter.set(prepared.matterId, stored);
+  repo.audit.append(prepared.matterId, prepared.audit);
   return { link: structuredClone(prepared.link) as CaseBoxOcrLink, created: prepared.created };
 }
 

@@ -1,5 +1,13 @@
 # Gate 12 — Audit-Chain Operational Recovery + Tamper-Evidence (drill)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Status:** audit-chain recovery + tamper-evidence drill **PASS**. **Gate 12 stays `PARTIAL`** (enriched with the drill evidence marker — an operational drill is not a go-live sign-off, and dependent gates remain unresolved). This is **NOT** a clearance of gates 14/18/15, does **NOT** imply gate 7 cleared, and is **NOT** a go-live decision. **Date:** 2026-07-07. **Author:** Claude Code (WI-RELEASE-G12-AUDIT-CHAIN-RECOVERY-00 execution lane). **Governed by:** `dev-memo/run/queue.md` (queue.governed sha256 `886bad38…`, PR #202/#203/#204/#205), review `dev-memo/run/reviews/queue-review-152.md`.
 
 The drill ran the **existing** hash-chained audit verifier against a disposable `/tmp` fixture; it changed **no** audit-chain implementation, contract, schema, or error code. Environment of record: macOS 15.6.1 · Node v24.14.0 · better-sqlite3 12.x · `CURRENT_SCHEMA_VERSION = 12`. Fixture/disposable only — no real user data. The scripted driver is a disposable `/tmp` drill artifact (NOT committed, no new dependency).

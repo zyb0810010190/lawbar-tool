@@ -34,7 +34,9 @@ export interface StoreDocumentFileArgs {
 // Reduce an arbitrary chosen filename to a safe basename. Strips any directory
 // components and rejects names that would resolve outside the per-document dir.
 // Falls back to the documentId when the basename is empty or unsafe.
-function safeBasename(filename: string, documentId: string): string {
+// Exported so verification derives the SAME stored path instead of re-implementing this
+// rule. A second copy would be a divergence waiting to happen.
+export function safeBasename(filename: string, documentId: string): string {
   const base = path.basename(filename);
   if (base.length === 0 || base === "." || base === ".." || base.includes("/") || base.includes("\\")) {
     return documentId;

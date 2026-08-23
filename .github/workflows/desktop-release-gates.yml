@@ -10,6 +10,11 @@ on:
   pull_request:
     paths:
       - "apps/lawbar-desktop/**"
+      # The desktop `pretest` chain runs `check:no-real-data:all` — the full-corpus
+      # privacy scan whose party-name allowlist guards `docs/contracts/**/fixtures/**`.
+      # Without this path, a PR touching ONLY a contract fixture would never fire the
+      # very gate that protects it (WI-GATE-FULLSCAN, commit 6c8fe17).
+      - "docs/contracts/**"
       - ".github/workflows/desktop-release-gates.yml"
   workflow_dispatch: {}
 
@@ -47,6 +52,31 @@ jobs:
 
       - name: Install desktop deps (committed internal tarballs; no bootstrap rebuild, no signing)
         run: npm --prefix apps/lawbar-desktop ci
+
+      # This job installs the COMMITTED tarballs rather than rebuilding them, so if
+      # case-box-contract / case-box-persistence source has moved without a repack, every
+      # step below would pass green against a stale build. That is not hypothetical: the
+      # tarballs drifted 14 files behind source between 2026-08-05 and 2026-08-11 and
+      # nothing reported it. Fix on failure:
+      #   npm --prefix apps/lawbar-desktop run bootstrap
+      # then commit dist-tarballs/ + package-lock.json.
+      # The tarball guard below compares the committed tarballs against a FRESH PACK OF
+      # SOURCE. `dist/` is gitignored, so on a clean CI checkout there is nothing compiled to
+      # pack and every payload file reads as "EXTRA". That made the guard pass on any machine
+      # where someone had built recently and fail on every clean one — it has in fact never
+      # passed in CI, because the step was added after this workflow's last green run and
+      # this PR is its first execution. Build first, then compare.
+      - name: Build the internal packages the tarballs are packed from
+        run: |
+          npm --prefix docs/contracts/case-box-contract ci
+          npm --prefix docs/contracts/case-box-contract run build
+          npm --prefix services/case-box-persistence ci
+          npm --prefix services/case-box-persistence run build
+
+      - name: Internal tarballs match current source (else the suite below tests stale code)
+        run: |
+          npm --prefix apps/lawbar-desktop run check:internal-tarballs
+          npm --prefix apps/lawbar-desktop run check:internal-lock
 
       - name: Unit + renderer + electron suite (includes the i18n user-facing-English guard)
         run: npm --prefix apps/lawbar-desktop test

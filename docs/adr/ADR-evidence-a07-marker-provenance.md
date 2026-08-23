@@ -1,6 +1,16 @@
 # ADR — A0.7 marker provenance (design only)
 
-- **ID**: A07-MARK-00 (WI-ENA9).
+> ### ⚠️ SUPERSEDED IN FACT — 2026-08-10
+>
+> **The machinery this ADR designs was never retained.** This document is `Status: Proposed —
+> design only, non-authorizing`: it makes no claim that any gate, marker writer, validator, or
+> guard was ever built. The tooling it anticipated — `scripts/workflow/check-a07-gate.sh`,
+> `a07-marker-write.sh`, `a07_marker.py`, `check-marker-guard.sh` — was created and then deleted
+> in the 2026-08-10 configuration reset (`49dd7ad`), so nothing in this design is currently
+> implemented. A0.7 is **PROVISIONAL, not green**. Read this as an unexecuted design, not as a
+> description of anything in force.
+> *(Corrected 2026-08-12: an earlier banner asserted this ADR made present-tense enforcement
+> claims. It does not — that banner was applied uniformly to six ADRs, and was wrong for this one.)*
 - **Status**: Proposed — **design only, non-authorizing**. This ADR designs the future A0.7 marker schema,
   evidence bindings, provenance-validation rules, and anti-fabrication requirements. It does **not** authorize,
   implement, or enable any marker write, provenance/HMAC code, tamper/fabrication guard, or EVW5 hook. Each
@@ -15,7 +25,9 @@
 ## Context
 
 A07-GATE-00 fixed the gate design; WI-ENA7 materialized the independent fixture/oracle; WI-ENA8 implemented the
-A0.7 renderer-conformance harness, which now runs green on the committed fixture and **explicitly emits
+A0.7 renderer-conformance harness, which runs green on the committed fixture (still true, and
+misleading: per `docs/product/product-plan.md` §0, three of five oracles carry zero `samplePoints`,
+so "runs green" does not mean normalization was checked) and **explicitly emits
 `isMarker=false`** — a passing harness run is deliberately *not* a marker. What is still undefined is the
 **durable marker**: the tamper-evident record that a real harness run produced a classified pass against the
 reviewed fixture/oracle, such that a later reader (or gate) can trust A0.7 is green without re-running.

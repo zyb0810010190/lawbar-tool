@@ -25,7 +25,7 @@ const ev = (o) => ({ status: "accepted", ...o });
 const goldenMatter = {
   id: "01J0MATTER0000000000000001",
   parties: [
-    { role: "client", display_name: "孙乐驰", party_kind: "individual" },
+    { role: "client", display_name: "张三", party_kind: "individual" },
     { role: "opposing", display_name: "某公司", party_kind: "organization" },
   ],
   litigation_position: "plaintiff",
@@ -41,8 +41,8 @@ const goldenEvidence = [
 const buildGolden = () => buildT3CatalogModel({ matter: goldenMatter, evidenceItems: goldenEvidence });
 
 const GOLDEN_SERIALIZATION =
-  '{"formType":"证据目录及说明","litigationPosition":{"value":"plaintiff"},"matterId":"01J0MATTER0000000000000001","rows":[{"evidenceId":"E1","evidenceName":{"text":"银行流水"},"pageRange":{"text":"4-7"},"proofStatement":{"text":"证明款项交付。"},"sequence":1},{"evidenceId":"E9","evidenceName":{"text":"微信记录"},"pageRange":{"reviewNeeded":true},"proofStatement":{"reviewNeeded":true},"sequence":2},{"evidenceId":"E5","evidenceName":{"text":"借条"},"pageRange":{"text":"1-3"},"proofStatement":{"text":"1、证明借款关系成立；2、证明金额。"},"sequence":3},{"evidenceId":"Ea","evidenceName":{"text":"同日证据"},"pageRange":{"text":"8"},"proofStatement":{"text":"同一时间戳，落到 id 排序。"},"sequence":4},{"evidenceId":"Eb","evidenceName":{"reviewNeeded":true},"pageRange":{"reviewNeeded":true},"proofStatement":{"text":"无标题证据。"},"sequence":5}],"submitterName":{"text":"孙乐驰"}}';
-const GOLDEN_SHA256 = "247ee993a03cf9f1c2dcf0c0a9989d8d5b7e7c81810fd2b2930621dc20b2188f";
+  '{"formType":"证据目录及说明","litigationPosition":{"value":"plaintiff"},"matterId":"01J0MATTER0000000000000001","rows":[{"evidenceId":"E1","evidenceName":{"text":"银行流水"},"pageRange":{"text":"4-7"},"proofStatement":{"text":"证明款项交付。"},"sequence":1},{"evidenceId":"E9","evidenceName":{"text":"微信记录"},"pageRange":{"reviewNeeded":true},"proofStatement":{"reviewNeeded":true},"sequence":2},{"evidenceId":"E5","evidenceName":{"text":"借条"},"pageRange":{"text":"1-3"},"proofStatement":{"text":"1、证明借款关系成立；2、证明金额。"},"sequence":3},{"evidenceId":"Ea","evidenceName":{"text":"同日证据"},"pageRange":{"text":"8"},"proofStatement":{"text":"同一时间戳，落到 id 排序。"},"sequence":4},{"evidenceId":"Eb","evidenceName":{"reviewNeeded":true},"pageRange":{"reviewNeeded":true},"proofStatement":{"text":"无标题证据。"},"sequence":5}],"submitterName":{"text":"张三"}}';
+const GOLDEN_SHA256 = "8cf54b401616df4f714248575f7d435b454dea7615bcf68df65f907ee45fdbb5";
 
 test("golden: serialization + sha256 are byte-identical to the locked values", () => {
   const model = buildGolden();
@@ -186,7 +186,7 @@ test("no 卷X页Y/citation field: 页码 is exhibit_page_range passthrough and c
 
 test("submitter: single client party auto-selects; name is an explicit text cell", () => {
   const model = buildT3CatalogModel({ matter: goldenMatter, evidenceItems: [] });
-  assert.deepEqual(model.submitterName, { text: "孙乐驰" });
+  assert.deepEqual(model.submitterName, { text: "张三" });
 });
 
 test("submitter: zero client parties refuses (submitter_selection_required)", () => {

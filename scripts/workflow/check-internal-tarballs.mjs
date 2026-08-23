@@ -142,6 +142,16 @@ function checkPayload(pkg, committedTgz, tmp) {
   copyDirSync(pkg.sourceDir, stage);
   rewriteAndScanStagedManifest(stage, pkg.rewrites, pkg.name);
   const packOut = fs.mkdtempSync(path.join(tmp, `${pkg.name}-pack-`));
+    // A package whose dist/ has not been built produces a payload-free tarball, and every file
+  // in the committed one then reads as "EXTRA" — 200 lines of diff for what is really one
+  // missing precondition. `dist/` is gitignored, so this is the normal state of a clean
+  // checkout, and it is exactly how this guard came to pass locally and fail in CI.
+  if (!fs.existsSync(path.join(stage, "dist"))) {
+    console.error(`[check-internal-tarballs] ${path.basename(stage)}: no dist/ to pack.`);
+    console.error("  This compares the committed tarball against a FRESH PACK OF SOURCE, so the");
+    console.error("  source must be compiled first. Run the package's `build` script, then retry.");
+    process.exit(1);
+  }
   const r = spawnSync("npm", ["pack", "--pack-destination", packOut], { cwd: stage, encoding: "utf-8" });
   if (r.status !== 0) { fail(`${pkg.name}: npm pack failed: ${r.stderr}`); return; }
   const freshTgz = fs.readdirSync(packOut).find((f) => f.endsWith(".tgz"));

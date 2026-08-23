@@ -137,8 +137,8 @@ export function collectText(node) {
 }
 
 // --- Async flush ---
-// mountViewMatter chains loadChainHead -> loadAuditEvents -> api.listAuditEvents -> loadPage,
-// which is several await hops deep.
+// A lazily-loaded <details> section chains several await hops (open -> IPC list
+// -> render), so settle multiple microtasks before asserting.
 export async function flush() {
   for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
 }
@@ -151,8 +151,12 @@ export function syntheticMatter(overrides = {}) {
     name: "matter-fixture-A",
     matter_type: "litigation",
     jurisdiction: { value: "test-jx", locked: false },
+    // Two id-bearing parties by default (WI-PTA-VS3): the ClaimTrack add form is
+    // enabled iff >= 2 parties carry ids. Party-count/text assertions in the view
+    // suites override `parties` explicitly, so they are unaffected.
     parties: [
-      { role: "client", display_name: "syn-party-A", party_kind: "individual" },
+      { id: "01jzparty0000000000000a01", role: "client", display_name: "syn-party-A", party_kind: "individual" },
+      { id: "01jzparty0000000000000b02", role: "opposing", display_name: "syn-party-B", party_kind: "organization" },
     ],
     confidentiality_class: "normal",
     created_at: "2026-05-27T10:30:00Z",
@@ -195,6 +199,13 @@ export function makeStubApi(impl = {}) {
     dismissDocketEntry:
       impl.dismissDocketEntry ??
       (async () => ({ ok: true, value: { id: "stub", confirmation_state: "dismissed" } })),
+    // WI-PTA-VS3: the ClaimTrack disclosure lazily lists on open (unpaginated ARRAY,
+    // not a page) and creates on submit. Both default to success; the claim-track
+    // suite overrides them to record the forwarded DTO and exercise the error path.
+    listClaimTracks:
+      impl.listClaimTracks ?? (async () => ({ ok: true, value: [] })),
+    createClaimTrack:
+      impl.createClaimTrack ?? (async () => ({ ok: true, value: {} })),
   };
 }
 
@@ -212,17 +223,6 @@ export function captureWarn(fn) {
       throw err;
     },
   );
-}
-
-export function auditEvent(overrides = {}) {
-  return {
-    timestamp: "2026-05-27T10:30:00Z",
-    action: "matter.created",
-    entity_type: "matter",
-    entity_id: EVENT_ULID,
-    after_state_hash: SAMPLE_HASH,
-    ...overrides,
-  };
 }
 
 export function deadlineRow(overrides = {}) {

@@ -2,7 +2,8 @@
 //
 // Read-only detail view. Validates the supplied id against the router's ULID
 // regex BEFORE making any IPC call (rejects garbage routes without round-trip
-// to main). Audit chain head is loaded LAZILY on first <details> click.
+// to main). Per-matter sections (documents, deadlines, facts, claim tracks,
+// links, T3 catalog) are loaded LAZILY on first <details> click.
 
 import type { CaseBoxApi } from "../api.js";
 import type {
@@ -22,10 +23,10 @@ import {
   statusLabel,
 } from "../i18n/labels.js";
 import { t } from "../i18n/t.js";
-import { renderChainHeadDisclosure } from "./viewMatterAudit.js";
 import { renderDocumentsDisclosure } from "./viewMatterDocuments.js";
 import { renderDeadlinesDisclosure } from "./viewMatterDeadlines.js";
 import { renderFactsDisclosure } from "./viewMatterFacts.js";
+import { renderClaimTracksDisclosure } from "./viewMatterClaimTracks.js";
 import { renderLinksDisclosure } from "./viewMatterLinks.js";
 import { renderT3CatalogDisclosure } from "./viewMatterT3Catalog.js";
 import { errorMessage } from "../i18n/errorMessage.js";
@@ -304,10 +305,29 @@ function renderDetail(
     ],
     doc,
   );
+  // Edit affordance — a primary action in the header/actions area for active
+  // matters only (hidden for archived; the direct /edit route has its own
+  // read-only safety net). Placed OUTSIDE the archive danger zone.
+  let editBtn: HTMLElement | null = null;
+  if (row.status === "active") {
+    editBtn = el(
+      "button",
+      {
+        type: "button",
+        class: "button button--primary view-edit-btn",
+        "data-test-id": "view-edit",
+      },
+      [t("detail.editButton")],
+      doc,
+    );
+    editBtn.addEventListener("click", () => {
+      deps.navigate(buildHash("edit", { id: row.id }));
+    });
+  }
   const header = el(
     "header",
     { class: "view-header" },
-    [back, titleEl, pill, metaStrip],
+    [back, titleEl, pill, metaStrip, editBtn],
     doc,
   );
 
@@ -411,18 +431,18 @@ function renderDetail(
   const documentsDetails = renderDocumentsDisclosure(doc, deps.api, row.id);
   const deadlinesDetails = renderDeadlinesDisclosure(doc, deps.api, row.id);
   const factsDetails = renderFactsDisclosure(doc, deps.api, row.id);
+  const claimTracksDetails = renderClaimTracksDisclosure(doc, deps.api, row.id, row.parties);
   const linksDetails = renderLinksDisclosure(doc, deps.api, row.id);
   const t3CatalogDetails = renderT3CatalogDisclosure(doc, deps.api, row.id);
-  const chainHeadDetails = renderChainHeadDisclosure(doc, deps.api, row.id);
 
   const mainCol = el(
     "div",
     { class: "view-main" },
-    [infoCard, documentsDetails, deadlinesDetails, factsDetails, linksDetails, t3CatalogDetails],
+    [infoCard, documentsDetails, deadlinesDetails, factsDetails, claimTracksDetails, linksDetails, t3CatalogDetails],
     doc,
   );
 
-  // Right column — colophon (id/created dispatch) + audit chain + archive zone.
+  // Right column — colophon (id/created dispatch) + archive zone.
   const colophon = el(
     "aside",
     { class: "colophon" },
@@ -430,7 +450,7 @@ function renderDetail(
       el(
         "div",
         { class: "colophon-header" },
-        [t("detail.colophonTitle"), el("span", { class: "colophon-marker" }, ["§"], doc)],
+        [t("detail.colophonTitle")],
         doc,
       ),
       el(
@@ -501,7 +521,7 @@ function renderDetail(
   const aside = el(
     "div",
     { class: "view-aside" },
-    [colophon, chainHeadDetails, archiveBlock],
+    [colophon, archiveBlock],
     doc,
   );
 

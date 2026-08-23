@@ -508,13 +508,13 @@ function insertLinkRow(db, overrides = {}) {
   ).run(l);
 }
 
-test("A3-UNLINK-SCHEMA-01: CURRENT_SCHEMA_VERSION is 12 and applySchema reaches 12 with schema_version 1..12", () => {
+test("WI-PTA-VS1: CURRENT_SCHEMA_VERSION is 13 and applySchema reaches 13 with schema_version 1..13", () => {
   const db = new Database(":memory:");
-  assert.equal(CURRENT_SCHEMA_VERSION, 12, "V12 durable-unlink migration is current");
-  assert.equal(applySchema(db), 12);
+  assert.equal(CURRENT_SCHEMA_VERSION, 13, "V13 case_box_claim_tracks migration is current");
+  assert.equal(applySchema(db), 13);
   const versions = db.prepare("SELECT version FROM schema_version ORDER BY version").all().map((r) => r.version);
   const expected = [];
-  for (let i = 1; i <= 12; i++) expected.push(i);
+  for (let i = 1; i <= 13; i++) expected.push(i);
   assert.deepEqual(versions, expected);
   db.close();
 });
@@ -546,7 +546,7 @@ test("A3-UNLINK-SCHEMA-01: durable-unlink marker persists across DB close + reop
     db1.close();
     // Reopen: applySchema is a no-op at v12; the durable marker survives the round-trip.
     const db2 = new Database(file);
-    assert.equal(applySchema(db2), 12, "reopen: applySchema idempotent at v12 (no duplicate-column error)");
+    assert.equal(applySchema(db2), CURRENT_SCHEMA_VERSION, "reopen: applySchema idempotent at the current version (no duplicate-column error)");
     const row = db2.prepare("SELECT unlinked_at, unlink_reason FROM case_box_links WHERE id='l-unlinked'").get();
     assert.equal(row.unlinked_at, "2026-06-26T12:00:00.000Z", "unlinked_at persisted");
     assert.equal(row.unlink_reason, "superseded by re-import", "unlink_reason persisted");
@@ -575,14 +575,14 @@ test("A3-UNLINK-SCHEMA-01: a planted V11 DB upgrades additively to 12; existing 
   assert.equal(row.status, "valid");
   assert.equal(row.unlinked_at, null, "existing row defaults to not-unlinked");
   assert.equal(row.unlink_reason, null);
-  assert.equal(db.prepare("SELECT MAX(version) AS v FROM schema_version").get().v, 12);
+  assert.equal(db.prepare("SELECT MAX(version) AS v FROM schema_version").get().v, CURRENT_SCHEMA_VERSION);
   db.close();
 });
 
-test("A3-UNLINK-SCHEMA-01: V12 still refuses a future-version (13) DB before any mutation", () => {
+test("WI-PTA-VS1: the current schema still refuses a future-version (14) DB before any mutation", () => {
   const db = new Database(":memory:");
   db.exec(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-           INSERT INTO schema_version (version, applied_at) VALUES (13, '2026-06-26T00:00:00.000Z');`);
+           INSERT INTO schema_version (version, applied_at) VALUES (14, '2026-06-26T00:00:00.000Z');`);
   assert.throws(() => applySchema(db), CaseBoxPersistenceError);
   db.close();
 });
@@ -601,5 +601,75 @@ test("A3-UNLINK-SCHEMA-01: V12 preserves the A3 invariants (anchor_id NOT NULL; 
     .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='case_box_links'")
     .get().sql;
   assert.match(sql, /unlinked_at[^,]*COLLATE BINARY/i, "unlinked_at must be COLLATE BINARY in the schema source");
+  db.close();
+});
+
+// ---------------------------------------------------------------------------
+// WI-PTA-VS1: schema V13 case_box_claim_tracks (ClaimTrack persistence).
+// Lifted columns are filter/seek keys only; payload_json is canonical. The
+// (matter_id, sort_order, created_at, id) index matches the deterministic list
+// ORDER BY sort_order ASC, created_at ASC, id ASC. NO FK, NO value CHECK.
+// ---------------------------------------------------------------------------
+
+test("VS1: V13 creates case_box_claim_tracks with exactly the declared columns", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  const cols = db.prepare("PRAGMA table_info('case_box_claim_tracks')").all().map((c) => c.name).sort();
+  assert.deepEqual(cols, [
+    "created_at", "id", "matter_id", "payload_json", "sort_order", "status", "tenant_id", "track_type",
+  ].sort());
+  // No party/summary/our_role columns lifted — those stay canonical in payload_json.
+  for (const forbidden of ["claimant_party_id", "respondent_party_id", "our_role", "title", "updated_at", "claim_summary"]) {
+    assert.ok(!cols.includes(forbidden), `${forbidden} must NOT be a lifted column (payload_json is canonical)`);
+  }
+  db.close();
+});
+
+test("VS1: V13 has the (matter_id, sort_order, created_at, id) list-seek index", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  const idxList = db.prepare("PRAGMA index_list('case_box_claim_tracks')").all();
+  const target = idxList.find((i) => i.name === "idx_case_box_claim_tracks_by_matter_sort");
+  assert.ok(target, "the (matter_id, sort_order, created_at, id) index must exist");
+  const idxCols = db.prepare(`PRAGMA index_info('${target.name}')`).all().map((c) => c.name);
+  assert.deepEqual(idxCols, ["matter_id", "sort_order", "created_at", "id"], "index column order must match the ORDER BY");
+  db.close();
+});
+
+test("VS1: case_box_claim_tracks has NO SQLite foreign keys (app-layer invariant)", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  const fks = db.prepare("PRAGMA foreign_key_list('case_box_claim_tracks')").all();
+  assert.equal(fks.length, 0, "case-box convention forbids SQLite FKs; matter_id + party refs are app-layer invariants");
+  db.close();
+});
+
+test("VS1: sort_order is COLLATE-agnostic INTEGER and created_at is COLLATE BINARY in the schema source", () => {
+  const db = new Database(":memory:");
+  applySchema(db);
+  const info = db.prepare("PRAGMA table_info('case_box_claim_tracks')").all();
+  const byName = Object.fromEntries(info.map((c) => [c.name, c]));
+  assert.equal(byName.sort_order.type, "INTEGER", "sort_order must be an INTEGER column (numeric ORDER BY)");
+  assert.equal(byName.sort_order.notnull, 1, "sort_order must be NOT NULL");
+  const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='case_box_claim_tracks'").get().sql;
+  assert.match(sql, /created_at[^,]*COLLATE BINARY/i, "created_at must be COLLATE BINARY (byte-stable seek key)");
+  db.close();
+});
+
+test("VS1: a planted V12 DB upgrades additively to 13; existing rows preserved, claim-tracks table created", () => {
+  const db = new Database(":memory:");
+  // Plant a v12 DB with a minimal case_box_matters table + row; applySchema applies V13
+  // (creates case_box_claim_tracks) and leaves the planted row intact.
+  db.exec(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+           INSERT INTO schema_version (version, applied_at) VALUES (12, '2026-06-26T00:00:00.000Z');
+           CREATE TABLE case_box_matters (id TEXT PRIMARY KEY, payload_json TEXT NOT NULL);
+           INSERT INTO case_box_matters (id, payload_json) VALUES ('matter-keep', '{}');`);
+  assert.equal(applySchema(db), CURRENT_SCHEMA_VERSION, "V12 DB upgrades additively to current (13)");
+  assert.ok(db.prepare("SELECT id FROM case_box_matters WHERE id='matter-keep'").get(), "planted matter row must survive");
+  assert.ok(
+    db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='case_box_claim_tracks'").get(),
+    "case_box_claim_tracks must exist after the upgrade",
+  );
+  assert.equal(db.prepare("SELECT MAX(version) AS v FROM schema_version").get().v, CURRENT_SCHEMA_VERSION);
   db.close();
 });

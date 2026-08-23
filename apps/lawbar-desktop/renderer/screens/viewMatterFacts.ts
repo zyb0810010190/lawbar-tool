@@ -213,7 +213,7 @@ function renderAddFactControl(
   );
   const btn = el(
     "button",
-    { type: "button", class: "view-facts-add-btn", "data-test-id": "view-facts-add" },
+    { type: "button", class: "button button--primary view-facts-add-btn", "data-test-id": "view-facts-add" },
     [t("fact.addFact")],
     doc,
   );
@@ -430,15 +430,42 @@ function renderReviewControls(
   );
   const confirmReject = el(
     "button",
-    { type: "button", class: "view-facts-reject-confirm", "data-test-id": "view-facts-reject-confirm", hidden: "" },
+    { type: "button", class: "button button--danger view-facts-reject-confirm", "data-test-id": "view-facts-reject-confirm", hidden: "" },
     [t("fact.confirmReject")],
     doc,
   );
+  // Escape hatch for the two-step reject (the docket-dismiss precedent): revealing a
+  // required-reason step must always offer a way back out. Cancel makes no api call.
+  const cancelReject = el(
+    "button",
+    { type: "button", class: "button button--secondary view-facts-reject-cancel", "data-test-id": "view-facts-reject-cancel", hidden: "" },
+    [t("fact.cancelReject")],
+    doc,
+  );
+  const clearStatus = (): void => {
+    status.removeAttribute("role");
+    status.setAttribute("data-test-id", "view-facts-review-status");
+    setText(status, "");
+  };
   const revealReject = (): void => {
     reasonInput.removeAttribute("hidden");
     reasonInput.setAttribute("aria-required", "true");
     confirmReject.removeAttribute("hidden");
+    cancelReject.removeAttribute("hidden");
   };
+  // Restore the pre-reveal state: collapse the reason input + both reject buttons,
+  // drop the typed reason and the aria-required marker, and clear any inline error.
+  const collapseReject = (): void => {
+    (reasonInput as unknown as { value: string }).value = "";
+    reasonInput.setAttribute("hidden", "");
+    reasonInput.removeAttribute("aria-required");
+    confirmReject.setAttribute("hidden", "");
+    cancelReject.setAttribute("hidden", "");
+    clearStatus();
+  };
+  cancelReject.addEventListener("click", () => {
+    collapseReject();
+  });
   confirmReject.addEventListener("click", () => {
     const reason = ((reasonInput as unknown as { value?: string }).value ?? "").trim();
     if (reason.length === 0) {
@@ -452,7 +479,7 @@ function renderReviewControls(
   for (const action of actions) {
     const btn = el(
       "button",
-      { type: "button", class: `view-facts-review-${action.to}`, "data-test-id": `view-facts-review-${action.to}` },
+      { type: "button", class: `button button--${action.to === "rejected" ? "danger" : "secondary"} view-facts-review-${action.to}`, "data-test-id": `view-facts-review-${action.to}` },
       [action.label],
       doc,
     );
@@ -464,12 +491,12 @@ function renderReviewControls(
     buttons.push(btn);
     actionEls.push(btn, " ");
   }
-  buttons.push(confirmReject);
+  buttons.push(confirmReject, cancelReject);
 
   return el(
     "div",
     { class: "view-facts-review", "data-test-id": "view-facts-review-control" },
-    [...actionEls, reasonInput, " ", confirmReject, " ", status],
+    [...actionEls, reasonInput, " ", confirmReject, " ", cancelReject, " ", status],
     doc,
   );
 }
@@ -544,7 +571,7 @@ async function loadFacts(
     if (cursor !== null) {
       const btn = el(
         "button",
-        { type: "button", class: "view-facts-more", "data-test-id": "view-facts-more" },
+        { type: "button", class: "button button--secondary view-facts-more", "data-test-id": "view-facts-more" },
         [t("common.loadMore")],
         doc,
       );

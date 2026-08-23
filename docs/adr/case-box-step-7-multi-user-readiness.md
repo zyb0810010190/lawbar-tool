@@ -141,7 +141,7 @@ For the future persistence + API + UI work items (not authorized here):
 - `docs/adr/sync-bridge-architecture.md` — first non-local entrypoint; first place the local-user sentinel MUST be replaced.
 - `docs/contracts/case-box-contract/src/invariants.ts` — `LOCAL_ONLY_ACTOR_USER_ID` constant + `isLocalOnlyActor()` helper.
 - `docs/contracts/case-box-contract/src/audit-log.ts` — audit-event helpers (Step 4).
-- `docs/product/product-target-architecture.md` §"Primary User" + §"Cross-cutting Invariants" #7 + #8.
+- `docs/product/product-definition.md Part I` §"Primary User" + §"Cross-cutting Invariants" #7 + #8.
 - `docs/release/go-live-plan.md` — Stop-and-Ask gates including the auth provider gate.
 - `AGENTS.md` — Stop-and-Ask gates.
 

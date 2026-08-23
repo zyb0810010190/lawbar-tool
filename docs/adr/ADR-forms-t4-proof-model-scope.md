@@ -1,5 +1,13 @@
 # ADR — T4 举证质证表 proof-model + scope decision foundation (FORMS-T4-S0-00)
 
+> **Provenance note (2026-08-22).** The governance queue, review tree and autonomy rules
+> cited below were removed together with the agent-governance layer in commits `49dd7ad`
+> and `e67b047`. Those citations — queue and review paths, sha256 digests, PR numbers —
+> are retained deliberately as the audit trail of what authorized this work. They record
+> provenance; they are not paths you can follow today. Current authority for hard stops
+> is `docs/product/product-definition.md` §20.
+
+
 **Date**: 2026-07-04. **Type**: ADR / decision record (documentation only — no implementation, no schema,
 no code/tests). **Lane**: WI-FORMS-T4-S0-SPEC-FOUNDATION-00 (design/decision-foundation, executed). **Status**:
 **DECIDED** for B1 (scope) + B2 (proof model) on explicit user authority (2026-07-04); B3 (schema/data
@@ -7,7 +15,7 @@ foundation) framed conditionally and **NOT authorized here**. Predecessor: `dev-
 (FORMS-T4-SPEC-00) + `dev-memo/forms-spec-a10-t3-t5-sample-adr-00.md` §C/§F.
 
 > **Binding inputs.** `dev-memo/forms-t4-spec-00.md` (T4 framing + blockers B1/B2/B3);
-> `docs/product/project-requirements-brief.md` (status `READY`) §12/§14 (proof matrix = post-v1 export
+> `docs/product/product-definition.md (Part I)` (status `READY`) §12/§14 (proof matrix = post-v1 export
 > candidate, "each a separate STOP-AND-ASK ADR"); `dev-memo/forms-spec-a10-t3-t5-sample-adr-00.md` §C (T4
 > proof-model gaps) + §F Q6 (`RECONCILIATION-NEEDED`) + Q7 (new fields → schema ADR); the completed forms-T3
 > S0–S3 chain (reuse baseline); `.claude/rules/{autonomy,project-brief,evidence-genie,client-local-first}.md`.
@@ -24,7 +32,7 @@ and frames B3.
 ## 2. Decision — B1 (scope): T4 is POST-V1, not M0 (RESOLVED)
 
 - **T4 is post-v1.** It is **not** part of the M0 release bar. (User decision, 2026-07-04.)
-- **The `READY` brief controls** over the conflicting PRD M0 implication: `docs/product/project-requirements-brief.md`
+- **The `READY` brief controls** over the conflicting PRD M0 implication: `docs/product/product-definition.md (Part I)`
   §12 "Export (post-v1)" + §14 list the **proof matrix** among post-v1 export candidates, each a separate
   STOP-AND-ASK ADR. Per the `project-brief` authority hierarchy (a `READY` brief governs product direction),
   the brief wins.
@@ -112,7 +120,7 @@ WI **only when the user prioritizes T4 into an active track**. Until then, T4 ha
 
 ## 8. References
 - `dev-memo/forms-t4-spec-00.md` (FORMS-T4-SPEC-00; blockers B1/B2/B3, first-slice framing).
-- `docs/product/project-requirements-brief.md` (status `READY`) §12/§14 (proof matrix post-v1 STOP-AND-ASK).
+- `docs/product/product-definition.md (Part I)` (status `READY`) §12/§14 (proof matrix post-v1 STOP-AND-ASK).
 - `dev-memo/forms-spec-a10-t3-t5-sample-adr-00.md` §C/§F (T4 proof-model gaps; Q6 reconciliation; Q7 new fields).
 - `dev-memo/plan-forms-t3-evidence-catalog-00.md` + `dev-memo/adr-forms-t3-s0-schema.md` +
   `dev-memo/adr-forms-t3-s3-docx-export.md` + the S1/S2/S3 artifacts (the S0-style additive + ADR/impl chain

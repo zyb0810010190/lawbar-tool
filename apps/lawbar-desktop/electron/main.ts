@@ -4,6 +4,7 @@ import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { closeCaseBoxRuntime, getCaseBoxRuntime } from "../src/caseBox/caseBoxRuntime.js";
+import { acquireOrExit } from "../src/caseBox/startupFailure.js";
 import { registerCaseBoxIpcHandlers } from "./ipc/caseBoxHandlers.js";
 import { makeStoreFile } from "../src/caseBox/documentStorage.js";
 import { loadThemePreference } from "../src/persistence/themePreference.js";
@@ -129,7 +130,15 @@ void app.whenReady().then(async () => {
     );
   }
   const userDataDir = app.getPath("userData");
-  const caseBoxRuntime = getCaseBoxRuntime({ userDataDir });
+  // WI-07. This call refuses to open a database that is corrupt, locked, foreign or
+  // unreachable. It sat outside any try, so each of those threw unhandled inside
+  // `whenReady` and the litigator got no window and no reason. Same shape as the FileVault
+  // gate above: tell the user, then quit cleanly.
+  const caseBoxRuntime = acquireOrExit(() => getCaseBoxRuntime({ userDataDir }), {
+    showErrorBox: (title, content) => dialog.showErrorBox(title, content),
+    quit: () => app.quit(),
+  });
+  if (caseBoxRuntime === null) return;
   // Document files live in an app-controlled directory beside the SQLite DB.
   const documentStorageRoot = path.join(userDataDir, "case-box-documents");
   registerCaseBoxIpcHandlers({

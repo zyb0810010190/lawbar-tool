@@ -1,12 +1,29 @@
 # Current UI Map (UI-00 baseline)
 
+> ### ⚠️ SNAPSHOT OF A PRE-DESKTOP REPO — do not read as current
+>
+> **This document describes a repository state that no longer exists.** It asserts there is no UI
+> implementation. Verified 2026-08-12: `apps/lawbar-desktop/renderer/` ships 25 TypeScript
+> modules, `index.html`, `router.ts` declaring `#/matters`, `#/matters/new`, `#/matters/:id` and
+> `#/matters/:id/archive`, plus `screens/`, `nav.ts`, `i18n/` and `theme/`.
+>
+> Any row claiming zero `.html`/UI hits is false against the current tree.
+>
+> **The gap analysis rests on a void premise.** Surfaces are deferred here on the grounds that a
+> missing HTTP API gateway blocks every screen. The desktop client uses Electron IPC, not HTTP,
+> so that blocker never applied to it and the deferral verdicts do not follow.
+>
+> Retained as the UI-00 baseline record. For what the UI actually is, see
+> `docs/product/product-definition.md` Part III.
+
+
 **Date**: 2026-05-20
-**Status**: **Baseline zero — no UI implementation exists.**
+**Status**: **HISTORICAL (2026-05-20 baseline) — superseded.** As recorded in the banner above, the repository now ships a full Electron renderer; this line describes the state at the time of writing and is false against the current tree.
 **Method**: exhaustive repo sweep + backend-contract derivation.
 
 ## Bottom line
 
-The lawbar-tool repository at HEAD (`06c83d2`, branch `ui-contract-and-design-recovery`) contains **zero UI code**. This file documents that fact, enumerates what was searched, and then — per AGENTS.md "no false claims" — describes the **inferred required UI surface** derived from the backend contracts that already exist. Every screen below is an *inference*, not an artifact. None has a current implementation; none has tests; none has any style or responsive risk yet because none has any code.
+*As of the 2026-05-20 snapshot below,* the lawbar-tool repository at HEAD (`06c83d2`, branch `ui-contract-and-design-recovery`) contained **zero UI code**. That is no longer true — see the banner. This file documents that fact, enumerates what was searched, and then — per AGENTS.md "no false claims" — describes the **inferred required UI surface** derived from the backend contracts that already exist. Every screen below is an *inference*, not an artifact. None has a current implementation; none has tests; none has any style or responsive risk yet because none has any code.
 
 ## What was searched
 

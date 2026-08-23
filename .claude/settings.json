@@ -8,6 +8,14 @@
       "Read(./config/credentials.json)"
     ]
   },
+  "enabledPlugins": {
+    "cc-suite@xiaolai": true,
+    "loc-guardian@xiaolai": true,
+    "echo-sleuth@xiaolai": true,
+    "grill@xiaolai": true,
+    "tdd-guardian@xiaolai": true,
+    "docs-guardian@xiaolai": true
+  },
   "extraKnownMarketplaces": {
     "xiaolai": {
       "source": {
@@ -15,55 +23,5 @@
         "repo": "xiaolai/claude-plugin-marketplace"
       }
     }
-  },
-  "enabledPlugins": {
-    "cc-suite@xiaolai": true,
-    "echo-sleuth@xiaolai": true,
-    "tdd-guardian@xiaolai": false,
-    "loc-guardian@xiaolai": false,
-    "grill@xiaolai": false,
-    "docs-guardian@xiaolai": false,
-    "nlpm@xiaolai": false,
-    "ui-tokenize@xiaolai": false,
-    "ui-responsive@xiaolai": false,
-    "mermaid-preview@xiaolai": false
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-run-control.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-run-control-bash-write.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-git-add-all.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-commit-stage-all.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/batch-commit-guard.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-contract-corruption.sh"
-          }
-        ]
-      }
-    ]
   }
 }

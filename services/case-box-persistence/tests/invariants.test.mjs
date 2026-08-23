@@ -102,11 +102,20 @@ test("6.2.6 CaseBoxPersistenceError code is one of the documented set (incl. B1+
     "duplicate_id", "unknown_matter", "unknown_document", "tenant_mismatch",
     "matter_id_mismatch", "illegal_transition", "local_only_external_flag_rejected",
     "invalid_payload", "invalid_initial_state", "invalid_argument",
+    "anchor_referenced", // A3 referenced-anchor-delete refusal.
+    "audit_chain_desync", // WI-PTA-VS0 fail-closed backfill guard.
+    "unknown_party", // WI-PTA-VS1 claim-track party-ref existence check (O3 layer 2).
+    "matter_archived", // matter-details-edit Phase B: edit attempted on an archived matter.
+    "no_editable_change", // matter-details-edit Phase B: no-op edit rejected (no audit spam).
     "not_implemented", // B1+ scaffolding code; retired by B11 when full SQLite impl ships.
   ]);
   // Trigger each code at least once and verify the value is recognized.
   const p = new InMemoryCaseBoxPersistence({ now: makeClock("2026-05-20T09:00:00.000Z"), generateId: makeIdGenerator("inv6") });
   await p.createMatter(makeMatterInput());
+  // matter-details-edit Phase B: an archived matter for the matter_archived trigger.
+  const archivedMatterId = "01jinv6archivedmatter00001";
+  await p.createMatter(makeMatterInput({ id: archivedMatterId }));
+  await p.archiveMatter(archivedMatterId, { actor_user_id: "local-user", reason: "archiving" });
 
   const cases = [
     () => p.createMatter(makeMatterInput({ id: "BAD" })),
@@ -117,6 +126,9 @@ test("6.2.6 CaseBoxPersistenceError code is one of the documented set (incl. B1+
     () => p.archiveMatter(DEFAULT_MATTER_ID, { actor_user_id: "local-user", reason: "" }),
     () => p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({ tenant_id: "other" })),
     () => p.registerDocument(DEFAULT_MATTER_ID, makeDocumentInput({ matter_id: "01othermockmatterid0000007" })),
+    // matter-details-edit Phase B additive codes:
+    () => p.updateMatterDetails(archivedMatterId, { patch: { name: "x" }, actor_user_id: "u", reason: "r" }), // matter_archived
+    () => p.updateMatterDetails(DEFAULT_MATTER_ID, { patch: { name: "Test Matter" }, actor_user_id: "u", reason: "r" }), // no_editable_change (name unchanged)
   ];
 
   for (const fn of cases) {
@@ -135,7 +147,7 @@ test("6.2.6 CaseBoxPersistenceError code is one of the documented set (incl. B1+
 // 6.2.7 Prototype allowlist — exactly the 10 documented methods + constructor
 // ---------------------------------------------------------------------------
 
-test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented method allowlist (A1-A9 + DPE3 = 44)", () => {
+test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented method allowlist (A1-A9 + DPE3 + PTA-VS0 + PTA-VS1 + matter-details-edit = 49)", () => {
   const expected = [
     "appendConfidentialityClassification",
     "appendDocketEntry",
@@ -146,10 +158,13 @@ test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented meth
     "archiveMatter",
     "confirmDocketEntry",
     "constructor",
+    "createClaimTrack",
     "createMatter",
     "dismissDocketEntry",
     "editDocketEntry",
+    "ensureMatterPartyIds",
     "getAuditChainHead",
+    "getClaimTrack",
     "getDeadline",
     "getDeadlineCalendar",
     "getDocketEntry",
@@ -164,6 +179,7 @@ test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented meth
     "getOcrLink",
     "getPrivilegeStatus",
     "listAuditEvents",
+    "listClaimTracks",
     "listConfidentialityClassifications",
     "listDeadlines",
     "listDocketEntries",
@@ -179,6 +195,7 @@ test("6.2.7 InMemoryCaseBoxPersistence.prototype has exactly the documented meth
     "transitionFact",
     "transitionPrivilegeMarker",
     "unarchiveMatter",
+    "updateMatterDetails",
     "upsertOcrLink",
     "verifyAuditChainForMatter",
   ].sort();

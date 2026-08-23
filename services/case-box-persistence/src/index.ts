@@ -49,6 +49,7 @@ export type { CaseBoxPersistenceErrorCode } from "./errors.js";
 export type {
   CaseBoxPersistence,
   ArchiveMatterOpts,
+  EnsureMatterPartyIdsOpts,
   ListDocumentsQuery,
   ListDocumentsPage,
   ListAuditEventsQuery,
@@ -90,6 +91,9 @@ export type {
   GetEvidenceItemQuery,
   ListEvidenceItemsQuery,
   ListEvidenceItemsPage,
+  CaseBoxClaimTrack,
+  GetClaimTrackQuery,
+  ListClaimTracksQuery,
   CaseBoxOcrLink,
   UpsertOcrLinkResult,
   GetOcrLinkQuery,
@@ -107,3 +111,4 @@ export type {
   DeadlineCalendarQuery,
   GetFactSupersessionChainQuery,
 } from "./types.js";
+export { assertAuditChainNotErased } from "./auditChainInvariant.js";

@@ -48,6 +48,7 @@ import type {
   ListOcrLinksQuery,
   UpsertOcrLinkResult,
 } from "../types.js";
+import { InMemoryAuditLog } from "../auditHeadAnchor.js";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -105,13 +106,13 @@ function buildShadowState(
   repo: {
     matters: Map<string, CaseBoxMatter>;
     documents: Map<string, { document: CaseBoxDocument; matter_id: string }>;
-    auditByMatter: Map<string, StoredAuditEvent[]>;
+    audit: InMemoryAuditLog;
   };
 } {
   const state = createOcrLinkState();
   const matters = new Map<string, CaseBoxMatter>();
   const documents = new Map<string, { document: CaseBoxDocument; matter_id: string }>();
-  const auditByMatter = new Map<string, StoredAuditEvent[]>();
+  const audit = new InMemoryAuditLog();
 
   const prior = loadOcrLinkByDocumentId(db, documentId);
   if (prior !== undefined) {
@@ -123,11 +124,11 @@ function buildShadowState(
     const matter = loadMatter(db, docEntry.matter_id);
     if (matter !== undefined) {
       matters.set(docEntry.matter_id, matter);
-      auditByMatter.set(docEntry.matter_id, storedAuditEventsForMatter(docEntry.matter_id));
+      audit.reset(docEntry.matter_id, storedAuditEventsForMatter(docEntry.matter_id));
     }
   }
 
-  return { state, repo: { matters, documents, auditByMatter } };
+  return { state, repo: { matters, documents, audit } };
 }
 
 // ---------------------------------------------------------------------------

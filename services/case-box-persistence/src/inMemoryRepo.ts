@@ -25,11 +25,13 @@ import type {
 
 import { CaseBoxPersistenceError } from "./errors.js";
 import { generateUlid } from "./ulid.js";
-import type { StoredAuditEvent } from "./auditChain.js";
+import { entityStateHash, type StoredAuditEvent } from "./auditChain.js";
 import type {
   ArchiveMatterOpts,
   AuditChainHead,
   CaseBoxPersistence,
+  EnsureMatterPartyIdsOpts,
+  UpdateMatterDetailsOpts,
   ConfirmDocketEntryOpts,
   ConfirmDocketEntryResult,
   DeadlineTransitionOpts,
@@ -38,10 +40,12 @@ import type {
   EffectiveClassificationResult,
   EvidenceTransitionOpts,
   FactTransitionOpts,
+  GetClaimTrackQuery,
   GetDocketEntryQuery,
   GetEffectiveClassificationQuery,
   GetEvidenceItemQuery,
   GetFactQuery,
+  ListClaimTracksQuery,
   GetPrivilegeStatusQuery,
   ListAuditEventsPage,
   ListAuditEventsQuery,
@@ -77,6 +81,7 @@ import type {
 } from "./types.js";
 
 import type {
+  CaseBoxClaimTrack,
   CaseBoxConfidentialityClassification,
   CaseBoxDeadline,
   CaseBoxDocketEntry,
@@ -125,6 +130,8 @@ import {
 } from "./inMemoryDeadline.js";
 import {
   prepareCreateMatter,
+  prepareEnsureMatterPartyIds,
+  prepareMatterDetailsUpdate,
   prepareMatterTransition,
 } from "./inMemoryMatter.js";
 import {
@@ -144,6 +151,12 @@ import {
   type EvidenceState,
 } from "./inMemoryEvidence.js";
 import {
+  applyCreateClaimTrack,
+  createClaimTrackState,
+  listClaimTracks as listClaimTracksImpl,
+  type ClaimTrackState,
+} from "./inMemoryClaimTrack.js";
+import {
   applyUpsertOcrLink,
   createOcrLinkState,
   getOcrLinkHelper,
@@ -159,13 +172,14 @@ import {
   listDeadlinesHelper,
   listMattersHelper,
 } from "./inMemoryAggregations.js";
+import { InMemoryAuditLog } from "./auditHeadAnchor.js";
 
 interface InternalState {
   readonly matters: Map<string, CaseBoxMatter>;
   /** documentId → { record, matter_id } */
   readonly documents: Map<string, { document: CaseBoxDocument; matter_id: string }>;
   /** matter_id → append-only sequence of stored events */
-  readonly auditByMatter: Map<string, StoredAuditEvent[]>;
+  readonly audit: InMemoryAuditLog;
   /** Phase A2 — confidentiality classification storage + duplicate-id index. */
   readonly classification: ClassificationState;
   /** Phase A3 — privilege-marker storage + duplicate-id index + marker→matter index. */
@@ -180,6 +194,8 @@ interface InternalState {
   readonly evidence: EvidenceState;
   /** Phase A7 — OCR-link snapshot storage. */
   readonly ocrLink: OcrLinkState;
+  /** WI-PTA-VS1 — claim-track storage. */
+  readonly claimTrack: ClaimTrackState;
 }
 
 const _state = new WeakMap<InMemoryCaseBoxPersistence, InternalState>();
@@ -201,7 +217,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     _state.set(this, {
       matters: new Map(),
       documents: new Map(),
-      auditByMatter: new Map(),
+      audit: new InMemoryAuditLog(),
       classification: createClassificationState(),
       privilege: createPrivilegeState(),
       fact: createFactState(),
@@ -209,6 +225,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
       deadline: createDeadlineState(),
       evidence: createEvidenceState(),
       ocrLink: createOcrLinkState(),
+      claimTrack: createClaimTrackState(),
     });
   }
 
@@ -228,7 +245,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
       },
     );
     state.matters.set(prepared.matter.id, prepared.matter);
-    state.auditByMatter.set(prepared.matter.id, [prepared.audit]);
+    state.audit.reset(prepared.matter.id, [prepared.audit]);
     return structuredClone(prepared.matter) as CaseBoxMatter;
   }
 
@@ -238,6 +255,52 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
 
   async unarchiveMatter(matterId: string, opts: ArchiveMatterOpts): Promise<CaseBoxMatter> {
     return this.#applyMatterTransition(matterId, opts, "active", "MATTER_UNARCHIVED");
+  }
+
+  async ensureMatterPartyIds(matterId: string, opts: EnsureMatterPartyIdsOpts): Promise<CaseBoxMatter> {
+    const state = stateOf(this);
+    const matter = state.matters.get(matterId);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
+    }
+    const prepared = prepareEnsureMatterPartyIds(matter, opts, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: () => state.audit.get(matterId),
+    });
+    if (!prepared.changed) {
+      // Idempotent: every party already has an id — no write, no event.
+      return structuredClone(matter) as CaseBoxMatter;
+    }
+    state.matters.set(matterId, prepared.next);
+    state.audit.append(matterId, prepared.audit!);
+    return structuredClone(prepared.next) as CaseBoxMatter;
+  }
+
+  async updateMatterDetails(matterId: string, opts: UpdateMatterDetailsOpts): Promise<CaseBoxMatter> {
+    const state = stateOf(this);
+    const matter = state.matters.get(matterId);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${matterId}`);
+    }
+    const prepared = prepareMatterDetailsUpdate(matter, opts, {
+      generateId: () => this.#generateId(),
+      nowIso: () => this.#nowIso(),
+      storedAuditEventsForMatter: () => state.audit.get(matterId),
+      // D4a: the LATEST PRIOR event scoped to this matter (entity_type/entity_id),
+      // scanned newest-first over the real interleaved audit log.
+      latestPriorMatterEvent: () => {
+        const events = state.audit.get(matterId);
+        for (let i = events.length - 1; i >= 0; i--) {
+          const ev = events[i]!.event;
+          if (ev.entity_type === "matter" && ev.entity_id === matterId) return events[i];
+        }
+        return undefined;
+      },
+    });
+    state.matters.set(matterId, prepared.next);
+    state.audit.append(matterId, prepared.audit);
+    return structuredClone(prepared.next) as CaseBoxMatter;
   }
 
   async #applyMatterTransition(
@@ -254,12 +317,10 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     const prepared = prepareMatterTransition(matter, opts, to, kind, {
       generateId: () => this.#generateId(),
       nowIso: () => this.#nowIso(),
-      storedAuditEventsForMatter: () => state.auditByMatter.get(matterId) ?? [],
+      storedAuditEventsForMatter: () => state.audit.get(matterId),
     });
     state.matters.set(matterId, prepared.next);
-    const stored = state.auditByMatter.get(matterId) ?? [];
-    stored.push(prepared.audit);
-    state.auditByMatter.set(matterId, stored);
+    state.audit.append(matterId, prepared.audit);
     return structuredClone(prepared.next) as CaseBoxMatter;
   }
 
@@ -291,7 +352,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
       {
         generateId: () => this.#generateId(),
         nowIso: () => this.#nowIso(),
-        storedAuditEventsForMatter: () => state.auditByMatter.get(matterId) ?? [],
+        storedAuditEventsForMatter: () => state.audit.get(matterId),
         getDocumentById: (id) => {
           const entry = state.documents.get(id);
           return entry === undefined
@@ -301,9 +362,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
       },
     );
     state.documents.set(prepared.document.id, { document: prepared.document, matter_id: matterId });
-    const stored = state.auditByMatter.get(matterId) ?? [];
-    stored.push(prepared.audit);
-    state.auditByMatter.set(matterId, stored);
+    state.audit.append(matterId, prepared.audit);
     return structuredClone(prepared.document) as CaseBoxDocument;
   }
 
@@ -328,17 +387,17 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
 
   async listAuditEvents(query: ListAuditEventsQuery): Promise<ListAuditEventsPage> {
     const state = stateOf(this);
-    return listAuditEventsHelper(state.matters, state.auditByMatter, query);
+    return listAuditEventsHelper(state.matters, state.audit, query);
   }
 
   async getAuditChainHead(matterId: string): Promise<AuditChainHead> {
     const state = stateOf(this);
-    return getAuditChainHeadHelper(state.matters, state.auditByMatter, matterId);
+    return getAuditChainHeadHelper(state.matters, state.audit, matterId);
   }
 
   async verifyAuditChainForMatter(matterId: string): Promise<VerifyAuditChainResult> {
     const state = stateOf(this);
-    return verifyAuditChainForMatterHelper(state.matters, state.auditByMatter, matterId);
+    return verifyAuditChainForMatterHelper(state.matters, state.audit, matterId);
   }
 
   // -------------------------------------------------------------------------
@@ -384,16 +443,14 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     const prepared = prepareTransitionPrivilegeMarker(state.privilege, markerId, opts, {
       generateId: () => this.#generateId(),
       nowIso: () => this.#nowIso(),
-      storedAuditEventsForMatter: (matterId) => state.auditByMatter.get(matterId) ?? [],
+      storedAuditEventsForMatter: (matterId) => state.audit.get(matterId),
     });
 
     // Commit: replace marker row in-place; append audit event.
     const arr = state.privilege.markersByMatter.get(prepared.matterId)!;
     const idx = arr.findIndex((m) => m.id === markerId);
     arr[idx] = prepared.next;
-    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
-    stored.push(prepared.audit);
-    state.auditByMatter.set(prepared.matterId, stored);
+    state.audit.append(prepared.matterId, prepared.audit);
     return structuredClone(prepared.next) as CaseBoxPrivilegeMarker;
   }
 
@@ -436,15 +493,13 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     const prepared = prepareTransitionFact(state.fact, factId, opts, {
       generateId: () => this.#generateId(),
       nowIso: () => this.#nowIso(),
-      storedAuditEventsForMatter: (matterId) => state.auditByMatter.get(matterId) ?? [],
+      storedAuditEventsForMatter: (matterId) => state.audit.get(matterId),
     });
     const arr = state.fact.factsByMatter.get(prepared.matterId)!;
     const idx = arr.findIndex((f) => f.id === factId);
     arr[idx] = prepared.next;
     state.fact.factById.set(factId, prepared.next);
-    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
-    stored.push(prepared.audit);
-    state.auditByMatter.set(prepared.matterId, stored);
+    state.audit.append(prepared.matterId, prepared.audit);
     return structuredClone(prepared.next) as CaseBoxFact;
   }
 
@@ -510,7 +565,7 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     const prepared = prepareConfirmDocketEntry(state.docket, state.deadline, entryId, opts, {
       generateId: () => this.#generateId(),
       nowIso: () => this.#nowIso(),
-      storedAuditEventsForMatter: (matterId) => state.auditByMatter.get(matterId) ?? [],
+      storedAuditEventsForMatter: (matterId) => state.audit.get(matterId),
     });
     if (prepared.idempotent) {
       return {
@@ -530,10 +585,9 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     state.deadline.deadlineIds.add(prepared.deadline.id);
     state.deadline.deadlineIndex.set(prepared.deadline.id, prepared.matterId);
     state.deadline.deadlineById.set(prepared.deadline.id, prepared.deadline);
-    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
-    stored.push(prepared.audits[0]!);
-    stored.push(prepared.audits[1]!);
-    state.auditByMatter.set(prepared.matterId, stored);
+    // Two events from one operation — appendAll stamps the anchor after each, so the
+    // anchor always reflects the LAST event rather than the first of the pair.
+    state.audit.appendAll(prepared.matterId, [prepared.audits[0]!, prepared.audits[1]!]);
     return {
       entry: structuredClone(prepared.entry) as CaseBoxDocketEntry,
       deadline: structuredClone(prepared.deadline) as CaseBoxDeadline,
@@ -546,15 +600,13 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     const prepared = prepareDismissDocketEntry(state.docket, entryId, opts, {
       generateId: () => this.#generateId(),
       nowIso: () => this.#nowIso(),
-      storedAuditEventsForMatter: (matterId) => state.auditByMatter.get(matterId) ?? [],
+      storedAuditEventsForMatter: (matterId) => state.audit.get(matterId),
     });
     const arr = state.docket.entriesByMatter.get(prepared.matterId)!;
     const idx = arr.findIndex((e) => e.id === entryId);
     arr[idx] = prepared.next;
     state.docket.docketById.set(entryId, prepared.next);
-    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
-    stored.push(prepared.audit);
-    state.auditByMatter.set(prepared.matterId, stored);
+    state.audit.append(prepared.matterId, prepared.audit);
     return structuredClone(prepared.next) as CaseBoxDocketEntry;
   }
 
@@ -609,15 +661,13 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     const prepared = prepareTransitionEvidenceItem(state.evidence, evidenceId, opts, {
       generateId: () => this.#generateId(),
       nowIso: () => this.#nowIso(),
-      storedAuditEventsForMatter: (matterId) => state.auditByMatter.get(matterId) ?? [],
+      storedAuditEventsForMatter: (matterId) => state.audit.get(matterId),
     });
     const arr = state.evidence.evidenceByMatter.get(prepared.matterId)!;
     const idx = arr.findIndex((e) => e.id === evidenceId);
     arr[idx] = prepared.next;
     state.evidence.evidenceById.set(evidenceId, prepared.next);
-    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
-    stored.push(prepared.audit);
-    state.auditByMatter.set(prepared.matterId, stored);
+    state.audit.append(prepared.matterId, prepared.audit);
     return structuredClone(prepared.next) as CaseBoxEvidenceItem;
   }
 
@@ -656,6 +706,47 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
         return entry === undefined ? null : { document: entry.document };
       },
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // WI-PTA-VS1 — claim-track delegates (create/get/list only)
+  // -------------------------------------------------------------------------
+
+  async createClaimTrack(input: unknown): Promise<CaseBoxClaimTrack> {
+    const state = stateOf(this);
+    return applyCreateClaimTrack(state.claimTrack, state, this.#commonAppendDeps(), input);
+  }
+
+  async getClaimTrack(query: GetClaimTrackQuery): Promise<CaseBoxClaimTrack | null> {
+    const state = stateOf(this);
+    const matter = state.matters.get(query.matter_id);
+    if (matter === undefined) return null;
+    if (matter.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    const row = state.claimTrack.claimTrackById.get(query.claim_track_id);
+    if (row === undefined) return null;
+    if (row.matter_id !== query.matter_id) return null;
+    if (row.tenant_id !== query.tenant_id) return null;
+    return structuredClone(row) as CaseBoxClaimTrack;
+  }
+
+  async listClaimTracks(query: ListClaimTracksQuery): Promise<ReadonlyArray<CaseBoxClaimTrack>> {
+    const state = stateOf(this);
+    const matter = state.matters.get(query.matter_id);
+    if (matter === undefined) {
+      throw new CaseBoxPersistenceError("unknown_matter", `unknown matter: ${query.matter_id}`);
+    }
+    if (matter.tenant_id !== query.tenant_id) {
+      throw new CaseBoxPersistenceError(
+        "tenant_mismatch",
+        `query.tenant_id (${query.tenant_id}) does not match matter.tenant_id (${matter.tenant_id})`,
+      );
+    }
+    return listClaimTracksImpl(state.claimTrack, query);
   }
 
   // -------------------------------------------------------------------------
@@ -714,15 +805,13 @@ export class InMemoryCaseBoxPersistence implements CaseBoxPersistence {
     const prepared = prepareTransitionDeadline(state.deadline, deadlineId, opts, {
       generateId: () => this.#generateId(),
       nowIso: () => this.#nowIso(),
-      storedAuditEventsForMatter: (matterId) => state.auditByMatter.get(matterId) ?? [],
+      storedAuditEventsForMatter: (matterId) => state.audit.get(matterId),
     });
     const arr = state.deadline.deadlinesByMatter.get(prepared.matterId)!;
     const idx = arr.findIndex((d) => d.id === deadlineId);
     arr[idx] = prepared.next;
     state.deadline.deadlineById.set(deadlineId, prepared.next);
-    const stored = state.auditByMatter.get(prepared.matterId) ?? [];
-    stored.push(prepared.audit);
-    state.auditByMatter.set(prepared.matterId, stored);
+    state.audit.append(prepared.matterId, prepared.audit);
     return structuredClone(prepared.next) as CaseBoxDeadline;
   }
 
@@ -782,7 +871,7 @@ export function _tamperStoredEventForTest(
   if (state === undefined) {
     throw new Error("_tamperStoredEventForTest: persistence has no internal state");
   }
-  const stored = state.auditByMatter.get(matterId);
+  const stored = state.audit.get(matterId);
   if (stored === undefined) {
     throw new Error(`_tamperStoredEventForTest: unknown matter ${matterId}`);
   }
@@ -806,4 +895,51 @@ export function _internalFactStateForTest(p: InMemoryCaseBoxPersistence): import
     throw new Error("_internalFactStateForTest: persistence has no internal state");
   }
   return state.fact;
+}
+
+/**
+ * Test-only seam for WI-PTA-VS0: overwrite a stored matter's `parties` array
+ * with the given parties AND re-align its last matter event's
+ * `after_state_hash` so the chain stays internally consistent — reconstructing
+ * a legacy (pre-WI) matter whose parties were never server-assigned ids, OR one
+ * whose ids are (invalidly) duplicate. Because create-time assignment now
+ * always id-fills parties, this is the only way to reach the
+ * `ensureMatterPartyIds` non-idempotent / duplicate-existing-id paths in a
+ * test. Module-local (NOT on the prototype, NOT re-exported from src/index.ts)
+ * so the §6.2.7 allowlist stays clean; imported only by tests/internals.mjs.
+ */
+export function _setStoredMatterPartiesForTest(
+  persistence: InMemoryCaseBoxPersistence,
+  matterId: string,
+  parties: ReadonlyArray<unknown>,
+  realign = true,
+): void {
+  const state = _state.get(persistence);
+  if (state === undefined) {
+    throw new Error("_setStoredMatterPartiesForTest: persistence has no internal state");
+  }
+  const matter = state.matters.get(matterId);
+  if (matter === undefined) {
+    throw new Error(`_setStoredMatterPartiesForTest: unknown matter ${matterId}`);
+  }
+  const rewritten = structuredClone(matter) as CaseBoxMatter;
+  (rewritten as { parties: unknown }).parties = structuredClone(parties);
+  state.matters.set(matterId, rewritten);
+  const stored = state.audit.get(matterId);
+  if (stored === undefined || stored.length === 0) {
+    throw new Error(`_setStoredMatterPartiesForTest: no audit events for ${matterId}`);
+  }
+  // `realign` (default) re-aligns the LAST event's after_state_hash to the
+  // rewritten payload so state-hash continuity holds (the in-memory chain
+  // recomputes event hashes on read, so no stored hash needs patching) —
+  // reconstructing a VALID legacy matter. `realign:false` deliberately leaves
+  // the chain out of sync with the rewritten payload, reconstructing a
+  // corrupted/desynced matter to exercise the fail-closed backfill guard.
+  if (!realign) return;
+  const lastIdx = stored.length - 1;
+  const last = stored[lastIdx]!;
+  stored[lastIdx] = {
+    sequence: last.sequence,
+    event: { ...last.event, after_state_hash: entityStateHash(rewritten) },
+  };
 }

@@ -6,7 +6,7 @@
   "jurisdiction": { "value": "cn-sh", "locked": false },
   "matter_type": "litigation",
   "parties": [
-    { "role": "client",   "display_name": "孙乐驰",  "party_kind": "individual" },
+    { "role": "client",   "display_name": "张三",  "party_kind": "individual" },
     { "role": "opposing", "display_name": "Counterparty Ltd", "party_kind": "organization" }
   ],
   "retainer_scope": "First-instance labor dispute representation.",

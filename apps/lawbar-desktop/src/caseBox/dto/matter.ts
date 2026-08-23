@@ -159,3 +159,74 @@ export type GetMatterResult = IpcEnvelope<RendererMatter | null>;
 export type ListMattersResult = IpcEnvelope<RendererMattersPage>;
 
 export type ArchiveMatterResult = IpcEnvelope<RendererMatter>;
+
+
+// ---------------------------------------------------------------------------
+// updateMatterDetails (matter-details-edit Phase C). The renderer supplies the
+// scope (matterId) + a `patch` of ONLY the 6 editable free-text fields + a
+// court-facing `reason`. The server injects actor_user_id (NEVER the renderer)
+// and enforces tenant scope via a getMatter preflight; persistence remains the
+// source of truth and re-validates the patch, change-detects, and appends the
+// single MATTER_DETAILS_UPDATED event. The response reuses MATTER_RESPONSE_FIELDS
+// (authority stripped). Mirrors the archiveMatter IPC + the VS-2 ClaimTrack IPC.
+// ---------------------------------------------------------------------------
+
+// The renderer-editable subset of a matter. A field value is a string (new
+// value), null (explicit clear — allowed for the 5 optional descriptors, NOT for
+// `name`), or absent (no change). Persistence re-validates every value.
+export interface UpdateMatterDetailsPatch {
+  readonly name?: string | null;
+  readonly retainer_scope?: string | null;
+  readonly case_type_text?: string | null;
+  readonly case_progress_text?: string | null;
+  readonly court_contact_text?: string | null;
+  readonly contention_summary_text?: string | null;
+}
+
+export interface UpdateMatterDetailsDto {
+  readonly matterId: string;
+  readonly patch: UpdateMatterDetailsPatch;
+  readonly reason: string;
+}
+
+export const UPDATE_MATTER_DETAILS_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "patch",
+  "reason",
+] as const);
+
+// The 6 editable free-text fields allowed as OWN keys inside `patch`. The handler
+// rejects any patch key outside this set (invalid_payload) BEFORE persistence
+// (defense-in-depth over the persistence strict-patch allowlist check).
+export const UPDATE_MATTER_DETAILS_PATCH_FIELDS = Object.freeze([
+  "name",
+  "retainer_scope",
+  "case_type_text",
+  "case_progress_text",
+  "court_contact_text",
+  "contention_summary_text",
+] as const);
+
+// Server-authority / lifecycle / frozen fields forbidden at the TOP LEVEL of the
+// update DTO. id/tenant_id/actor_user_id are server-owned; status/archived_at/
+// successor_matter_id/created_at are lifecycle; matter_type/parties/
+// confidentiality_class/jurisdiction and the opt-in flags are frozen post-create
+// (parties/confidentiality/jurisdiction editing is explicitly out of Phase C).
+export const UPDATE_MATTER_DETAILS_FORBIDDEN_FIELDS = Object.freeze([
+  "id",
+  "tenant_id",
+  "actor_user_id",
+  "status",
+  "matter_type",
+  "parties",
+  "confidentiality_class",
+  "jurisdiction",
+  "external_ocr_authorized",
+  "sync_grant_present",
+  "llm_extraction_opt_in",
+  "successor_matter_id",
+  "created_at",
+  "archived_at",
+] as const);
+
+export type UpdateMatterDetailsResult = IpcEnvelope<RendererMatter>;

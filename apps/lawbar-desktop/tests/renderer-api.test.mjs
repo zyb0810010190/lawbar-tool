@@ -438,7 +438,7 @@ test("createCaseBoxApi: previewT3Catalog forwards matterId + submitterSelection,
   const api = createCaseBoxApi(m.client);
   await api.previewT3Catalog({
     matterId: VALID_ULID,
-    submitterSelection: { partyIndex: 0, displayNameEcho: "孙乐驰" },
+    submitterSelection: { partyIndex: 0, displayNameEcho: "张三" },
     // forbidden server-authority fields must be stripped before invoke:
     tenant_id: "evil",
     actor_user_id: "evil",
@@ -447,7 +447,7 @@ test("createCaseBoxApi: previewT3Catalog forwards matterId + submitterSelection,
   assert.equal(m.calls[0].name, "previewT3Catalog");
   assert.deepEqual(m.calls[0].dto, {
     matterId: VALID_ULID,
-    submitterSelection: { partyIndex: 0, displayNameEcho: "孙乐驰" },
+    submitterSelection: { partyIndex: 0, displayNameEcho: "张三" },
   });
   assert.equal("tenant_id" in m.calls[0].dto, false);
   assert.equal("actor_user_id" in m.calls[0].dto, false);

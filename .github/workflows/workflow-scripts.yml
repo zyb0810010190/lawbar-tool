@@ -1,0 +1,71 @@
+name: Workflow scripts
+
+# CI gate for the repo-workflow shell in `scripts/` — the machinery that decides whether
+# two-sided verification is real, plus the documentation-reference ratchet.
+#
+# Why this exists: those 75 tests were registered only in the local tdd-guardian lane, which
+# is visibility, not enforcement. Two of the three test files in `scripts/` had previously sat
+# unregistered and unrun for an unknown period — `refresh-internal-lock-integrity.test.mjs`
+# and `check-doc-references.test.mjs`, 46 passing tests protecting nothing. Discovery is by a
+# RECURSIVE glob for the same reason: a hand-maintained list is how they went dark, and
+# `scripts/**` cannot forget a new file or a new directory.
+#
+# No install step: every test imports only node: builtins and local modules. The only external
+# command they need is `git` (the baseline tests build throwaway repos), which the runner has.
+#
+# Merge posture: required for merge BY POLICY (do not merge on a red run), but technically
+# advisory — this repo lacks enforceable branch protection / required status checks, because
+# it is a private repo under the current account and that plan does not offer them. Nothing
+# mechanically blocks a merge on red; the policy is the only thing holding. Mirrors the
+# desktop-release-gates and services-ci posture.
+
+on:
+  pull_request:
+    paths:
+      # the scripts themselves and their tests
+      - "scripts/**"
+      # this workflow itself
+      - ".github/workflows/workflow-scripts.yml"
+  workflow_dispatch: {}
+
+# No secrets are used. Least-privilege token.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same PR to save runner minutes.
+concurrency:
+  group: workflow-scripts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scripts:
+    # Linux is sufficient: headless Node plus git. The one macOS-only concern is that
+    # `wi-baseline.sh` targets bash 3.2 (the macOS system shell); ubuntu's bash is newer, so
+    # this job proves BEHAVIOUR, not 3.2 syntax compatibility. That is checked locally with
+    # `/bin/bash -n` and is called out here so the gap is not mistaken for coverage.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The baseline tests run `git archive`/`git ls-tree` against real history, so the
+          # full history is needed rather than a shallow clone.
+          fetch-depth: 0
+          # This job executes PR-controlled test code. Don't leave the checkout token in
+          # .git/config while that runs.
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # git identity: the baseline tests create throwaway repos and commit into them.
+      - name: Configure git identity for fixture repos
+        run: |
+          git config --global user.email "ci@example.invalid"
+          git config --global user.name "ci"
+
+      - name: Workflow script suites
+        run: node --test 'scripts/**/*.test.mjs'

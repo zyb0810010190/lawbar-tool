@@ -253,7 +253,6 @@ function renderEmpty(
   doc: Document,
 ): void {
   setText(body, "");
-  const glyph = el("div", { class: "empty-glyph", "aria-hidden": "true" }, ["§"], doc);
   if (status === "active") {
     // Secondary CTA — deliberately NOT `.list-new-btn`; that class is the
     // header button's stable handle (smoke locates `button.list-new-btn`).
@@ -275,7 +274,6 @@ function renderEmpty(
         "section",
         { class: "list-empty-desktop", "data-test-id": "list-empty" },
         [
-          glyph,
           el("h2", {}, [t("list.empty.activeTitle")], doc),
           el("p", {}, [t("list.empty.activeBody")], doc),
           newBtn,
@@ -289,7 +287,7 @@ function renderEmpty(
     el(
       "section",
       { class: "list-empty-desktop", "data-test-id": "list-empty" },
-      [glyph, el("h2", {}, [t("list.empty.archived")], doc)],
+      [el("h2", {}, [t("list.empty.archived")], doc)],
       doc,
     ),
   );

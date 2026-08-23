@@ -45,11 +45,12 @@ import type {
   ListConfidentialityClassificationsQuery as ListClassificationsQuery,
 } from "./types.js";
 import type { CaseBoxDocument, CaseBoxMatter } from "case-box-contract";
+import { InMemoryAuditLog } from "./auditHeadAnchor.js";
 
 export interface RepoViewForAppend {
   matters: Map<string, CaseBoxMatter>;
   documents: Map<string, { document: CaseBoxDocument; matter_id: string }>;
-  auditByMatter: Map<string, StoredAuditEvent[]>;
+  audit: InMemoryAuditLog;
 }
 export interface CommonAppendDeps {
   generateId: () => string;
@@ -390,7 +391,7 @@ export function applyAppendClassification(
     nowIso: deps.nowIso,
     storedAuditEventsForMatter: () => {
       if (typeof matterIdFromInput !== "string") return [];
-      return repo.auditByMatter.get(matterIdFromInput) ?? [];
+      return repo.audit.get(matterIdFromInput);
     },
     getDocument: (documentId) => {
       const entry = repo.documents.get(documentId);
@@ -404,9 +405,7 @@ export function applyAppendClassification(
   arr.push(prepared.row);
   state.classificationsByMatter.set(prepared.matterId, arr);
   state.classificationIds.add(prepared.row.id);
-  const stored = repo.auditByMatter.get(prepared.matterId) ?? [];
-  stored.push(prepared.audit);
-  repo.auditByMatter.set(prepared.matterId, stored);
+  repo.audit.append(prepared.matterId, prepared.audit);
   return structuredClone(prepared.row) as CaseBoxConfidentialityClassification;
 }
 

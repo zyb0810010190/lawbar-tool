@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 2,
+  "enabled": true,
+  "_enforcement_rationale": [
+    "Blocking is OFF, decided after consulting Codex. Two reasons, both specific to this repo:",
+    "1. CI already runs every lane below — .github/workflows/ invokes these exact commands. A local",
+    "   blocking hook would duplicate the check while adding latency, and it would sit inside the",
+    "   same uid as the thing it gates. This repo deleted its hook-enforcement layer twice (2026-08-10,",
+    "   2026-08-12) after an audit concluded exactly that. CI is the enforcement boundary; this plugin",
+    "   is local visibility.",
+    "2. The desktop lane has a permanent known failure (see its description). With blocking on, it",
+    "   could never produce a fresh green gate, so every commit would be blocked indefinitely."
+  ],
+  "enforceOnTaskCompleted": false,
+  "blockCommitWithoutFreshGate": false,
+  "staleGateAction": "deny",
+  "gateFreshnessMinutes": 120,
+  "smartStaleness": true,
+  "bypassEnv": "TDD_GUARD_BYPASS",
+  "preflightCommand": "",
+  "lanes": [
+    {
+      "name": "contract",
+      "description": "case-box-contract — schemas, validators, transitions, audit-log. The published package both services and the desktop consume. Verified by execution 2026-08-12: 564 tests, 564 pass.",
+      "command": "npm --prefix docs/contracts/case-box-contract test",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 600000
+    },
+    {
+      "name": "case-box-persistence",
+      "description": "In-memory + SQLite conformance, audit chain, hardening and impl-parity suites. Measured 2026-08-22: 692 + 273 + 288 = 1253 tests, zero failures, ONE todo (T-TRUNC-3, the consistent-truncation gap, which is unmet by design until an external anchor exists). A todo count other than 1 is the real signal. Runs ~6s.",
+      "command": "npm --prefix services/case-box-persistence test",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 900000
+    },
+    {
+      "name": "ocr-ingestion",
+      "description": "Verified 2026-08-12: 30 tests, 30 pass.",
+      "command": "npm --prefix services/ocr-ingestion test",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 300000
+    },
+    {
+      "name": "ocr-review",
+      "description": "Verified 2026-08-12: 38 tests, 38 pass.",
+      "command": "npm --prefix services/ocr-review test",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 300000
+    },
+    {
+      "name": "evidence-core-js",
+      "description": "The JS evidence-core shim. Verified 2026-08-12: 38 tests, 38 pass. Note its gates intentionally return not_implemented — that is the designed state, not a failure.",
+      "command": "npm --prefix native/evidence-core test",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 300000
+    },
+    {
+      "name": "ocr-persistence",
+      "description": "better-sqlite3 ABI smoke + queue conformance. Verified 2026-08-12: 232 tests, 232 pass. Measured 2s on 2026-08-12; trigger set from that measurement, not an estimate.",
+      "command": "npm --prefix services/ocr-persistence test",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 600000
+    },
+    {
+      "name": "ocr-worker-bakeoff",
+      "description": "Verified 2026-08-12: 98 tests, 92 pass, 0 fail (remainder skipped). Measured 16s on 2026-08-12; trigger set from that measurement, not an estimate.",
+      "command": "npm --prefix services/ocr-worker-bakeoff test",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 600000
+    },
+    {
+      "name": "ocr-worker",
+      "description": "Builds contracts + ocr-persistence + worker, then runs the worker suite. Verified by execution 2026-08-12: 482 tests, 479 pass, 0 fail (remainder skipped). Run in CI by services-ci-ocr.yml, which invokes the real-engine inference smoke as a SEPARATE step — it is not part of this command. Measured 5s on 2026-08-12; trigger set from that measurement, not an estimate.",
+      "command": "npm --prefix services/ocr-worker test",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 600000
+    },
+    {
+      "name": "desktop",
+      "description": "KNOWN RED — measured 2026-08-23: 1099 tests, 1098 pass, 1 permanent failure: tests/smoke.electron.test.mjs 'Electron launches; window opens' fails with a page.waitForSelector timeout. Environmental, and it is ALSO the only test proving the app launches, so it is deliberately NOT excluded to make this lane green. Read the lane as '1098 expected passes plus one known failure'; any other SHAPE is the real signal. This count goes stale the day anyone adds a test — it has already been wrong twice — so re-measure it in the same commit that changes the lane.",
+      "command": "npm --prefix apps/lawbar-desktop test",
+      "gateOn": [
+        "push"
+      ],
+      "coverage": "none",
+      "timeoutMs": 1800000
+    },
+    {
+      "name": "evidence-core-swift",
+      "description": "Swift/PDFKit A0.7 harness (XCTest). Requires a swift build; run in CI by evidence-core-swift-smoke.yml, which is smoke-only and asserts no A0.7 conformance. NOT executed locally during init — see the Unverified note in the init report.",
+      "command": "swift test --package-path native/evidence-core-swift",
+      "gateOn": [
+        "push"
+      ],
+      "coverage": "none",
+      "timeoutMs": 1800000
+    },
+    {
+      "name": "release-signing-real-bundle",
+      "description": "Opt-in real-tool verification of verify-macos-signing.sh against the real adhoc bundle at apps/lawbar-desktop/release/mac-arm64/lawbar.app. NOT bound to any trigger: spctl/xcrun stapler may perform an online notarization lookup, and the project forbids network access in gated tests. Added 2026-08-13 for review finding T-2 — the file existed but no lane or command could invoke it, which is the exact \"looks like coverage, provides none\" state the work item targets. Run deliberately: /tdd-guardian:gate release-signing-real-bundle",
+      "command": "LAWBAR_SIGNING_REAL_BUNDLE=1 node --test tests/verify-macos-signing.real-bundle.test.mjs",
+      "cwd": "apps/lawbar-desktop",
+      "gateOn": [],
+      "coverage": "none",
+      "timeoutMs": 300000
+    },
+    {
+      "name": "workflow-scripts",
+      "description": "Behavioural tests for the repo-workflow shell in scripts/workflow/. Discovered by a RECURSIVE glob over scripts/, deliberately: a hand-maintained list is how refresh-internal-lock-integrity.test.mjs AND check-doc-references.test.mjs both ended up unregistered and unrun — 46 passing tests that protected nothing. A glob cannot forget a new file, and scripts/** cannot forget a new directory. measured 2026-08-23: 73 tests, 73 pass.",
+      "command": "node --test 'scripts/**/*.test.mjs'",
+      "gateOn": [
+        "taskCompleted",
+        "commit"
+      ],
+      "coverage": "none",
+      "timeoutMs": 300000
+    }
+  ],
+  "_coverage_rationale": [
+    "coverage is 'none' on every lane and thresholds are 0, because NO coverage tooling exists:",
+    "no c8, no nyc, and no --experimental-test-coverage in any of the 9 package manifests.",
+    "A non-zero threshold here would be unmeasurable rather than merely unmet, and would produce a",
+    "permanent warning that trains the maintainer to ignore the gate. These lanes answer exactly one",
+    "question — do the asserted checks still pass — and nothing about which surfaces were exercised."
+  ],
+  "coverageThresholds": {
+    "lines": 0,
+    "functions": 0,
+    "branches": 0,
+    "statements": 0
+  },
+  "coverageMode": "absolute",
+  "requireMutation": false,
+  "mutationCommand": "",
+  "mutationGateOn": [
+    "taskCompleted"
+  ]
+}

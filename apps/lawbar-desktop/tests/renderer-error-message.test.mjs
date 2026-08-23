@@ -6,24 +6,15 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { errorMessage } from "../dist/renderer/i18n/errorMessage.js";
+import { errorMessage, KNOWN_ERROR_CODES } from "../dist/renderer/i18n/errorMessage.js";
 import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 
 // The stable CaseBoxPersistenceErrorCode set + the mapThrownError fallback.
-const CODES = [
-  "duplicate_id",
-  "unknown_matter",
-  "unknown_document",
-  "tenant_mismatch",
-  "matter_id_mismatch",
-  "illegal_transition",
-  "local_only_external_flag_rejected",
-  "invalid_payload",
-  "invalid_initial_state",
-  "invalid_argument",
-  "anchor_referenced",
-  "not_implemented",
-];
+// Derived from the single source of truth (KNOWN_ERROR_CODES) rather than a
+// hardcoded list, so a new persistence code (kept in step by the contract-sync
+// test below) is automatically covered here — and each code is asserted to carry
+// an error.<code> zh-CN catalog entry, which the app requires at runtime.
+const CODES = [...KNOWN_ERROR_CODES];
 
 test("every stable error code maps to its zh-CN catalog message", () => {
   for (const code of CODES) {
@@ -65,7 +56,8 @@ test("the mapping does not depend on message presence (code-only envelopes work)
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { KNOWN_ERROR_CODES } from "../dist/renderer/i18n/errorMessage.js";
+// KNOWN_ERROR_CODES is imported at the top of this file (single source of truth
+// for the CODES table above); reused here for the contract-sync assertion.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
