@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readdirSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { execSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,7 @@ import {
   scanContent,
   scanFixtureProvenance,
   isInScope,
+  SWEEP_ROOTS,
   isBinaryAsset,
   isDetectorDoc,
   isFixtureJson,
@@ -522,7 +523,9 @@ test("--all reaches dormant tracked files the default mode cannot see", () => {
     ...gitLines("git diff --name-only --diff-filter=ACMR"),
     ...gitLines("git ls-files --others --exclude-standard"),
   ]);
-  const sweepRoots = [path.join(REPO_ROOT, "apps/lawbar-desktop"), path.join(REPO_ROOT, "docs/contracts")];
+  // Imported, not duplicated — this line previously hard-coded docs/contracts and went
+  // stale the moment production widened to docs.
+  const sweepRoots = SWEEP_ROOTS;
   const dormant = gitLines("git ls-files")
     .filter(isInScope)
     .filter((f) => !changed.has(f))
@@ -623,4 +626,151 @@ test("every tracked contract + desktop fixture passes the provenance allowlist",
   assert.ok(files.length > 100, "expected the fixture corpus to be non-trivial");
   const hits = files.flatMap((f) => scanFile(f));
   assert.deepEqual(hits, [], `fixture corpus must be clean; got ${JSON.stringify(hits)}`);
+});
+
+// ---------------------------------------------------------------------------
+// Documentation scope (added 2026-08-22 after an NL audit).
+//
+// 99 markdown files — every product, ADR, release and UI document — were outside
+// this gate in a repository with documented client identifiers in its git history.
+// They were clean when checked, but unguarded is not the same as clean.
+//
+// Closing it needed TWO changes, and the first alone was inert: adding docs/ to
+// SWEEP_ROOTS only widens the candidate set, while isInScope() still requires a
+// SCOPE_HINTS match on the relative path. The full-scan count staying at exactly
+// 533 after the root was widened is what exposed the no-op. These cases pin both
+// halves so a future narrowing of either is loud.
+// ---------------------------------------------------------------------------
+
+test("docs scope: product, ADR, release and UI documents are all in scope", () => {
+  for (const rel of [
+    "docs/product/product-plan.md",
+    "docs/product/product-definition.md",
+    "docs/adr/docket-proposal-edit.md",
+    "docs/release/operator-checklist.md",
+    "docs/ui/current-ui-map.md",
+    "docs/development-workflow.md",
+  ]) {
+    assert.equal(
+      isInScope(path.join(REPO_ROOT, rel)),
+      true,
+      `${rel} must be scanned for client identifiers`,
+    );
+  }
+});
+
+test("docs scope: the widened root scans MORE files, and none of them are vendored", () => {
+  // Asserted against the real swept list, not isInScope(). That distinction cost a
+  // wrong test: isInScope() has no node_modules rule and never did — a vendored path
+  // containing "case-box" matches the FIRST scope hint regardless. The protection is
+  // SKIP_DIRS inside collectRecursive, at traversal time, so traversal is where it
+  // has to be asserted.
+  const { files } = resolveScanFiles(["--all"]);
+  const rel = files.map((f) => path.relative(REPO_ROOT, f).split(path.sep).join("/"));
+
+  const vendored = rel.filter((f) => f.includes("node_modules/"));
+  assert.deepEqual(vendored, [], "no vendored file may be swept");
+
+  // The widening is real: product/ADR/release/UI documents are now actually scanned.
+  for (const must of [
+    "docs/product/product-plan.md",
+    "docs/adr/docket-proposal-edit.md",
+    "docs/release/operator-checklist.md",
+    "docs/ui/current-ui-map.md",
+  ]) {
+    assert.ok(rel.includes(must), `${must} must be in the swept set`);
+  }
+  // Guards against a silent narrowing back to the pre-2026-08-22 scope, which covered
+  // 533 files. The exact number will drift as docs are added; the floor will not.
+  assert.ok(rel.length > 600, `expected >600 swept files, got ${rel.length}`);
+
+  // HONEST LIMIT: --all unions `git ls-files` with the sweep, so this pins SCOPE_HINTS,
+  // not SWEEP_ROOTS. A tracked doc appears here even if the root were narrowed again.
+  // SWEEP_ROOTS matters only for UNTRACKED docs, and is pinned by membership below.
+  assert.ok(
+    SWEEP_ROOTS.some((r) => r.endsWith(`${path.sep}docs`)),
+    "docs must remain a sweep root, or an uncommitted draft holding real data is invisible",
+  );
+});
+
+test("docs scope: a file merely NAMED node_modules-* is scanned, not skipped", () => {
+  // Regression for a false negative introduced 2026-08-22 and caught by an external audit:
+  // the first fix excluded any path CONTAINING the substring `node_modules`, so a genuine
+  // document called `node_modules-client-notes.md` silently escaped the real-data guard.
+  // The rule is now segment-anchored.
+  for (const rel of [
+    "docs/product/node_modules-client-notes.md",
+    "docs/release/notes-about-node_modules.md",
+  ]) {
+    assert.equal(isInScope(path.join(REPO_ROOT, rel)), true, `${rel} must be scanned`);
+  }
+  // Vendored under docs/ and claimed by NO other hint -> out.
+  assert.equal(
+    isInScope(path.join(REPO_ROOT, "docs/contracts/node_modules/some-pkg/README.md")),
+    false,
+    "a vendored segment under docs/ is not ours to police",
+  );
+  // But vendored under a case-box path stays IN, because the casebox hint claims it and
+  // the repo has decided narrowing that would weaken the gate. Asserted here so this
+  // regression test cannot be read as licence to exclude it.
+  assert.equal(
+    isInScope(path.join(REPO_ROOT, "docs/contracts/case-box-contract/node_modules/x/README.md")),
+    true,
+    "deliberate: the casebox hint keeps this in scope",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Every test file must be reachable by SOME runner.
+//
+// `scripts.test` is a hand-maintained list of 60+ filenames. Two files sat on disk
+// for months in no runner at all — `document-storage.unit.test.mjs` (4 tests) and
+// `wrapper.test.mjs` (31 tests) — both passing the whole time. That is the
+// "looks like coverage, provides none" hazard named in CLAUDE.md, and nothing
+// structural prevented it recurring.
+//
+// This guard was proposed once before and deferred, precisely because it would
+// have failed on those two files. Registering them removed the blocker.
+//
+// Reachability is COMPUTED wherever possible rather than listed, so the guard
+// cannot go stale: a file counts as reachable if it appears anywhere in
+// package.json's scripts (which covers the LAWBAR_TEST_FILES-driven suites), or
+// if it is an `_`-prefixed fixture consumed by another test. Only genuinely
+// special cases need an entry below, and each must carry a reason.
+// ---------------------------------------------------------------------------
+
+const RUNNER_EXEMPT = new Map([
+  ["tests/smoke.packaged.electron.test.mjs",
+   "default test file of scripts/test-packaged-wrapper.mjs (line 58); run by npm run test:packaged. Needs a packaged .app from npm run dist."],
+  ["tests/verify-macos-signing.real-bundle.test.mjs",
+   "opt-in behind LAWBAR_SIGNING_REAL_BUNDLE=1; bound to the release-signing-real-bundle lane in .claude/tdd-guardian/config.json. spctl/stapler may hit the network, so it must stay out of the push gate."],
+]);
+
+test("every test file is reachable by some runner, or exempt with a stated reason", () => {
+  const manifest = JSON.parse(readFileSync(path.join(APP_ROOT, "package.json"), "utf8"));
+  const allScripts = Object.values(manifest.scripts).join(" ");
+  const onDisk = readdirSync(path.join(APP_ROOT, "tests"))
+    .filter((f) => f.endsWith(".test.mjs"))
+    .map((f) => `tests/${f}`);
+
+  const unreachable = onDisk.filter((rel) => {
+    if (path.basename(rel).startsWith("_")) return false;   // fixture consumed by another test
+    if (allScripts.includes(rel)) return false;             // named by some npm script
+    return !RUNNER_EXEMPT.has(rel);
+  });
+
+  assert.deepEqual(
+    unreachable,
+    [],
+    `these test files are in no runner and have no stated exemption:\n  ${unreachable.join("\n  ")}`,
+  );
+});
+
+test("every runner exemption names a file that still exists", () => {
+  // An exemption for a deleted file is a stale reason that makes the list look
+  // considered when it is not.
+  for (const [rel, reason] of RUNNER_EXEMPT) {
+    assert.ok(existsSync(path.join(APP_ROOT, rel)), `exempt file is gone: ${rel}`);
+    assert.ok(reason.length > 40, `exemption for ${rel} needs a real reason, got: ${reason}`);
+  }
 });

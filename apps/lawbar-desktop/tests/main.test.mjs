@@ -370,3 +370,39 @@ test("probeFileVault: custom timeoutMs is forwarded to execFile options", async 
   await probeFileVault({ platform: "darwin", execFile: fakeExec, timeoutMs: 1500 });
   assert.equal(timeoutSeen, 1500);
 });
+
+// WI-07 wiring guard. Lives here, with the other built-artifact assertions, because it must
+// NOT import the module it is guarding (acquireOrExit): a static import of a not-yet-existing
+// module kills
+// the whole file against a pre-change baseline, and this case has to survive to assert.
+// Limit, stated plainly: it proves the call site exists in the built main, not that every
+// path reaches it.
+test("WI07-8 main routes a failed runtime open through acquireOrExit", () => {
+  const main = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist", "electron", "main.js"),
+    "utf8",
+  );
+  assert.match(main, /acquireOrExit/, "main.js must route startup failures through acquireOrExit");
+  assert.match(main, /getCaseBoxRuntime/, "sanity: main.js still acquires the runtime");
+});
+
+// WI07-12. F1 from the independent audit, converted from a worry into a checked invariant.
+// `app.quit()` is graceful and CANCELLABLE: a `before-quit` listener calling preventDefault
+// would leave the process alive with no window after a startup refusal — the very state
+// WI-07 removed. Verified today that no such preventer exists, so app.quit() is correct and
+// stays consistent with the FileVault gate 15 lines above it. This guard fails the day
+// someone adds one, forcing the startup-abort path to be reconsidered rather than silently
+// broken. (Switching this one path to app.exit() was the audit's suggestion; it was declined
+// because two startup gates in one file behaving differently is its own defect.)
+test("WI07-12 nothing cancels app.quit(), so the startup-refusal path really terminates", () => {
+  const main = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist", "electron", "main.js"),
+    "utf8",
+  );
+  const quitHandler = /app\.on\(\s*["'](?:before-quit|will-quit)["'][\s\S]{0,400}?\}\s*\)/g;
+  for (const m of main.match(quitHandler) ?? []) {
+    assert.ok(!/preventDefault/.test(m),
+      "a quit handler calls preventDefault — the startup-refusal path can no longer guarantee " +
+      "the app exits, so it must switch to app.exit() or the dialog's promise is false");
+  }
+});

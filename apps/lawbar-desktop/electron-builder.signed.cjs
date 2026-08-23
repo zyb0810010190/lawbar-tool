@@ -14,7 +14,7 @@
  *   - Notarization: APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID, OR
  *     an App Store Connect API key (APPLE_API_KEY + APPLE_API_KEY_ID +
  *     APPLE_API_ISSUER).
- * See dev-memo/desktop-macos-signing-notarization.md.
+ * See docs/product/product-plan.md -> 'macOS Developer-ID signing + notarization' section 6.
  *
  * It reuses the package.json `build` config as the base so app id / files /
  * asarUnpack never drift; it only overrides the mac signing + target surface.

@@ -54,6 +54,16 @@ const SCOPE_HINTS = [
   // test file, which legitimately carries every forbidden pattern, stays out via
   // EXEMPT_PATHS below.
   /^apps\/lawbar-desktop\/tests\//,
+  // Every product, ADR, release and UI document (2026-08-22). 99 of them were outside
+  // this gate in a repository with client identifiers in its git history.
+  // Segment-anchored, deliberately narrow. A substring test (the first attempt) excluded
+  // any path merely CONTAINING the text, so a genuine `node_modules-client-notes.md`
+  // escaped the guard — a false negative, found by external audit. A BLANKET exclusion
+  // in isInScope() was the second wrong answer: it also dropped vendored files under
+  // case-box paths, which the hint above deliberately keeps IN scope (see the
+  // "does not pull in vendored node_modules fixtures" test, which forbids narrowing).
+  // This form excludes a vendored SEGMENT only, and only for paths no other hint claims.
+  /^docs\/(?!(?:.*\/)?node_modules(?:\/|$))/,
 ];
 
 const SKIP_DIRS = new Set(["node_modules", "dist", "coverage", "release", ".git", "dist-tarballs", "staging"]);
@@ -374,7 +384,11 @@ function scanFile(filePath) {
 // unreachable in this branch. isInScope still filters.
 const SWEEP_ROOTS = [
   path.join(REPO_ROOT, "apps/lawbar-desktop"),
-  path.join(REPO_ROOT, "docs/contracts"),
+  // The whole docs tree (2026-08-22). Full-scan mode unions git ls-files with this sweep,
+  // so for TRACKED docs the binding constraint was SCOPE_HINTS, not this root. The root
+  // still matters for UNTRACKED docs — a draft quoting a real matter that has not been
+  // committed yet, which is the more dangerous case, not the less.
+  path.join(REPO_ROOT, "docs"),
 ];
 
 function sweepFiles() {
@@ -501,6 +515,9 @@ export {
   PARTY_NAME_FIELDS,
   APPROVED_FICTIONAL_PARTY_NAMES,
   FIXTURE_ROOTS,
+  // Exported so tests assert against the REAL roots. A test keeping its own copy
+  // silently drifted when docs/contracts widened to docs (found 2026-08-22).
+  SWEEP_ROOTS,
 };
 
 if (import.meta.url === `file://${process.argv[1]}`) {

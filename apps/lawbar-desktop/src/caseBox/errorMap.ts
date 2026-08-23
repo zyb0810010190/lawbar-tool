@@ -18,6 +18,15 @@ const SAFE_MESSAGES: Record<CaseBoxPersistenceErrorCode, string> = {
   matter_id_mismatch: "matter id mismatch",
   illegal_transition: "illegal state transition",
   local_only_external_flag_rejected: "local-only mode rejects external opt-in",
+  // WI-03. Deliberately generic: the raw messages carry the database PATH (which contains
+  // the macOS username) and, for a foreign file, its table names. Neither may reach the
+  // renderer — that is what this allowlist exists for. The detail is logged main-side.
+  database_corrupt: "the case file failed its integrity check and was not opened",
+  database_not_case_box: "that file is not a lawbar case file",
+  database_locked: "the case file is open elsewhere; close the other window and retry",
+  database_unavailable: "the case file could not be opened",
+  database_empty: "the case file is empty — it may have been truncated",
+  audit_chain_erased: "the audit history for this matter appears to have been deleted",
   invalid_payload: "invalid payload",
   invalid_initial_state: "invalid initial state",
   invalid_argument: "invalid argument",

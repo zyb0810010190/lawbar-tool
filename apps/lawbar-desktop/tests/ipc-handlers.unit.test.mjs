@@ -455,6 +455,35 @@ test("chainHead happy path returns AuditChainHead", async () => {
   assert.equal(result.value.headHash, null);
 });
 
+// WI-05. The persistence layer now REFUSES to present an erased audit chain as an empty one.
+// These two cases assert the refusal survives the handler boundary per named handler, rather
+// than being swallowed into a tidy empty result — which is exactly the presentation the work
+// item exists to remove. Note the happy-path case above asserts count:0 / headHash:null; that
+// is a STUB provider, and against real persistence that shape can no longer occur for a
+// matter that exists.
+// A REAL CaseBoxPersistenceError, not a shaped plain Error. `mapThrownError` gates on
+// `instanceof`, so a look-alike falls through to the generic mapping — which would have made
+// these two cases pass for the wrong reason, or fail for one.
+const erased = () =>
+  new CaseBoxPersistenceError("audit_chain_erased", "audit history was deleted");
+const erasedProvider = () =>
+  makeProvider({
+    getAuditChainHead: async () => { throw erased(); },
+    listAuditEvents: async () => { throw erased(); },
+  });
+
+test("WI05 chainHeadHandler surfaces audit_chain_erased instead of an empty head", async () => {
+  const result = await chainHeadHandler({ matterId: FIXED_ID }, erasedProvider());
+  assert.equal(result.ok, false, "an erased chain must not come back as a successful read");
+  assert.equal(result.error.code, "audit_chain_erased");
+});
+
+test("WI05 listAuditEventsHandler surfaces audit_chain_erased instead of an empty page", async () => {
+  const result = await listAuditEventsHandler({ matterId: FIXED_ID, limit: 10 }, erasedProvider());
+  assert.equal(result.ok, false, "an erased chain must not come back as an empty page");
+  assert.equal(result.error.code, "audit_chain_erased");
+});
+
 test("chainHead empty matterId → invalid_payload", async () => {
   const provide = makeProvider();
   const result = await chainHeadHandler({ matterId: "" }, provide);

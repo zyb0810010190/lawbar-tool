@@ -657,6 +657,12 @@ export const CATALOG = {
   "error.unknown_party": "未找到该当事人。",
   "error.matter_archived": "该案件已归档，请先取消归档后再编辑。",
   "error.no_editable_change": "没有需要保存的修改。",
+  "error.database_corrupt": "案件数据库未通过完整性校验，已停止打开以避免写入。详情请查看日志。",
+  "error.database_not_case_box": "该文件不是 lawbar 案件数据库，未予打开。",
+  "error.database_locked": "案件数据库正被其他窗口占用，请关闭后重试。",
+  "error.database_unavailable": "无法打开案件数据库，请检查文件路径与访问权限。",
+  "error.database_empty": "案件数据库文件为空，可能已被截断。请从备份恢复；若要新建空白案卷，请先删除该空文件。",
+  "error.audit_chain_erased": "该案件的审计记录疑似已被删除。案件存在则必定有创建事件，记录为空说明历史已丢失，请从备份恢复。",
   "error.not_implemented": "操作暂不可用，请稍后重试。",
   "error.unknown": "发生错误，请稍后重试。",
 

@@ -37,6 +37,12 @@ export const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set([
   "unknown_party",
   "matter_archived",
   "no_editable_change",
+  "database_corrupt",
+  "database_not_case_box",
+  "database_locked",
+  "database_unavailable",
+  "database_empty",
+  "audit_chain_erased",
   "not_implemented",
 ]);
 
