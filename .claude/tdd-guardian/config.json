@@ -109,7 +109,7 @@
     },
     {
       "name": "desktop",
-      "description": "KNOWN RED — measured 2026-08-23: 1099 tests, 1098 pass, 1 permanent failure: tests/smoke.electron.test.mjs 'Electron launches; window opens' fails with a page.waitForSelector timeout. Environmental, and it is ALSO the only test proving the app launches, so it is deliberately NOT excluded to make this lane green. Read the lane as '1098 expected passes plus one known failure'; any other SHAPE is the real signal. This count goes stale the day anyone adds a test — it has already been wrong twice — so re-measure it in the same commit that changes the lane.",
+      "description": "GREEN as of 2026-08-23: measured 1106 tests, 1106 pass, 0 fail. Previously carried as KNOWN RED with one \"deliberate permanent\" smoke failure — that was a contamination bug, not policy: the Electron tests launched without --user-data-dir and resolved the real ~/Library/Application Support/lawbar profile, so the empty-state assertion could never hold on a machine with real matters. All four now use launchIsolated(), which refuses if the resolved path is the production one. Re-measure this count in the same commit that changes the lane.",
       "command": "npm --prefix apps/lawbar-desktop test",
       "gateOn": [
         "push"

@@ -241,14 +241,96 @@ test("WI04 backup round-trip is EQUAL, not merely openable", () => {
   }
 });
 
-// GAP 1 — recorded as a todo so it surfaces on every lane run rather than sitting in prose.
+// WI-04 follow-up (was GAP-1) — a backup must capture UNCHECKPOINTED WAL data.
 //
-// The backup script DOES copy the -wal/-shm sidecars (backup-local-data.mjs), so this is a
-// COVERAGE gap, not a correctness one: no test exercises that path. Removing the sidecar loop
-// from the script still passes the suite, which was confirmed by mutation.
+// The backup script copies the -wal/-shm sidecars, but nothing exercised that path: every
+// fixture closed the database cleanly, which checkpoints, so removing the sidecar loop from
+// the script still passed. Mutation confirmed the survivor.
 //
-// What blocks it: producing a genuinely hot WAL in a fixture. Closing the database
-// checkpoints it, and the CLI closes cleanly on exit, so the obvious fixtures all leave the
-// sidecars empty or absent. It needs a process killed mid-transaction, which is more fixture
-// engineering than WI-04's three stated criteria justified.
-test("GAP-1 a backup captures uncheckpointed WAL data", { todo: "needs a fixture that leaves a hot WAL; see WI-04 notes" }, () => {});
+// The fixture technique matters and took three attempts. Disabling wal_autocheckpoint BEFORE
+// creating the schema puts the SCHEMA in the WAL too, so a main-file-only copy is not a valid
+// database and the test proves nothing about data loss. Checkpoint the schema into the main
+// file FIRST, then disable autocheckpoint, then write the rows that must survive, and never
+// close. The main file is then valid and empty of those rows; only the sidecar has them.
+function makeHotWalCaseBox(dataDir) {
+  mkdirSync(path.join(dataDir, "case-box-documents"), { recursive: true });
+  const dbPath = path.join(dataDir, "case-box.sqlite");
+  const build = `
+    import { openSqliteCaseBoxPersistence } from "./dist/index.js";
+    const r = openSqliteCaseBoxPersistence({ path: ${JSON.stringify(dbPath)} });
+    r.db.pragma("wal_checkpoint(TRUNCATE)");   // schema into the MAIN file
+    r.db.pragma("wal_autocheckpoint=0");       // everything after this stays in the WAL
+    await r.persistence.createMatter({
+      id: "01jaaaaaaaaaaaaaaaaaaaamt1", tenant_id: "01jaaaaaaaaaaaaaaaaaaaatn1",
+      actor_user_id: "local-user", name: "SYNTHETIC-HOT-WAL-MATTER",
+      jurisdiction: { value: "cn-sh", locked: false }, matter_type: "litigation",
+      parties: [{ role: "client", display_name: "SYNTHETIC-PARTY", party_kind: "organization" }],
+      confidentiality_class: "normal", status: "active",
+      external_ocr_authorized: false, sync_grant_present: false, llm_extraction_opt_in: false,
+      created_at: "2026-05-20T09:00:00.000Z", updated_at: "2026-05-20T09:00:00.000Z",
+    });
+    process.exit(0);   // deliberately NOT closing: a clean close would checkpoint
+  `;
+  const r = spawnSync("node", ["--input-type=module", "-e", build], {
+    cwd: PERSISTENCE_DIR, encoding: "utf8",
+  });
+  assert.equal(r.status, 0, `hot-WAL fixture failed: ${r.stderr}`);
+  writeFileSync(path.join(dataDir, "case-box-documents", SYNTHETIC_DOC), "SYNTHETIC-DOCUMENT-BYTES");
+  return dataDir;
+}
+
+test("WI04-WAL a backup captures data that lives only in an uncheckpointed WAL", () => {
+  if (!sqlite3Available()) assert.fail("sqlite3 CLI not available.");
+  assertSafeTempRoot();
+  const root = mkdtempSync(path.join(os.tmpdir(), "lawbar-drill-wal-"));
+  try {
+    const dataDir = makeHotWalCaseBox(path.join(root, "lawbar"));
+    const srcDb = path.join(dataDir, "case-box.sqlite");
+
+    // NEVER open srcDb. Opening a hot-WAL database with the sqlite3 CLI and letting it exit
+    // CHECKPOINTS the WAL into the main file — the first version of this test read the source
+    // to establish its own precondition and thereby destroyed it, so the backup then captured
+    // the data from the main file and the sidecar mutation survived. Measure only COPIES.
+    assert.ok(existsSync(srcDb + "-wal"), "fixture must leave a hot WAL");
+
+    // A main-file-only copy must NOT have the events — that is the property under test.
+    const soloCopy = path.join(root, "main-only.sqlite");
+    execFileSync("cp", [srcDb, soloCopy]);
+    assert.equal(
+      Number(sq(soloCopy, "SELECT count(*) FROM case_box_audit_events;").trim()), 0,
+      "the main file ALONE must not already contain the events, or the fixture is not hot",
+    );
+
+    // A full copy (main + sidecars) must have them. This is the expected count, obtained
+    // without ever touching the source.
+    const fullDir = path.join(root, "full"); mkdirSync(fullDir, { recursive: true });
+    const fullCopy = path.join(fullDir, "case-box.sqlite");
+    for (const suffix of ["", "-wal", "-shm"]) {
+      if (existsSync(srcDb + suffix)) execFileSync("cp", [srcDb + suffix, fullCopy + suffix]);
+    }
+    const withWal = Number(sq(fullCopy, "SELECT count(*) FROM case_box_audit_events;").trim());
+    assert.ok(withWal > 0, "the events must be readable when the sidecar travels with the file");
+
+    const outDir = path.join(root, "out");
+    const bk = spawnSync("node", [SCRIPT, "--data-dir", dataDir, "--out", outDir, "--label", "wal"], {
+      encoding: "utf8", env: { ...process.env, LAWBAR_BACKUP_FORCE_LSOF: "closed" },
+    });
+    assert.equal(bk.status, 0, `backup should succeed; stderr: ${bk.stderr}`);
+
+    const restoreDir = path.join(root, "restore");
+    mkdirSync(restoreDir, { recursive: true });
+    execFileSync("tar", ["-xzf", path.join(outDir, "lawbar-backup-wal.tar.gz"), "-C", restoreDir]);
+
+    // THE PROPERTY: the restored store must hold the events that existed only in the WAL.
+    // Drop the sidecar from the backup and this is 0 — silent loss of the most recent
+    // evidence, with a restored database that opens perfectly and looks merely empty.
+    const restored = path.join(restoreDir, "case-box.sqlite");
+    assert.ok(existsSync(restored), "restored DB present");
+    assert.equal(
+      Number(sq(restored, "SELECT count(*) FROM case_box_audit_events;").trim()), withWal,
+      "every audit event must survive the round trip, including uncheckpointed ones",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
