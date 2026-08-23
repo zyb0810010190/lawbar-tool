@@ -11,6 +11,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import os from "node:os";
+import { mkdtempSync, rmSync, realpathSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { _electron as electron } from "playwright";
 
@@ -18,18 +20,60 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
 
-test("Electron launches; window opens; title=lawbar; #app renders case-box list shell", async (t) => {
+// ---------------------------------------------------------------------------
+// ISOLATED LAUNCH — every Electron test in this file goes through this.
+//
+// These tests used to launch with `{ args: ["."], cwd: projectRoot }` and NO user-data
+// directory, so Electron resolved the real one: ~/Library/Application Support/lawbar. On the
+// maintainer's machine that is the litigator's live case store. Launching opens it, runs
+// applySchema and sets journal_mode = WAL — so every local `npm test` was reading and WRITING
+// privileged client data, including the audit-chain tables that are this product's
+// court-facing claim. (Checked when this was found: the real chain verified intact, 2 matters,
+// both head anchors matching. The harm was access and side-file mutation, not corruption.)
+//
+// It also explains a failure this repo carried for a long time as "KNOWN RED — environmental,
+// a selector timeout". It was neither. The first test waits for the matter-list EMPTY-state
+// marker; the real profile has matters in it; the marker never appears. CI passed because a
+// fresh runner has no profile. The red was a contamination signal, and reading it as
+// flakiness is what let it survive.
+//
+// `cwd` does not isolate anything. `--user-data-dir` is honoured before any path resolution,
+// so the app's own `app.getPath("userData")` returns the temp profile.
+const REAL_USER_DATA = path.join(os.homedir(), "Library", "Application Support", "lawbar");
+
+async function launchIsolated(t) {
+  const profile = mkdtempSync(path.join(os.tmpdir(), "lawbar-smoke-profile-"));
   const app = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${profile}`],
     cwd: projectRoot,
-    // LAWBAR_MODE=dev disables the Tier 1 FileVault enforcement BLOCK so
-    // smoke tests pass on dev machines where FileVault may be off (per
-    // dev-memo/plan-encryption-at-rest-00.md §4.1).
+    // LAWBAR_MODE=dev disables the Tier 1 FileVault enforcement BLOCK so smoke tests pass on
+    // dev machines where FileVault may be off (dev-memo/plan-encryption-at-rest-00.md §4.1).
     env: { ...process.env, LAWBAR_MODE: "dev" },
   });
+
+  // PROVE the isolation; do not trust the flag. realpath both sides — macOS resolves
+  // /var/folders to /private/var/folders, and comparing unresolved paths reports a false
+  // failure, which is exactly what the first version of this check did.
+  const resolved = await app.evaluate(async ({ app: a }) => a.getPath("userData"));
+  assert.equal(realpathSync(resolved), realpathSync(profile),
+    "the app must run against this test's temp profile");
+  assert.notEqual(
+    realpathSync(resolved),
+    existsSync(REAL_USER_DATA) ? realpathSync(REAL_USER_DATA) : REAL_USER_DATA,
+    "REFUSING: the app resolved the REAL user-data directory. A test must never open the " +
+      "litigator's case store.",
+  );
+
   t.after(async () => {
-    await app.close();
+    await app.close();                                   // close BEFORE removing the profile
+    rmSync(profile, { recursive: true, force: true });   // takes -wal and -shm with it
   });
+  return app;
+}
+
+
+test("Electron launches; window opens; title=lawbar; #app renders case-box list shell", async (t) => {
+  const app = await launchIsolated(t);
 
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
@@ -76,14 +120,7 @@ test("Electron launches; window opens; title=lawbar; #app renders case-box list 
 });
 
 test("sidebar aria-current follows the hash route (UISHELL-L1)", async (t) => {
-  const app = await electron.launch({
-    args: ["."],
-    cwd: projectRoot,
-    env: { ...process.env, LAWBAR_MODE: "dev" },
-  });
-  t.after(async () => {
-    await app.close();
-  });
+  const app = await launchIsolated(t);
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
   await window.waitForSelector("main#app");
@@ -122,14 +159,7 @@ test("nativeTheme.themeSource flip propagates to <html data-theme>", async (t) =
   // flips <html data-theme> when main sends `theme:system-change`. Driving
   // nativeTheme.themeSource from the main process exercises the same code
   // path as a real OS appearance toggle.
-  const app = await electron.launch({
-    args: ["."],
-    cwd: projectRoot,
-    env: { ...process.env, LAWBAR_MODE: "dev" },
-  });
-  t.after(async () => {
-    await app.close();
-  });
+  const app = await launchIsolated(t);
 
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
@@ -163,14 +193,7 @@ test("S1 font wiring: body resolves the self-hosted Noto Sans SC stack + faces l
   // "font-family computed style on body includes a CJK family name." Also
   // asserts the self-hosted @font-face actually loaded (no CDN; same-origin
   // ./fonts/*.woff2). HS10 resolved by local WOFF2 — see renderer/fonts/PROVENANCE.md.
-  const app = await electron.launch({
-    args: ["."],
-    cwd: projectRoot,
-    env: { ...process.env, LAWBAR_MODE: "dev" },
-  });
-  t.after(async () => {
-    await app.close();
-  });
+  const app = await launchIsolated(t);
 
   const window = await app.firstWindow();
   await window.waitForLoadState("load");

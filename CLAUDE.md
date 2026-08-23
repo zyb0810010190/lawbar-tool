@@ -117,10 +117,20 @@ boundary.** Local gates are visibility.
   `npm --prefix apps/lawbar-desktop run check:internal-tarballs`; on drift,
   `pack:internal && refresh:internal-tarballs && npm install`, then confirm the change is
   actually present under `node_modules/`. This has fired more than once.
-- **The `desktop` lane is KNOWN RED** — one deliberate permanent failure
-  (`apps/lawbar-desktop/tests/smoke.electron.test.mjs`), kept because it is the only test proving the app
-  launches. Read the lane as "expected passes **plus one** known failure"; any other
-  shape is the real signal. Never make it green by dropping that test.
+- **The `desktop` lane is GREEN as of 2026-08-23** — 1106 tests, 0 failures. It was described
+  here for a long time as KNOWN RED with "one deliberate permanent failure" in
+  `apps/lawbar-desktop/tests/smoke.electron.test.mjs`, called environmental, a selector timeout.
+  **That was wrong, and the label is why nobody looked.** The Electron tests launched with no
+  `--user-data-dir`, so the app resolved the REAL profile at
+  `~/Library/Application Support/lawbar` — the litigator's live case store. The first test waits
+  for the matter-list EMPTY-state marker; a real profile has matters; the marker never appeared.
+  CI passed because a fresh runner has no profile.
+  So every local `npm test` was opening, and — via applySchema and `journal_mode = WAL` —
+  WRITING the privileged case database, including the audit-chain tables. The chain was checked
+  on a forensic copy when this was found and verified intact.
+  All four Electron tests now go through `launchIsolated()`, which gives each run a temp profile
+  and **refuses to proceed if the resolved path is the real one**. The lesson worth keeping:
+  a red that gets a name stops being investigated. "Known" is not the same as "understood".
 - **`scripts.test` is a hand-maintained file list.** A new `tests/*.test.mjs` not appended
   there never runs — it looks like coverage and provides none. Three files are already in
   that state.
