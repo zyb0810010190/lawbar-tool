@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { closeCaseBoxRuntime, getCaseBoxRuntime } from "../src/caseBox/caseBoxRuntime.js";
 import { acquireOrExit } from "../src/caseBox/startupFailure.js";
+import { describeUnexpectedFailure } from "../src/caseBox/unexpectedFailure.js";
 import { registerCaseBoxIpcHandlers } from "./ipc/caseBoxHandlers.js";
 import { makeStoreFile } from "../src/caseBox/documentStorage.js";
 import { loadThemePreference } from "../src/persistence/themePreference.js";
@@ -30,6 +31,30 @@ const __dirname = path.dirname(__filename);
 app.setName("lawbar");
 
 let mainWindow: BrowserWindow | null = null;
+
+// The one fact the crash handler below can honestly report. Set ONLY after the runtime is actually
+// acquired — an optimistic flag here would turn the message into a guess.
+let caseBoxOpened = false;
+
+// Last-resort handlers. Installed at module load, BEFORE app.whenReady, so a throw during startup
+// is covered too — the incident that prompted this was a throw in a BrowserWindow listener during
+// the pre-gate window. Electron's default is a raw stack dialog, which tells a litigator nothing.
+//
+// These deliberately QUIT. Continuing after an unexpected throw would leave the app running in a
+// state nothing has reasoned about, holding privileged material.
+function reportAndQuit(err: unknown): void {
+  try {
+    const { title, detail } = describeUnexpectedFailure(err, { caseBoxOpened });
+    dialog.showErrorBox(title, detail);
+  } catch {
+    // The reporter itself failing must not replace one crash with another and no message at all.
+    process.stderr.write(`[lawbar] unexpected failure, and the reporter also failed: ${String(err)}\n`);
+  }
+  app.quit();
+}
+
+process.on("uncaughtException", reportAndQuit);
+process.on("unhandledRejection", reportAndQuit);
 
 function createWindow(): void {
   const userDataDir = app.getPath("userData");
@@ -122,6 +147,7 @@ async function startProduct(): Promise<void> {
     quit: () => app.quit(),
   });
   if (caseBoxRuntime === null) return;
+  caseBoxOpened = true;
   // Document files live in an app-controlled directory beside the SQLite DB.
   const documentStorageRoot = path.join(userDataDir, "case-box-documents");
   registerCaseBoxIpcHandlers({

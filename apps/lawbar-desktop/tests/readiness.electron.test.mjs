@@ -135,3 +135,28 @@ test("no case database is created while the gate blocks", async (t) => {
     assert.equal(existsSync(path.join(profile, f)), false, `${f} was created behind the gate`);
   }
 });
+
+// The crash message is only worth anything if something installs it. Electron's default for an
+// unhandled throw is a raw stack dialog, which is what the owner actually saw before this existed.
+// Asserted in the LIVE main process rather than by reading the source.
+test("the last-resort crash handlers are registered in the running main process", async (t) => {
+  const { app } = await launchIsolated(t);
+  const counts = await app.evaluate(async () => ({
+    uncaught: process.listenerCount("uncaughtException"),
+    rejection: process.listenerCount("unhandledRejection"),
+  }));
+  assert.ok(counts.uncaught > 0, "no uncaughtException handler — a throw shows a raw stack");
+  assert.ok(counts.rejection > 0, "no unhandledRejection handler");
+});
+
+// Installed at module load, so a throw BEFORE the gate is covered too — which is exactly where the
+// incident happened, in a BrowserWindow listener during the pre-gate window.
+test("they are installed before the gate, not only after the app starts", async (t) => {
+  const { app } = await launchIsolated(t);
+  // On a blocked host the product never starts, so a handler present here can only have been
+  // registered at module load.
+  if (!BLOCKS) return;
+  const n = await app.evaluate(async () => process.listenerCount("uncaughtException"));
+  assert.ok(n > 0, "the handler is registered too late to cover a pre-gate throw");
+});
+
