@@ -84,8 +84,45 @@ This is a **descriptive inventory only**. It makes **no** legal/business decisio
 ## 8. How this feeds gate 19 without clearing gate 17 / 4 / 6 / go-live
 A recorded inventory + audit + provenance supplies the "supply-chain posture recorded" evidence. Per the governed WI, **gate 19 MUST remain `OPEN`** — the row is enriched with a `[Δ] supply-chain inventory + audit + provenance recorded` marker (roll-up bucket unchanged); an `OPEN → PARTIAL/CLEARED` move belongs to a SEPARATE holistic readiness-refresh WI. This does **NOT** clear **gate 17** (license/business decision, user-owned), **gate 4** (signing/distribution — where the Electron-runtime advisory disposition lands), **gate 6** (the full-project audit, which consumes this posture later), or gates 12/13/20; go-live independence is kept (the final GO/NO-GO + the STOP-AND-ASK hard-stops 4/11/17/21 remain the user's).
 
+## 8b. Re-verification — 2026-08-24 (`main` @ `1f92a32`)
+
+§9 states that "a dependency change or a new advisory re-triggers gate-19 verification". Electron was
+bumped 39.8.5 → 39.8.10 (WI-SEC-ELECTRON-3980, merged in PR #270), so the sweep was re-run.
+
+**Production dependency surface — `npm audit --omit=dev`:**
+
+    apps/lawbar-desktop            crit=0 high=0 mod=0 low=0
+    services/case-box-persistence  crit=0 high=0 mod=0 low=0
+    docs/contracts/case-box-contract crit=0 high=0 mod=0 low=0
+
+**R-G19-1 (surfaced High) — CLOSED.** It required bumping `electron` off 34.5.8 to a patched line to
+clear the ASAR-integrity-bypass and macOS-AppleScript-injection advisories *before* gate-4
+signing/distribution. Electron is now **39.8.10** and **no shipped package carries a direct
+advisory** — verified by enumerating the runtime dependency set (`electron`, `fast-uri`,
+`better-sqlite3`, `docx`, `ajv`, `ajv-formats`) against the audit output rather than by reading the
+headline count.
+
+That headline is worth stating precisely, because it moved very little and could be misread as
+failure: the full workspace audit still reports roughly 1 critical / 18 high. **Every one of those is
+build toolchain** — `electron-builder`, `node-gyp`, `tar`, `extract-zip` — code that runs on the
+developer's machine during a build and is absent from the packaged `.app`. `electron` still appears
+in that list with **zero direct advisories**, flagged transitively through `extract-zip`, its
+install-time unzip helper. §4's dev-only advisory disposition is unchanged and still applies to them.
+
+Also cleared in the same work: `fast-uri` 3.1.2 → 3.1.6, which reaches the shipped app via `ajv`
+under `case-box-contract`. Pinned by an `overrides` entry, because `npm install` alone would not move
+it — 3.1.2 already satisfies ajv's `^3.0.1`, so npm saw nothing to do even with the lockfile updated.
+Only `npm ci` reconciled the tree. **The version on disk, not the lockfile, is the check that counts.**
+
+**GATE 19 REMAINS `OPEN`.** §8 governs this: a sweep PASS is evidence, not a clearance, and the row
+must stay OPEN per the governed WI. Nothing here changes that verdict — this records that the one
+surfaced High residual is closed and that the posture snapshot has been re-taken at `1f92a32`.
+
+Untouched: R-G19-2 (reproducible-rebuild verification), SBOM, the gate-17 licence decision (user-owned),
+and the OCR-service re-audit. All remain post-v1 or owner-owned.
+
 ## 9. Residual risks / follow-up WIs (separate future WIs — not opened here)
-- **R-G19-1 (surfaced High):** bump `electron` off 34.5.8 to a patched line to clear the ASAR-integrity-bypass + macOS-AppleScript-injection advisories **before** gate-4 signing/distribution. A dependency-bump WI (out of this read-only lane). User-owned accept/bump decision.
+- ~~**R-G19-1 (surfaced High):**~~ **CLOSED 2026-08-24 — see §8b.** bump `electron` off 34.5.8 to a patched line to clear the ASAR-integrity-bypass + macOS-AppleScript-injection advisories **before** gate-4 signing/distribution. A dependency-bump WI (out of this read-only lane). User-owned accept/bump decision.
 - **R-G19-2:** reproducible-rebuild verification for the two committed first-party tarballs (post-v1 hardening).
 - Dev/build toolchain advisories (electron-builder chain) — monitor; a toolchain bump WI (post-v1; build-time only).
 - **SBOM** generation (optional / post-v1).
