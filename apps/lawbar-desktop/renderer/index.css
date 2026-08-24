@@ -2579,6 +2579,93 @@ body.lawbar-app {
   color: var(--color-text);
 }
 
+/* ---- audit chain: event log + verification (GAP-2) ----
+ * The chain-head lines above already had rules; the event log never did and rendered on browser
+ * defaults, which is the unstyled-bespoke case WI-UI-1 existed to remove. Tokenised colour only. */
+.view-chain-body {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+.view-audit-heading {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-strong);
+}
+.view-audit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.view-audit-event {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-divider);
+}
+.view-audit-event:first-child { border-top: none; }
+.view-audit-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.view-audit-time {
+  color: var(--color-muted-text);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+.view-audit-action {
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+.view-audit-entity,
+.view-audit-event-detail {
+  color: var(--color-subtle-text);
+  font-size: var(--font-size-xs);
+}
+.view-audit-reason {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted-text);
+  font-size: var(--font-size-xs);
+}
+.view-audit-more { margin-top: var(--space-3); }
+
+/* Verification. The two outcomes are given deliberately different weight: an intact result is
+ * quiet, a failure is loud, because over-reading a green result is the likelier error here. */
+.view-audit-verify {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+.view-audit-verify-result:empty { display: none; }
+.view-audit-verify-result { margin-top: var(--space-2); }
+.view-audit-verify-ok {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-success-subtle);
+  color: var(--color-success);
+  border: 1px solid var(--color-success-border);
+  font-size: var(--font-size-sm);
+}
+.view-audit-verify-failed {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger-border);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+}
+.view-audit-verify-scope {
+  margin: var(--space-2) 0 0;
+  color: var(--color-muted-text);
+  font-size: var(--font-size-2xs);
+}
+
 /* Global overdue-deadline dashboard banner (brief §10: cross-matter overdue /
  * due-within-7-days summary at the app-open home). Tokenised colour only. */
 .dashboard-overdue-banner {

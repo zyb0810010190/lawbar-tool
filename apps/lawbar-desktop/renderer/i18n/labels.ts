@@ -20,7 +20,7 @@ import type {
   MatterType,
 } from "../types.js";
 import type { DeadlineUrgency } from "../format.js";
-import type { CaseBoxAuditEventKind } from "case-box-contract";
+import type { CaseBoxAuditEventKind, ChainVerifyErrorReason } from "case-box-contract";
 import { t } from "./t.js";
 import type { CatalogId } from "./catalog.js";
 
@@ -338,4 +338,37 @@ export function eventKindLabel(kind: CaseBoxAuditEventKind): string {
 // `EVENT_KIND_LABELS` English map in screens/auditEventLabels.ts (deleted).
 export function isKnownAuditEventKind(kind: string): kind is CaseBoxAuditEventKind {
   return Object.prototype.hasOwnProperty.call(EVENT_KIND_ID, kind);
+}
+
+// ---- chain-verification failure reasons (GAP-2) ----
+
+// The nine `ChainVerifyErrorReason` values, mapped to catalog keys. Typed as a plain record keyed by
+// the contract union so TypeScript makes this exhaustive: if persistence adds a tenth reason, the
+// contract type widens and THIS OBJECT stops compiling — which is the point. The runtime fallback
+// below exists for the version-skew case the compiler cannot see (a packaged main process newer
+// than the renderer bundle), not as a licence to leave a reason unmapped.
+const CHAIN_VERIFY_REASON_ID: Record<ChainVerifyErrorReason, CatalogId> = {
+  missing_genesis_event: "audit.verify.reason.missing_genesis_event",
+  prev_event_hash_mismatch: "audit.verify.reason.prev_event_hash_mismatch",
+  prev_event_hash_non_null_for_first_event:
+    "audit.verify.reason.prev_event_hash_non_null_for_first_event",
+  before_state_hash_not_null_on_create:
+    "audit.verify.reason.before_state_hash_not_null_on_create",
+  missing_after_state_hash: "audit.verify.reason.missing_after_state_hash",
+  event_schema_invalid: "audit.verify.reason.event_schema_invalid",
+  event_kind_inconsistent: "audit.verify.reason.event_kind_inconsistent",
+  tenant_id_mismatch: "audit.verify.reason.tenant_id_mismatch",
+  matter_id_mismatch: "audit.verify.reason.matter_id_mismatch",
+};
+
+// Humanized zh-CN text for a verification failure. Accepts the raw `string` the IPC boundary
+// delivers rather than the narrowed union, because a projected DTO is data from another process and
+// must not be trusted to be in-range. An unrecognised reason degrades to a message that still says
+// VERIFICATION FAILED and carries the raw token — it must never soften into "intact", since that is
+// the one direction in which a wrong answer would be actively misleading in court.
+export function chainVerifyReasonLabel(reason: string): string {
+  if (Object.prototype.hasOwnProperty.call(CHAIN_VERIFY_REASON_ID, reason)) {
+    return t(CHAIN_VERIFY_REASON_ID[reason as ChainVerifyErrorReason]);
+  }
+  return t("audit.verify.reason.unknown", { reason });
 }

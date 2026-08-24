@@ -94,6 +94,19 @@ export interface ChainHeadDto {
   readonly matterId: string;
 }
 
+export interface VerifyChainDto {
+  readonly matterId: string;
+}
+
+// Renderer mirror of the main-side projection in src/caseBox/dto/audit.ts. Deliberately does NOT
+// carry the persistence `detail` string: two of its branches interpolate tenant_id / matter_id, and
+// the boundary drops it. `errorReason` is typed as `string`, not the contract union, because this
+// crosses a process boundary — the renderer validates it via chainVerifyReasonLabel rather than
+// trusting the value to be in-range.
+export type RendererChainVerifyResult =
+  | { readonly ok: true; readonly verifiedCount: number; readonly headHash: string | null }
+  | { readonly ok: false; readonly errorIndex: number; readonly errorReason: string };
+
 export interface ListAuditEventsDto {
   readonly matterId: string;
   readonly limit?: number;
@@ -336,6 +349,10 @@ export const RENDERER_UPDATE_MATTER_DETAILS_PATCH_FIELDS = Object.freeze([
 ] as const);
 
 export const RENDERER_CHAIN_HEAD_DTO_FIELDS = Object.freeze([
+  "matterId",
+] as const);
+
+export const RENDERER_VERIFY_CHAIN_DTO_FIELDS = Object.freeze([
   "matterId",
 ] as const);
 

@@ -8,6 +8,7 @@ import {
   archiveMatterHandler,
   chainHeadHandler,
   listAuditEventsHandler,
+  verifyChainHandler,
   listDocumentsHandler,
   getDocumentHandler,
   registerDocumentHandler,
@@ -167,6 +168,9 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.auditListEvents, async (_evt, payload: unknown) => {
     return listAuditEventsHandler(payload, provide);
+  });
+  ipcMain.handle(CHANNEL.auditVerifyChain, async (_evt, payload: unknown) => {
+    return verifyChainHandler(payload, provide);
   });
   ipcMain.handle(CHANNEL.documentList, async (_evt, payload: unknown) => {
     return listDocumentsHandler(payload, provide);

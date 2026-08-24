@@ -109,14 +109,50 @@
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 241,
+    "line": 242,
     "text": "${jurisdiction.value}${lockedMarker}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 261,
+    "line": 262,
     "text": "${partyRoleLabel(p.role)} — ${p.display_name} (${partyKindLabel(p.party_kind)})",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 165,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 172,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 204,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 235,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 383,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 400,
+    "text": "${auditEntityTypeLabel(ev.entity_type)} · ${ulidShort(ev.entity_id)}",
     "kind": "text"
   },
   {
