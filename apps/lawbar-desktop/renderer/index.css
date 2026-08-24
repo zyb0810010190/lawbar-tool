@@ -2666,6 +2666,45 @@ body.lawbar-app {
   font-size: var(--font-size-2xs);
 }
 
+/* First-run readiness window. Its own small layout: this window is shown before the product shell
+ * exists, so it cannot rely on the app-window chrome. Tokenised colour only. */
+.readiness-body { padding: 0; }
+.readiness {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-7) var(--space-6);
+  max-width: 560px;
+  margin: 0 auto;
+}
+.readiness-title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--color-danger);
+}
+.readiness-detail p {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  line-height: 1.65;
+  color: var(--color-text);
+}
+.readiness-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+.readiness-status:empty { display: none; }
+.readiness-status {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+  color: var(--color-muted-text);
+  font-size: var(--font-size-xs);
+}
+
 /* Dev-mode banner (LAWBAR_MODE=dev). Sits at the very top of the app window, above the titlebar
  * content, and is NOT dismissable — it marks a mode in which the FileVault confidentiality gate is
  * skipped. Tokenised colour only. Uses the danger family rather than warning: this is not advisory,

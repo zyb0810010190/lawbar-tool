@@ -14,6 +14,7 @@ import {
   probeFileVault,
   resolveMode,
 } from "../src/security/fileVaultProbe.js";
+import { openReadinessWindow, disposeReadinessHandlers } from "./readiness.js";
 import { resolveAndPersist } from "../src/theme/applyTheme.js";
 import {
   resolveSystemMode,
@@ -107,26 +108,10 @@ ipcMain.handle("app:info", () => ({
 // indeterminate FileVault state blocks launch with a dialog and quits.
 // In dev mode (LAWBAR_MODE=dev), the same condition logs a warning to
 // stderr and proceeds. Non-macOS platforms skip the check entirely.
-void app.whenReady().then(async () => {
-  const mode = resolveMode(process.env);
-  const probe = await probeFileVault();
-  const action = decideAction(probe.state, mode);
-  cachedLaunchMode = mode;
-  cachedFileVaultState = probe.state;
-  if (action === "block") {
-    // Wording lives in fileVaultBlockMessage() so it is pure and testable. It is zh-CN, like
-    // every other main-process refusal, and it does NOT offer dev mode as an alternative remedy.
-    const { title, detail } = fileVaultBlockMessage(probe.state, probe.error);
-    dialog.showErrorBox(title, detail);
-    app.quit();
-    return;
-  }
-  if (action === "warn") {
-    process.stderr.write(
-      `[lawbar:fileVault] WARNING — FileVault state=${probe.state}; ` +
-        `running in dev mode (LAWBAR_MODE=dev). Production launch would block.\n`,
-    );
-  }
+// Everything after the gate. Extracted so it can be started EITHER immediately, when the
+// precondition already holds, OR by the readiness window once a re-check clears it. The gate
+// itself is unchanged and still lives below.
+async function startProduct(): Promise<void> {
   const userDataDir = app.getPath("userData");
   // WI-07. This call refuses to open a database that is corrupt, locked, foreign or
   // unreachable. It sat outside any try, so each of those threw unhandled inside
@@ -209,6 +194,46 @@ void app.whenReady().then(async () => {
     (globalThis as { __lawbarCaseBoxLinkSeed?: typeof seedLinkRoundtripFixture }).__lawbarCaseBoxLinkSeed =
       seedLinkRoundtripFixture;
   }
+}
+
+// Tier 1 FileVault enforcement (per dev-memo/plan-encryption-at-rest-00.md §4.1). Runs BEFORE the
+// first product window. Production (default) blocks on a missing or indeterminate FileVault state;
+// dev warns and proceeds; non-macOS skips.
+//
+// A BLOCK no longer quits into an error box. It opens the readiness window, which states the
+// condition, offers the action that fixes it, and re-checks. `decideAction` still decides — the
+// window cannot proceed on its own, only ask main to probe again.
+void app.whenReady().then(async () => {
+  const mode = resolveMode(process.env);
+  const probe = await probeFileVault();
+  const action = decideAction(probe.state, mode);
+  cachedLaunchMode = mode;
+  cachedFileVaultState = probe.state;
+
+  if (action === "block") {
+    openReadinessWindow({
+      dirname: __dirname,
+      backgroundColor: (nativeTheme.shouldUseDarkColors ? DARK_TOKENS : LIGHT_TOKENS).background,
+      onProceed: () => {
+        disposeReadinessHandlers();
+        cachedFileVaultState = "on";
+        void startProduct();
+      },
+      onQuit: () => {
+        disposeReadinessHandlers();
+        app.quit();
+      },
+    });
+    return;
+  }
+
+  if (action === "warn") {
+    process.stderr.write(
+      `[lawbar:fileVault] WARNING — FileVault state=${probe.state}; ` +
+        `running in dev mode (LAWBAR_MODE=dev). Production launch would block.\n`,
+    );
+  }
+  await startProduct();
 });
 
 app.on("window-all-closed", () => {
