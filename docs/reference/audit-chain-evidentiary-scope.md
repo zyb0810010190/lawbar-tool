@@ -83,3 +83,34 @@ must not be read as saying the chain's completeness is established by a mechanis
 attacker controls. That requires no network egress, no third party and no new key — but it
 does require an operational commitment about where backups live, which is not a code
 guarantee and cannot be made into one here.
+
+### The arithmetic, as a command
+
+Until 2026-08-23 the paragraph above was the whole of it, and nothing performed that
+arithmetic. A capability described in prose and implemented nowhere is the failure mode this
+repo keeps finding, and it is worse here than elsewhere: this document defines the product's
+court-facing evidentiary scope, so the gap was between what the tool claims about itself and
+what it can actually do.
+
+    npm --prefix apps/lawbar-desktop run verify:backup -- --backup <retained-archive>
+
+`apps/lawbar-desktop/scripts/verify-against-backup.mjs` walks every matter the backup
+witnesses and requires the retained chain to be a **prefix** of the live one — same events, same
+positions, same hashes. It reports:
+
+| Finding | Meaning |
+|---|---|
+| `REMOVED` | the live chain is shorter — this is what consistent truncation looks like |
+| `DIVERGED` | an event in the retained chain is not the event now in that position |
+| `MATTER_ABSENT` | a matter the backup witnesses has no audit events left |
+
+A matter created after the backup is not a finding, and a live chain that merely grew is not a
+finding. Both files are opened `-readonly`, because a read-write open checkpoints a hot WAL and
+would alter the evidence being examined. Output carries matter ids, event ids, counts and
+hashes and no client content, so a finding can be quoted or handed to an examiner as it stands.
+
+**It does not change the reasoning above.** The command performs the comparison; it cannot
+supply the retention. An `INTACT` result means every retained event is still present — it does
+not establish completeness, because a backup under the same write authority as the database
+proves nothing on its own. Where the archive lives remains the operational commitment, and no
+command can make it for you.
