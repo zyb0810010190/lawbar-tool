@@ -31,6 +31,8 @@ wi-baseline.sh <command>
   classify         read a baseline test-run log and return the stage-5 verdict
   package-baseline build a BUILT copy of a package at its pre-change state, so tests that
                    statically import ../dist can be run against it
+  desktop-baseline build a BUILDABLE desktop baseline: a HEAD worktree with node_modules
+                   cloned and committed tarballs restored, or a snapshot of a dirty tree
 
 Environment, per command. Every one fails by name when unset rather than expanding to "".
   check-paths  PATHS_UNDER_CHANGE
@@ -38,6 +40,7 @@ Environment, per command. Every one fails by name when unset rather than expandi
   verify       PATHS_UNDER_CHANGE  SCRATCH  GREENFIELD(yes|no)
   classify     BASELINE_LOG  BASELINE_STATUS
   package-baseline  PACKAGE_DIR  SCRATCH  [BASELINE_REF=HEAD]
+  desktop-baseline  SCRATCH  [DESKTOP_DIR=apps/lawbar-desktop]
 USAGE
 }
 
@@ -336,11 +339,143 @@ cmd_package_baseline() {
   return 0
 }
 
+
+# --- desktop-baseline --------------------------------------------------------------------
+#
+# GAP-3. The last piece of stage 2 still living as prose. It stayed behind because the real
+# thing clones 613 MB of node_modules and runs a full build — but that is the SIZE of the
+# production input, not a property of the logic. The branch selection, the marker, the
+# lockfile comparator and the tarball restore are all size-independent, so a fixture of a few
+# files exercises exactly the same code paths.
+#
+# Ported in behaviour from docs/development-workflow.md with two deliberate differences, both
+# noted at their sites: the internal-package list is DERIVED rather than hardcoded, and the
+# internal-lock guard is skipped (loudly) when the package does not declare that script.
+#
+# DESKTOP_DIR defaults to the real package; tests point it at a fixture.
+cmd_desktop_baseline() {
+  require_scratch || return 1
+  local pkgdir="${DESKTOP_DIR:-apps/lawbar-desktop}"
+  if [ ! -d "$pkgdir" ]; then
+    echo "DESKTOP_DIR is not a directory: $pkgdir" >&2; return 1
+  fi
+
+  local base="$SCRATCH/baseline-desktop"
+  rm -rf "$base" || return 1
+
+  if [ -z "$(git status --porcelain)" ]; then
+    # ---- clean tree: HEAD is the baseline ----
+    echo head > "$SCRATCH/baseline-kind"
+    git worktree add --detach "$base" HEAD >/dev/null 2>&1 || {
+      echo "could not create a worktree at $base" >&2; return 1; }
+
+    # CLONE node_modules; never symlink. A symlink points into the LIVE tree, and the tarball
+    # restore below would then corrupt the packages the real build uses. APFS copy-on-write
+    # makes the safe option the fast one; the plain -R fallback is for non-APFS volumes.
+    if [ -d "$pkgdir/node_modules" ]; then
+      cp -Rc "$pkgdir/node_modules" "$base/$pkgdir/node_modules" 2>/dev/null \
+        || cp -R "$pkgdir/node_modules" "$base/$pkgdir/node_modules" || return 1
+    fi
+
+    # In THIS branch the tree is clean, so HEAD's lockfile and the working lockfile are the
+    # same file and comparing them cannot fail — an earlier draft did exactly that and called
+    # it a guard. The real question here is node_modules drifting from the lockfile it was
+    # installed from, which the repo already answers. Skipped (loudly) if undeclared, so the
+    # subcommand stays usable against a package that has no such script.
+    if node -e 'const p=require("./"+process.argv[1]+"/package.json");process.exit(p.scripts&&p.scripts["check:internal-lock"]?0:1)' "$pkgdir" 2>/dev/null; then
+      npm --prefix "$pkgdir" run check:internal-lock >/dev/null 2>&1 || {
+        echo "node_modules has drifted from the lockfile — npm install before baselining" >&2
+        return 1; }
+    else
+      echo "NOTE: $pkgdir declares no check:internal-lock script — drift guard skipped" >&2
+    fi
+
+    # Kept for the case where this is pointed at an OLDER commit than HEAD, where the two
+    # lockfiles genuinely differ. It MUST compare package ENTRIES, not raw lines: a package's
+    # name and its "integrity" hash sit on DIFFERENT lines, so a line-wise grep excluding
+    # "case-box-" sees only anonymous sha512 strings and reports "external dependency moved"
+    # on the one case it exists to permit.
+    if [ -f "$pkgdir/package-lock.json" ]; then
+      INTERNAL_PKGS="$(_internal_pkg_names "$pkgdir")" \
+      node -e '
+        const fs = require("fs"), cp = require("child_process");
+        const dir = process.argv[1];
+        const internal = (process.env.INTERNAL_PKGS || "").split(/\s+/).filter(Boolean);
+        let head;
+        try { head = JSON.parse(cp.execSync(`git show HEAD:${dir}/package-lock.json`, {stdio:["pipe","pipe","ignore"]})); }
+        catch { process.exit(0); }   // no lockfile at HEAD: nothing to compare
+        const now = JSON.parse(fs.readFileSync(`${dir}/package-lock.json`, "utf8"));
+        const keys = new Set([...Object.keys(head.packages || {}), ...Object.keys(now.packages || {})]);
+        const moved = [...keys].filter((k) =>
+          !internal.some((n) => k.includes(n)) &&
+          JSON.stringify((head.packages||{})[k]) !== JSON.stringify((now.packages||{})[k]));
+        if (moved.length) { console.error("moved: " + moved.slice(0, 5).join(", ")); process.exit(1); }
+      ' "$pkgdir" || {
+        echo "external dependency moved since HEAD — full npm install in $base instead" >&2
+        return 1; }
+    fi
+
+    # A desktop baseline is source AND TARBALLS: the internal packages arrive as committed
+    # tarballs, so HEAD source built against CURRENT tarballs is a MIXED tree, not a baseline.
+    # This restore belongs to THIS branch only — see the other branch for why.
+    #
+    # The list is DERIVED from the package's own file:dist-tarballs dependencies rather than
+    # hardcoded as the document had it. A literal list duplicates knowledge that already lives
+    # in package.json and silently omits a third internal package the day one is added.
+    local pkg
+    for pkg in $(_internal_pkg_names "$pkgdir"); do
+      git show "HEAD:$pkgdir/dist-tarballs/$pkg-0.1.0.tgz" > "$SCRATCH/$pkg.tgz" 2>/dev/null || {
+        echo "no committed tarball for $pkg at HEAD" >&2; return 1; }
+      rm -rf "$SCRATCH/x" && mkdir -p "$SCRATCH/x" || return 1
+      tar -xzf "$SCRATCH/$pkg.tgz" -C "$SCRATCH/x" || return 1
+      rm -rf "$base/$pkgdir/node_modules/$pkg"
+      mkdir -p "$base/$pkgdir/node_modules" || return 1
+      mv "$SCRATCH/x/package" "$base/$pkgdir/node_modules/$pkg" || return 1
+    done
+  else
+    # ---- dirty tree: the baseline is the WORKING TREE as it stands, not HEAD ----
+    # Found the hard way: HEAD was 69 files behind, so a HEAD baseline was missing three
+    # earlier work items and the new test failed there for unrelated reasons — which reads as
+    # "regression confirmed" and is worthless.
+    echo snapshot > "$SCRATCH/baseline-kind"
+    mkdir -p "$base/$(dirname "$pkgdir")" || return 1
+    cp -Rc "$pkgdir" "$base/$pkgdir" 2>/dev/null || cp -R "$pkgdir" "$base/$pkgdir" || return 1
+    # NO tarball restore in this branch. The copied node_modules is ALREADY the correct
+    # baseline; overwriting it with HEAD's tarballs yields a tree that is neither HEAD nor the
+    # pre-edit working tree, and it can then fail for stale-tarball reasons that get
+    # misreported as "baseline incoherent".
+  fi
+
+  rm -rf "$base/$pkgdir/dist"
+  npm --prefix "$base/$pkgdir" run build >/dev/null 2>&1 || {
+    echo "BASELINE INCOHERENT: the baseline source did not compile against its own deps." >&2
+    echo "  The tree is MIXED, not a baseline. Stage 5 would be VOID — do not read its result." >&2
+    return 1; }
+  # ^ a free self-check, and it really fires: HEAD source + CURRENT tarballs exits 2.
+
+  echo "$base/$pkgdir"
+  return 0
+}
+
+# Internal packages, read from the package's own `file:dist-tarballs/<name>-<ver>.tgz`
+# dependencies. Printed space-separated; empty when there are none.
+_internal_pkg_names() {
+  node -e '
+    const p = require("./" + process.argv[1] + "/package.json");
+    const out = [];
+    for (const [name, spec] of Object.entries(p.dependencies || {})) {
+      if (typeof spec === "string" && spec.startsWith("file:dist-tarballs/")) out.push(name);
+    }
+    process.stdout.write(out.join(" "));
+  ' "$1" 2>/dev/null
+}
+
 case "${1:-}" in
   check-paths) cmd_check_paths ;;
   preserve)    cmd_preserve ;;
   verify)      cmd_verify ;;
   package-baseline) cmd_package_baseline ;;
+  desktop-baseline) cmd_desktop_baseline ;;
   classify)    cmd_classify ;;
   -h|--help|"") usage ;;
   *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;

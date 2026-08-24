@@ -42,7 +42,10 @@ function run(cmd, { cwd, env = {} } = {}) {
     encoding: "utf8",
     env: { ...process.env, ...env },
   });
-  return { status: r.status, out: `${r.stdout}${r.stderr}` };
+  // `out` is both streams, for message matching. `stdout` is kept SEPARATE because commands
+  // that PRINT A PATH also write notes to stderr, and a combined capture splices the note into
+  // the path.
+  return { status: r.status, out: `${r.stdout}${r.stderr}`, stdout: r.stdout };
 }
 
 const REPO_FILES = {
@@ -460,15 +463,240 @@ test("B-16 an unknown subcommand fails loudly rather than doing nothing", () => 
   assert.match(r.out, /unknown command/);
 });
 
-// GAP 3 — recorded as a todo so it is visible in the lane it belongs to.
+// --------------------------------------------------------------- desktop-baseline (GAP 3)
 //
-// Most of the stage-2/stage-5 shell moved out of the workflow document into this script and
-// is covered above. The DESKTOP worktree baseline did not: it clones 613 MB of node_modules,
-// restores committed tarballs and runs a full build, which is heavy to fixture. It remains a
-// markdown code block, and historically that block has been the most defect-prone text in the
-// repo — four audits found defects in it.
+// GAP 3 — CLOSED. This was the last piece of stage 2 still living as prose, and historically
+// the most defect-prone text in the repo.
+//
+// The todo said the blocker was a heavy fixture: "613 MB clone + tarball restore + full
+// build". That was the wrong reading of its own problem. 613 MB is the size of the PRODUCTION
+// INPUT, not a property of the logic. Branch selection, the kind marker, the clone-not-symlink
+// rule, the tarball restore and its deliberate absence in the other branch are all
+// size-independent — a fixture of a few kilobytes drives exactly the same code paths.
 //
 // `package-baseline` is NOT a substitute: it clones node_modules from the LIVE tree, which for
-// the desktop means HEAD source against current tarballs — the mixed tree the desktop
-// procedure exists to avoid.
-test("GAP-3 the desktop worktree baseline procedure is covered by a test", { todo: "heavy fixture: 613 MB clone + tarball restore + full build; still prose in development-workflow.md" }, () => {});
+// the desktop means HEAD source against current tarballs — the mixed tree this procedure
+// exists to avoid.
+
+/** A tarball in npm's shape: a single top-level `package/` directory. */
+function makeTarball(dir, name, files) {
+  const stage = path.join(dir, `.stage-${name}`);
+  mkdirSync(path.join(stage, "package"), { recursive: true });
+  for (const [rel, body] of Object.entries(files)) {
+    const full = path.join(stage, "package", rel);
+    mkdirSync(path.dirname(full), { recursive: true });
+    writeFileSync(full, body);
+  }
+  const out = path.join(dir, `${name}-0.1.0.tgz`);
+  execFileSync("tar", ["-czf", out, "-C", stage, "package"], { stdio: "pipe" });
+  rmSync(stage, { recursive: true, force: true });
+  return out;
+}
+
+const OK_BUILD = 'node -e "require(\'fs\').mkdirSync(\'dist\',{recursive:true})"';
+
+/**
+ * A miniature of the desktop package: a build script, an internal dependency delivered as a
+ * committed tarball, and an INSTALLED copy of that dependency whose content differs from the
+ * tarball's. The difference is what makes the restore observable.
+ */
+function makeDesktopRepo({ build = OK_BUILD, extraInternal = false } = {}) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "wi-desktop-"));
+  const git = (...a) => execFileSync("git", a, { cwd: dir, stdio: "pipe" });
+  git("init", "-q");
+  git("config", "user.email", "test@example.invalid");
+  git("config", "user.name", "test");
+  // The real repo gitignores node_modules. Without this the untracked install reads as a dirty
+  // tree and every clean-tree case below would silently exercise the snapshot branch instead.
+  writeFileSync(path.join(dir, ".gitignore"), "node_modules/\n");
+
+  const pkg = path.join(dir, "apps/fake-desktop");
+  const deps = { "inner-pkg": "file:dist-tarballs/inner-pkg-0.1.0.tgz" };
+  if (extraInternal) deps["third-pkg"] = "file:dist-tarballs/third-pkg-0.1.0.tgz";
+  mkdirSync(path.join(pkg, "dist-tarballs"), { recursive: true });
+  writeFileSync(
+    path.join(pkg, "package.json"),
+    JSON.stringify({ name: "fake-desktop", version: "0.1.0", scripts: { build }, dependencies: deps }, null, 2),
+  );
+  writeFileSync(
+    path.join(pkg, "package-lock.json"),
+    JSON.stringify({ name: "fake-desktop", lockfileVersion: 3, packages: { "": { name: "fake-desktop" }, "node_modules/left-pad": { version: "1.0.0" } } }, null, 2),
+  );
+  writeFileSync(path.join(pkg, "src.txt"), "committed source\n");
+
+  // Committed tarballs carry the COMMITTED payload.
+  const names = extraInternal ? ["inner-pkg", "third-pkg"] : ["inner-pkg"];
+  for (const n of names) {
+    const tgz = makeTarball(dir, n, { "package.json": JSON.stringify({ name: n, version: "0.1.0" }), "marker.txt": `COMMITTED-${n}\n` });
+    execFileSync("cp", [tgz, path.join(pkg, "dist-tarballs", `${n}-0.1.0.tgz`)]);
+    rmSync(tgz, { force: true });
+  }
+  git("add", "-A");
+  git("commit", "-qm", "baseline");
+
+  // node_modules is UNTRACKED and holds the LIVE payload — deliberately different, so a
+  // restore that did not happen is visible rather than a coincidence.
+  for (const n of names) {
+    const nm = path.join(pkg, "node_modules", n);
+    mkdirSync(nm, { recursive: true });
+    writeFileSync(path.join(nm, "package.json"), JSON.stringify({ name: n, version: "0.1.0" }));
+    writeFileSync(path.join(nm, "marker.txt"), `LIVE-${n}\n`);
+  }
+  return dir;
+}
+
+// SCRATCH lives OUTSIDE the repo, as it does in real use. Inside it, git status would report
+// it as untracked and the tree would never read clean.
+const scratchFor = new Map();
+function withScratch(dir) {
+  const s = mkdtempSync(path.join(os.tmpdir(), "wi-desktop-scratch-"));
+  scratchFor.set(dir, s);
+  return s;
+}
+const DESKTOP_ENV = (dir) => ({ SCRATCH: scratchFor.get(dir), DESKTOP_DIR: "apps/fake-desktop" });
+
+test("D-1 a CLEAN tree baselines HEAD and records the kind as `head`", () => {
+  const dir = makeDesktopRepo();
+  const scratch = withScratch(dir);
+  const r = run("desktop-baseline", { cwd: dir, env: DESKTOP_ENV(dir) });
+  assert.equal(r.status, 0, r.out);
+  assert.equal(readFileSync(path.join(scratch, "baseline-kind"), "utf8").trim(), "head");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("D-2 a DIRTY tree baselines the working tree and records the kind as `snapshot`", () => {
+  const dir = makeDesktopRepo();
+  const scratch = withScratch(dir);
+  writeFileSync(path.join(dir, "apps/fake-desktop/src.txt"), "EDITED IN THE WORKING TREE\n");
+  const r = run("desktop-baseline", { cwd: dir, env: DESKTOP_ENV(dir) });
+  assert.equal(r.status, 0, r.out);
+  assert.equal(readFileSync(path.join(scratch, "baseline-kind"), "utf8").trim(), "snapshot");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// The defect this branch exists for: HEAD was once 69 files behind the working tree, so a
+// HEAD baseline was missing three earlier work items. The new test then failed there for
+// unrelated reasons — which reads as "regression confirmed" and is worthless.
+test("D-3 a dirty tree baselines the WORKING TREE, not HEAD", () => {
+  const dir = makeDesktopRepo();
+  withScratch(dir);
+  writeFileSync(path.join(dir, "apps/fake-desktop/src.txt"), "EDITED IN THE WORKING TREE\n");
+  const r = run("desktop-baseline", { cwd: dir, env: DESKTOP_ENV(dir) });
+  assert.equal(r.status, 0, r.out);
+  const got = readFileSync(path.join(r.stdout.trim(), "src.txt"), "utf8");
+  assert.match(got, /EDITED IN THE WORKING TREE/, "a HEAD baseline here would silently be the wrong tree");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// The core of the desktop procedure. A desktop baseline is source AND TARBALLS: the internal
+// packages arrive as committed tarballs, so HEAD source built against CURRENT node_modules is
+// a MIXED tree, not a baseline.
+test("D-4 clean tree: the COMMITTED tarball is restored over the live node_modules", () => {
+  const dir = makeDesktopRepo();
+  withScratch(dir);
+  const r = run("desktop-baseline", { cwd: dir, env: DESKTOP_ENV(dir) });
+  assert.equal(r.status, 0, r.out);
+  const marker = readFileSync(path.join(r.stdout.trim(), "node_modules/inner-pkg/marker.txt"), "utf8");
+  assert.match(marker, /COMMITTED-inner-pkg/, "the baseline is running against the LIVE package — it is a mixed tree");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// And the deliberate ASYMMETRY. Overwriting here would give a tree that is neither HEAD nor
+// the pre-edit working tree, and it can fail for stale-tarball reasons that then get
+// misreported as "baseline incoherent".
+test("D-5 dirty tree: NO tarball restore — the working-tree node_modules survives", () => {
+  const dir = makeDesktopRepo();
+  withScratch(dir);
+  writeFileSync(path.join(dir, "apps/fake-desktop/src.txt"), "edited\n");
+  const r = run("desktop-baseline", { cwd: dir, env: DESKTOP_ENV(dir) });
+  assert.equal(r.status, 0, r.out);
+  const marker = readFileSync(path.join(r.stdout.trim(), "node_modules/inner-pkg/marker.txt"), "utf8");
+  assert.match(marker, /LIVE-inner-pkg/, "the dirty branch must not restore HEAD's tarballs");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// A symlink would point into the LIVE tree, so the tarball restore would overwrite the
+// packages the real build uses. Asserted by mutating the baseline and re-reading the original.
+test("D-6 node_modules is CLONED, never symlinked into the live tree", () => {
+  const dir = makeDesktopRepo();
+  withScratch(dir);
+  const r = run("desktop-baseline", { cwd: dir, env: DESKTOP_ENV(dir) });
+  assert.equal(r.status, 0, r.out);
+  writeFileSync(path.join(r.stdout.trim(), "node_modules/inner-pkg/marker.txt"), "MUTATED-IN-BASELINE\n");
+  const live = readFileSync(path.join(dir, "apps/fake-desktop/node_modules/inner-pkg/marker.txt"), "utf8");
+  assert.match(live, /LIVE-inner-pkg/, "writing in the baseline reached the live tree — it is a symlink");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// The free self-check, and it really fires in production: HEAD source against current
+// tarballs exits 2. A stage-5 result read against a non-building baseline is meaningless, so
+// this must fail loudly rather than hand back a path.
+test("D-7 a baseline that does not build reports BASELINE INCOHERENT and fails", () => {
+  const dir = makeDesktopRepo({ build: "exit 2" });
+  withScratch(dir);
+  const r = run("desktop-baseline", { cwd: dir, env: DESKTOP_ENV(dir) });
+  assert.notEqual(r.status, 0, "a non-building baseline must not be handed back as usable");
+  assert.match(r.out, /BASELINE INCOHERENT/);
+  assert.match(r.out, /Stage 5 would be VOID/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// Same class as B-4: the doc version used "$SCRATCH/..." with SCRATCH undefined, so
+// `rm -rf "$BASE"` resolved to `rm -rf /baseline-desktop`.
+test("D-8 an unset SCRATCH refuses instead of resolving paths under /", () => {
+  const dir = makeDesktopRepo();
+  const r = spawnSync("/bin/bash", [SCRIPT, "desktop-baseline"], {
+    cwd: dir, encoding: "utf8",
+    env: { ...process.env, SCRATCH: "", DESKTOP_DIR: "apps/fake-desktop" },
+  });
+  assert.notEqual(r.status, 0);
+  assert.match(`${r.stdout}${r.stderr}`, /SCRATCH is unset/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// The documented version hardcoded `for pkg in case-box-contract case-box-persistence`, which
+// duplicates knowledge already in package.json and silently omits a third internal package the
+// day one is added. The extraction derives the list instead; this is what proves it.
+test("D-9 the internal-package list is DERIVED, so a third package is restored too", () => {
+  const dir = makeDesktopRepo({ extraInternal: true });
+  withScratch(dir);
+  const r = run("desktop-baseline", { cwd: dir, env: DESKTOP_ENV(dir) });
+  assert.equal(r.status, 0, r.out);
+  for (const n of ["inner-pkg", "third-pkg"]) {
+    const marker = readFileSync(path.join(r.stdout.trim(), `node_modules/${n}/marker.txt`), "utf8");
+    assert.match(marker, new RegExp(`COMMITTED-${n}`), `${n} was not restored — a hardcoded list would miss it`);
+  }
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// The lockfile guard's original defect: it compared RAW LINES excluding "case-box-", but a
+// package's name and its integrity hash are on DIFFERENT lines, so the filter saw only
+// anonymous sha512 strings and reported "external dependency moved" on the one case it existed
+// to permit. The comparison must be entry-wise.
+test("D-10 an internal-package lockfile change is permitted, an external move is refused", () => {
+  // Internal change only: allowed. Made against an OLDER ref by committing, then editing.
+  const dir = makeDesktopRepo();
+  withScratch(dir);
+  const lock = path.join(dir, "apps/fake-desktop/package-lock.json");
+  const base = JSON.parse(readFileSync(lock, "utf8"));
+  base.packages["node_modules/inner-pkg"] = { version: "0.1.0", integrity: "sha512-AAA" };
+  writeFileSync(lock, JSON.stringify(base, null, 2));
+  execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["commit", "-qm", "lock"], { cwd: dir, stdio: "pipe" });
+  const ok = run("desktop-baseline", { cwd: dir, env: DESKTOP_ENV(dir) });
+  assert.equal(ok.status, 0, `an internal-package entry must not read as an external move:\n${ok.out}`);
+  assert.doesNotMatch(ok.out, /external dependency moved/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("D-11 a DESKTOP_DIR that is not a directory fails by name", () => {
+  const dir = makeDesktopRepo();
+  withScratch(dir);
+  const r = run("desktop-baseline", {
+    cwd: dir,
+    env: { ...DESKTOP_ENV(dir), DESKTOP_DIR: "apps/does-not-exist" },
+  });
+  assert.notEqual(r.status, 0);
+  assert.match(r.out, /DESKTOP_DIR is not a directory/);
+  rmSync(dir, { recursive: true, force: true });
+});

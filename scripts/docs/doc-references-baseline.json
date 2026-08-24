@@ -1,5 +1,5 @@
 {
-  "total": 173,
+  "total": 172,
   "counts": {
     "docs/adr/ADR-evidence-a07-key-custody-operating-model.md": 9,
     "docs/adr/ADR-evidence-a07-marker-provenance.md": 2,
@@ -29,7 +29,7 @@
     "docs/adr/ocr-real-worker-source-access-step-11a-0.md": 2,
     "docs/adr/ocr-worker-runtime-step-11b.md": 1,
     "docs/adr/sync-bridge-architecture.md": 4,
-    "docs/product/product-definition.md": 37,
+    "docs/product/product-definition.md": 36,
     "docs/product/product-plan.md": 2,
     "docs/release/casebox-persistence-security-audit-00.md": 2,
     "docs/release/electron-runtime-advisory-bump-00.md": 2,

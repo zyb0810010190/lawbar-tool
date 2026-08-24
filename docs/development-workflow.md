@@ -282,80 +282,34 @@ fi
 # --- apps/lawbar-desktop needs a BUILDABLE baseline, built HERE, before any edit ------
 # Skipped entirely for a non-desktop item, and for a greenfield one — neither has a
 # pre-change behaviour to compare against. See DESKTOP_WI and GREENFIELD above.
+#
+# WHY THIS IS ONE LINE NOW. Until GAP-3 this was ~75 lines of shell living in this fence, and
+# it was the most defect-prone text in the repo: four adversarial audits found defects in it,
+# including a lockfile guard that could never pass and a `$SCRATCH` that was used everywhere
+# and defined nowhere, so cleanup resolved to `rm -rf /baseline-desktop`. None of those fails
+# while sitting in a fence nobody executes.
+#
+# It now lives in scripts/workflow/wi-baseline.sh with 11 behavioural cases (D-1..D-11) over
+# real git repos. The reason it stayed prose for so long was a mis-stated blocker — "needs a
+# 613 MB clone and a full build" — but 613 MB is the size of the production input, not a
+# property of the logic, and a fixture of a few kilobytes drives the same code paths.
+#
+# What it does, so you can review the result rather than trust the name:
+#   clean tree  -> a detached HEAD worktree, node_modules CLONED (never symlinked — a symlink
+#                  points into the live tree and the restore below would corrupt it), then the
+#                  COMMITTED tarballs restored over it, because the internal packages arrive as
+#                  tarballs and HEAD source against current tarballs is a MIXED tree.
+#   dirty tree  -> a snapshot of the WORKING TREE, and deliberately NO tarball restore. Found
+#                  the hard way: HEAD was once 69 files behind, so a HEAD baseline was missing
+#                  three earlier work items and the new test failed there for unrelated
+#                  reasons — which reads as "regression confirmed" and is worthless.
+#   both        -> a build, which is a free self-check and really fires. If the baseline does
+#                  not compile against its own deps the tree is MIXED, stage 5 is VOID, and it
+#                  refuses rather than handing back a path.
+# It writes "$SCRATCH/baseline-kind" (head|snapshot) and prints the baseline package path.
 if [ "$DESKTOP_WI" = yes ] && [ "$GREENFIELD" = no ]; then
-# MOST of its test files use STATIC ESM imports of `../dist/...`, resolved at parse time, so
-# no environment variable can redirect them. Build a genuine baseline package instead of
-# faking module resolution; the imports then resolve normally, to baseline code.
-#
-# The exact ratio is deliberately not written here. It was — "48 of 82" — and it went stale
-# one work item later, because WI-07 added a test file. A count copied out of something a
-# command can measure is wrong from the next commit onward. Measure it when you need it:
-#   grep -l 'from "\.\./dist/' apps/lawbar-desktop/tests/*.test.mjs | wc -l
-#
-# This belongs at stage 2 and nowhere later. An earlier draft put it in stage 5, after
-# red -> green, where it copied the finished implementation and called it the baseline.
-BASE="$SCRATCH/baseline-desktop"
-if [ -z "$(git status --porcelain)" ]; then
-  # Clean tree: HEAD is the baseline.
-  echo head > "$SCRATCH/baseline-kind"
-  git worktree add --detach "$BASE" HEAD
-  # CLONE node_modules; never symlink it — a symlink points into the LIVE tree and the
-  # tarball restore below would then corrupt the packages the real build uses. APFS
-  # copy-on-write: 613 MB in ~2 s, so the safe option is also the fast one.
-  cp -Rc apps/lawbar-desktop/node_modules "$BASE/apps/lawbar-desktop/node_modules"
-
-  # NOTE the branch you are in: the tree is CLEAN, so HEAD's lockfile and the working
-  # lockfile are the same file. A comparison between them cannot fail, and an earlier draft
-  # put exactly that comparison here and called it a guard. What can actually differ in this
-  # branch is node_modules drifting from the lockfile it was installed from — a different
-  # question, which the repo already answers:
-  npm --prefix apps/lawbar-desktop run check:internal-lock \
-    || { echo "node_modules has drifted from the lockfile — npm install before baselining"; exit 1; }
-
-  # The entry-wise comparison below is kept for the case where this procedure is pointed at
-  # an OLDER commit than HEAD, where the two lockfiles genuinely differ. It must compare
-  # package ENTRIES, not raw lines: a package's NAME and its "integrity" hash are on DIFFERENT
-  # lines, so a line-wise grep excluding "case-box-" sees only anonymous sha512 strings and
-  # reports "external dependency moved" on the one case it exists to permit.
-  node -e '
-    const fs = require("fs"), cp = require("child_process");
-    const head = JSON.parse(cp.execSync("git show HEAD:apps/lawbar-desktop/package-lock.json"));
-    const now  = JSON.parse(fs.readFileSync("apps/lawbar-desktop/package-lock.json", "utf8"));
-    const keys = new Set([...Object.keys(head.packages || {}), ...Object.keys(now.packages || {})]);
-    const moved = [...keys].filter((k) => !/case-box-(contract|persistence)/.test(k) &&
-      JSON.stringify(head.packages[k]) !== JSON.stringify(now.packages[k]));
-    if (moved.length) { console.error("moved: " + moved.slice(0, 5).join(", ")); process.exit(1); }
-  ' || { echo "external dependency moved since HEAD — full npm install in $BASE instead"; exit 1; }
-
-  # A desktop baseline is source AND TARBALLS: the internal packages arrive as committed
-  # tarballs, so HEAD source built against CURRENT tarballs is a MIXED tree. This restore
-  # belongs to THIS branch only — see the other branch for why.
-  for pkg in case-box-contract case-box-persistence; do
-    git show "HEAD:apps/lawbar-desktop/dist-tarballs/$pkg-0.1.0.tgz" > "$SCRATCH/$pkg.tgz"
-    rm -rf "$SCRATCH/x" && mkdir -p "$SCRATCH/x" && tar -xzf "$SCRATCH/$pkg.tgz" -C "$SCRATCH/x"
-    rm -rf "$BASE/apps/lawbar-desktop/node_modules/$pkg"
-    mv "$SCRATCH/x/package" "$BASE/apps/lawbar-desktop/node_modules/$pkg"
-  done
-else
-  # Dirty tree: the baseline is the WORKING TREE as it stands right now, not HEAD. Found the
-  # hard way — HEAD was 69 files behind, so a HEAD baseline would have been missing three
-  # earlier work items and the new test would have failed there for unrelated reasons, which
-  # reads as "regression confirmed" and is worthless.
-  echo snapshot > "$SCRATCH/baseline-kind"
-  mkdir -p "$BASE/apps"
-  cp -Rc apps/lawbar-desktop "$BASE/apps/lawbar-desktop"
-  # NO tarball restore in this branch. The copied node_modules is already the correct
-  # baseline; overwriting it with HEAD's tarballs would produce a tree that is neither HEAD
-  # nor the pre-edit working tree, and it can fail for stale-tarball reasons that then get
-  # misreported as "baseline incoherent".
-fi
-
-rm -rf "$BASE/apps/lawbar-desktop/dist"
-npm --prefix "$BASE/apps/lawbar-desktop" run build || {
-  echo "BASELINE INCOHERENT: the baseline source did not compile against its own deps."
-  echo "The tree is MIXED, not a baseline. Stage 5 would be VOID — do not read its result."
-  exit 1; }
-# ^ a free self-check, and it really fires: HEAD source + CURRENT tarballs exits 2.
+  BASELINE_PKG="$(bash scripts/workflow/wi-baseline.sh desktop-baseline)" || exit 1
+  echo "desktop baseline ready at: $BASELINE_PKG"
 fi   # DESKTOP_WI
 
 # 3  red -> green   (show the failure output)
