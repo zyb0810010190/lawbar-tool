@@ -117,3 +117,66 @@ export async function probeFileVault(
     }
   });
 }
+
+// ---- the blocking dialog's text ----------------------------------------------------------
+//
+// Pure, so the wording is testable rather than buried in an Electron callback.
+//
+// Rewritten 2026-08-24, for two defects in the message this replaces.
+//
+// FIRST: it was in ENGLISH, alone among the main-process dialogs. Every refusal in
+// startupFailure.ts is zh-CN, matching a UI whose locale is fixed at zh-CN (plan-i18n-impl-00 D1).
+// The one dialog a litigator most needs to understand was the one they could not read.
+//
+// SECOND, and worse: its second sentence offered `LAWBAR_MODE=dev` as an apparently co-equal
+// remedy — "Enable FileVault …, or set LAWBAR_MODE=dev". That hands someone under time pressure a
+// one-line bypass of the control protecting client confidentiality, presented as an alternative
+// rather than as a development-only escape. The safe path now leads, and the bypass is named for
+// what it is.
+//
+// The explanation of WHY is load-bearing. On Apple Silicon and T2 Macs `diskutil` reports the
+// volume as "encrypted at rest" even with FileVault off, so a reader who knows that will
+// reasonably conclude the block is pedantic and reach for dev mode. It is not pedantic: without
+// FileVault the volume key is not wrapped by a user secret, so the disk unlocks at boot with no
+// password. The control is not "is anything encrypted" but "is privileged material behind a
+// user-authenticated boundary".
+//
+// The hardware claim is phrased CONDITIONALLY on purpose. This app also ships an x64 build, and an
+// older Intel Mac without a T2 has no such at-rest encryption — asserting it unconditionally would
+// be a false claim in exactly the class this repo exists to avoid.
+export function fileVaultBlockMessage(
+  state: FileVaultState,
+  probeError?: string,
+): { readonly title: string; readonly detail: string } {
+  const confirmedOff = state === "off";
+  const title = confirmedOff ? "需要开启 FileVault 全盘加密" : "无法确认 FileVault 状态";
+
+  const opening = confirmedOff
+    ? "lawbar 已停止启动：本机未开启 FileVault 全盘加密。"
+    : "lawbar 已停止启动：无法确认本机的 FileVault 状态，按未开启处理。";
+
+  const why =
+    "案件数据含当事人保密信息，必须在您的登录密码保护下静态加密。\n\n" +
+    "若本机为 Apple 芯片或带 T2 芯片的机型，磁盘本身已由硬件加密——但未开启 FileVault 时，" +
+    "卷密钥并未与您的登录密码绑定：开机即自动解锁，设备一旦遗失或被他人取走，案件数据不受密码保护。" +
+    "FileVault 的作用正是把密钥绑定到密码。";
+
+  const how =
+    "开启方式：系统设置 → 隐私与安全性 → FileVault → 打开。\n" +
+    "Apple 芯片机型几乎瞬间完成（磁盘本已加密，只是改用密码重新封装密钥），无需长时间转换。\n" +
+    "请务必妥善保存恢复密钥——丢失后数据无法找回。";
+
+  const dev =
+    "（LAWBAR_MODE=dev 仅供开发调试时绕过本检查，切勿在处理真实当事人材料时使用。）";
+
+  const detail = [
+    opening,
+    why,
+    how,
+    `检测到的状态：${state}`,
+    ...(probeError !== undefined ? [`检测错误：${probeError}`] : []),
+    dev,
+  ].join("\n\n");
+
+  return { title, detail };
+}

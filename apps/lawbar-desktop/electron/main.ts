@@ -10,6 +10,7 @@ import { makeStoreFile } from "../src/caseBox/documentStorage.js";
 import { loadThemePreference } from "../src/persistence/themePreference.js";
 import {
   decideAction,
+  fileVaultBlockMessage,
   probeFileVault,
   resolveMode,
 } from "../src/security/fileVaultProbe.js";
@@ -113,13 +114,10 @@ void app.whenReady().then(async () => {
   cachedLaunchMode = mode;
   cachedFileVaultState = probe.state;
   if (action === "block") {
-    const detail =
-      `lawbar requires FileVault to be enabled before launch in production mode.\n\n` +
-      `Detected state: ${probe.state}\n` +
-      (probe.error !== undefined ? `Probe error: ${probe.error}\n\n` : "\n") +
-      `Enable FileVault in System Settings → Privacy & Security → FileVault, ` +
-      `or set LAWBAR_MODE=dev for development builds.`;
-    dialog.showErrorBox("FileVault required", detail);
+    // Wording lives in fileVaultBlockMessage() so it is pure and testable. It is zh-CN, like
+    // every other main-process refusal, and it does NOT offer dev mode as an alternative remedy.
+    const { title, detail } = fileVaultBlockMessage(probe.state, probe.error);
+    dialog.showErrorBox(title, detail);
     app.quit();
     return;
   }
