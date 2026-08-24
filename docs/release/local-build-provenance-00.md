@@ -24,7 +24,7 @@ record created with it can later be tied to exactly what produced it.
 
 | | |
 |---|---|
-| Commit | `09e97f2ff413d68048c196de5ab335efb9ddfa4e` |
+| Commit | `73c18f7a5524ee5655b55e881a9a7650cf976c10` |
 | Built | 2026-08-24 |
 | Electron | 39.8.5 |
 | Architectures | `arm64` (`release/mac-arm64/`) and `x64` (`release/mac/`) |
@@ -35,7 +35,7 @@ Identity, arm64 bundle:
 
 ```
 Contents/MacOS/lawbar      sha256  352199cc20deb0c84a9df2974a56c56a1f0eab6211fc082477c8a42ad344200b
-Contents/Resources/app.asar sha256 7fa016a469761869294a18bd7fc68f1267d557f96baf2a9c508e7cd1246d047d
+Contents/Resources/app.asar sha256 a1b8c9b6466ec3653d99d5c3fa972ba9eb48ee01e1dad013c419ec76b8de84c8
 ```
 
 Recompute with `shasum -a 256` against those two paths. They identify the build; the rest of the
@@ -71,7 +71,7 @@ Signed and notarized distribution is not currently possible regardless: the mach
   the case-box shell, and theme switching works. The crash-detector wrapper attributed **zero**
   diagnostic reports.
 - LaunchServices launch — starts and runs under a throwaway `--user-data-dir`.
-- `npm test` — desktop lane 1161 pass / 0 fail / 0 todo at this commit.
+- `npm test` — desktop lane 1169 pass / 0 fail / 0 todo at this commit.
 
 ## The defect this exposed
 
@@ -104,9 +104,25 @@ than to this repository, and it is the author's to make.
 
 ## The honest claim
 
-> Locally built from commit `09e97f2`, hashes above, used only by the author on the machine that
+> Locally built from commit `73c18f7`, hashes above, used only by the author on the machine that
 > produced it.
 
 Not "released software". Not "signed". Not "verified by a third party". If a record created with
 this build is ever relied on, that sentence — with the commit and the hashes — is what can be said
 about its provenance, and nothing broader.
+
+## Rebuilt 2026-08-24 after the first real launch
+
+The first launch of the installed build refused to start: FileVault is off on this machine, and the
+production gate blocks on that. The refusal is correct and unchanged. Its wording was not — it was
+in English, alone among the main-process refusals, and its second sentence offered `LAWBAR_MODE=dev`
+as an apparently co-equal remedy. Both are fixed, and this artifact was rebuilt to carry the
+corrected message. Verified by grep against the packaged `app.asar`: the zh-CN text is present and
+the old English bypass sentence is gone.
+
+Only `app.asar` changed; the Electron binary hash is identical, as expected for a JS-only change.
+
+**The block still stands, and will keep standing until FileVault is enabled.** That is the intended
+behaviour, not a defect to work around. Enabling it is the author's action — it needs the login
+password and a decision about where the recovery key is stored, neither of which belongs to this
+repository.
