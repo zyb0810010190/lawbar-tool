@@ -1,7 +1,20 @@
 name: Workflow scripts
 
 # CI gate for the repo-workflow shell in `scripts/` — the machinery that decides whether
-# two-sided verification is real, plus the documentation-reference ratchet.
+# two-sided verification is real — AND the documentation-reference ratchet itself.
+#
+# CORRECTED 2026-08-24. This header already claimed it gated "the documentation-reference
+# ratchet". It did not. Its only step ran that ratchet's TESTS, and a passing test proves the
+# ratchet works, not that it was applied — so a dead documentation reference merged unnoticed.
+# The job made a false claim about itself, in the layer this project treats as its only
+# enforcement boundary.
+#
+# The paths filter was the other half of the same defect. The ratchet scans `docs/`, so a
+# docs-only PR did not match `scripts/**` and the job never ran at all. And it can break a
+# second way the filter could never catch: a source file is deleted or renamed, and a backticked
+# reference to it in an untouched document goes dead. Both paths need it to run unconditionally,
+# which is why there is no `paths:` filter below. The cost is seconds — no install step, pure
+# node — and it is what makes the claim above true without qualification.
 #
 # Why this exists: those 75 tests were registered only in the local tdd-guardian lane, which
 # is visibility, not enforcement. Two of the three test files in `scripts/` had previously sat
@@ -20,12 +33,9 @@ name: Workflow scripts
 # desktop-release-gates and services-ci posture.
 
 on:
+  # NO paths filter, deliberately — see the header. A docs-only PR must run the ratchet, and so
+  # must a PR that deletes a file some document references.
   pull_request:
-    paths:
-      # the scripts themselves and their tests
-      - "scripts/**"
-      # this workflow itself
-      - ".github/workflows/workflow-scripts.yml"
   workflow_dispatch: {}
 
 # No secrets are used. Least-privilege token.
@@ -69,3 +79,9 @@ jobs:
 
       - name: Workflow script suites
         run: node --test 'scripts/**/*.test.mjs'
+
+      # THE RATCHET ITSELF, not its tests. Exits non-zero when the count of dead backticked
+      # references rises above the committed baseline. Runs after the suites so a broken ratchet
+      # is reported as a broken ratchet rather than as a documentation failure.
+      - name: Documentation-reference ratchet
+        run: node scripts/docs/check-doc-references.mjs
