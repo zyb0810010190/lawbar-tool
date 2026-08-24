@@ -17,6 +17,7 @@ import { mountViewMatter } from "./screens/viewMatter.js";
 import { mountArchiveMatter } from "./screens/archiveMatter.js";
 import { mountEditMatter } from "./screens/editMatter.js";
 import { mountSettings } from "./screens/settings.js";
+import { installDevModeBanner } from "./devModeBanner.js";
 
 type ThemePreference = "system" | "light" | "dark";
 type ResolvedTheme = "light" | "dark";
@@ -143,6 +144,10 @@ function applyShellI18n(d: Document): void {
 function bootstrap(): void {
   setupTheme();
   applyShellI18n(document);
+  // Mounted ONCE, outside `#app`. The router replaces `#app` on every route change, and a warning
+  // that vanishes when you navigate is not a warning. Fire-and-forget: a failure here must never
+  // block the product UI from rendering.
+  void installDevModeBanner(document);
   // attachRouter from ./router.js fires once on attach and then on every
   // hashchange event, so the initial route renders on load.
   attachRouter((route) => {

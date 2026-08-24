@@ -382,6 +382,13 @@ export const CATALOG = {
   "settings.fileVault.unknown": "未知",
   "settings.fileVault.non-macos": "不适用（非 macOS）",
   "settings.fileVault.note": "生产环境要求开启全盘加密（FileVault）。",
+
+  // ---- dev-mode banner ----
+  // Shown whenever LAWBAR_MODE=dev, which disables the FileVault gate. Not dismissable.
+  "devMode.banner.title": "开发模式：已跳过 FileVault 检查",
+  "devMode.banner.body":
+    "本模式不检查全盘加密，仅供试用与开发。请勿在此模式下录入真实当事人材料。",
+  "devMode.banner.dataDir": "当前数据目录：{dir}",
   "settings.field.privacy": "隐私",
   "settings.value.privacy": "不收集遥测数据；崩溃上报已关闭。",
 
