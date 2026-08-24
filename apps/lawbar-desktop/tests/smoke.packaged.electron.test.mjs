@@ -14,11 +14,20 @@
 // build itself — that would couple test runtime to electron-builder
 // startup cost; see plan §2.3).
 //
-// Cleanup: the packaged .app writes to the same userData path as
-// dev mode (~/Library/Application Support/lawbar/theme-preference.json
-// per night-mode foundation §3.2). Each test calls clearPref() at the
-// top AND registers t.after { clearPref() } to avoid cross-
-// contamination between dev and packaged runs (plan §2.4).
+// PROFILE ISOLATION — corrected 2026-08-24. This file used to launch with `args: []`, so the
+// packaged app resolved the REAL profile at ~/Library/Application Support/lawbar — the
+// litigator's live case store. The header here described that as the design and mitigated only
+// theme-preference.json, on the assumption it was the sole shared state. It is not: launching
+// runs applySchema and sets journal_mode=WAL against the real case-box.sqlite.
+//
+// This is the SAME defect fixed in smoke.electron.test.mjs earlier, and this sibling was missed
+// because it does not run in the default lane — it runs only under `npm run test:packaged`.
+// Measured when found: the case database was NOT in fact written, but only because the app
+// failed before reaching it. That is luck, not isolation.
+//
+// Every launch now goes through launchIsolatedPackaged(), which gives the run a temp profile and
+// REFUSES to proceed if the resolved path is the real one. clearPref() operates inside that temp
+// profile, so it can no longer delete a file out of the litigator's directory.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -55,16 +64,52 @@ const releaseDirs = [
   path.join(projectRoot, "dist"),
   path.join(projectRoot, "release"),
 ];
-const PREF_FILE = path.join(
-  os.homedir(),
-  "Library",
-  "Application Support",
-  "lawbar",
-  "theme-preference.json",
-);
+// The real profile — never a launch target, kept only so the guard can refuse it by name.
+const REAL_USER_DATA = path.join(os.homedir(), "Library", "Application Support", "lawbar");
+
+// Set by launchIsolatedPackaged for the duration of a test; clearPref() acts inside it.
+let activeProfile = null;
+
+function prefFile() {
+  assert.ok(activeProfile !== null, "clearPref() called with no isolated profile active");
+  return path.join(activeProfile, "theme-preference.json");
+}
+
+/**
+ * Launch the packaged binary against a THROWAWAY profile, and refuse if it still resolves the
+ * real one. `--user-data-dir` is honoured by Electron before any path resolution; cwd is not,
+ * and isolates nothing.
+ */
+async function launchIsolatedPackaged(t, binary, testName) {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "lawbar-packaged-profile-"));
+  activeProfile = profile;
+  const app = await launchPackaged({
+    executablePath: binary,
+    args: [`--user-data-dir=${profile}`],
+    // LAWBAR_MODE=dev disables the Tier 1 FileVault BLOCK for the packaged-binary smoke (per
+    // dev-memo/plan-encryption-at-rest-00.md §4.1). Production launches still BLOCK on
+    // FileVault-off Macs.
+    env: { ...process.env, LAWBAR_MODE: "dev" },
+  }, { testName });
+
+  const resolved = await app.evaluate(async ({ app: a }) => a.getPath("userData"));
+  const real = fs.existsSync(REAL_USER_DATA) ? fs.realpathSync(REAL_USER_DATA) : REAL_USER_DATA;
+  assert.equal(fs.realpathSync(resolved), fs.realpathSync(profile),
+    "the packaged app did not honour --user-data-dir");
+  assert.notEqual(fs.realpathSync(resolved), real,
+    "REFUSING: the packaged app resolved the REAL user-data directory. A test must never open " +
+    "the litigator's case store.");
+
+  t.after(async () => {
+    await app.close();                                   // close BEFORE removing the profile
+    fs.rmSync(profile, { recursive: true, force: true }); // takes -wal and -shm with it
+    activeProfile = null;
+  });
+  return app;
+}
 
 function clearPref() {
-  try { fs.unlinkSync(PREF_FILE); } catch { /* already absent */ }
+  try { fs.unlinkSync(prefFile()); } catch { /* already absent */ }
 }
 
 function findPackagedBinary() {
@@ -112,20 +157,8 @@ test("packaged .app launches; window opens; title=lawbar; renders case-box list 
   const binary = findPackagedBinary();
   assert.ok(binary !== null, "packaged .app missing");
 
+  const app = await launchIsolatedPackaged(t, binary, "packaged smoke: case-box shell");
   clearPref();
-  const app = await launchPackaged({
-    executablePath: binary,
-    args: [],
-    // LAWBAR_MODE=dev disables the Tier 1 FileVault BLOCK for the
-    // packaged-binary smoke (per dev-memo/plan-encryption-at-rest-00.md
-    // §4.1). The packaged binary inherits this env from the spawning
-    // process; production launches still BLOCK on FileVault-off Macs.
-    env: { ...process.env, LAWBAR_MODE: "dev" },
-  }, { testName: "packaged smoke: case-box shell" });
-  t.after(async () => {
-    await app.close();
-    clearPref();
-  });
 
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");
@@ -160,16 +193,8 @@ test("packaged .app theme switching toggles <html data-theme>", async (t) => {
   const binary = findPackagedBinary();
   assert.ok(binary !== null, "packaged .app missing");
 
+  const app = await launchIsolatedPackaged(t, binary, "packaged smoke: theme switching");
   clearPref();
-  const app = await launchPackaged({
-    executablePath: binary,
-    args: [],
-    env: { ...process.env, LAWBAR_MODE: "dev" },
-  }, { testName: "packaged smoke: theme switching" });
-  t.after(async () => {
-    await app.close();
-    clearPref();
-  });
 
   const window = await app.firstWindow();
   await window.waitForLoadState("domcontentloaded");

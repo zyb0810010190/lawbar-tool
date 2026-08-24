@@ -5,14 +5,17 @@ import { fileURLToPath } from "node:url";
 
 import { closeCaseBoxRuntime, getCaseBoxRuntime } from "../src/caseBox/caseBoxRuntime.js";
 import { acquireOrExit } from "../src/caseBox/startupFailure.js";
+import { describeUnexpectedFailure } from "../src/caseBox/unexpectedFailure.js";
 import { registerCaseBoxIpcHandlers } from "./ipc/caseBoxHandlers.js";
 import { makeStoreFile } from "../src/caseBox/documentStorage.js";
 import { loadThemePreference } from "../src/persistence/themePreference.js";
 import {
   decideAction,
+  fileVaultBlockMessage,
   probeFileVault,
   resolveMode,
 } from "../src/security/fileVaultProbe.js";
+import { openReadinessWindow, disposeReadinessHandlers } from "./readiness.js";
 import { resolveAndPersist } from "../src/theme/applyTheme.js";
 import {
   resolveSystemMode,
@@ -28,6 +31,30 @@ const __dirname = path.dirname(__filename);
 app.setName("lawbar");
 
 let mainWindow: BrowserWindow | null = null;
+
+// The one fact the crash handler below can honestly report. Set ONLY after the runtime is actually
+// acquired — an optimistic flag here would turn the message into a guess.
+let caseBoxOpened = false;
+
+// Last-resort handlers. Installed at module load, BEFORE app.whenReady, so a throw during startup
+// is covered too — the incident that prompted this was a throw in a BrowserWindow listener during
+// the pre-gate window. Electron's default is a raw stack dialog, which tells a litigator nothing.
+//
+// These deliberately QUIT. Continuing after an unexpected throw would leave the app running in a
+// state nothing has reasoned about, holding privileged material.
+function reportAndQuit(err: unknown): void {
+  try {
+    const { title, detail } = describeUnexpectedFailure(err, { caseBoxOpened });
+    dialog.showErrorBox(title, detail);
+  } catch {
+    // The reporter itself failing must not replace one crash with another and no message at all.
+    process.stderr.write(`[lawbar] unexpected failure, and the reporter also failed: ${String(err)}\n`);
+  }
+  app.quit();
+}
+
+process.on("uncaughtException", reportAndQuit);
+process.on("unhandledRejection", reportAndQuit);
 
 function createWindow(): void {
   const userDataDir = app.getPath("userData");
@@ -106,29 +133,10 @@ ipcMain.handle("app:info", () => ({
 // indeterminate FileVault state blocks launch with a dialog and quits.
 // In dev mode (LAWBAR_MODE=dev), the same condition logs a warning to
 // stderr and proceeds. Non-macOS platforms skip the check entirely.
-void app.whenReady().then(async () => {
-  const mode = resolveMode(process.env);
-  const probe = await probeFileVault();
-  const action = decideAction(probe.state, mode);
-  cachedLaunchMode = mode;
-  cachedFileVaultState = probe.state;
-  if (action === "block") {
-    const detail =
-      `lawbar requires FileVault to be enabled before launch in production mode.\n\n` +
-      `Detected state: ${probe.state}\n` +
-      (probe.error !== undefined ? `Probe error: ${probe.error}\n\n` : "\n") +
-      `Enable FileVault in System Settings → Privacy & Security → FileVault, ` +
-      `or set LAWBAR_MODE=dev for development builds.`;
-    dialog.showErrorBox("FileVault required", detail);
-    app.quit();
-    return;
-  }
-  if (action === "warn") {
-    process.stderr.write(
-      `[lawbar:fileVault] WARNING — FileVault state=${probe.state}; ` +
-        `running in dev mode (LAWBAR_MODE=dev). Production launch would block.\n`,
-    );
-  }
+// Everything after the gate. Extracted so it can be started EITHER immediately, when the
+// precondition already holds, OR by the readiness window once a re-check clears it. The gate
+// itself is unchanged and still lives below.
+async function startProduct(): Promise<void> {
   const userDataDir = app.getPath("userData");
   // WI-07. This call refuses to open a database that is corrupt, locked, foreign or
   // unreachable. It sat outside any try, so each of those threw unhandled inside
@@ -139,6 +147,7 @@ void app.whenReady().then(async () => {
     quit: () => app.quit(),
   });
   if (caseBoxRuntime === null) return;
+  caseBoxOpened = true;
   // Document files live in an app-controlled directory beside the SQLite DB.
   const documentStorageRoot = path.join(userDataDir, "case-box-documents");
   registerCaseBoxIpcHandlers({
@@ -211,6 +220,50 @@ void app.whenReady().then(async () => {
     (globalThis as { __lawbarCaseBoxLinkSeed?: typeof seedLinkRoundtripFixture }).__lawbarCaseBoxLinkSeed =
       seedLinkRoundtripFixture;
   }
+}
+
+// Tier 1 FileVault enforcement (per dev-memo/plan-encryption-at-rest-00.md §4.1). Runs BEFORE the
+// first product window. Production (default) blocks on a missing or indeterminate FileVault state;
+// dev warns and proceeds; non-macOS skips.
+//
+// A BLOCK no longer quits into an error box. It opens the readiness window, which states the
+// condition, offers the action that fixes it, and re-checks. `decideAction` still decides — the
+// window cannot proceed on its own, only ask main to probe again.
+void app.whenReady().then(async () => {
+  const mode = resolveMode(process.env);
+  const probe = await probeFileVault();
+  const action = decideAction(probe.state, mode);
+  cachedLaunchMode = mode;
+  cachedFileVaultState = probe.state;
+
+  if (action === "block") {
+    openReadinessWindow({
+      dirname: __dirname,
+      backgroundColor: (nativeTheme.shouldUseDarkColors ? DARK_TOKENS : LIGHT_TOKENS).background,
+      onProceed: () => {
+        disposeReadinessHandlers();
+        cachedFileVaultState = "on";
+        void startProduct();
+      },
+      onQuit: () => {
+        disposeReadinessHandlers();
+        app.quit();
+      },
+    });
+    return;
+  }
+
+  if (action === "warn") {
+    process.stderr.write(
+      `[lawbar:fileVault] WARNING — FileVault state=${probe.state}; ` +
+        `running in dev mode (LAWBAR_MODE=dev). Production launch would block.\n`,
+    );
+  }
+  await startProduct();
+}).catch((err: unknown) => {
+  // Without this the whole startup path could throw and leave a live process with no window
+  // and no message — which is exactly what happened the first time this ran.
+  process.stderr.write(`[lawbar:startup] failed: ${String(err)}\n`);
 });
 
 app.on("window-all-closed", () => {

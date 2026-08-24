@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; style-src 'self'; script-src 'self'; font-src 'self';" />
+    <title>lawbar</title>
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body class="lawbar-app readiness-body">
+    <main class="readiness" id="readiness">
+      <h1 class="readiness-title" id="readiness-title" data-test-id="readiness-title"></h1>
+      <div class="readiness-detail" id="readiness-detail" data-test-id="readiness-detail"></div>
+      <div class="readiness-actions">
+        <button type="button" class="button button--primary" id="readiness-open"
+                data-test-id="readiness-open"></button>
+        <button type="button" class="button button--secondary" id="readiness-recheck"
+                data-test-id="readiness-recheck"></button>
+        <button type="button" class="button button--ghost" id="readiness-quit"
+                data-test-id="readiness-quit"></button>
+      </div>
+      <p class="readiness-status" id="readiness-status" data-test-id="readiness-status"
+         role="status" aria-live="polite"></p>
+    </main>
+    <script type="module" src="readiness.js"></script>
+  </body>
+</html>
