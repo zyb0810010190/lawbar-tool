@@ -71,7 +71,7 @@
   "devDependencies": {
     "@playwright/test": "^1.50.0",
     "@types/node": "^22.0.0",
-    "electron": "^39.8.5",
+    "electron": "^39.8.10",
     "electron-builder": "^25.0.0",
     "playwright": "^1.50.0",
     "typescript": "^5.6.0"
@@ -108,5 +108,8 @@
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**"
     ]
+  },
+  "overrides": {
+    "fast-uri": "^3.1.6"
   }
 }

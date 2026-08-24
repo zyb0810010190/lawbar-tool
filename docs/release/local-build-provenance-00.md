@@ -26,7 +26,7 @@ record created with it can later be tied to exactly what produced it.
 |---|---|
 | Commit | `c127b4b7c51c567011a0ba2daed2acad68870aa8` |
 | Built | 2026-08-24 |
-| Electron | 39.8.5 |
+| Electron | 39.8.10 |
 | Architectures | `arm64` (`release/mac-arm64/`) and `x64` (`release/mac/`) |
 | Bundle size | 316 MB (arm64) |
 | Produced by | `npm --prefix apps/lawbar-desktop run dist` |
@@ -34,8 +34,8 @@ record created with it can later be tied to exactly what produced it.
 Identity, arm64 bundle:
 
 ```
-Contents/MacOS/lawbar      sha256  352199cc20deb0c84a9df2974a56c56a1f0eab6211fc082477c8a42ad344200b
-Contents/Resources/app.asar sha256 675c99a69ffa440f2d6042a0a52b1615dc60c557e8d700f64fb1716d667a0ab1
+Contents/MacOS/lawbar      sha256  cf74833a9b0c242e26c177005d7d61819e5bf5ed199acc794fed2eb0cc4f3149
+Contents/Resources/app.asar sha256 f9196a8f44a125375947ce05a255f7e76fd810e1ae261129885e7ecac7b595cb
 ```
 
 Recompute with `shasum -a 256` against those two paths. They identify the build; the rest of the
@@ -146,3 +146,39 @@ is guaranteed is that real use cannot happen silently in the real store while th
 Dev mode now carries a non-dismissable in-app banner naming the mode and the directory.
 
 `npm run evaluate -- --reset` empties the evaluation profile.
+
+## Rebuilt 2026-08-24 on Electron 39.8.10 (WI-SEC-ELECTRON-3980)
+
+The previous build ran Electron 39.8.5, against which npm reported **15 advisories**. Two of them
+attack this app's stated security boundary directly — context-isolation bypass via
+`Function.prototype.bind` hijack (CVSS 7.5) and contextBridge object copy honouring prototype
+setters (CVSS 5.4) — and the app runs with `sandbox: false`, which makes that boundary load-bearing
+rather than one layer among several.
+
+Electron is now 39.8.10 and `fast-uri` is pinned to `^3.1.6` by an override, reaching the app via
+`ajv` under `case-box-contract`.
+
+    electron   direct advisories  15 -> 0
+    fast-uri   direct advisories   3 -> 0
+    shipped packages still carrying a direct advisory: NONE
+
+**The workspace headline barely moved** — 1 critical / 19 high became 1 critical / 18 high — and
+that is not a disappointing result, it is the correct one. Every remaining advisory, including the
+critical, is in BUILD TOOLCHAIN only (`electron-builder`, `node-gyp`, `tar`, `extract-zip`): code
+that runs on this machine during a build and is not present in the packaged `.app`. `electron` is
+still listed, but with zero direct advisories — it is flagged transitively through `extract-zip`,
+the npm package's install-time unzip helper.
+
+Verified: desktop lane 1185 pass / 0 fail; `test:packaged` 3/3 against the app rebuilt on the new
+runtime, with zero attributed crash reports; the real case store untouched throughout.
+
+Two notes for whoever repeats this:
+
+- **`npm install` did not apply the fix.** `fast-uri` 3.1.2 already satisfies ajv's `^3.0.1`, so npm
+  saw nothing to do even with the lockfile updated to 3.1.6 and an override in place. Only `npm ci`
+  reconciled the tree. The lockfile is a statement of intent; the only check that counts is the
+  version on disk.
+- **There is no two-sided verification for this change, and none was manufactured.** You cannot
+  write a regression test for "a CVE existed". The evidence is the advisory delta above plus green
+  lanes and a working packaged build. A contrived failing test here would produce false confidence,
+  which is worse than an acknowledged gap.
