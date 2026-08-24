@@ -24,7 +24,7 @@ record created with it can later be tied to exactly what produced it.
 
 | | |
 |---|---|
-| Commit | `73c18f7a5524ee5655b55e881a9a7650cf976c10` |
+| Commit | `c127b4b7c51c567011a0ba2daed2acad68870aa8` |
 | Built | 2026-08-24 |
 | Electron | 39.8.5 |
 | Architectures | `arm64` (`release/mac-arm64/`) and `x64` (`release/mac/`) |
@@ -35,7 +35,7 @@ Identity, arm64 bundle:
 
 ```
 Contents/MacOS/lawbar      sha256  352199cc20deb0c84a9df2974a56c56a1f0eab6211fc082477c8a42ad344200b
-Contents/Resources/app.asar sha256 a1b8c9b6466ec3653d99d5c3fa972ba9eb48ee01e1dad013c419ec76b8de84c8
+Contents/Resources/app.asar sha256 675c99a69ffa440f2d6042a0a52b1615dc60c557e8d700f64fb1716d667a0ab1
 ```
 
 Recompute with `shasum -a 256` against those two paths. They identify the build; the rest of the
@@ -71,7 +71,7 @@ Signed and notarized distribution is not currently possible regardless: the mach
   the case-box shell, and theme switching works. The crash-detector wrapper attributed **zero**
   diagnostic reports.
 - LaunchServices launch — starts and runs under a throwaway `--user-data-dir`.
-- `npm test` — desktop lane 1169 pass / 0 fail / 0 todo at this commit.
+- `npm test` — desktop lane 1185 pass / 0 fail / 0 todo at this commit.
 
 ## The defect this exposed
 
@@ -104,7 +104,7 @@ than to this repository, and it is the author's to make.
 
 ## The honest claim
 
-> Locally built from commit `73c18f7`, hashes above, used only by the author on the machine that
+> Locally built from commit `c127b4b`, hashes above, used only by the author on the machine that
 > produced it.
 
 Not "released software". Not "signed". Not "verified by a third party". If a record created with
@@ -126,3 +126,23 @@ Only `app.asar` changed; the Electron binary hash is identical, as expected for 
 behaviour, not a defect to work around. Enabling it is the author's action — it needs the login
 password and a decision about where the recovery key is stored, neither of which belongs to this
 repository.
+
+## Trying it without enabling FileVault
+
+The production gate still blocks, and should. To trial the workflow before making the FileVault
+decision:
+
+```bash
+npm --prefix apps/lawbar-desktop run evaluate
+```
+
+This runs dev mode against `~/Library/Application Support/lawbar-evaluation` — a separate profile
+the run cannot see past. Verified end-to-end at this commit: the app launched with FileVault off,
+created its own case store in that profile, and the real `case-box.sqlite` was byte-identical
+afterwards (294912 bytes, mtime unchanged since 2026-08-04).
+
+Use SYNTHETIC matters only. Nothing can stop a real client name being typed into that profile; what
+is guaranteed is that real use cannot happen silently in the real store while the gate is bypassed.
+Dev mode now carries a non-dismissable in-app banner naming the mode and the directory.
+
+`npm run evaluate -- --reset` empties the evaluation profile.
