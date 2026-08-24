@@ -234,6 +234,10 @@ void app.whenReady().then(async () => {
     );
   }
   await startProduct();
+}).catch((err: unknown) => {
+  // Without this the whole startup path could throw and leave a live process with no window
+  // and no message — which is exactly what happened the first time this ran.
+  process.stderr.write(`[lawbar:startup] failed: ${String(err)}\n`);
 });
 
 app.on("window-all-closed", () => {

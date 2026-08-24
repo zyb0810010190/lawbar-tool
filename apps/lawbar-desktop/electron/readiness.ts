@@ -91,7 +91,18 @@ export function openReadinessWindow(host: ReadinessHost): BrowserWindow {
     host.onQuit();
   });
 
-  void win.loadFile(path.join(host.dirname, "../renderer/readiness.html"));
+  // A swallowed load failure is why this window once appeared not to exist at all: the process
+  // stayed alive, owned the menu bar, and drew nothing, with no error anywhere. Report it.
+  const page = path.join(host.dirname, "../renderer/readiness.html");
+  win.loadFile(page).catch((err: unknown) => {
+    process.stderr.write(`[lawbar:readiness] failed to load ${page}: ${String(err)}\n`);
+  });
+  win.webContents.on("render-process-gone", (_e, d) => {
+    process.stderr.write(`[lawbar:readiness] renderer gone: ${JSON.stringify(d)}\n`);
+  });
+  win.webContents.on("did-fail-load", (_e, code, desc) => {
+    process.stderr.write(`[lawbar:readiness] did-fail-load ${code} ${desc}\n`);
+  });
   return win;
 }
 
