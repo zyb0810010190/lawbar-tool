@@ -4,14 +4,60 @@
   "wi": "WI-EVIDENCE-A0.7-FIXTURE-COVERAGE-00",
   "fixtureId": "synthetic-mixed-sizes",
   "fixtureSha256": "550f1d44aa2d8ebbbe00cf2fcb91bee03e8e6d1027df00c78ba6869e99e59b42",
-  "independenceStatement": "Expected values derived ONLY from the fixture's known construction (2 pages: page0 MediaBox [0 0 612 792] US-Letter, page1 MediaBox [0 0 595 842] A4). Independent of harness output (A07-GATE-00 §3).",
+  "independenceStatement": "Expected values derived ONLY from the fixture's known construction (2 pages: page0 MediaBox [0 0 612 792] US-Letter, page1 MediaBox [0 0 595 842] A4). samplePageIndex is deliberately 1, so the oracle asserts that normalization uses THAT page's box and not page 0's: nx=(x-0)/595, ny=(y-0)/842. The 0.25 point discriminates — normalizing (148.75, 210.5) against page0 would yield (0.243055556, 0.265782828), not (0.25, 0.25). Independent of harness output (A07-GATE-00 §3).",
   "expected": {
     "pageCount": 2,
     "perPageMediaBox": [
-      { "pageIndex": 0, "x": 0, "y": 0, "width": 612, "height": 792 },
-      { "pageIndex": 1, "x": 0, "y": 0, "width": 595, "height": 842 }
+      {
+        "pageIndex": 0,
+        "x": 0,
+        "y": 0,
+        "width": 612,
+        "height": 792
+      },
+      {
+        "pageIndex": 1,
+        "x": 0,
+        "y": 0,
+        "width": 595,
+        "height": 842
+      }
     ],
-    "samplePoints": []
+    "samplePoints": [
+      {
+        "pdf": {
+          "x": 0,
+          "y": 0
+        },
+        "normalized": {
+          "nx": 0.0,
+          "ny": 0.0
+        }
+      },
+      {
+        "pdf": {
+          "x": 595,
+          "y": 842
+        },
+        "normalized": {
+          "nx": 1.0,
+          "ny": 1.0
+        }
+      },
+      {
+        "pdf": {
+          "x": 148.75,
+          "y": 210.5
+        },
+        "normalized": {
+          "nx": 0.25,
+          "ny": 0.25
+        }
+      }
+    ],
+    "samplePageIndex": 1
   },
-  "tolerance": { "absolutePdfPoints": 1e-9 }
+  "tolerance": {
+    "absolutePdfPoints": 1e-09
+  }
 }
