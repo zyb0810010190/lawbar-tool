@@ -465,6 +465,31 @@ public enum EvidenceCoreA07Harness {
                                         detail: "geometry captured for only \(first.perPageMediaBox.count) of \(first.pageCount) pages (not pass)")
         }
 
+        // D6 — non-finite geometry is refused here too, and this must run BEFORE the canonical
+        // comparison below.
+        //
+        // The comparison asks only "did the reads agree?". Two NaN reads DO agree — canonicalGeometry
+        // renders IEEE-754 bit patterns, so identical NaNs produce identical strings — and two
+        // infinite reads agree for the same reason. So both used to return pass. That answer is true
+        // and useless: A0.7's claim is that geometry is reproducible enough for court-stable anchors,
+        // and stable non-numbers are not usable geometry. Reporting pass would authorize downstream
+        // anchor work on a coordinate that is not a coordinate.
+        //
+        // Note the asymmetry with oracle mode, which is why this needs its own guard: there,
+        // `abs(inf - x) > tol` is true so infinity already failed. Here nothing subtracts, so
+        // infinity was as invisible as NaN.
+        //
+        // Every capture is checked, not just the first. A non-finite read that DISAGREES with its
+        // peers is already caught below as divergence — but relying on that would leave the verdict
+        // depending on which reads happened to be bad, and a reader should not have to derive that.
+        for (index, capture) in captures.enumerated() {
+            if let nonFinite = firstNonFiniteObservation(capture) {
+                return A07ConformanceResult(status: .fail, classification: .class_2_geometry_source_instability,
+                                            observedPageCount: capture.pageCount,
+                                            detail: "non-finite observed geometry on read \(index + 1) of \(captures.count): \(nonFinite) (not pass)")
+            }
+        }
+
         let reference = canonicalGeometry(first)
         for (index, other) in captures.enumerated().dropFirst() where canonicalGeometry(other) != reference {
             // Two reads of the SAME unchanged file disagreed: the geometry source is not reproducible.

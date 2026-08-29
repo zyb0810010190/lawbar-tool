@@ -292,7 +292,22 @@ final class A07StabilityHarnessTests: XCTestCase {
         let nan = capture([obsBox(0, Double.nan, 0, 612, 792)])
         XCTAssertEqual(EvidenceCoreA07Harness.canonicalGeometry(nan),
                        EvidenceCoreA07Harness.canonicalGeometry(nan))
-        XCTAssertEqual(EvidenceCoreA07Harness.evaluateStability(captures: [nan, nan]).status, .pass)
+
+        // The canonical rendering above is unchanged and still correct: identical NaNs DO produce
+        // identical strings, which is the byte-exactness property this test exists to pin.
+        //
+        // What changed is the VERDICT built on that agreement. This line asserted `.pass` until the
+        // D6 ruling (2026-08-29): two NaN reads agree, so stability mode called them stable. True,
+        // and too weak for this gate — A0.7's claim is that geometry is reproducible enough for
+        // court-stable anchors, and a stable non-number is not usable geometry. `evaluateStability`
+        // now refuses non-finite observations before comparing, classified class-2.
+        //
+        // The assertion is updated rather than removed: the old expectation was deliberate and
+        // reasoned, so the record should show it was overturned, not that it quietly disappeared.
+        // Full coverage of the new behaviour lives in A07NonFiniteGeometryTests.
+        let nanVerdict = EvidenceCoreA07Harness.evaluateStability(captures: [nan, nan])
+        XCTAssertEqual(nanVerdict.status, .fail, "agreement on a non-number is not stability")
+        XCTAssertEqual(nanVerdict.classification, .class_2_geometry_source_instability)
     }
 
     // MARK: - Determinism
