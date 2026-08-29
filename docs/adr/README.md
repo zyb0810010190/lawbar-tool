@@ -19,13 +19,18 @@ lifecycle:
 | **implementation-authorizing** | Code shipped with, or under, this record. | "**Decision + code**", "Implemented in this step", "Co-committed with …" |
 
 `Accepted (schema/persistence CONTRACT — design only; authorizes no migration or persistence code)`
-is **Accepted** and **authorizes nothing**. Both halves are load-bearing. Thirty-four of the sixty
-records below are design-only or contract; treating any of them as a licence to write code is the
+is **Accepted** and **authorizes nothing**. Both halves are load-bearing. Thirty-five of the sixty
+records below authorize no implementation — 26 design-only and 9 contract, against
+25 implementation-authorizing; treating any of them as a licence to write code is the
 error this table exists to prevent.
 
 ## Case-box foundations — the Step 0–8 series
 
-The contract layer for the case box. Step 0 sets the boundary; the rest fill it in.
+Boundary, model and implementation decisions for the case box. Step 0 sets the boundary; the rest
+fill it in. **There is no Step 1 record.** `case-box-step-1-contract-vocabulary.md` appears in Step
+0's phasing table as planned work and was never written; the corpus resolved it by pointing at the
+shipped package instead — see the redirect in `docs/adr/case-box-step-7-multi-user-readiness.md`.
+References to it elsewhere in the repo are dead.
 
 | Record | Governs | Scope |
 |---|---|---|
@@ -51,6 +56,11 @@ The contract layer for the case box. Step 0 sets the boundary; the rest fill it 
 
 The largest coherent series. All contract or design; **no A3 record authorizes implementation.**
 
+**One caveat you must not miss.** `docs/adr/ADR-evidence-a3-anchor-link-contract.md` appears below
+as a live contract and *is* one — but it is also superseded in fact. Its interface obligations still
+govern the A3 design; its present-tense claims about enforcement machinery are void. Read its banner
+before relying on it.
+
 | Record | Governs | Scope |
 |---|---|---|
 | `docs/adr/ADR-evidence-a3-anchor-link-contract.md` | Anchor identity, canonical `page_ratio`, fail-closed resolution | contract |
@@ -66,6 +76,20 @@ The largest coherent series. All contract or design; **no A3 record authorizes i
 | `docs/adr/ADR-evidence-a3-link-ipc-surface.md` | The five `casebox:link:*` channels | design-only |
 | `docs/adr/ADR-evidence-a3-link-d1-roundtrip-closure.md` | Test-only synthetic anchor seed for the IPC round trip | design-only |
 
+## Evidence — A0.7 renderer conformance and marker provenance
+
+**Read the banners on all four before relying on anything here.** Each is superseded in fact: the
+gate, marker writer, validator and guard they design were deleted and never rebuilt. They record
+intent and reasoning only. These are four of **six** superseded-in-fact records; the other two sit
+under client architecture and in the A3 series. All six are listed together below.
+
+| Record | Governs | Scope |
+|---|---|---|
+| `docs/adr/ADR-evidence-native-core-a07-feasibility.md` | A Swift/PDFKit evidence core behind the deterministic-JSON CLI contract | design-only |
+| `docs/adr/ADR-evidence-a07-renderer-conformance-gate.md` | What the A0.7 gate would prove: deterministic page geometry, three-state verdict | design-only |
+| `docs/adr/ADR-evidence-a07-marker-provenance.md` | Marker payload bound to fixture, oracle, harness commit and run id | design-only |
+| `docs/adr/ADR-evidence-a07-key-custody-operating-model.md` | Where the marker HMAC key lives and the three accepted custody modes | design-only |
+
 ## Evidence — A8 snapshot, A10 export, forms
 
 | Record | Governs | Scope |
@@ -80,7 +104,8 @@ The largest coherent series. All contract or design; **no A3 record authorizes i
 |---|---|---|
 | `docs/adr/client-application-surface.md` | A Mac desktop app embedding the libraries in-process; no network by default | design-only |
 | `docs/adr/sync-bridge-architecture.md` | An opt-in, off-by-default HTTP bridge for a future companion | design-only |
-| `docs/adr/ADR-evidence-desktop-internal-deps-packaging.md` | Commit the internal tarballs plus the lockfile, guarded by a drift gate | design-only (Proposed) |
+| `docs/adr/ADR-evidence-desktop-internal-deps-packaging.md` | Commit the internal tarballs plus the lockfile, guarded by a drift gate (lifecycle: Proposed, not Accepted) | design-only |
+| `docs/adr/ADR-evidence-m0-xiaolai-workflow-composition.md` | Three-layer agent workflow composition; higher layers constrain lower | design-only |
 
 ## OCR — queue and runtime (Step 10)
 
@@ -139,13 +164,16 @@ wired" claim as past tense. The records are honest about their own obsolescence.
 - `docs/adr/ADR-evidence-native-core-a07-feasibility.md`
 - `docs/adr/ADR-evidence-m0-xiaolai-workflow-composition.md`
 - `docs/adr/ADR-evidence-a3-anchor-link-contract.md` — also the A3 series' foundational contract,
-  listed above as live. Both are true: the contract it fixes still governs the A3 design, while the
-  enforcement machinery it describes is gone.
+  listed above as live. Both are true, and the split matters: the interface obligations it fixes
+  remain binding on any future A3 work, while every present-tense claim that a gate, validator or
+  marker check *exists* is currently false.
 
 What is absent is a *forward-pointing successor* — no record states the current posture in its own
-right; you learn it only from a banner on an obsolete document. Whether that warrants a successor
-record is an open question, not a defect: the A0.7 banner already states the posture plainly
-("A0.7 is **PROVISIONAL, not green**").
+right; you learn it only from a banner on an obsolete document. That absence is a real gap, not
+merely an open question: a reader learns the current posture only from a document announcing its own
+obsolescence. It is mitigated — the banners are truthful, specific and dated — but the fix is a
+successor record stating the posture directly. Until one exists, **the banners are the only
+authority on this gap.**
 
 Two further supersessions are partial and properly recorded, needing nothing:
 `docs/adr/ocr-fetcher-https-source-step-11d-2.md` is superseded in part by Step 11E on error-code
@@ -155,14 +183,14 @@ seed mechanism in place.
 ## Conventions, as they actually are
 
 Two naming families coexist: 23 records use an `ADR-<topic>.md` prefix, 37 are unprefixed legacy
-names. **The filename is the stable identifier** — every cross-reference in this repo cites it, in
-documentation and in shipped source. There is no numbering scheme and adding one would break those
+names. **The filename is the universal stable identifier** — every record has one, and every
+cross-reference in this repo cites it, in documentation and in shipped source. There is no numbering scheme and adding one would break those
 references.
 
 Eighteen records additionally declare a canonical id (`A3-SCHEMA-00`, `A07-KEY-00`, `EVW-00`,
 `SYNC-00`, `CLIENT-00`, …) which is cited from TypeScript and test fixtures as well as prose. The
-remaining 42 have none. Both facts are load-bearing: the id, where present, is how source code
-points at a decision.
+remaining 42 have none. Both facts are load-bearing: canonical ids are an additional, code-facing
+identifier that exists for only some records.
 
 Twenty records contain a section weighing alternatives — `## Rejected alternatives`,
 `## Options considered`, `### Option A/B/C/D`. Forty do not; they record obligations, invariants and
