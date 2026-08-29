@@ -95,6 +95,20 @@ is a separate gap from the four defects below and is listed last.
 
 ### D1 — NaN silently passes every tolerance check *(class-1, fixable)*
 
+> **CLOSED for oracle mode — 2026-08-29.** `evaluate` now rejects non-finite observed geometry
+> before any tolerance comparison, classified `class_2_geometry_source_instability`, covering box
+> origin/extent/cropBox on every page plus the normalized sample values. Verified two-sided: the
+> four NaN tests fail against the pre-change harness with real assertion failures ("pass" is not
+> equal to "fail"), and disabling the guard turns the new test file red with 10 failures. Full
+> Swift suite 148/0 against a 140/0 baseline. See
+> `native/evidence-core-swift/Tests/EvidenceCoreSmokeTests/A07NonFiniteGeometryTests.swift`.
+>
+> **Stability mode is NOT closed.** `evaluateStability` compares canonical geometry strings and two
+> NaN reads produce identical strings, so it still returns `pass` — the second NaN path described
+> below remains exactly as written. That is the "decide separately" item in this defect's own
+> closing note, and it is still undecided.
+
+
 Every geometry comparison in the harness has the form `if abs(observed - expected) > tol` —
 `A07ConformanceHarness.swift:269` (box width/height), `:276` (origin), `:289-290` (cropBox),
 `:307` (normalized sample points).
