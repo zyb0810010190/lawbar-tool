@@ -185,16 +185,48 @@ public enum EvidenceCoreA07Harness {
 
         // 4. Observed normalized sample values, computed from the OBSERVED sample-page box via
         //    nx=(x-originX)/w, ny=(y-originY)/h. The sample page is oracle.samplePageIndex (default 0).
+        //    D4 — WHY the sample page could not be resolved decides the classification, so the causes
+        //    are separated here rather than all falling through to an empty sampleNorm.
+        //
+        //    They used to be one bundled condition. Any failure left sampleNorm empty, evaluate() saw
+        //    a count mismatch, and every cause was reported as class_1_normalization_math_bug — "the
+        //    arithmetic is wrong, go fix it". That is the most consequential misreport this gate can
+        //    make: class-2 means the geometry source is unsound and downstream anchor, forms and UI
+        //    work must STOP, and a class-2 dressed as a class-1 produces no visible failure at all,
+        //    just continued construction on a foundation that was never sound.
         var sampleNorm: [A07Observed.SampleNorm] = []
         let samplePage = oracle.expected.samplePageIndex ?? 0
-        if !oracle.expected.samplePoints.isEmpty, samplePage >= 0, samplePage < pageCount,
-           let page = document.page(at: samplePage) {
+        if !oracle.expected.samplePoints.isEmpty {
+            //  a) The oracle names a page the document does not have. Nothing is learned about the
+            //     renderer — the oracle simply cannot adjudicate this fixture. Not a math bug.
+            guard samplePage >= 0, samplePage < pageCount else {
+                return A07ConformanceResult(status: .fail, classification: .fixture_or_oracle_invalid,
+                                            observedPageCount: pageCount,
+                                            detail: "oracle samplePageIndex \(samplePage) is outside the document's \(pageCount) page(s); the oracle cannot adjudicate this fixture (not pass)")
+            }
+            //  b) PDFKit reported a page count and then refused a page inside it. Its own structural
+            //     report contradicts itself, which is exactly a geometry source that cannot be
+            //     trusted — class-2, STOP.
+            //
+            //     NO TEST COVERS THIS BRANCH, and that is stated rather than glossed: there is no way
+            //     to make PDFKit report N pages and then refuse an in-range one without a seam this
+            //     harness does not have. A test that pretended to cover it would be worse than this
+            //     comment.
+            guard let page = document.page(at: samplePage) else {
+                return A07ConformanceResult(status: .fail, classification: .class_2_geometry_source_instability,
+                                            observedPageCount: pageCount,
+                                            detail: "renderer reported \(pageCount) page(s) but returned no page at in-range index \(samplePage); its structural report is self-contradictory (not pass)")
+            }
             let r = page.bounds(for: .mediaBox)
             let ox = Double(r.origin.x), oy = Double(r.origin.y), w = Double(r.width), h = Double(r.height)
             for s in oracle.expected.samplePoints {
                 sampleNorm.append(.init(nx: (s.pdf.x - ox) / w, ny: (s.pdf.y - oy) / h))
             }
         }
+        //  c) An empty samplePoints array was the third cause that used to land on class-1. It can no
+        //     longer reach the count check: D2's oracle-sufficiency guard in evaluate() rejects such
+        //     an oracle first, as fixture_or_oracle_invalid. Asserted in A07SampleResolutionTests so a
+        //     change to either guard cannot silently revive the collapse.
 
         let observed = A07Observed(pageCount: pageCount, perPageMediaBox: boxes, sampleNormalized: sampleNorm)
         return evaluate(observed: observed, oracle: oracle)
@@ -361,6 +393,12 @@ public enum EvidenceCoreA07Harness {
 
         // Class-1: normalized sample disagreement (box is correct, so a mismatch is a math bug — e.g.
         // origin not subtracted, or ratio uses the wrong box).
+        // D4 — this now means what it always claimed to. `run` computes sampleNormalized one-for-one
+        // FROM oracle.expected.samplePoints, so a count mismatch never meant "the renderer counted
+        // differently"; it meant the sample page failed to resolve, and those causes are now
+        // classified at their source above. What can still reach here is evaluate() being called
+        // directly with mismatched arrays — a caller error, hence class-1's narrowed remit: the
+        // samples resolved and a derived value is wrong.
         guard observed.sampleNormalized.count == oracle.expected.samplePoints.count else {
             return A07ConformanceResult(status: .fail, classification: .class_1_normalization_math_bug,
                                         observedPageCount: observed.pageCount,
