@@ -81,11 +81,61 @@ jobs:
       - name: Unit + renderer + electron suite (includes the i18n user-facing-English guard)
         run: npm --prefix apps/lawbar-desktop test
 
+      # THE ORACLE THAT THE PACKAGED STEPS BELOW DEPEND ON.
+      # Every packaged step in this job runs inside scripts/test-packaged-wrapper.mjs, a fail-closed
+      # crash detector: it parses macOS .ips reports, attributes crashes to the app, and exits 3 on
+      # an attributable crash / 2 on a CI-guard violation / 4 on unreadable diagnostics. The comment
+      # at the top of this job asserts that wrapper "enforces strict crash attribution + a 30s settle
+      # floor when CI=true" — but until now nothing in CI proved that enforcement still worked. A
+      # wrapper that silently stopped detecting would let the packaged smoke matrix report green
+      # while checking nothing, which is precisely the "test that cannot fail" failure mode this
+      # repo treats as its recurring one.
+      #
+      # wrapper.test.mjs is pure Node — no Electron, no Playwright, no packaged build. It drives the
+      # wrapper via spawnSync against synthetic .ips fixtures in a temp dir and asserts its exit
+      # codes across the G2.4.a-h attribution matrix and the G2.8 CI-guard cases (STRICT_UNATTRIBUTED
+      # cannot be disabled under CI; the settle floor cannot drop below 30s; a sentinel fires when the
+      # wrapper's own instrumentation is missing). Measured 2026-08-29: 31 tests, 31 pass, ~15s.
+      #
+      # WHAT THIS STEP LETS CI CLAIM: the packaged crash-detection oracle's CI invariants are
+      # enforced before merge. Without it, every packaged result below is unverified at its root.
+      # It runs BEFORE the packaged steps deliberately — a broken oracle should fail fast, not after
+      # a 10-minute build.
+      - name: Packaged-test crash oracle invariants (pure Node; gates the packaged steps below)
+        run: npm --prefix apps/lawbar-desktop run test:wrapper
+
       - name: Package the app (UNSIGNED — identity:null; NO signing/notarization in CI)
         run: npm --prefix apps/lawbar-desktop run dist
 
       - name: Packaged release smoke matrix (M1-M9) against the fresh build
         run: npm --prefix apps/lawbar-desktop run test:smoke-matrix
+
+      # Substantiates the closure of deferred audit finding LINK-IPC-T1-D1. That finding was closed
+      # on evidence this test produces; running it only locally makes the closure a dated historical
+      # verification rather than a regression-enforced property. For a court-facing release gate the
+      # difference matters: "was verified once" and "cannot regress" are different claims, and the
+      # readiness framework reads as the second.
+      #
+      # Marginal cost only — `dist` above already built the bundle. Measured 2026-08-29 against a
+      # packaged build: 2 tests, 2 pass, ~3s of assertions plus the wrapper's mandatory 30s settle.
+      #
+      # WHAT THIS STEP LETS CI CLAIM: the A3 packaged link round-trip closure is regression-enforced,
+      # not merely recorded.
+      - name: A3 packaged link round-trip (regression-enforces the LINK-IPC-T1-D1 closure)
+        run: npm --prefix apps/lawbar-desktop run test:link-roundtrip-packaged
+
+      # DELIBERATELY NOT RUN HERE, and this is a risk acceptance rather than a judgement that these
+      # surfaces are redundant:
+      #   test:packaged      — packaged-binary smoke (3 tests)
+      #   test:ipc-packaged  — renderer<->main case-box IPC, packaged (1 test)
+      #   test:tarball-poc   — packaged tarball proof (7 tests)
+      # Each needs the full packaged bundle plus its own 30s settle, and no current release claim
+      # depends on their CONTINUOUS enforcement. Revisit if a gate ever cites one of them as
+      # standing evidence. They remain runnable on demand via their npm scripts.
+      #
+      # `release-signing-real-bundle` stays unbound to any trigger BY DESIGN — spctl/xcrun stapler
+      # may perform an online notarization lookup and gated tests here must not touch the network.
+      # See its lane description in .claude/tdd-guardian/config.json. Do not "fix" that empty gateOn.
 
       # Generated release/** artifacts are NOT uploaded or committed (300 MB+ per
       # bundle, gitignored). This job proves the release path builds + smokes; it
