@@ -220,6 +220,20 @@ oracle and in the fixtures README rather than leaving an empty array that reads 
 
 ### D4 — a sample-count mismatch is classified class-1, and may not be *(classification risk)*
 
+> **CLOSED — 2026-08-29, and it was more than the comment this lane specified.** The acceptance
+> criterion here was "the choice is recorded with its reasoning". Recording a policy the code
+> contradicts is worse than silence, so the causes are now separated at their source in `run`:
+> an out-of-range `samplePageIndex` is `fixture_or_oracle_invalid` (the oracle names a page the
+> document lacks, so it cannot adjudicate the fixture); `page(at:)` returning nil for an in-range
+> index is **class-2** (PDFKit's own structural report contradicts itself). The third historical
+> cause — an empty `samplePoints` — is now unreachable because D2's guard rejects such an oracle
+> first, and a test asserts that so neither guard can silently revive the collapse.
+>
+> **One branch is implemented but untested, stated rather than glossed:** there is no way to make
+> PDFKit report N pages and then refuse an in-range one without a seam this harness does not have.
+> Full suite 166/0; mutation widening the range guard turns the new tests red.
+
+
 `A07ConformanceHarness.swift:300-303` treats `observed.sampleNormalized.count !=
 oracle.expected.samplePoints.count` as `class_1_normalization_math_bug` — a fixable local bug.
 
