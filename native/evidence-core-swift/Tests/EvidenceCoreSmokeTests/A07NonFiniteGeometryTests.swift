@@ -29,10 +29,19 @@ import Foundation
 // message describing a size mismatch rather than the real problem. The tests below pin infinity to
 // the same explicit non-finite rejection so the reported reason matches the actual defect.
 //
-// SCOPE. Oracle mode (`evaluate`) only. Stability mode has a second, independent NaN path:
+// SCOPE — BOTH MODES, as of the D6 ruling (2026-08-29).
+//
+// Oracle mode was fixed first (D1). Stability mode had a second, independent NaN path:
 // `evaluateStability` compares canonical geometry strings, and two NaN reads produce identical
-// strings, so it returns pass — see A07StabilityHarnessTests. Whether "two reads agreed" is the
-// right answer for NaN is a separate product decision, deliberately not settled here.
+// strings, so it returned `pass` — and a test asserted that deliberately. D1's own closing note
+// left it open: "decide separately whether stability mode should refuse NaN outright or keep
+// reporting agreement."
+//
+// It is now decided: REFUSE. "Two reads agreed" is a true answer to a question too weak for this
+// gate. A0.7's claim is that geometry is reproducible enough for court-stable anchors, and stable
+// non-numbers are not usable geometry — reporting `pass` for them would let downstream anchor work
+// proceed on a coordinate that is not a coordinate. Classified class-2 for the same reason as in
+// oracle mode: an unsound geometry source, not a fixable local bug.
 final class A07NonFiniteGeometryTests: XCTestCase {
     private var fixturesDir: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures")
@@ -183,5 +192,68 @@ final class A07NonFiniteGeometryTests: XCTestCase {
         XCTAssertTrue(r.detail.lowercased().contains("non-finite"),
                       "detail must say the observation was non-finite; got: \(r.detail)")
         XCTAssertTrue(r.detail.contains("page 0"), "detail must locate the offending page; got: \(r.detail)")
+    }
+
+    // MARK: - D6: stability mode must refuse non-finite geometry, not report agreement
+
+    private func capture(_ boxes: [A07Observed.Box]) -> A07Observed {
+        A07Observed(pageCount: boxes.count, perPageMediaBox: boxes, sampleNormalized: [])
+    }
+
+    /// THE D6 RULING. Two identical NaN reads DO agree, and `canonicalGeometry` correctly renders
+    /// them identically — that part is not the defect and is still asserted in
+    /// A07StabilityHarnessTests. The defect is calling that agreement `pass`.
+    func testStabilityRefusesTwoIdenticalNaNReads() {
+        let nan = capture([obsBox(0, Double.nan, 0, 612, 792)])
+        let r = EvidenceCoreA07Harness.evaluateStability(captures: [nan, nan])
+        XCTAssertEqual(r.status, .fail, "two NaN reads agree, but agreement on a non-number is not stability")
+        XCTAssertEqual(r.classification, .class_2_geometry_source_instability)
+    }
+
+    /// The guard must fire on the FIRST capture's own content, before any cross-read comparison —
+    /// otherwise a single bad read hidden behind agreement still slips through.
+    func testStabilityRefusesNaNEvenWhenOnlyOneReadIsBad() {
+        let good = capture([obsBox(0, 0, 0, 612, 792)])
+        let bad = capture([obsBox(0, 0, 0, Double.nan, 792)])
+        for pair in [[bad, good], [good, bad]] {
+            let r = EvidenceCoreA07Harness.evaluateStability(captures: pair)
+            XCTAssertEqual(r.status, .fail)
+            XCTAssertEqual(r.classification, .class_2_geometry_source_instability,
+                           "a non-finite read is class-2 regardless of which read carried it")
+        }
+    }
+
+    func testStabilityRefusesInfiniteGeometry() {
+        let inf = capture([obsBox(0, 0, 0, Double.infinity, 792)])
+        let r = EvidenceCoreA07Harness.evaluateStability(captures: [inf, inf])
+        XCTAssertEqual(r.status, .fail)
+        XCTAssertEqual(r.classification, .class_2_geometry_source_instability)
+    }
+
+    func testStabilityDetailNamesTheNonFiniteCondition() {
+        let nan = capture([obsBox(0, Double.nan, 0, 612, 792)])
+        let d = EvidenceCoreA07Harness.evaluateStability(captures: [nan, nan]).detail
+        XCTAssertTrue(d.lowercased().contains("non-finite"), "detail must name the condition; got: \(d)")
+    }
+
+    /// The negative case: ordinary agreeing reads must still pass, so the guard does not turn
+    /// stability mode into a blanket failure.
+    func testStabilityStillPassesOnFiniteAgreeingReads() {
+        let good = capture([obsBox(0, 0, 0, 612, 792)])
+        let r = EvidenceCoreA07Harness.evaluateStability(captures: [good, good])
+        XCTAssertEqual(r.status, .pass, "the guard must not reject ordinary agreeing geometry")
+        XCTAssertEqual(r.classification, .ok)
+    }
+
+    /// And a genuine disagreement must still be reported as a disagreement, not swallowed by the
+    /// new guard — the two conditions are different and a reader needs to tell them apart.
+    func testStabilityStillReportsOrdinaryDivergenceAsDivergence() {
+        let a = capture([obsBox(0, 0, 0, 612, 792)])
+        let b = capture([obsBox(0, 0, 0, 600, 792)])
+        let r = EvidenceCoreA07Harness.evaluateStability(captures: [a, b])
+        XCTAssertEqual(r.status, .fail)
+        XCTAssertEqual(r.classification, .class_2_geometry_source_instability)
+        XCTAssertTrue(r.detail.contains("not reproducible"),
+                      "an ordinary divergence must still say so; got: \(r.detail)")
     }
 }

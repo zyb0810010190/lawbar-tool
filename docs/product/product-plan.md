@@ -103,10 +103,14 @@ is a separate gap from the four defects below and is listed last.
 > Swift suite 148/0 against a 140/0 baseline. See
 > `native/evidence-core-swift/Tests/EvidenceCoreSmokeTests/A07NonFiniteGeometryTests.swift`.
 >
-> **Stability mode is NOT closed.** `evaluateStability` compares canonical geometry strings and two
-> NaN reads produce identical strings, so it still returns `pass` — the second NaN path described
-> below remains exactly as written. That is the "decide separately" item in this defect's own
-> closing note, and it is still undecided.
+> **Stability mode CLOSED 2026-08-29 — the owner ruled: refuse.** `evaluateStability` now rejects
+> non-finite observations on every capture before the canonical comparison, classified class-2.
+> Agreement on a non-number is not stability. The deliberate assertion at
+> `A07StabilityHarnessTests.swift:295` was updated rather than deleted, so the record shows the old
+> expectation overturned rather than quietly gone. Discovered while writing the test and not
+> predicted by this lane: **infinity passed in stability mode too** — oracle mode caught it via
+> `abs(inf - x) > tol`, but stability mode subtracts nothing, so infinite reads agreed exactly as NaN
+> did. Mutation-verified: disabling the guard turns the suite red with 7 failures. Full suite 160/0.
 
 
 Every geometry comparison in the harness has the form `if abs(observed - expected) > tol` —
