@@ -242,6 +242,29 @@ public enum EvidenceCoreA07Harness {
     /// box with a wrong normalized value is Class-1. (A07-GATE-00 §4; handover §5: "ratio uses mediaBox
     /// while geometry says cropBox" / "origin not subtracted" are Class-1; "PDFKit reports different
     /// crop/media bounds" / "page count differs" are Class-2.)
+    /// First non-finite (NaN or infinite) value in the observed geometry, described well enough to
+    /// act on: which page, which field. Returns nil when every observed value is finite.
+    ///
+    /// Checks the sample values too — those are the "math under test" and the numbers an anchor is
+    /// ultimately stored from, so a NaN there is not cosmetic.
+    static func firstNonFiniteObservation(_ observed: A07Observed) -> String? {
+        for b in observed.perPageMediaBox {
+            let fields: [(String, Double)] = [
+                ("originX", b.originX), ("originY", b.originY), ("width", b.width), ("height", b.height),
+                ("cropBox.x", b.cropBox.x), ("cropBox.y", b.cropBox.y),
+                ("cropBox.width", b.cropBox.width), ("cropBox.height", b.cropBox.height),
+            ]
+            for (name, value) in fields where !value.isFinite {
+                return "page \(b.pageIndex) \(name) = \(value)"
+            }
+        }
+        for (i, s) in observed.sampleNormalized.enumerated() {
+            if !s.nx.isFinite { return "sample \(i) nx = \(s.nx)" }
+            if !s.ny.isFinite { return "sample \(i) ny = \(s.ny)" }
+        }
+        return nil
+    }
+
     static func evaluate(observed: A07Observed, oracle: A07Oracle) -> A07ConformanceResult {
         let tol = oracle.tolerance.absolutePdfPoints
 
@@ -257,6 +280,27 @@ public enum EvidenceCoreA07Harness {
             return A07ConformanceResult(status: .fail, classification: .class_2_geometry_source_instability,
                                         observedPageCount: observed.pageCount,
                                         detail: "page count observed \(observed.pageCount) != oracle \(oracle.expected.pageCount)")
+        }
+
+        // Class-2: NON-FINITE OBSERVED GEOMETRY. This must run BEFORE any tolerance comparison.
+        //
+        // Every comparison below has the form `abs(observed - expected) > tol`. In IEEE 754,
+        // `NaN > tol` is FALSE, so `abs(NaN - x) > tol` is false and a NaN observation trips no
+        // check at all — it passes, silently and cleanly, reporting "all assertions within
+        // tolerance". A NaN here means the renderer returned a non-representable coordinate, which
+        // is precisely the condition this gate exists to detect; without this guard it was the one
+        // condition the gate was structurally blind to. (Infinity did fail before, since
+        // `abs(inf - x) > tol` is true — but via whichever extent check ran first, reported as a
+        // size mismatch rather than as the non-finite observation it is.)
+        //
+        // Classified class-2, never class-1: class-1 means the normalization math is locally wrong
+        // and fixable; class-2 means the geometry source itself is unsound and downstream anchor,
+        // forms and UI work must stop. No correction downstream turns a non-number into a
+        // coordinate, so a renderer emitting one is the second.
+        if let nonFinite = firstNonFiniteObservation(observed) {
+            return A07ConformanceResult(status: .fail, classification: .class_2_geometry_source_instability,
+                                        observedPageCount: observed.pageCount,
+                                        detail: "non-finite observed geometry: \(nonFinite) (not pass)")
         }
 
         // Class-2: per-page structural geometry (mediaBox extent + origin, cropBox, rotation) disagreement.
