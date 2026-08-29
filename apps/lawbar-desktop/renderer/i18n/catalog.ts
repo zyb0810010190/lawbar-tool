@@ -408,6 +408,7 @@ export const CATALOG = {
   "audit.chainHead.summaryAria": "审计链头详情",
   "audit.chainHead.summary": "查看审计链头",
   "audit.chainHead.loading": "正在加载审计链头…",
+  "audit.chainHead.failed": "无法加载审计链头，请重试。",
   "audit.chainHead.empty": "暂无审计事件记录。",
   "audit.chainHead.headHashLabel": "链头哈希：",
   "audit.chainHead.showFullHash": "显示完整哈希",
@@ -418,6 +419,7 @@ export const CATALOG = {
   "audit.copyHash.unavailable": "当前环境不支持复制。",
   "audit.copyHash.button": "复制",
   "audit.events.heading": "审计事件",
+  "audit.events.failed": "无法加载审计事件，请重试。",
   "audit.events.loading": "正在加载审计事件…",
   "audit.events.reason": "原因：{reason}",
   "audit.events.showMoreAria": "加载更多审计事件",
@@ -431,6 +433,7 @@ export const CATALOG = {
   "audit.verify.running": "正在验证审计链…",
   "audit.verify.ok": "链完整：已逐条验证 {count} 条事件，链头一致。",
   "audit.verify.failed": "链不一致：第 {index} 条事件——{reason}",
+  "audit.verify.unavailable": "无法完成验证，请重试。本结果不代表链有问题。",
   "audit.verify.resultAria": "审计链验证结果",
   "audit.verify.scopeNote": "本结果由本机记录自证，不能替代第三方鉴定。",
   // The nine ChainVerifyErrorReason values. Kept as separate keys rather than one interpolated
