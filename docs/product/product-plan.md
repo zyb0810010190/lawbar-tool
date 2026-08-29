@@ -136,6 +136,21 @@ never `pass`. In stability mode, the decision is recorded either way and `:295` 
 
 ### D2 — an oracle with zero sample points can return `pass` *(class-1, fixable)*
 
+> **CLOSED — 2026-08-29.** `evaluate` now returns `fail` / `fixture_or_oracle_invalid` when the
+> oracle carries no sample points, deliberately not `inconclusive_no_checkable_assertions` — the
+> oracle *does* have box assertions, so reporting none would be false; it is invalid *for the A0.7
+> claim*. A new enum case was considered and rejected: this classification is court-facing and
+> downstream code switches on it.
+>
+> **The red-test warning below did not materialise, because D3 landed first.** With the three
+> oracles populated, their fixtures pass for the right reason — no assertion was flipped and
+> `testMessyRotatedFixturePasses`' deliberate "must not be inconclusive" stays true. That ordering
+> has a cost the lane did not anticipate: those fixtures were the invariant's only coverage, so
+> `A07OracleSufficiencyTests.swift` now asserts it directly on synthetic oracles, plus a corpus test
+> that every shipped oracle carries at least one sample point. Mutation-verified: disabling the
+> guard → 7 failures; emptying one oracle → 1.
+
+
 `A07ConformanceHarness.swift:119`:
 
 ```swift
@@ -169,6 +184,15 @@ sample points must not be reported the same way as one that checked several.
 are updated to assert the new verdict — not deleted, and not reverted to green by relaxing the fix.
 
 ### D3 — three of five oracles assert no normalization at all *(fixture gap)*
+
+> **CLOSED — 2026-08-29.** All three now carry three sample points each, derived from the documented
+> construction and never back-filled from harness output. Each point discriminates against the
+> plausible wrong normalization rather than merely existing: rotated proves /Rotate 90 must not swap
+> width and height; cropbox proves normalization uses the mediaBox and not the cropBox (note
+> `(306,396)` gives 0.5 under *either* box, so it would not have discriminated and was not used); and
+> mixed-sizes sets `samplePageIndex: 1` so it proves the right page's box is used. Each
+> `independenceStatement` records the derivation and the discriminator.
+
 
 Measured 2026-08-12, re-counted for this lane:
 

@@ -5,13 +5,54 @@
   "adr": "docs/adr/ADR-evidence-a07-renderer-conformance-gate.md (A07-GATE-00)",
   "fixtureId": "synthetic-rotated",
   "fixtureSha256": "d05e3425a3ef6e628b64829ec791bc3a29a16b856539ece5351f18de620a2b04",
-  "independenceStatement": "Expected values derived ONLY from the fixture's known construction (1 page, MediaBox [0 0 612 792], /Rotate 90; no CropBox so PDFKit reports cropBox=mediaBox). Independent of harness output (A07-GATE-00 §3).",
+  "independenceStatement": "Expected values derived ONLY from the fixture's known construction (1 page, MediaBox [0 0 612 792], /Rotate 90; no CropBox so PDFKit reports cropBox=mediaBox). Sample normalization is against the MEDIABOX and is unaffected by /Rotate: nx=(x-0)/612, ny=(y-0)/792. The 0.25 point discriminates: a harness that let /Rotate 90 swap width and height would yield (153/792, 198/612) = (0.193181818, 0.323529412), not (0.25, 0.25). Independent of harness output (A07-GATE-00 §3).",
   "expected": {
     "pageCount": 1,
     "perPageMediaBox": [
-      { "pageIndex": 0, "x": 0, "y": 0, "width": 612, "height": 792, "rotation": 90 }
+      {
+        "pageIndex": 0,
+        "x": 0,
+        "y": 0,
+        "width": 612,
+        "height": 792,
+        "rotation": 90
+      }
     ],
-    "samplePoints": []
+    "samplePoints": [
+      {
+        "pdf": {
+          "x": 0,
+          "y": 0
+        },
+        "normalized": {
+          "nx": 0.0,
+          "ny": 0.0
+        }
+      },
+      {
+        "pdf": {
+          "x": 612,
+          "y": 792
+        },
+        "normalized": {
+          "nx": 1.0,
+          "ny": 1.0
+        }
+      },
+      {
+        "pdf": {
+          "x": 153,
+          "y": 198
+        },
+        "normalized": {
+          "nx": 0.25,
+          "ny": 0.25
+        }
+      }
+    ],
+    "samplePageIndex": 0
   },
-  "tolerance": { "absolutePdfPoints": 1e-9 }
+  "tolerance": {
+    "absolutePdfPoints": 1e-09
+  }
 }

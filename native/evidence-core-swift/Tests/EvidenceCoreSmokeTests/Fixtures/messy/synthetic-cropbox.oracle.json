@@ -4,14 +4,59 @@
   "wi": "WI-EVIDENCE-A0.7-FIXTURE-COVERAGE-00",
   "fixtureId": "synthetic-cropbox",
   "fixtureSha256": "d72df48131c1307a4cf007c010e8fe98502873c7ce0955d386fae5550b3a0870",
-  "independenceStatement": "Expected values derived ONLY from the fixture's known construction (1 page, MediaBox [0 0 612 792], CropBox [50 50 562 742] => PDFKit cropBox origin (50,50) size (512x692)). Independent of harness output (A07-GATE-00 §3).",
+  "independenceStatement": "Expected values derived ONLY from the fixture's known construction (1 page, MediaBox [0 0 612 792], CropBox [50 50 562 742] => PDFKit cropBox origin (50,50) size (512x692)). Sample normalization is against the MEDIABOX, NOT the cropBox: nx=(x-0)/612, ny=(y-0)/792. Every point below discriminates between the two — normalizing against the cropBox would yield (0,0)->(-0.09765625, -0.072254335), (153,198)->(0.201171875, 0.213872832), (459,594)->(0.798828125, 0.786127168). Independent of harness output (A07-GATE-00 §3).",
   "expected": {
     "pageCount": 1,
     "perPageMediaBox": [
-      { "pageIndex": 0, "x": 0, "y": 0, "width": 612, "height": 792,
-        "cropBox": { "x": 50, "y": 50, "width": 512, "height": 692 } }
+      {
+        "pageIndex": 0,
+        "x": 0,
+        "y": 0,
+        "width": 612,
+        "height": 792,
+        "cropBox": {
+          "x": 50,
+          "y": 50,
+          "width": 512,
+          "height": 692
+        }
+      }
     ],
-    "samplePoints": []
+    "samplePoints": [
+      {
+        "pdf": {
+          "x": 0,
+          "y": 0
+        },
+        "normalized": {
+          "nx": 0.0,
+          "ny": 0.0
+        }
+      },
+      {
+        "pdf": {
+          "x": 153,
+          "y": 198
+        },
+        "normalized": {
+          "nx": 0.25,
+          "ny": 0.25
+        }
+      },
+      {
+        "pdf": {
+          "x": 459,
+          "y": 594
+        },
+        "normalized": {
+          "nx": 0.75,
+          "ny": 0.75
+        }
+      }
+    ],
+    "samplePageIndex": 0
   },
-  "tolerance": { "absolutePdfPoints": 1e-9 }
+  "tolerance": {
+    "absolutePdfPoints": 1e-09
+  }
 }

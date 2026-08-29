@@ -275,6 +275,26 @@ public enum EvidenceCoreA07Harness {
                                         detail: "oracle defines no checkable assertions; inconclusive (not pass)")
         }
 
+        // D2 — an oracle with boxes but NO sample points cannot certify A0.7, and must not pass.
+        //
+        // `hasCheckableAssertions` is true when EITHER boxes or sample points are present, so an
+        // oracle carrying only boxes used to run the box assertions, satisfy every one of them, and
+        // return pass/ok — having verified no normalization at all. Normalization is the arithmetic
+        // that turns a PDF point into the coordinate an anchor is actually stored from; a gate that
+        // reports pass without exercising it certifies the wrong half of its own claim.
+        //
+        // The verdict is fixture_or_oracle_invalid, NOT inconclusive_no_checkable_assertions. The
+        // oracle does have checkable assertions — saying otherwise in the detail string would be
+        // false — but it is invalid *for the A0.7 claim*, because it lacks the assertions required
+        // to certify normalization. A new enum case was considered and rejected: this is a
+        // court-facing classification that downstream code switches on, and the condition is
+        // adequately described as an unusable oracle rather than a fourth kind of outcome.
+        if oracle.expected.samplePoints.isEmpty {
+            return A07ConformanceResult(status: .fail, classification: .fixture_or_oracle_invalid,
+                                        observedPageCount: observed.pageCount,
+                                        detail: "oracle defines \(oracle.expected.perPageMediaBox.count) box assertion(s) but no sample points, so normalization is unverified; cannot certify A0.7 (not pass)")
+        }
+
         // Class-2: page count disagreement (renderer structure vs recorded geometry).
         if observed.pageCount != oracle.expected.pageCount {
             return A07ConformanceResult(status: .fail, classification: .class_2_geometry_source_instability,
