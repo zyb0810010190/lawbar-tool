@@ -400,6 +400,7 @@ export const CATALOG = {
   "readiness.afterOpen": "已打开系统设置。开启 FileVault 并保存恢复密钥后，回到本窗口点击「我已开启，重新检测」。",
   "readiness.stillBlocked": "仍未检测到 FileVault 已开启。开启后可能需要重启或重新登录才会生效。",
   "readiness.bridgeMissing": "无法读取安全状态",
+  "readiness.stateUnavailable": "无法读取磁盘加密状态。下方按钮仍可使用。",
   "settings.field.privacy": "隐私",
   "settings.value.privacy": "不收集遥测数据；崩溃上报已关闭。",
 
