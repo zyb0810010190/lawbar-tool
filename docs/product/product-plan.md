@@ -31,11 +31,24 @@ is why they could move.
 Ordering reflects what blocks what, not effort.
 
 **Blocking everything Evidence-related**
-- **A0.7 renderer-conformance** is PROVISIONAL, not green. Four harness defects are open, and
-  three of five oracles carry no sample points. No Evidence UI ships until it is genuinely
-  green; a class-2 result reopens the geometry-source assumption entirely. Detail:
-  `docs/product/product-definition.md`.
-  *No lane document exists for closing these defects — that gap is itself outstanding work.*
+- **A0.7 renderer-conformance** is PROVISIONAL, not green. **Updated 2026-08-29 — the reason has
+  changed, the conclusion has not.** Five of the six defects in the lane below are closed (D1 NaN
+  blindness, D2 box-only oracles, D3 empty sample points, D4 sample-resolution classification, D6
+  stability-mode NaN). What remains is **D5: nothing can prove the gate ran.** The marker writer and
+  validator were deleted 2026-08-10, and the audit preceding that deletion found agent-side
+  attestation is not a trust boundary at all. So A0.7 cannot be called green — not because the
+  harness is known wrong, but because no artifact here is entitled to assert it is right.
+  No Evidence UI ships until it is genuinely green; a class-2 result reopens the geometry-source
+  assumption entirely. Detail: `docs/product/product-definition.md`.
+
+  **A scope limit worth stating plainly**, because nothing else in this repo says it: A0.7's entire
+  evidence base is five hand-authored synthetic PDFs totalling 1,907 bytes, the largest 432. Real
+  client documents can never enter this repo, so a synthetic corpus is forced — but "A0.7 green"
+  could therefore only ever mean "PDFKit measured five minimal handmade byte streams reproducibly",
+  which is a narrower claim than the phrase suggests.
+
+  *The lane referred to below as missing now exists — it is §0 of this file, written 2026-08-12.
+  The sentence claiming otherwise was stale and is removed.*
 
 **Ship v1 (the release cluster — mostly READY, not executed)**
 1. macOS Developer-ID signing + notarization — the lane is written and marked READY; it has
