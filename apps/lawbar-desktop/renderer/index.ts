@@ -18,6 +18,7 @@ import { mountArchiveMatter } from "./screens/archiveMatter.js";
 import { mountEditMatter } from "./screens/editMatter.js";
 import { mountSettings } from "./screens/settings.js";
 import { installDevModeBanner } from "./devModeBanner.js";
+import { installUnhandledRejectionNotice } from "./unhandledRejectionNotice.js";
 
 type ThemePreference = "system" | "light" | "dark";
 type ResolvedTheme = "light" | "dark";
@@ -147,6 +148,9 @@ function bootstrap(): void {
   // Mounted ONCE, outside `#app`. The router replaces `#app` on every route change, and a warning
   // that vanishes when you navigate is not a warning. Fire-and-forget: a failure here must never
   // block the product UI from rendering.
+  // Installed BEFORE anything else that can reject — including the line below, which is itself a
+  // fire-and-forget call. A handler registered after the first rejection would miss it.
+  installUnhandledRejectionNotice(window, document);
   void installDevModeBanner(document);
   // attachRouter from ./router.js fires once on attach and then on every
   // hashchange event, so the initial route renders on load.
