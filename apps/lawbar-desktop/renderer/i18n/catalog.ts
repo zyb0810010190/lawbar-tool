@@ -408,6 +408,7 @@ export const CATALOG = {
   "audit.chainHead.summaryAria": "审计链头详情",
   "audit.chainHead.summary": "查看审计链头",
   "audit.chainHead.loading": "正在加载审计链头…",
+  "audit.chainHead.failed": "无法加载审计链头，请重试。",
   "audit.chainHead.empty": "暂无审计事件记录。",
   "audit.chainHead.headHashLabel": "链头哈希：",
   "audit.chainHead.showFullHash": "显示完整哈希",
@@ -418,6 +419,7 @@ export const CATALOG = {
   "audit.copyHash.unavailable": "当前环境不支持复制。",
   "audit.copyHash.button": "复制",
   "audit.events.heading": "审计事件",
+  "audit.events.failed": "无法加载审计事件，请重试。",
   "audit.events.loading": "正在加载审计事件…",
   "audit.events.reason": "原因：{reason}",
   "audit.events.showMoreAria": "加载更多审计事件",
@@ -431,6 +433,7 @@ export const CATALOG = {
   "audit.verify.running": "正在验证审计链…",
   "audit.verify.ok": "链完整：已逐条验证 {count} 条事件，链头一致。",
   "audit.verify.failed": "链不一致：第 {index} 条事件——{reason}",
+  "audit.verify.unavailable": "无法完成验证，请重试。本结果不代表链有问题。",
   "audit.verify.resultAria": "审计链验证结果",
   "audit.verify.scopeNote": "本结果由本机记录自证，不能替代第三方鉴定。",
   // The nine ChainVerifyErrorReason values. Kept as separate keys rather than one interpolated
@@ -529,6 +532,7 @@ export const CATALOG = {
   "docket.dismiss.confirm": "确认驳回",
   "docket.dismiss.reasonRequired": "请填写驳回原因。",
   "docket.dismiss.working": "正在驳回…",
+  "docket.proposals.load.failed": "无法加载待确认提议，请重试。",
   "docket.dismiss.failed": "无法驳回该提议，请重试。",
   "docket.edit.button": "编辑",
   "docket.edit.kindAria": "类型",
@@ -547,6 +551,7 @@ export const CATALOG = {
   "docket.edit.err.ownerRequired": "负责人为必填项。",
   "docket.edit.saving": "正在保存…",
   "docket.edit.failed": "无法保存修改，请重试。",
+  "documents.load.failed": "无法加载文档列表，请重试。",
   "docket.reminders.none": "无",
 
   // ---- fact sub-screen (WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00 P3) ----
