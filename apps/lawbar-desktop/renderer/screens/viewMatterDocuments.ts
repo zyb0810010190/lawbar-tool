@@ -157,7 +157,18 @@ function renderAddControl(
       btn.setAttribute("disabled", "true");
       status.removeAttribute("role");
       setText(status, t("document.add.working"));
-      const env = await api.registerDocument({ matterId, doc_type: docType });
+      // An ACTION path: the button was disabled above and only re-enabled after the await, so a
+      // rejection left it disabled permanently — the owner could not retry without navigating away.
+      // A different failure from the load paths, the same cause.
+      let env: Awaited<ReturnType<typeof api.registerDocument>>;
+      try {
+        env = await api.registerDocument({ matterId, doc_type: docType });
+      } catch {
+        btn.removeAttribute("disabled");
+        status.setAttribute("role", "alert");
+        setText(status, t("document.add.failed"));
+        return;
+      }
       btn.removeAttribute("disabled");
       if (!env.ok) {
         status.setAttribute("role", "alert");
@@ -255,7 +266,21 @@ function renderDocumentRow(
     loaded = true;
     void (async () => {
       setText(detailBody, t("document.detail.loading"));
-      const env = await api.getDocument({ matterId, documentId: row.id });
+      // A LOAD path, not an action: the placeholder is set before the await and only cleared after
+      // it, so a rejection left this disclosure showing "loading" forever. Same shape as the five
+      // load paths already fixed, and it is invoked inside a `void (async () => ...)` which swallows
+      // the rejection whole.
+      let env: Awaited<ReturnType<typeof api.getDocument>>;
+      try {
+        env = await api.getDocument({ matterId, documentId: row.id });
+      } catch {
+        setText(detailBody, "");
+        detailBody.appendChild(
+          el("p", { role: "alert", "data-test-id": "view-docs-detail-error" },
+             [t("document.detail.failed")], doc),
+        );
+        return;
+      }
       setText(detailBody, "");
       if (!env.ok) {
         detailBody.appendChild(

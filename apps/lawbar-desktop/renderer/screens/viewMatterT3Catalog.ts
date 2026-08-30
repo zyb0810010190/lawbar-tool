@@ -157,7 +157,18 @@ async function loadCatalog(
   const loading = el("p", { "data-test-id": "view-t3-loading" }, [t("viewT3.loading")], doc);
   parent.appendChild(loading);
 
-  const env = await api.previewT3Catalog({ matterId });
+  let env: Awaited<ReturnType<typeof api.previewT3Catalog>>;
+  try {
+    env = await api.previewT3Catalog({ matterId });
+  } catch {
+    // Stuck-spinner defect, same as the five load paths already fixed: the placeholder above is set
+    // before the await and only removed after it, so a rejection left it on screen permanently.
+    loading.remove();
+    parent.appendChild(
+      el("p", { role: "alert", "data-test-id": "view-t3-error" }, [t("viewT3.load.failed")], doc),
+    );
+    return;
+  }
   loading.remove();
 
   if (!env.ok) {

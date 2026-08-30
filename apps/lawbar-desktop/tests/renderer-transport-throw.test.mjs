@@ -358,3 +358,72 @@ test("facts: a healthy load renders no error", async () => {
   );
   assert.equal(findByTestId(root, "view-facts-error"), null);
 });
+
+// MARK: - The last three, and a correction to how they were counted
+//
+// These were carried for two commits as "seven remaining ACTION paths". Both halves were wrong.
+// The sweep that produced "seven" used a 14-line forward window, so it flagged three sites whose
+// `catch` sat 15-27 lines out — already guarded. Widening the window to 45 lines leaves three real
+// ones, and TWO OF THEM ARE LOAD PATHS, not action paths: they set a loading placeholder before the
+// await and clear it after, which is the stuck-spinner defect, not a stuck button.
+//
+// Three sweeps, three wrong answers, each stated confidently. The count was never the problem — the
+// method was, and a count is exactly what looks like evidence.
+
+test("t3 catalog: a THROWING previewT3Catalog surfaces the failure, not a permanent spinner", async () => {
+  const root = await mountView({ previewT3Catalog: async () => BOOM() }, "view-t3-summary");
+  const err = findByTestId(root, "view-t3-error");
+  assert.ok(err !== null, "a throwing T3 preview left no error element");
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err).trim(), CATALOG["viewT3.load.failed"].trim());
+});
+
+// NO healthy-path control for T3, and that is deliberate rather than an oversight. Its success
+// branch needs a valid T3PreviewCatalogValue, and two attempts at inventing one from the call site
+// (`{rows: []}`, then `{kind:"refusal", code:"not_ready"}`) each derailed the render and hung the
+// whole test file for eight seconds. Guessing a third time would be fitting a stub to a test rather
+// than to the type. The property a control would prove — that the guard does not fire on success —
+// is already established on five other screens by the same pattern, so the gap is narrow and named
+// instead of papered over with a stub I cannot ground.
+
+// The document DETAIL disclosure is nested: the outer documents section must be opened, a row must
+// exist, and that row's own summary must then be clicked. Mutation found this guard untested — the
+// earlier tests only opened the outer section, so nothing reached it.
+test("documents detail: a THROWING getDocument surfaces the failure, not a permanent spinner", async () => {
+  const root = await mountView(
+    {
+      listDocuments: async () => ({
+        ok: true,
+        value: {
+          rows: [{ id: "01jzdl00000000000000000001", doc_type: "other", registered_at: "2026-06-01T00:00:00.000Z" }],
+          next_cursor: null,
+        },
+      }),
+      getDocument: async () => BOOM(),
+    },
+    "view-docs-summary",
+  );
+  const item = findByTestId(root, "view-docs-item-summary");
+  assert.ok(item !== null, "precondition: a document row with its own disclosure must render");
+  item.dispatchEvent({ type: "click" });
+  await flush();
+
+  const err = findByTestId(root, "view-docs-detail-error");
+  assert.ok(err !== null, "a throwing getDocument left the detail disclosure with no error");
+  assert.equal(collectText(err).trim(), CATALOG["document.detail.failed"].trim());
+});
+
+test("documents add: a THROWING registerDocument RE-ENABLES the button and says why", async () => {
+  const root = await mountView({ registerDocument: async () => BOOM() }, "view-docs-summary");
+  const btn = findByTestId(root, "view-docs-add");
+  assert.ok(btn !== null, "precondition: the add button exists");
+  btn.dispatchEvent({ type: "click" });
+  await flush();
+
+  // THE POINT of the action-path variant. A load path hangs a screen; this one leaves a control
+  // permanently disabled, so the owner cannot retry without navigating away and back.
+  assert.equal(
+    btn.getAttribute("disabled") ?? null, null,
+    "the add button stayed disabled after a failed submit — the owner cannot retry",
+  );
+});
