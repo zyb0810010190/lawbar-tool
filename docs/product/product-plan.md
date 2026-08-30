@@ -271,37 +271,47 @@ address this edge.
 
 ### D5 — nothing can prove the gate ran *(blocked on a decision, not on code)*
 
-> **DECIDED AND RECORDED — 2026-08-30. This is a decision, not a repair, so it is written here to be
-> confirmed or amended by the owner rather than treated as settled by an agent.**
+> **DECIDED AND RECORDED — 2026-08-30.** A product decision, written here for the owner to confirm
+> or amend. An agent drafting it is not the owner making it.
 >
-> **The recorded claim, in exactly these words:** *A0.7's status is a recorded owner decision based
-> on listed test results. No independent attestation boundary exists.*
+> **The recorded status, in exactly these words:**
 >
-> **Why not the stronger claim.** CI is real evidence and it is worth having: the Swift job runs
-> `swift test --package-path native/evidence-core-swift` on a clean macOS runner for every PR
-> touching that package, on a machine this agent process cannot reach, and the D1/D2/D3/D4/D6 tests
-> were each verified executing there. But that attests **CI execution for a commit** — not a durable
-> marker bound to fixture, oracle, harness commit, classified result and platform, which is what the
-> deleted tooling was for. Recording CI as if it were that marker would launder a weak trust boundary
-> into a stronger claim, which is the failure this whole lane exists to prevent.
+> > A0.7 is provisional, not green. Its current status is a recorded owner decision based on listed
+> > local and CI test results; no independent durable attestation boundary exists. CI is operational
+> > evidence only, not an A0.7 marker. This status may change only by a superseding decision that
+> > installs and verifies a real producer/verifier split bound to the fixture, oracle, harness,
+> > result, command, and platform.
 >
-> **So the operating rule is:** CI is operational evidence. It is never the A0.7 marker, and no
-> document may describe it as one. If a durable marker is ever wanted, it needs a producer and a
-> verifier that do not share a user boundary — the exact property the 2026-08-10 audit found the
-> deleted tooling lacked.
+> **Why the future path is stated as a REQUIREMENT and not a caveat.** An earlier draft added "this
+> does not foreclose a future marker" alongside the status. That is worse, not softer: an escape
+> hatch in the same sentence as a status reads to a later reader as a dormant permission rather than
+> as a new decision requiring proof, and in a corpus where these records outrank the product brief
+> that is how drift starts. Nothing was foreclosed by leaving it out — any status record here can be
+> superseded by a later one. Supersession is the mechanism; a caveat is just pre-authorisation.
+>
+> **Why CI is not the boundary, though it is real evidence.** `evidence-core-swift-smoke.yml` runs
+> `swift test --package-path native/evidence-core-swift` on `macos-latest`, on a machine this agent
+> process cannot reach, for every PR touching the package; each of the six defect fixes was observed
+> executing there. That attests **a commit's tests ran**. It does not produce a durable result object
+> bound to fixture bytes, oracle bytes, harness implementation, command, classified result and
+> platform — which is what the tooling deleted on 2026-08-10 was for. Calling CI a marker would
+> downgrade "green" to "CI passed", which this repo's standard forbids.
+>
+> **The code already agrees.** `A07ConformanceHarness` hardcodes `("isMarker", "false")` in every
+> result, and `A07ConformanceHarnessTests` asserts it. A passing run explicitly declares that it is
+> not proof. This decision states in prose what the harness already states in its output.
+>
+> **Scale does not change this.** A0.7's whole evidence base is five hand-authored synthetic PDFs
+> totalling 1,907 bytes, so "green" could only ever mean "these five files are measured
+> consistently". That lowers the gate's factual ambition; it does not lower the provenance question.
+> Small evidence can still be laundered into a stronger status.
 >
 > **Second acceptance criterion — verified 2026-08-30.** A repo-wide sweep for claims that A0.7 is
 > green returns only prerequisites ("only after A0.7 is green"), prohibitions ("no marker may be
-> written until"), and explicit denials ("'A0.7 is green' is unverifiable"). No unscoped positive
-> claim survives anywhere. Note the check needed its output READ, not counted: a naive regex returns
-> seven hits, all of them conditional.
->
-> **A0.7 remains PROVISIONAL, not green** — and now for a stated reason rather than an absent one.
-> What changed across D1-D4/D6 is that the gate is now correct where it was blind. What has not
-> changed is that nothing can prove it ran, and under this decision nothing will.
+> written until"), and explicit denials. No unscoped positive claim survives. The check needed its
+> output READ, not counted: a naive regex returns seven hits, every one conditional.
 
-
-Even with D1–D4 closed, "A0.7 is green" is unverifiable: the marker writer and validator were
+Even with D1–D4 and D6 closed, "A0.7 is green" is unverifiable: the marker writer and validator were
 deleted on 2026-08-10, and the audit that preceded their deletion concluded that agent-side
 attestation is not a trust boundary at all — the producer and the verifier ran as the same uid.
 
