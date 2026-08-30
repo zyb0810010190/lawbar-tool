@@ -89,7 +89,12 @@ export function renderChainHeadDisclosure(
   summary.addEventListener("click", () => {
     if (loaded) return;
     loaded = true;
-    void loadChainHead(body, doc, api, matterId);
+    // On failure the latch is RELEASED inside loadChainHead, so reopening the disclosure genuinely
+    // retries. Without that, the failure copy's "请重试" would be an instruction the UI cannot
+    // honour — telling the lawyer to do something the app has made impossible.
+    void loadChainHead(body, doc, api, matterId, () => {
+      loaded = false;
+    });
   });
   return details;
 }
@@ -99,6 +104,7 @@ async function loadChainHead(
   doc: Document,
   api: CaseBoxApi,
   matterId: string,
+  onFailure: () => void = () => {},
 ): Promise<void> {
   setText(body, t("audit.chainHead.loading"));
   // A TRANSPORT THROW, not a returned {ok:false}. The envelope path below already worked; an
@@ -113,6 +119,7 @@ async function loadChainHead(
     body.appendChild(
       el("p", { role: "alert", "data-test-id": "view-chain-error" }, [t("audit.chainHead.failed")], doc),
     );
+    onFailure(); // release the once-only latch so the offered retry actually works
     return;
   }
   setText(body, "");
@@ -325,6 +332,8 @@ async function runVerify(
     try {
       env = await api.verifyChain({ matterId });
     } catch {
+      // Remove any error from a PREVIOUS failed attempt first — see the cleanup at the top of the
+      // success path. Without this the alerts would stack on repeated failures.
       // A TRANSPORT failure is not a chain finding, and the two must never share copy.
       // `audit.verify.failed` renders "链不一致：第 N 条事件" — a substantive claim that the chain is
       // BROKEN. Reusing it here would tell the lawyer their audit chain failed when the app merely
@@ -475,6 +484,10 @@ async function loadAuditEvents(
 
   let cursor: string | null = null;
   let moreBtn: HTMLElement | null = null;
+  // The last pagination-failure alert, so a subsequent SUCCESSFUL retry can clear it. Without this
+  // the `finally` re-enabled Show-more, the retry succeeded, and the stale "无法加载审计事件" alert
+  // stayed on screen beside the rows that had just loaded — the UI contradicting itself.
+  let pageError: HTMLElement | null = null;
   let pageLoading = false; // re-entrancy guard: a fast double-click on "Show more" must not fetch/append a page twice
 
   async function loadPage(): Promise<void> {
@@ -495,9 +508,11 @@ async function loadAuditEvents(
       // swallowed it, leaving the list stuck on its loading placeholder. Guarding the control while
       // leaving the screen hung is the more misleading half-fix, because the comment reads as done.
       loading.remove();
-      parent.appendChild(
-        el("p", { role: "alert", "data-test-id": "view-audit-error" }, [t("audit.events.failed")], doc),
+      pageError?.remove();
+      pageError = el(
+        "p", { role: "alert", "data-test-id": "view-audit-error" }, [t("audit.events.failed")], doc,
       );
+      parent.appendChild(pageError);
       return;
     } finally {
       pageLoading = false;
@@ -507,6 +522,9 @@ async function loadAuditEvents(
       if (moreBtn !== null) moreBtn.removeAttribute("disabled");
     }
     loading.remove();
+    // A retry got through: retire the previous failure notice rather than leaving it beside the rows.
+    pageError?.remove();
+    pageError = null;
     if (moreBtn !== null) {
       moreBtn.remove();
       moreBtn = null;

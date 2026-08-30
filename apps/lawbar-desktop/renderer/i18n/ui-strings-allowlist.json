@@ -121,37 +121,37 @@
   },
   {
     "file": "renderer/screens/viewMatterAudit.ts",
-    "line": 178,
-    "text": " ",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterAudit.ts",
     "line": 185,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterAudit.ts",
-    "line": 217,
+    "line": 192,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterAudit.ts",
-    "line": 248,
+    "line": 224,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterAudit.ts",
-    "line": 411,
+    "line": 255,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterAudit.ts",
-    "line": 428,
+    "line": 420,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterAudit.ts",
+    "line": 437,
     "text": "${auditEntityTypeLabel(ev.entity_type)} · ${ulidShort(ev.entity_id)}",
     "kind": "text"
   },

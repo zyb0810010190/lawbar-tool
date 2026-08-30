@@ -28,13 +28,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
+import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import {
   MockDoc,
   makeStubApi,
   findByTestId,
+  findAllByTestId,
   collectText,
   flush,
   VALID_ULID,
+  auditEvent,
   SAMPLE_HASH,
   EVENT_ULID,
 } from "./_view-matter-dom.mjs";
@@ -87,12 +90,17 @@ test("audit chain: the loading placeholder is REMOVED when the transport throws"
   const root = await mountAndOpenChain({ chainHead: async () => BOOM() });
   const body = findByTestId(root, "view-chain-body");
   const text = collectText(body);
-  // The precise failure this file exists to prevent: the placeholder outliving the request.
-  assert.doesNotMatch(
-    text,
-    /载入|加载中|loading/i,
+  // Assert against the CATALOG VALUE, not a hand-written regex. The first version of this test used
+  // /载入|加载中|loading/i, which does not match the real copy 正在加载审计链头… at all — so it passed
+  // whether or not the placeholder was removed. A test for the stuck spinner that could not detect
+  // the stuck spinner.
+  const LOADING = CATALOG["audit.chainHead.loading"];
+  assert.ok(LOADING && LOADING.length > 0, "precondition: the loading copy exists in the catalog");
+  assert.equal(
+    text.includes(LOADING), false,
     `the loading placeholder survived a failed load — this is the stuck spinner; got: ${text}`,
   );
+  assert.ok(text.includes(CATALOG["audit.chainHead.failed"]), "the failure copy must replace it");
 });
 
 // The returned-envelope path already worked. Asserted so the fix cannot regress it while adding
@@ -123,7 +131,85 @@ test("audit events: a THROWING listAuditEvents surfaces an error instead of hang
   const err = findByTestId(root, "view-audit-error");
   assert.ok(err !== null, "a throwing audit-event list left no error element");
   assert.equal(err.getAttribute("role"), "alert");
-  assert.match(collectText(err), /[一-鿿]/);
+  // Exact copy, not "some Chinese text" — the weaker form would accept any string at all.
+  assert.equal(collectText(err).trim(), CATALOG["audit.events.failed"].trim());
+  const body = collectText(findByTestId(root, "view-chain-body"));
+  assert.equal(body.includes("preload blew up"), false, "the thrown message must not reach the lawyer");
+});
+
+// M1 — a failed page must not leave its alert on screen once a retry succeeds. Driven through the
+// REAL retry path: Show-more, which only exists when a first page returned a cursor. A first-page
+// failure has no retry control at all — see the note on that in the commit; this test deliberately
+// covers the case that IS retryable rather than pretending the other one is.
+//
+// The first draft of this test clicked the chain summary and then asserted nothing at all. It passed
+// unconditionally. Recording that here because it is the third vacuous test this one file produced,
+// and the pattern — assert a precondition, perform an action, forget the assertion — is easy to miss
+// in review precisely because the test body looks busy.
+test("audit events: a stale pagination error is cleared once a retry succeeds", async () => {
+  let calls = 0;
+  const page = (cursor) => ({
+    ok: true,
+    value: { rows: [auditEvent({ action: "update", entity_type: "deadline" })], next_cursor: cursor },
+  });
+  const root = await mountAndOpenChain({
+    chainHead: NON_EMPTY_CHAIN,
+    listAuditEvents: async () => {
+      calls += 1;
+      if (calls === 1) return page("cursor-1"); // first page succeeds, so Show-more exists
+      if (calls === 2) return BOOM();           // the retryable failure
+      return page(null);                        // the retry succeeds
+    },
+  });
+
+  const more = findByTestId(root, "view-audit-more");
+  assert.ok(more !== null, "precondition: a cursor must produce a Show-more control");
+
+  more.dispatchEvent({ type: "click" });
+  await flush();
+  assert.ok(findByTestId(root, "view-audit-error") !== null, "the failed page must report the failure");
+
+  findByTestId(root, "view-audit-more").dispatchEvent({ type: "click" });
+  await flush();
+
+  // THE POINT. Before the fix the alert stayed, so the screen said "could not load" beside the rows
+  // that had just loaded — the UI contradicting itself.
+  assert.equal(
+    findByTestId(root, "view-audit-error"), null,
+    "a successful retry must retire the previous failure notice, not leave it beside the new rows",
+  );
+});
+
+// Two consecutive pagination failures must not STACK their alerts. Found by mutation: removing the
+// catch-path `pageError?.remove()` survived the test above, because that test fails exactly once and
+// so never exercises the "a previous error is already on screen" case. The gap was in the test, not
+// the fix — but an unexercised line is an unproven line.
+test("audit events: consecutive pagination failures do not stack alerts", async () => {
+  let calls = 0;
+  const root = await mountAndOpenChain({
+    chainHead: NON_EMPTY_CHAIN,
+    listAuditEvents: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return { ok: true, value: { rows: [auditEvent({ action: "update", entity_type: "deadline" })], next_cursor: "c1" } };
+      }
+      return BOOM(); // every retry also fails
+    },
+  });
+
+  findByTestId(root, "view-audit-more").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(findAllByTestId(root, "view-audit-error").length, 1, "precondition: one failure, one alert");
+
+  const more = findByTestId(root, "view-audit-more");
+  if (more !== null) {
+    more.dispatchEvent({ type: "click" });
+    await flush();
+    assert.equal(
+      findAllByTestId(root, "view-audit-error").length, 1,
+      "a second failure must REPLACE the first alert, not stack a second one beside it",
+    );
+  }
 });
 
 // MARK: - The verify action, which is the point of the screen
@@ -140,6 +226,16 @@ test("audit verify: a THROWING verifyChain reports failure rather than leaving t
     text.trim().length > 0,
     "verify reported nothing after a transport throw — silence is indistinguishable from 'still working'",
   );
-  assert.match(text, /[一-鿿]/, "the verify failure must be readable zh-CN");
   assert.doesNotMatch(text, /preload blew up|Error:/, "raw transport detail must not reach the lawyer");
+
+  // THE ASSERTION THIS FILE EXISTS FOR. An earlier version checked only "non-empty zh-CN with no raw
+  // error" — which the FALSE string "链不一致：第 1 条事件——…" satisfies completely. The test written to
+  // prevent a false chain-broken claim could not detect a false chain-broken claim.
+  assert.equal(text.trim(), CATALOG["audit.verify.unavailable"].trim(),
+    `verify must report the transport-unavailable copy verbatim; got: ${text}`);
+  assert.equal(text.includes("链不一致"), false,
+    "a transport failure must NEVER render the chain-inconsistent claim — that is a false statement " +
+    "about tamper-evidence, and is worse than the silence it replaced");
+  assert.equal(text.includes(CATALOG["audit.verify.ok"].slice(0, 4)), false,
+    "and it must not render the chain-intact claim either");
 });
