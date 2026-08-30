@@ -532,6 +532,7 @@ export const CATALOG = {
   "docket.dismiss.confirm": "确认驳回",
   "docket.dismiss.reasonRequired": "请填写驳回原因。",
   "docket.dismiss.working": "正在驳回…",
+  "docket.proposals.load.failed": "无法加载待确认提议，请重试。",
   "docket.dismiss.failed": "无法驳回该提议，请重试。",
   "docket.edit.button": "编辑",
   "docket.edit.kindAria": "类型",
@@ -550,6 +551,7 @@ export const CATALOG = {
   "docket.edit.err.ownerRequired": "负责人为必填项。",
   "docket.edit.saving": "正在保存…",
   "docket.edit.failed": "无法保存修改，请重试。",
+  "documents.load.failed": "无法加载文档列表，请重试。",
   "docket.reminders.none": "无",
 
   // ---- fact sub-screen (WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00 P3) ----

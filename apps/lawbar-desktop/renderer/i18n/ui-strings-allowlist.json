@@ -259,55 +259,55 @@
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 205,
+    "line": 221,
     "text": "${deadlineKindLabel(p.proposed_kind)} · ${docketSourceTypeLabel(p.source_type)}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 208,
+    "line": 224,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 267,
+    "line": 283,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 409,
+    "line": 425,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 436,
+    "line": 452,
     "text": "reminder_offsets",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 508,
+    "line": 524,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 509,
+    "line": 525,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 628,
+    "line": 644,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocketProposals.ts",
-    "line": 641,
+    "line": 657,
     "text": "reminder_offsets",
     "kind": "text"
   },

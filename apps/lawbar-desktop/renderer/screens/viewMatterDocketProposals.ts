@@ -122,6 +122,22 @@ export function renderDocketProposalsSection(
       let env;
       try {
         env = await api.listDocketEntries(dto);
+      } catch {
+        // Same partial guard as the other two screens: the finally reset the flag and nothing caught,
+        // so a transport rejection propagated out of a `void`ed caller and the section never resolved.
+        // Mirrors the envelope-error path below exactly — reveal the section, mount it, and announce.
+        pageLoading = false;
+        section.removeAttribute("hidden");
+        ensureMounted();
+        section.appendChild(
+          el(
+            "p",
+            { role: "alert", "data-test-id": "view-docket-proposals-error" },
+            [t("docket.proposals.load.failed")],
+            doc,
+          ),
+        );
+        return;
       } finally {
         pageLoading = false;
       }

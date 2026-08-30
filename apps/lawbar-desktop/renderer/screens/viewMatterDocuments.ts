@@ -298,6 +298,7 @@ async function loadDocuments(
   let moreBtn: HTMLElement | null = null;
   let total = 0;
   let pageLoading = false; // re-entrancy guard: a fast double-click on "Show more" must not fetch/append a page twice
+  let pageError: HTMLElement | null = null; // cleared on a successful retry so the UI cannot contradict itself
 
   async function loadPage(): Promise<void> {
     if (pageLoading) return; // a page fetch is already in flight — drop the concurrent call
@@ -308,10 +309,25 @@ async function loadDocuments(
         matterId,
         ...(cursor !== null ? { cursor } : {}),
       });
+    } catch {
+      // The finally below resets the re-entrancy flag but does NOT catch, so a transport rejection
+      // propagated out of a `void`ed caller and left the loading placeholder on screen forever. The
+      // same partial guard existed on the audit screen and in viewMatterDocketProposals — a `finally`
+      // that tidies state reads as handled, which is why all three survived review.
+      pageLoading = false;
+      loading.remove();
+      pageError?.remove();
+      pageError = el(
+        "p", { role: "alert", "data-test-id": "view-docs-error" }, [t("documents.load.failed")], doc,
+      );
+      parent.appendChild(pageError);
+      return;
     } finally {
       pageLoading = false;
     }
     loading.remove();
+    pageError?.remove();
+    pageError = null;
     if (moreBtn !== null) {
       moreBtn.remove();
       moreBtn = null;

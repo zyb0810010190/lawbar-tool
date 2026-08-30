@@ -28,6 +28,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { mountViewMatter } from "../dist/renderer/screens/viewMatter.js";
+import { renderDocketProposalsSection } from "../dist/renderer/screens/viewMatterDocketProposals.js";
 import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import {
   MockDoc,
@@ -238,4 +239,81 @@ test("audit verify: a THROWING verifyChain reports failure rather than leaving t
     "about tamper-evidence, and is worse than the silence it replaced");
   assert.equal(text.includes(CATALOG["audit.verify.ok"].slice(0, 4)), false,
     "and it must not render the chain-intact claim either");
+});
+
+// MARK: - The same defect on the other two screens
+//
+// viewMatterDocuments and viewMatterDocketProposals carried the IDENTICAL partial guard: a
+// `try { await } finally { pageLoading = false }` that tidied the re-entrancy flag and caught
+// nothing. Three screens, one shape. A `finally` that resets state reads as handled, which is
+// probably why all three survived review.
+
+async function mountView(apiOverrides, openSummaryTestId = null) {
+  const doc = new MockDoc();
+  const root = doc.createElement("main");
+  await mountViewMatter(root, { api: makeStubApi(apiOverrides), navigate: () => {}, doc }, VALID_ULID);
+  await flush();
+  // The documents section is a LAZY <details> like the audit chain — nothing inside it loads until
+  // the summary is clicked. The docket-proposals section is NOT lazy and loads on mount. Getting
+  // this wrong makes a test fail while never reaching the code it claims to cover.
+  if (openSummaryTestId !== null) {
+    findByTestId(root, openSummaryTestId).dispatchEvent({ type: "click" });
+    await flush();
+  }
+  return root;
+}
+
+test("documents: a THROWING listDocuments surfaces the exact failure copy, not a hang", async () => {
+  const root = await mountView({ listDocuments: async () => BOOM() }, "view-docs-summary");
+  const err = findByTestId(root, "view-docs-error");
+  assert.ok(err !== null, "a throwing document list left no error element");
+  assert.equal(err.getAttribute("role"), "alert");
+  // EXACT copy. "some zh-CN string" is the assertion that made three earlier tests in this file
+  // worthless — it accepts any text at all, including a wrong or dangerous one.
+  assert.equal(collectText(err).trim(), CATALOG["documents.load.failed"].trim());
+});
+
+test("documents: a healthy load renders no error (the guard must not fire on success)", async () => {
+  const root = await mountView(
+    { listDocuments: async () => ({ ok: true, value: { rows: [], next_cursor: null } }) },
+    "view-docs-summary",
+  );
+  assert.equal(findByTestId(root, "view-docs-error"), null);
+});
+
+// The docket-proposals section is NOT mounted by mountViewMatter — it is rendered inside the
+// deadlines section. Mount it directly, which is what the existing docket tests do, rather than
+// driving two disclosures to reach it.
+async function mountDocket(listDocketEntries) {
+  const doc = new MockDoc();
+  const section = renderDocketProposalsSection(doc, makeStubApi({ listDocketEntries }), VALID_ULID);
+  await section.load();
+  await flush();
+  return section.element;
+}
+
+test("docket proposals: a THROWING listDocketEntries surfaces the exact failure copy", async () => {
+  const root = await mountDocket(async () => BOOM());
+  const err = findByTestId(root, "view-docket-proposals-error");
+  assert.ok(err !== null, "a throwing docket-proposal list left no error element");
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err).trim(), CATALOG["docket.proposals.load.failed"].trim());
+});
+
+// The section is HIDDEN when there are no proposals. A failure must REVEAL it — otherwise the alert
+// is announced into a hidden container and the lawyer sees nothing, which is the same silence the
+// fix set out to remove.
+test("docket proposals: a failure REVEALS the section rather than announcing into a hidden one", async () => {
+  const root = await mountDocket(async () => BOOM());
+  // Assert the element exists FIRST. Without this the walk below never runs, `hidden` stays false,
+  // and the test passes on an absent error — the fourth vacuous test this file produced.
+  const err = findByTestId(root, "view-docket-proposals-error");
+  assert.ok(err !== null, "precondition: the failure must render an error element at all");
+  assert.equal(root.getAttribute("hidden") ?? null, null,
+    "the failure was announced inside a hidden section — invisible to the lawyer");
+});
+
+test("docket proposals: a healthy empty load stays hidden and renders no error", async () => {
+  const root = await mountDocket(async () => ({ ok: true, value: { rows: [], next_cursor: null } }));
+  assert.equal(findByTestId(root, "view-docket-proposals-error"), null);
 });
