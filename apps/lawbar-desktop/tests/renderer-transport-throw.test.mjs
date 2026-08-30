@@ -317,3 +317,44 @@ test("docket proposals: a healthy empty load stays hidden and renders no error",
   const root = await mountDocket(async () => ({ ok: true, value: { rows: [], next_cursor: null } }));
   assert.equal(findByTestId(root, "view-docket-proposals-error"), null);
 });
+
+// MARK: - The two the first sweep MISSED
+//
+// The commit that fixed viewMatterAudit / viewMatterDocuments / viewMatterDocketProposals claimed
+// "the same partial guard was on all three screens". That was wrong: a correct sweep found five.
+// The first sweep used a one-directional scan that could only see lines BEFORE each await, so it
+// could never see a `catch` that comes after — it reported the already-fixed sites as broken and
+// missed these two entirely. A broken checker producing a confident list is the same failure this
+// whole file is about.
+
+test("deadlines: a THROWING listDeadlines surfaces the exact failure copy, not a hang", async () => {
+  const root = await mountView({ listDeadlines: async () => BOOM() }, "view-deadlines-summary");
+  const err = findByTestId(root, "view-deadlines-error");
+  assert.ok(err !== null, "a throwing deadline list left no error element");
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err).trim(), CATALOG["deadlines.load.failed"].trim());
+});
+
+test("deadlines: a healthy load renders no error", async () => {
+  const root = await mountView(
+    { listDeadlines: async () => ({ ok: true, value: { rows: [], next_cursor: null } }) },
+    "view-deadlines-summary",
+  );
+  assert.equal(findByTestId(root, "view-deadlines-error"), null);
+});
+
+test("facts: a THROWING listFacts surfaces the exact failure copy, not a hang", async () => {
+  const root = await mountView({ listFacts: async () => BOOM() }, "view-facts-summary");
+  const err = findByTestId(root, "view-facts-error");
+  assert.ok(err !== null, "a throwing fact list left no error element");
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err).trim(), CATALOG["facts.load.failed"].trim());
+});
+
+test("facts: a healthy load renders no error", async () => {
+  const root = await mountView(
+    { listFacts: async () => ({ ok: true, value: { rows: [], next_cursor: null } }) },
+    "view-facts-summary",
+  );
+  assert.equal(findByTestId(root, "view-facts-error"), null);
+});

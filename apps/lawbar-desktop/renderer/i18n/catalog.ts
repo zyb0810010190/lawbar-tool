@@ -552,6 +552,8 @@ export const CATALOG = {
   "docket.edit.saving": "正在保存…",
   "docket.edit.failed": "无法保存修改，请重试。",
   "documents.load.failed": "无法加载文档列表，请重试。",
+  "deadlines.load.failed": "无法加载期限列表，请重试。",
+  "facts.load.failed": "无法加载事实列表，请重试。",
   "docket.reminders.none": "无",
 
   // ---- fact sub-screen (WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00 P3) ----
