@@ -30,6 +30,38 @@
 
 ## Gate 11 — 律师法 confidentiality / legal compliance
 **Decision (user):** **NOT cleared.** No legal conclusion. Internal/personal use only until legal review / sign-off.
+> ### Owner statement recorded 2026-08-30 — real client information
+>
+> **The owner has stated that real client information will be entered into this application.**
+>
+> That sentence is recorded because it is a fact about what is happening, and this file is the
+> record of what is happening. **Nothing else in this box is a legal conclusion**, and none is
+> offered — not by this note, not by the agent that wrote it.
+>
+> **What changed, factually:** when the decision below was recorded on 2026-07-08, the application
+> could not be used at all — FileVault was off and the app refused to start in production mode.
+> "Internal/personal use only" therefore described a situation in which no data of any kind was
+> being entered. FileVault was enabled on 2026-08-29 and the readiness gate now passes.
+>
+> **What has NOT changed:** the 律师法 review referenced below **remains outstanding**. It was not
+> performed, waived, or superseded by the owner's statement above. Gate 11 remains NOT cleared.
+>
+> **The open question, stated plainly so it is not lost:** whether entering real client information
+> falls inside "internal/personal use only" as the owner meant it, or is the thing that review was
+> deferred on, is the owner's reading and their counsel's judgment. It is not resolved here.
+>
+> **Engineering facts available as input** (each verifiable, none of them a compliance conclusion):
+> local-first storage with no network on the default workflow; FileVault required before the app
+> will start in production mode; an append-only hash-linked audit chain with in-app verification;
+> no telemetry and crash reporting off by default; privilege and confidentiality classification
+> fields on documents and facts. Whether that set is sufficient is exactly the judgment this record
+> does not make.
+>
+> **Not addressed by any of the above:** backup. FileVault protects the data from theft; it does
+> nothing about loss. As of 2026-08-30 no Time Machine destination was configured on this machine.
+> The owner has stated they will connect external storage periodically. Recorded because a lost
+> client file is a client harm regardless of how the compliance question resolves.
+
 **Recorded status:** gate 11 **NOT cleared; internal-use-only until legal review.** No legal conclusion is stated in this record or by the agent. The engineering evidence (local-first/offline storage, no network egress per gate 20, a tamper-evident audit chain per gate 12, privilege/classification fields) exists as facts; whether it satisfies 律师法 confidentiality/compliance is the user's / their counsel's legal judgment, pending.
 
 ## Gate 17 — License / copyright / privacy
