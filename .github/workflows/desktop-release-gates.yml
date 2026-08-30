@@ -124,6 +124,18 @@ jobs:
       - name: A3 packaged link round-trip (regression-enforces the LINK-IPC-T1-D1 closure)
         run: npm --prefix apps/lawbar-desktop run test:link-roundtrip-packaged
 
+      # The two questions an operator has before trusting this with a real matter, neither of which
+      # any other test asks: does work survive quitting the app, and can the owner verify the audit
+      # chain themselves. Every M1-M9 assertion above happens inside ONE process lifetime; this
+      # launches the packaged binary TWICE against one profile and drives the lazy chain disclosure
+      # the way a person does. Added 2026-08-29, when enabling FileVault moved the app from
+      # "product shell ready" to "a litigator may rely on this".
+      #
+      # WHAT THIS STEP LETS CI CLAIM: entered work survives a restart, and in-app chain verification
+      # is reachable and reports clean after an ordinary create.
+      - name: Acceptance drill — data survives relaunch + in-app chain verification
+        run: npm --prefix apps/lawbar-desktop run test:acceptance-relaunch
+
       # DELIBERATELY NOT RUN HERE, and this is a risk acceptance rather than a judgement that these
       # surfaces are redundant:
       #   test:packaged      — packaged-binary smoke (3 tests)

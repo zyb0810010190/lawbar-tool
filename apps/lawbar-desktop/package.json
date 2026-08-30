@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "productName": "lawbar",
-  "description": "Lawbar \u2014 local-first, offline-first Mac desktop case-box client (v1). Functional case-management UI (matters, documents, deadlines, docket, facts, evidence links, audit trail, \u8bc1\u636e\u76ee\u5f55/\u8bf4\u660e T3 preview + DOCX export) over the local case-box persistence layer. Dev build: not yet code-signed or notarized, and public distribution is a pending release (gate-4) decision \u2014 not authorized for distribution until then.",
+  "description": "Lawbar — local-first, offline-first Mac desktop case-box client (v1). Functional case-management UI (matters, documents, deadlines, docket, facts, evidence links, audit trail, 证据目录/说明 T3 preview + DOCX export) over the local case-box persistence layer. Dev build: not yet code-signed or notarized, and public distribution is a pending release (gate-4) decision — not authorized for distribution until then.",
   "main": "dist/electron/main.js",
   "type": "module",
   "engines": {
@@ -38,6 +38,7 @@
     "test:ui-archive-matter": "npm run build && node --test tests/renderer-archive-matter.test.mjs",
     "test:ui-format-ledger": "npm run build && node --test tests/renderer-format-ledger.test.mjs",
     "test:ui-packaged": "LAWBAR_TEST_FILES=tests/casebox-ui.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
+    "test:acceptance-relaunch": "LAWBAR_TEST_FILES=tests/acceptance-relaunch.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
     "test:smoke-matrix": "LAWBAR_TEST_FILES=tests/casebox-ui.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
     "lint:renderer-imports": "node scripts/check-renderer-imports.mjs",
     "check:no-real-data": "node scripts/check-no-real-data.mjs",
