@@ -703,10 +703,23 @@ async function loadDeadlines(
   let cursor: string | null = null;
   let total = 0;
   for (;;) {
-    const env = await api.listDeadlines({
-      matterId,
-      ...(cursor !== null ? { cursor } : {}),
-    });
+    // No try at all here, unlike the partial guards elsewhere — a transport rejection escaped the
+    // loop entirely and left the loading placeholder permanently. Fifth screen carrying a variant of
+    // the same defect; the shape is what makes it easy to miss, not any one instance.
+    let env: Awaited<ReturnType<typeof api.listDeadlines>>;
+    try {
+      env = await api.listDeadlines({
+        matterId,
+        ...(cursor !== null ? { cursor } : {}),
+      });
+    } catch {
+      if (!isCurrent()) return;
+      loading.remove();
+      parent.appendChild(
+        el("p", { role: "alert", "data-test-id": "view-deadlines-error" }, [t("deadlines.load.failed")], doc),
+      );
+      return;
+    }
     // A newer load has taken over this container — drop this stale response.
     if (!isCurrent()) return;
     if (!env.ok) {

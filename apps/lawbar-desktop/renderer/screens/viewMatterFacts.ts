@@ -540,6 +540,17 @@ async function loadFacts(
         matterId,
         ...(cursor !== null ? { cursor } : {}),
       });
+    } catch {
+      // The finally below reset the re-entrancy flag and caught nothing — the same shape as
+      // viewMatterAudit, viewMatterDocuments and viewMatterDocketProposals. A `finally` that tidies
+      // state reads as handled, which is why five instances of this survived review.
+      pageLoading = false;
+      if (!isCurrent()) return;
+      loading.remove();
+      parent.appendChild(
+        el("p", { role: "alert", "data-test-id": "view-facts-error" }, [t("facts.load.failed")], doc),
+      );
+      return;
     } finally {
       pageLoading = false;
     }
