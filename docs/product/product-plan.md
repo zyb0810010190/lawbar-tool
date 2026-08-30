@@ -271,6 +271,36 @@ address this edge.
 
 ### D5 — nothing can prove the gate ran *(blocked on a decision, not on code)*
 
+> **DECIDED AND RECORDED — 2026-08-30. This is a decision, not a repair, so it is written here to be
+> confirmed or amended by the owner rather than treated as settled by an agent.**
+>
+> **The recorded claim, in exactly these words:** *A0.7's status is a recorded owner decision based
+> on listed test results. No independent attestation boundary exists.*
+>
+> **Why not the stronger claim.** CI is real evidence and it is worth having: the Swift job runs
+> `swift test --package-path native/evidence-core-swift` on a clean macOS runner for every PR
+> touching that package, on a machine this agent process cannot reach, and the D1/D2/D3/D4/D6 tests
+> were each verified executing there. But that attests **CI execution for a commit** — not a durable
+> marker bound to fixture, oracle, harness commit, classified result and platform, which is what the
+> deleted tooling was for. Recording CI as if it were that marker would launder a weak trust boundary
+> into a stronger claim, which is the failure this whole lane exists to prevent.
+>
+> **So the operating rule is:** CI is operational evidence. It is never the A0.7 marker, and no
+> document may describe it as one. If a durable marker is ever wanted, it needs a producer and a
+> verifier that do not share a user boundary — the exact property the 2026-08-10 audit found the
+> deleted tooling lacked.
+>
+> **Second acceptance criterion — verified 2026-08-30.** A repo-wide sweep for claims that A0.7 is
+> green returns only prerequisites ("only after A0.7 is green"), prohibitions ("no marker may be
+> written until"), and explicit denials ("'A0.7 is green' is unverifiable"). No unscoped positive
+> claim survives anywhere. Note the check needed its output READ, not counted: a naive regex returns
+> seven hits, all of them conditional.
+>
+> **A0.7 remains PROVISIONAL, not green** — and now for a stated reason rather than an absent one.
+> What changed across D1-D4/D6 is that the gate is now correct where it was blind. What has not
+> changed is that nothing can prove it ran, and under this decision nothing will.
+
+
 Even with D1–D4 closed, "A0.7 is green" is unverifiable: the marker writer and validator were
 deleted on 2026-08-10, and the audit that preceded their deletion concluded that agent-side
 attestation is not a trust boundary at all — the producer and the verifier ran as the same uid.
