@@ -266,7 +266,7 @@ export const CATALOG = {
   "viewT3.export.cancelled": "已取消保存。",
   // Generic fallback when the export call REJECTS (preload/IPC threw instead of
   // returning a structured envelope) — the renderer never surfaces raw error text.
-  "viewT3.export.failed": "导出失败，请重试。",
+  "viewT3.export.failed": "无法导出证据目录，请重试。",
 
   // ---- shell: settings nav (WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00) ----
   "shell.navSettings": "设置",
@@ -485,7 +485,8 @@ export const CATALOG = {
   "document.detail.loading": "正在加载详情…",
   "document.detail.notFound": "未找到文档。",
   "document.list.loading": "正在加载文档…",
-  "document.list.empty": "本案件暂无文档。",
+  "document.list.empty": "本案暂无文档。",
+  "document.list.emptyHint": "使用上方的「添加文档」登记本案的第一份文档。",
 
   // ---- deadline sub-screen (WI-DESKTOP-ZH-CN-SETTINGS-ENTRY-00 P3) ----
   "deadline.summary": "查看期限",
@@ -519,6 +520,7 @@ export const CATALOG = {
   "deadline.transition.updateFailed": "无法更新该期限，请重试。",
   "deadline.loading": "正在加载期限…",
   "deadline.empty": "本案暂无期限记录。",
+  "deadline.emptyHint": "使用上方的「提议期限」添加本案的第一个期限。",
   "deadline.banner.overdue": "{count} 项逾期",
   "deadline.banner.dueSoon": "{count} 项将于 7 天内到期",
 
@@ -598,6 +600,7 @@ export const CATALOG = {
   "fact.rejectionReasonPrefix": "驳回原因：{reason}",
   "fact.loading": "正在加载事实…",
   "fact.empty": "本案暂无已记录的事实。",
+  "fact.emptyHint": "使用上方的「添加事实」记录本案的第一条事实。",
   "fact.error.statementRequired": "事实陈述为必填项。",
   "fact.error.asOfDateRequired": "时间线事件需填写对应日期。",
   "fact.error.addFailed": "无法添加事实，请重试。",

@@ -574,7 +574,15 @@ async function loadFacts(
     }
     if (total === 0) {
       parent.appendChild(
-        el("p", { "data-test-id": "view-facts-empty" }, [t("fact.empty")], doc),
+        el(
+          "div",
+          { "data-test-id": "view-facts-empty" },
+          [
+            el("p", {}, [t("fact.empty")], doc),
+            el("p", { class: "empty-hint" }, [t("fact.emptyHint")], doc),
+          ],
+          doc,
+        ),
       );
       return;
     }

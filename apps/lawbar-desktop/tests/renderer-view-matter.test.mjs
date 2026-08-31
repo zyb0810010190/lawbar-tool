@@ -684,7 +684,10 @@ test("documents: empty state shown when no documents", async () => {
   await flush();
   const empty = findByTestId(root, "view-docs-empty");
   assert.ok(empty !== null);
-  assert.equal(collectText(empty), "本案件暂无文档。");
+  // R3-FUP-2: the empty state now carries a next-step line, and 本案件 was normalised to 本案 to
+  // match deadlines/facts/T3. Asserted via the catalog rather than a literal, so a later copy edit
+  // updates this test with it instead of breaking it.
+  assert.equal(collectText(empty), CATALOG["document.list.empty"] + CATALOG["document.list.emptyHint"]);
   assert.equal(findAllByTestId(root, "view-docs-item").length, 0);
 });
 
@@ -900,7 +903,8 @@ test("deadlines: empty state when none", async () => {
   await flush();
   const empty = findByTestId(root, "view-deadlines-empty");
   assert.ok(empty !== null);
-  assert.equal(collectText(empty), "本案暂无期限记录。");
+  // R3-FUP-2: next-step line added — this screen has a 「提议期限」 control, so the hint names it.
+  assert.equal(collectText(empty), CATALOG["deadline.empty"] + CATALOG["deadline.emptyHint"]);
   assert.equal(findAllByTestId(root, "view-deadlines-row").length, 0);
 });
 
@@ -995,7 +999,8 @@ test("facts: empty state when none", async () => {
   await flush();
   const empty = findByTestId(root, "view-facts-empty");
   assert.ok(empty !== null);
-  assert.equal(collectText(empty), "本案暂无已记录的事实。");
+  // R3-FUP-2: next-step line added — this screen has an 「添加事实」 control.
+  assert.equal(collectText(empty), CATALOG["fact.empty"] + CATALOG["fact.emptyHint"]);
   assert.equal(findAllByTestId(root, "view-facts-row").length, 0);
 });
 

@@ -758,7 +758,15 @@ async function loadDeadlines(
   refreshBanner();
   if (total === 0) {
     parent.appendChild(
-      el("p", { "data-test-id": "view-deadlines-empty" }, [t("deadline.empty")], doc),
+      el(
+        "div",
+        { "data-test-id": "view-deadlines-empty" },
+        [
+          el("p", {}, [t("deadline.empty")], doc),
+          el("p", { class: "empty-hint" }, [t("deadline.emptyHint")], doc),
+        ],
+        doc,
+      ),
     );
   }
 }

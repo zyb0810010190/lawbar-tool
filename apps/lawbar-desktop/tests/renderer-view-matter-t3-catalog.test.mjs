@@ -277,7 +277,11 @@ test("t3 export: a REJECTED export call renders the inline error AND re-enables 
   assert.ok(err !== null, "a rejected export renders the inline error");
   assert.equal(err.getAttribute("role"), "alert");
   assert.doesNotMatch(collectText(err), /preload bridge exploded/, "raw error text is not leaked");
-  assert.match(collectText(err), /导出失败/, "the i18n generic export-failed message is shown");
+  // R3-FUP-2: this string was the one member of the failure family that broke the shared
+  // 无法X，请重试。form (it read 导出失败). Asserted against the catalog now, so the test tracks the
+  // copy rather than pinning a phrase the standardisation removed.
+  assert.equal(collectText(err).trim(), CATALOG["viewT3.export.failed"].trim(),
+    "the i18n generic export-failed message is shown");
   // the working indicator is cleared
   assert.equal(findByTestId(root, "view-t3-export-working"), null, "working indicator cleared");
   // the button is re-enabled — not left disabled
