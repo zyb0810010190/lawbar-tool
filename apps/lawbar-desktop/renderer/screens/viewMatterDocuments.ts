@@ -370,7 +370,17 @@ async function loadDocuments(
     }
     if (total === 0) {
       parent.appendChild(
-        el("p", { "data-test-id": "view-docs-empty" }, [t("document.list.empty")], doc),
+        el(
+          "div",
+          { "data-test-id": "view-docs-empty" },
+          [
+            el("p", {}, [t("document.list.empty")], doc),
+            // Next-step line, matching the viewMatterLinks exemplar. Added only because this screen
+            // HAS an add control ("view-docs-add") — the hint names a button that is really there.
+            el("p", { class: "empty-hint" }, [t("document.list.emptyHint")], doc),
+          ],
+          doc,
+        ),
       );
       return;
     }
