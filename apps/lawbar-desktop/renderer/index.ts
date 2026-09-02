@@ -17,6 +17,7 @@ import { mountViewMatter } from "./screens/viewMatter.js";
 import { mountArchiveMatter } from "./screens/archiveMatter.js";
 import { mountEditMatter } from "./screens/editMatter.js";
 import { mountSettings } from "./screens/settings.js";
+import { mountBackup } from "./screens/backup.js";
 import { installDevModeBanner } from "./devModeBanner.js";
 import { installUnhandledRejectionNotice } from "./unhandledRejectionNotice.js";
 
@@ -100,6 +101,9 @@ async function renderRoute(route: ParsedRoute): Promise<void> {
       return;
     case "settings":
       await mountSettings(app, { navigate });
+      return;
+    case "backup":
+      await mountBackup(app);
       return;
     case "not-found":
     default:
