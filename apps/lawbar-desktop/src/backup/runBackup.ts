@@ -46,6 +46,7 @@
 import { createHash } from "node:crypto";
 import {
   existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, lstatSync,
+  realpathSync,
 } from "node:fs";
 import path from "node:path";
 
@@ -113,9 +114,36 @@ function sha256File(file: string): string {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
-/** True when `child` is `parent` or lives underneath it, after resolving both. */
+/**
+ * True when `child` is `parent` or lives underneath it — AFTER RESOLVING SYMLINKS.
+ *
+ * `path.resolve` normalises `..` and makes a path absolute; it does NOT follow symlinks. So a
+ * destination like `/Volumes/Drive/backups` that is a symlink to the application data directory
+ * resolves to itself, compares as "outside", and passes a containment check built on `resolve`
+ * alone — measured, and it is how the first version of this guard let a self-referential backup
+ * through. `realpathSync` is what actually answers the question, which is why `documentVerify.ts`
+ * uses `lstat` + `realpath` for the same class of check on the document store.
+ *
+ * A path that does not exist yet cannot be realpath'd, so it falls back to `resolve` — but its
+ * existing ancestor is resolved first, which is what closes the symlinked-parent case.
+ */
 export function isInside(parent: string, child: string): boolean {
-  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  const real = (p: string): string => {
+    let current = path.resolve(p);
+    const trailing: string[] = [];
+    // Walk up to the nearest ancestor that exists, realpath THAT, then re-append.
+    for (;;) {
+      try {
+        return path.join(realpathSync(current), ...trailing.reverse());
+      } catch {
+        const up = path.dirname(current);
+        if (up === current) return path.resolve(p); // reached the root: nothing to resolve
+        trailing.push(path.basename(current));
+        current = up;
+      }
+    }
+  };
+  const rel = path.relative(real(parent), real(child));
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
@@ -264,6 +292,19 @@ export function verifyBackup(
 ): string[] {
   const findings: string[] = [];
 
+  // The manifest records `databaseSha256`. Recording a hash and never checking it is a claim
+  // with no verification behind it — the exact shape of defect this repo keeps finding — so the
+  // file is re-read from disk here, after all writing is finished.
+  const dbFile = path.join(path.dirname(documentsDir), manifest.databaseFile);
+  if (!existsSync(dbFile)) {
+    findings.push(`the database file named by the manifest is not in the archive`);
+  } else {
+    const actual = sha256File(dbFile);
+    if (actual !== manifest.databaseSha256) {
+      findings.push(`database file hashes to ${actual}, manifest says ${manifest.databaseSha256}`);
+    }
+  }
+
   const integrity = backupDb.pragma?.("integrity_check", { simple: true });
   if (integrity !== undefined && integrity !== "ok") {
     findings.push(`integrity_check returned ${JSON.stringify(integrity)}`);
@@ -344,6 +385,18 @@ export async function runBackup(
     documents = copyDocuments(options.documentsRoot, docsDir);
   } catch (err) {
     return { ok: false, code: "documents_copy_failed", detail: describe(err) };
+  }
+
+  // The destination must still be the directory we created. A drive that was unmounted, or a
+  // folder that was moved or deleted mid-run, must not be able to reach the success path — and
+  // without this check the copy simply re-creates the tree it was writing into and reports
+  // success for an archive that is no longer where the owner was told it is.
+  if (!existsSync(dir) || !existsSync(dbFile)) {
+    return {
+      ok: false,
+      code: "destination_unusable",
+      detail: "the destination went away while the backup was running",
+    };
   }
 
   const backupDb = openBackupDb(dbFile);
