@@ -1,0 +1,307 @@
+// In-app backup engine — the tests that decide whether "verified" is a word we may use.
+//
+// WHY THESE USE A REAL DATABASE. `runBackup` takes a `BackupCapableDb` interface, which makes a
+// fake trivially easy and worthless: the SQL in this module names `case_box_audit_chain_heads`,
+// `case_box_documents` and `payload_json`, and a fake would agree with whatever I wrote. The
+// first draft of that SQL guessed `audit_events` and a `content_hash` COLUMN. Both typechecked.
+// Both were wrong — every table is `case_box_`-prefixed and `content_hash` lives inside
+// `payload_json`. A fake-backed test would have shipped that.
+//
+// So these build a real SQLite file with the product's real `applySchema`, and every assertion
+// runs against it.
+//
+// ON WHICH better-sqlite3. `apps/lawbar-desktop`'s copy is rebuilt for ELECTRON's ABI by its
+// `postinstall` (`electron-builder install-app-deps`). Under plain `node` it REQUIRES fine and
+// then aborts the process on first use — verified, and a trap worth naming because `require`
+// succeeding looks like proof and is not. The `services/case-box-persistence` copy is a plain
+// Node build, and CI installs it (`npm --prefix services/case-box-persistence ci`) before it runs
+// this suite. That is deliberately asserted rather than skipped around: a silent skip here would
+// be a test that cannot fail.
+
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync } from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+
+import {
+  runBackup, verifyBackup, chainHeads, referencedContentHashes, chainHeadDisagreements,
+  listDocumentFiles, isInside,
+} from "../dist/src/backup/runBackup.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO = path.resolve(__dirname, "..", "..", "..");
+const require_ = createRequire(import.meta.url);
+
+const Database = require_(path.join(REPO, "services/case-box-persistence/node_modules/better-sqlite3"));
+const { applySchema, CURRENT_SCHEMA_VERSION } = require_(
+  path.join(REPO, "services/case-box-persistence/dist/index.js"),
+);
+
+const sha = (b) => createHash("sha256").update(b).digest("hex");
+
+/** A temp root outside the repo and outside ~/Library, like every other drill here. */
+function tempRoot(label) {
+  const d = mkdtempSync(path.join(os.tmpdir(), `lawbar-${label}-`));
+  assert.equal(isInside(REPO, d), false, "temp root must not be inside the repo tree");
+  return d;
+}
+
+/**
+ * A case box with two matters, so a per-matter assertion can actually distinguish them, and two
+ * documents whose bytes really live in the store.
+ */
+function makeCaseBox() {
+  const userDataDir = tempRoot("data");
+  const dbPath = path.join(userDataDir, "case-box.sqlite");
+  const docsRoot = path.join(userDataDir, "case-box-documents");
+  const db = new Database(dbPath);
+  db.pragma("journal_mode = WAL");
+  applySchema(db);
+
+  const docs = [];
+  const addDoc = (matterId, id, body) => {
+    const bytes = Buffer.from(body, "utf8");
+    const dir = path.join(docsRoot, id);
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${id}.txt`);
+    writeFileSync(file, bytes);
+    const content_hash = sha(bytes);
+    db.prepare(
+      "INSERT INTO case_box_documents (id, tenant_id, matter_id, actor_user_id, status, received_at, doc_type, payload_json) " +
+        "VALUES (?,?,?,?,?,?,?,?)",
+    ).run(id, "t1", matterId, "u1", "registered", "2026-09-02T00:00:00.000Z", "pleading",
+      JSON.stringify({ id, content_hash, byte_size: bytes.length, filename: `${id}.txt` }));
+    docs.push({ id, content_hash, file, relative: path.relative(docsRoot, file) });
+  };
+
+  const addEvents = (matterId, n) => {
+    let prev = null;
+    for (let i = 1; i <= n; i++) {
+      const hash = sha(`${matterId}:${i}:${prev ?? "GENESIS"}`);
+      db.prepare(
+        "INSERT INTO case_box_audit_events (event_id, tenant_id, matter_id, sequence, action, entity_type, " +
+          "actor_user_id, timestamp, prev_event_hash, event_hash, event_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      ).run(`${matterId}-e${i}`, "t1", matterId, i, "create", "matter", "u1",
+        `2026-09-02T00:00:0${i}.000Z`, prev, hash, "{}");
+      prev = hash;
+    }
+    db.prepare(
+      "INSERT INTO case_box_audit_chain_heads (matter_id, head_hash, last_event_id, event_count, updated_at) " +
+        "VALUES (?,?,?,?,?)",
+    ).run(matterId, prev, `${matterId}-e${n}`, n, "2026-09-02T00:00:00.000Z");
+  };
+
+  addEvents("M-AAA", 3);
+  addEvents("M-BBB", 5);
+  addDoc("M-AAA", "D-0001", "first document bytes");
+  addDoc("M-BBB", "D-0002", "second document bytes");
+  return { userDataDir, dbPath, docsRoot, db, docs };
+}
+
+const openBackupDb = (file) => new Database(file, { readonly: true });
+
+async function backupInto(box, destRoot) {
+  return runBackup({
+    db: box.db,
+    documentsRoot: box.docsRoot,
+    userDataDir: box.userDataDir,
+    destinationRoot: destRoot,
+    appVersion: "0.1.0-test",
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    now: () => new Date("2026-09-02T12:00:00.000Z"),
+  }, openBackupDb);
+}
+
+// MARK: - The SQL actually matches the product's schema
+
+test("the schema this module queries is the schema the product creates", () => {
+  const box = makeCaseBox();
+  try {
+    // Each of these would have thrown "no such table"/"no such column" against the first draft.
+    const heads = chainHeads(box.db);
+    assert.equal(heads.length, 2, "two matters were seeded");
+    assert.deepEqual(heads.map((h) => h.matterId), ["M-AAA", "M-BBB"]);
+    assert.deepEqual(heads.map((h) => h.eventCount), [3, 5]);
+
+    const hashes = referencedContentHashes(box.db);
+    assert.equal(hashes.length, 2, "content_hash comes out of payload_json, not a column");
+    assert.deepEqual(hashes, box.docs.map((d) => d.content_hash).sort());
+
+    assert.deepEqual(chainHeadDisagreements(box.db), [], "seeded box is internally consistent");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); }
+});
+
+test("the manifest binds a head PER MATTER, not one global head", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest");
+  try {
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, true, r.ok ? "" : `${r.code}: ${r.detail}`);
+    assert.equal(r.manifest.chainHeads.length, 2,
+      "a single head would under-bind every matter but one — this product has no global chain");
+    const byId = Object.fromEntries(r.manifest.chainHeads.map((h) => [h.matterId, h]));
+    assert.equal(byId["M-AAA"].eventCount, 3);
+    assert.equal(byId["M-BBB"].eventCount, 5);
+    assert.notEqual(byId["M-AAA"].headHash, byId["M-BBB"].headHash);
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+// MARK: - A live snapshot under concurrent writes
+
+test("a backup taken WHILE the database is being written is internally consistent", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest");
+  try {
+    let i = 100;
+    const writer = setInterval(() => {
+      const hash = sha(`M-AAA:${i}`);
+      box.db.prepare(
+        "INSERT INTO case_box_audit_events (event_id, tenant_id, matter_id, sequence, action, entity_type, " +
+          "actor_user_id, timestamp, prev_event_hash, event_hash, event_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      ).run(`M-AAA-x${i}`, "t1", "M-XXX", i, "create", "matter", "u1", "2026-09-02T00:00:00.000Z", null, hash, "{}");
+      i++;
+    }, 1);
+    const r = await backupInto(box, dest);
+    clearInterval(writer);
+    assert.equal(r.ok, true, r.ok ? "" : `${r.code}: ${r.detail}`);
+    const bk = new Database(path.join(r.dir, "case-box.sqlite"), { readonly: true });
+    assert.equal(bk.pragma("integrity_check", { simple: true }), "ok");
+    bk.close();
+    assert.ok(i > 100, "the writer must actually have run, or this proves nothing");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+test("the live database and document store are unchanged by a backup", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest");
+  try {
+    const before = box.docs.map((d) => sha(readFileSync(d.file)));
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, true);
+    assert.deepEqual(box.docs.map((d) => sha(readFileSync(d.file))), before,
+      "a backup must never mutate the evidence it preserves");
+    assert.equal(chainHeads(box.db).length, 2, "the source chain heads are untouched");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+// MARK: - "Verified" has to be able to say NO
+
+test("a referenced document missing from the archive FAILS verification", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest");
+  try {
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, true);
+    // Delete one copied blob and re-verify: the chain is still perfect, the archive is not.
+    const victim = path.join(r.dir, "case-box-documents", box.docs[0].relative);
+    rmSync(victim);
+    const bk = new Database(path.join(r.dir, "case-box.sqlite"), { readonly: true });
+    const findings = verifyBackup(bk, r.manifest, path.join(r.dir, "case-box-documents"));
+    bk.close();
+    assert.ok(findings.length > 0,
+      "an archive whose database cites a document it does not contain must not verify");
+    assert.ok(findings.some((f) => f.includes(box.docs[0].relative) || f.includes(box.docs[0].content_hash)),
+      `findings must name the missing document; got ${JSON.stringify(findings)}`);
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+test("a copied document whose bytes changed FAILS verification", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest");
+  try {
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, true);
+    const victim = path.join(r.dir, "case-box-documents", box.docs[1].relative);
+    writeFileSync(victim, "tampered-or-truncated-by-the-medium");
+    const bk = new Database(path.join(r.dir, "case-box.sqlite"), { readonly: true });
+    const findings = verifyBackup(bk, r.manifest, path.join(r.dir, "case-box-documents"));
+    bk.close();
+    assert.ok(findings.some((f) => f.includes("hashes to")),
+      `a byte change must be caught by hash, not by size; got ${JSON.stringify(findings)}`);
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+test("a chain head disagreeing with its events is reported", () => {
+  const box = makeCaseBox();
+  try {
+    box.db.prepare("UPDATE case_box_audit_chain_heads SET event_count = 99 WHERE matter_id = 'M-AAA'").run();
+    const found = chainHeadDisagreements(box.db);
+    assert.ok(found.some((f) => f.includes("M-AAA") && f.includes("99")),
+      `truncation shows up as a head/event mismatch; got ${JSON.stringify(found)}`);
+    assert.ok(!found.some((f) => f.includes("M-BBB")), "the intact matter must not be implicated");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); }
+});
+
+// MARK: - Refusals
+
+test("a destination inside the app data directory is REFUSED", async () => {
+  const box = makeCaseBox();
+  try {
+    const inside = path.join(box.userDataDir, "backups");
+    mkdirSync(inside, { recursive: true });
+    const r = await backupInto(box, inside);
+    assert.equal(r.ok, false);
+    assert.equal(r.code, "destination_inside_data_dir",
+      "a backup that dies with the thing it protects is not a backup");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); }
+});
+
+test("a destination that is not a directory is REFUSED", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest");
+  try {
+    const file = path.join(dest, "not-a-dir");
+    writeFileSync(file, "x");
+    const r = await backupInto(box, file);
+    assert.equal(r.ok, false);
+    assert.equal(r.code, "destination_unusable");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+// MARK: - The manifest is a claim, so it may only exist when the claim is true
+
+test("no manifest is written when verification fails", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest");
+  try {
+    // Reference a document whose bytes were never stored: the copy cannot contain it.
+    box.db.prepare(
+      "INSERT INTO case_box_documents (id, tenant_id, matter_id, actor_user_id, status, received_at, doc_type, payload_json) " +
+        "VALUES (?,?,?,?,?,?,?,?)",
+    ).run("D-GHOST", "t1", "M-AAA", "u1", "registered", "2026-09-02T00:00:00.000Z", "pleading",
+      JSON.stringify({ id: "D-GHOST", content_hash: sha(Buffer.from("never written to disk")) }));
+
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, false, "an archive missing a referenced document must not report success");
+    assert.equal(r.code, "verification_failed");
+    const dirs = existsSync(dest) ? require_("node:fs").readdirSync(dest) : [];
+    for (const d of dirs) {
+      assert.equal(existsSync(path.join(dest, d, "manifest.json")), false,
+        "a manifest on disk must always mean a verified archive");
+    }
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+// MARK: - Store walking
+
+test("listDocumentFiles skips symlinks rather than following them out of the store", () => {
+  const root = tempRoot("store");
+  try {
+    mkdirSync(path.join(root, "D-1"), { recursive: true });
+    writeFileSync(path.join(root, "D-1", "a.txt"), "a");
+    const outside = tempRoot("outside");
+    writeFileSync(path.join(outside, "secret.txt"), "should never be archived");
+    require_("node:fs").symlinkSync(path.join(outside, "secret.txt"), path.join(root, "D-1", "link.txt"));
+    const found = listDocumentFiles(root);
+    // Two guards make this true — `lstatSync(...).isSymbolicLink()` and `Dirent.isFile()` — and
+    // they are redundant. Measured: removing either one alone leaves this test green; removing
+    // BOTH turns it red. So this asserts the property, not one implementation of it.
+    assert.deepEqual(found, [path.join("D-1", "a.txt")],
+      "a symlink must not decide what lands in an evidentiary archive");
+    rmSync(outside, { recursive: true, force: true });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
