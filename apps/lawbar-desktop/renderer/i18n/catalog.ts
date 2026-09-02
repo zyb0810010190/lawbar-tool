@@ -725,6 +725,38 @@ export const CATALOG = {
   "error.not_implemented": "操作暂不可用，请稍后重试。",
   "error.unknown": "发生错误，请稍后重试。",
 
+  // Backup (WI-BACKUP-2). The vocabulary here is deliberate and narrow.
+  //
+  // "备份" alone is never used to report success; every success string says 校验 as well, because
+  // a copy that has not been checked is not yet a backup and the owner must not learn otherwise
+  // from this screen. The failure family follows the 无法X，请重试。 form established by R3-FUP-2,
+  // EXCEPT where a bare retry would be wrong advice: a destination inside the data directory and
+  // a failed verification both need the owner to change something, so those name what to change.
+  // The sidebar label. Backup earns a top-level entry rather than a corner of Settings: a
+  // capability the owner cannot find is the same as one that does not exist, which is precisely
+  // the defect this whole work item exists to fix.
+  "shell.navBackup": "备份",
+  "backup.title": "备份",
+  "backup.explain": "备份会把案卷数据库与全部文件复制到你选择的位置，并逐一校验，确认复制出来的内容与本机一致。",
+  "backup.run": "立即备份并校验",
+  "backup.running": "正在备份并校验，请勿拔出磁盘…",
+  "backup.verified": "备份已完成，并通过校验。",
+  // The never-backed-up state is the one condition where losing this machine loses the client's
+  // file outright, so it says that plainly rather than reading as a neutral empty state.
+  "backup.status.never": "尚未完成任何一次通过校验的备份。若这台电脑丢失或损坏，案卷资料将无法找回。",
+  "backup.status.today": "最近一次通过校验的备份：今天。",
+  "backup.status.daysAgo": "最近一次通过校验的备份：{days} 天前。",
+  "backup.status.unavailable": "无法读取备份状态，请重试。",
+  "backup.failed.insideDataDir": "备份位置不能位于应用数据目录内，否则会与本机数据一同丢失。请选择外部磁盘。",
+  "backup.failed.destinationUnusable": "无法写入所选位置。请确认磁盘已连接、有可用空间，并可写入。",
+  // Deliberately NOT 请重试 alone: a verification failure means the archive was not proven, and
+  // repeating it on the same faulty medium is the least likely thing to help.
+  "backup.failed.verification": "备份未通过校验，未记为有效备份。请重试；若再次失败，请更换磁盘。",
+  "backup.failed.generic": "无法完成备份，请重试。",
+  // Stated on the screen rather than buried: an archive this machine can still reach sits under
+  // the same authority as the data it copies.
+  "backup.custody": "备份通过校验后，请断开该磁盘并妥善保管。仍与本机相连的备份，无法证明其未被一同改动。",
+
 } as const;
 
 export type CatalogId = keyof typeof CATALOG;
