@@ -427,37 +427,37 @@
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 180,
+    "line": 191,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 190,
+    "line": 201,
     "text": "${label}: ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 205,
+    "line": 216,
     "text": "${t(\"document.detail.contentHash\")}: ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 238,
+    "line": 249,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 239,
+    "line": 250,
     "text": "${docTypeLabel(row.doc_type)} · ${docStatusLabel(row.status)}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 240,
+    "line": 251,
     "text": " ",
     "kind": "text"
   },

@@ -240,6 +240,7 @@ export const CATALOG = {
   // ---- T3 证据目录及说明 preview section (WI-FORMS-T3-S2-CATALOG-PREVIEW-00) ----
   "viewT3.summary": "证据目录及说明（预览）",
   "viewT3.loading": "加载证据目录…",
+  "viewT3.load.failed": "无法加载证据目录，请重试。",
   "viewT3.empty": "本案暂无已采纳证据可供目录展示。",
   "viewT3.header.position": "提交人诉讼地位：",
   "viewT3.header.submitter": "名称/姓名：",
@@ -470,6 +471,8 @@ export const CATALOG = {
   "document.add.typeAria": "文档类型",
   "document.add.button": "添加文档",
   "document.add.working": "正在添加…",
+  "document.add.failed": "无法添加文档，请重试。",
+  "document.detail.failed": "无法加载文档详情，请重试。",
   "document.add.cancelled": "已取消。",
   "document.add.added": "已添加。",
   "document.detail.contentHash": "内容哈希",
