@@ -111,6 +111,26 @@ test("T1.3 the child exports no name the harness did not supply", () => {
   k.cleanup();
 });
 
+// A stub only ever has to be runnable BY US: the child runs as the same user, out of a temp
+// directory we own. `writeFileSync(..., { mode: 0o755 })` REQUESTS 0755, but POSIX umask
+// subtracts from that and never adds to it, so on a machine with `umask 077` — which is the
+// correct posture for one holding privileged client material — the stub lands 0700 and an
+// `=== 0o755` assertion fails. CI runs umask 022 and gets exactly 0755. That made this a test
+// whose verdict depended on the environment rather than on the code: green on CI, permanently
+// red locally, which is precisely how a red acquires a name and stops being investigated.
+//
+// So assert the two properties that actually matter and that umask cannot make false:
+//   * we can read AND execute it (a shell script needs both), and
+//   * the harness never granted MORE than 0755 — no setuid, no group/other write.
+// This is the same reasoning `assertStubsShadow` (`& 0o111`), the packaged smoke test, and
+// the ocr-worker temp-file test ("umask can mask further but never adds") already use.
+function assertOwnerRunnable(file, what) {
+  const mode = statSync(file).mode & 0o777;
+  const oct = mode.toString(8).padStart(3, "0");
+  assert.equal(mode & 0o500, 0o500, `${what}: owner must be able to read and execute it (mode ${oct})`);
+  assert.equal(mode & ~0o755, 0, `${what}: no permission beyond 0755 may be granted (mode ${oct})`);
+}
+
 test("T1.4 stub exitCode, stdout and stderr are configured independently and byte-exact", () => {
   const specs = [
     { spec: { exitCode: 0, stdout: "S-ZERO\n", stderr: "" }, out: "S-ZERO\nrc=0\n", err: "" },
@@ -119,8 +139,7 @@ test("T1.4 stub exitCode, stdout and stderr are configured independently and byt
   ];
   for (const { spec, out, err } of specs) {
     const k = makeCase({ stubs: { security: spec } });
-    const mode = statSync(path.join(k.stubDir, "security")).mode & 0o777;
-    assert.equal(mode, 0o755, "stub must be mode 0755");
+    assertOwnerRunnable(path.join(k.stubDir, "security"), "stub");
     const r = runProbe(`security; printf 'rc=%s\\n' "$?"`, k);
     assert.equal(r.stdout, out, `stdout for exitCode ${spec.exitCode}`);
     assert.equal(r.stderr, err, `stderr for exitCode ${spec.exitCode}`);
@@ -368,7 +387,7 @@ test("T2.z makeStubDir writes every stub executable, and omit really omits", () 
       assert.equal(existsSync(path.join(dir, n)), false, "omitted stub must not exist");
       continue;
     }
-    assert.equal(statSync(path.join(dir, n)).mode & 0o777, 0o755, `${n} mode`);
+    assertOwnerRunnable(path.join(dir, n), n);
   }
 });
 
