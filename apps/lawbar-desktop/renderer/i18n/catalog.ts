@@ -472,6 +472,7 @@ export const CATALOG = {
   "document.add.button": "添加文档",
   "document.add.working": "正在添加…",
   "document.add.failed": "无法添加文档，请重试。",
+  "rejection.notice": "有一项操作未能完成，界面可能未显示最新内容。请重新打开本页；若反复出现，请重启 lawbar。已保存的数据不受影响。",
   "document.detail.failed": "无法加载文档详情，请重试。",
   "document.add.cancelled": "已取消。",
   "document.add.added": "已添加。",
