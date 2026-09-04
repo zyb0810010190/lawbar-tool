@@ -234,4 +234,27 @@ const appInfoApi: AppInfoApi = {
   get: () => ipcRenderer.invoke("app:info"),
 };
 
-contextBridge.exposeInMainWorld("lawbar", { theme: themeApi, caseBox: caseBoxApi, appInfo: appInfoApi });
+// Backup (WI-BACKUP-2). Two channels, and NEITHER takes an argument — deliberately.
+// `run` does not accept a destination: main opens the native directory chooser itself, exactly as
+// `chooseDocumentFile` and the T3 export already do. A renderer that could name the destination
+// could name one for a copy of the entire case box.
+interface BackupApi {
+  status(): Promise<{
+    lastVerifiedAt: string | null;
+    daysSinceLastVerified: number | null;
+    hasEverBackedUp: boolean;
+  }>;
+  run(): Promise<{ ok: true; verifiedAt: string } | { ok: false; code: string }>;
+}
+
+const backupApi: BackupApi = {
+  status: () => ipcRenderer.invoke("backup:status"),
+  run: () => ipcRenderer.invoke("backup:run"),
+};
+
+contextBridge.exposeInMainWorld("lawbar", {
+  theme: themeApi,
+  caseBox: caseBoxApi,
+  appInfo: appInfoApi,
+  backup: backupApi,
+});

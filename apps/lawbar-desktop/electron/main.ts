@@ -7,6 +7,11 @@ import { closeCaseBoxRuntime, getCaseBoxRuntime } from "../src/caseBox/caseBoxRu
 import { acquireOrExit } from "../src/caseBox/startupFailure.js";
 import { describeUnexpectedFailure } from "../src/caseBox/unexpectedFailure.js";
 import { registerCaseBoxIpcHandlers } from "./ipc/caseBoxHandlers.js";
+import {
+  BACKUP_CHANNEL, backupRunHandler, backupStatusHandler,
+} from "../src/backup/backupHandlers.js";
+import type { BackupCapableDb } from "../src/backup/runBackup.js";
+import { CURRENT_SCHEMA_VERSION } from "case-box-persistence";
 import { makeStoreFile } from "../src/caseBox/documentStorage.js";
 import { loadThemePreference } from "../src/persistence/themePreference.js";
 import {
@@ -150,6 +155,40 @@ async function startProduct(): Promise<void> {
   caseBoxOpened = true;
   // Document files live in an app-controlled directory beside the SQLite DB.
   const documentStorageRoot = path.join(userDataDir, "case-box-documents");
+  // Backup (WI-BACKUP-2). Registered here because this is where the LIVE database handle exists:
+  // `caseBoxRuntime.db` is the handle the app already holds, and `db.backup()` snapshots through
+  // it rather than opening a second one. Opening a hot-WAL database read-write would checkpoint
+  // it on close and mutate the evidence being preserved.
+  //
+  // The destination chooser lives HERE, not in the renderer. `backup:run` takes no argument.
+  const backupDeps = {
+    userDataDir,
+    documentsRoot: path.join(userDataDir, "case-box-documents"),
+    appVersion: app.getVersion(),
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    // `BackupCapableDb` is the narrow slice of better-sqlite3 the engine needs (`backup`,
+    // `prepare`, `pragma`). The runtime handle satisfies it structurally; the cast names that
+    // rather than widening the engine's dependency to the whole driver.
+    getDb: (): BackupCapableDb => caseBoxRuntime.db as unknown as BackupCapableDb,
+    openBackupDb: (file: string) =>
+      new (caseBoxRuntime.db.constructor as new (p: string, o?: unknown) => unknown)(file, {
+        readonly: true,
+      }) as BackupCapableDb & { pragma?: (s: string, o?: unknown) => unknown },
+    chooseDestination: async (): Promise<string | null> => {
+      const win = mainWindow ?? undefined;
+      const opts = {
+        properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory">,
+        message: "选择备份位置（建议使用外部磁盘）",
+      };
+      const result =
+        win !== undefined ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+      if (result.canceled || result.filePaths.length === 0) return null;
+      return result.filePaths[0];
+    },
+  };
+  ipcMain.handle(BACKUP_CHANNEL.status, () => backupStatusHandler(backupDeps));
+  ipcMain.handle(BACKUP_CHANNEL.run, () => backupRunHandler(backupDeps));
+
   registerCaseBoxIpcHandlers({
     persistenceProvider: () => caseBoxRuntime,
     storeDocumentFile: makeStoreFile(documentStorageRoot),

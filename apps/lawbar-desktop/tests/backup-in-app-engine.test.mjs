@@ -305,3 +305,89 @@ test("listDocumentFiles skips symlinks rather than following them out of the sto
     rmSync(outside, { recursive: true, force: true });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+// MARK: - Regressions found by adverse-condition probing, not by the tests above
+//
+// Both of these passed every test in this file before they were fixed. They were found by
+// running the built engine against a destination that misbehaves — which is the failure this
+// whole feature exists for, and the one a green suite was quietest about.
+
+test("REGRESSION: a destination SYMLINKED into the data directory is refused", async () => {
+  const box = makeCaseBox();
+  const outer = tempRoot("outer");
+  try {
+    // `path.resolve` normalises `..` and makes a path absolute; it does NOT follow symlinks. So a
+    // destination that is a link back into the app data directory resolved to itself, compared as
+    // "outside", and passed the containment guard — producing a self-referential backup, the exact
+    // thing that guard exists to prevent. Measured: resolve(link) stays /outer/sneaky while
+    // realpath(link) is the data dir. `documentVerify.ts` already used lstat + realpath for the
+    // same class of check; this guard had not.
+    const link = path.join(outer, "sneaky");
+    require_("node:fs").symlinkSync(box.userDataDir, link);
+    const r = await backupInto(box, link);
+    assert.equal(r.ok, false, "a backup written into the data directory dies with the thing it protects");
+    assert.equal(r.code, "destination_inside_data_dir");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(outer, { recursive: true, force: true }); }
+});
+
+test("REGRESSION: a symlinked destination that is genuinely elsewhere is still ALLOWED", async () => {
+  // The fix must not refuse every symlink — an external drive reached through one is ordinary.
+  const box = makeCaseBox();
+  const real = tempRoot("realdest");
+  const outer = tempRoot("outer");
+  try {
+    const link = path.join(outer, "drive");
+    require_("node:fs").symlinkSync(real, link);
+    const r = await backupInto(box, link);
+    assert.equal(r.ok, true, r.ok ? "" : `${r.code}: ${r.detail}`);
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(real, { recursive: true, force: true }); rmSync(outer, { recursive: true, force: true }); }
+});
+
+test("REGRESSION: the manifest's databaseSha256 is actually CHECKED, not merely recorded", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest");
+  try {
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, true);
+    assert.ok(r.manifest.databaseSha256.length === 64, "the manifest records a database hash");
+
+    // Recording a hash and never verifying it is a claim with nothing behind it. Corrupt the
+    // archived database and confirm verification now says so.
+    const dbFile = path.join(r.dir, "case-box.sqlite");
+    const original = readFileSync(dbFile);
+    writeFileSync(dbFile, Buffer.concat([original, Buffer.from("trailing damage")]));
+    const bk = new Database(dbFile, { readonly: true });
+    const findings = verifyBackup(bk, r.manifest, path.join(r.dir, "case-box-documents"));
+    bk.close();
+    assert.ok(findings.some((f) => f.includes("database file hashes to")),
+      `a changed archive database must be caught by its recorded hash; got ${JSON.stringify(findings)}`);
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+test("REGRESSION: a destination that disappears before verification is refused", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest");
+  try {
+    // WHAT THIS TEST DOES AND DOES NOT PIN. The deletion is injected inside `openBackupDb`, which
+    // runs AFTER `runBackup`'s destination-still-there guard — so what actually catches it here is
+    // the manifest's databaseSha256 check ("the database file named by the manifest is not in the
+    // archive"). Measured: removing the guard leaves this test green. It therefore asserts the
+    // OUTCOME (a vanished archive is never reported as verified), not which line produces it.
+    //
+    // The guard still earns its place, and that was measured separately rather than assumed: with
+    // a genuinely concurrent deletion (a child process removing the destination during the copy,
+    // reproduced out-of-repo because `copyDocuments` is synchronous and a same-thread timer cannot
+    // fire during it) the guard returns `destination_unusable` — "the drive went away" — instead
+    // of `verification_failed`, which would tell the owner their archive failed verification and
+    // imply corruption rather than a missing disk. Same outcome, materially different sentence.
+    const r = await runBackup({
+      db: box.db, documentsRoot: box.docsRoot, userDataDir: box.userDataDir,
+      destinationRoot: dest, appVersion: "0.1.0-test", schemaVersion: CURRENT_SCHEMA_VERSION,
+      now: () => new Date("2026-09-02T12:00:00.000Z"),
+    }, (file) => {
+      rmSync(path.dirname(file), { recursive: true, force: true }); // the drive goes away
+      return new Database(file, { readonly: true });
+    }).catch((e) => ({ ok: false, code: "threw", detail: String(e.message) }));
+    assert.equal(r.ok, false, "an archive that is no longer there must not be reported as verified");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
