@@ -30,7 +30,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   runBackup, verifyBackup, chainHeads, referencedContentHashes, chainHeadDisagreements,
-  listDocumentFiles, isInside,
+  listDocumentFiles, isInside, onSameVolume,
 } from "../dist/src/backup/runBackup.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -493,6 +493,24 @@ async function withReadOnlyVolume(fn) {
   }
 }
 
+/** A WRITABLE mounted volume — a genuinely different device id from the temp dir. */
+async function withWritableVolume(fn) {
+  const dir = tempRoot("rw-img");
+  const img = path.join(dir, "rw");
+  const name = `LAWBARRW${process.pid}${Math.floor(Math.random() * 1e6)}`;
+  execFileSync("hdiutil", ["create", "-size", "32m", "-fs", "HFS+", "-volname", name, "-quiet", img]);
+  const out = execFileSync("hdiutil", ["attach", `${img}.dmg`, "-nobrowse"], { encoding: "utf8" });
+  const match = out.split("\n").map((l) => l.match(/(\/Volumes\/.+?)\s*$/)).find(Boolean);
+  assert.ok(match, `hdiutil attach reported no mount point:\n${out}`);
+  const volume = match[1];
+  try {
+    return await fn(volume);
+  } finally {
+    try { execFileSync("hdiutil", ["detach", volume, "-quiet"]); } catch { /* already gone */ }
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 test("a READ-ONLY volume is named as such, not lumped in with 'unusable'", async () => {
   const box = makeCaseBox();
   try {
@@ -537,4 +555,47 @@ test("a WRITABLE-but-permission-denied directory is NOT reported as read-only", 
     box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true });
     rmSync(parent, { recursive: true, force: true });
   }
+});
+
+// MARK: - Same-volume backups are real, and must not be reported as more than they are
+
+test("a backup onto the SAME volume as the case box is flagged, not refused", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest"); // both under os.tmpdir() -> same device on this machine
+  try {
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, true, "refusing would leave the owner with no backup at all");
+    assert.equal(r.sameVolume, onSameVolume(box.userDataDir, r.dir),
+      "the flag must reflect the measured device id, not a guess");
+    // Both temp dirs live on the same device here, so this asserts the true case concretely.
+    assert.equal(statSync(box.userDataDir).dev, statSync(r.dir).dev, "precondition for this test");
+    assert.equal(r.sameVolume, true);
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+test("a backup onto a DIFFERENT volume is not flagged", async () => {
+  const box = makeCaseBox();
+  try {
+    // A mounted disk image is a genuinely different device — the only honest way to test this.
+    await withWritableVolume(async (volume) => {
+      const r = await backupInto(box, volume);
+      assert.equal(r.ok, true, r.ok ? "" : `${r.code}: ${r.detail}`);
+      assert.notEqual(statSync(box.userDataDir).dev, statSync(r.dir).dev, "precondition");
+      assert.equal(r.sameVolume, false,
+        "an external disk must not be warned about — that would train the owner to ignore the warning");
+    });
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); }
+});
+
+test("onSameVolume compares device ids, not path prefixes", async () => {
+  const box = makeCaseBox();
+  try {
+    await withWritableVolume(async (volume) => {
+      // Nothing about these two paths shares a prefix, and they are genuinely different devices.
+      assert.equal(onSameVolume(box.userDataDir, volume), false);
+      // And a path that does not exist is never claimed to be the same volume.
+      assert.equal(onSameVolume(box.userDataDir, path.join(volume, "no-such-dir")), false);
+    });
+    assert.equal(onSameVolume(box.userDataDir, box.userDataDir), true, "a path is on its own volume");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); }
 });

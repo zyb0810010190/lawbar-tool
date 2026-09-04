@@ -72,6 +72,22 @@ export interface DocumentEntry {
 }
 
 /**
+ * Same physical volume? Compared by device id (`st_dev`), not by path prefix.
+ *
+ * A path comparison cannot answer this: `/Volumes/Backup` looks like another disk and may be a
+ * folder on this one, while an APFS volume in the same container has a different mount point and
+ * a different device id, which is the answer we want — a container is one piece of hardware but
+ * a volume is what fails independently for the purposes that matter here.
+ */
+export function onSameVolume(a: string, b: string): boolean {
+  try {
+    return statSync(a).dev === statSync(b).dev;
+  } catch {
+    return false; // if we cannot tell, do not claim they are the same
+  }
+}
+
+/**
  * Stored in the manifest so a reader of the ARCHIVE — who may not have this source — knows that
  * files present but unlisted are not evidence. macOS writes `._*` sidecars onto exFAT and NTFS
  * volumes on its own, so an archive on removable media will generally contain some.
@@ -97,7 +113,20 @@ export interface BackupManifest {
 }
 
 export type BackupOutcome =
-  | { readonly ok: true; readonly dir: string; readonly manifest: BackupManifest }
+  | {
+      readonly ok: true;
+      readonly dir: string;
+      readonly manifest: BackupManifest;
+      /**
+       * True when the archive landed on the SAME physical volume as the case box.
+       *
+       * Such a backup is real and it verifies — it survives a mistake made inside the app, a bad
+       * migration, an accidental deletion. It survives nothing that happens to the disk. Reporting
+       * it as simply "backed up" would be the false confidence this whole screen exists to
+       * prevent, so the fact travels with the result rather than being inferred later from a path.
+       */
+      readonly sameVolume: boolean;
+    }
   | { readonly ok: false; readonly code: BackupFailureCode; readonly detail: string };
 
 export type BackupFailureCode =
@@ -482,7 +511,12 @@ export async function runBackup(
   // The manifest is written only AFTER verification passes, so a manifest on disk always means a
   // verified archive. A half-written archive carrying a confident manifest is worse than none.
   writeFileSync(path.join(dir, MANIFEST_FILENAME), JSON.stringify(manifest, null, 2), "utf-8");
-  return { ok: true, dir, manifest };
+  return {
+    ok: true,
+    dir,
+    manifest,
+    sameVolume: onSameVolume(options.userDataDir, dir),
+  };
 }
 
 function describe(err: unknown): string {

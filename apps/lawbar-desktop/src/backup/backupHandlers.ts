@@ -30,6 +30,8 @@ export interface BackupStatus {
   readonly lastVerifiedAt: string | null;
   readonly daysSinceLastVerified: number | null;
   readonly hasEverBackedUp: boolean;
+  /** The last verified archive is on the same disk as the case box, so it survives no hardware loss. */
+  readonly lastBackupOnSameVolume: boolean;
 }
 
 export interface BackupHandlerDeps {
@@ -51,6 +53,7 @@ export function backupStatusHandler(deps: BackupHandlerDeps): BackupStatus {
     lastVerifiedAt: record.lastVerifiedAt,
     daysSinceLastVerified: daysSince(record, now()),
     hasEverBackedUp: record.lastVerifiedAt !== null,
+    lastBackupOnSameVolume: record.lastVerifiedAt !== null && record.lastVerifiedSameVolume,
   };
 }
 
@@ -83,6 +86,7 @@ export async function backupRunHandler(deps: BackupHandlerDeps): Promise<BackupR
     lastVerifiedAt: verifiedAt,
     lastVerifiedDir: outcome.dir,
     lastDestinationRoot: destinationRoot,
+    lastVerifiedSameVolume: outcome.sameVolume,
   });
   return { ok: true, verifiedAt };
 }
