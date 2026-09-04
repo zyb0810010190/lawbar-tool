@@ -63,6 +63,8 @@ function failureKey(code: string): CatalogId | null {
       return null;
     case "destination_inside_data_dir":
       return "backup.failed.insideDataDir";
+    case "destination_read_only":
+      return "backup.failed.readOnly";
     case "destination_unusable":
       return "backup.failed.destinationUnusable";
     case "verification_failed":

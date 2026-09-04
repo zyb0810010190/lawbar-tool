@@ -20,7 +20,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync, readdirSync, chmodSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
@@ -453,4 +453,88 @@ test("REGRESSION: no file handle is left open on the archive — the disk must b
     if (err?.status === 1 && String(err.stdout ?? "").trim() === "") return;
     throw err;
   } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+// MARK: - A read-only destination, which is the likeliest real failure of all
+//
+// External drives ship NTFS-formatted from the factory and macOS mounts NTFS READ-ONLY. Measured
+// on exactly such a drive: 1 TB, 445 GB free, connected, visible in Finder, and completely
+// unwritable. Before this, the owner was told "check the disk is connected and has space" —
+// true, useless, and pointing at the two things that were already fine.
+
+/**
+ * A genuinely read-only filesystem. `chmod` cannot produce EROFS — only a real mount can, which is
+ * why this goes to the trouble of making one. `hdiutil` is already a CI dependency here: the
+ * packaging step builds DMGs with it.
+ *
+ * The mount point is PARSED from hdiutil's output rather than assumed from the volume name. macOS
+ * appends a suffix when a name is already taken (`/Volumes/NAME 1`), so a guessed path is right
+ * until two runs overlap and then silently points at nothing.
+ */
+async function withReadOnlyVolume(fn) {
+  const dir = tempRoot("ro-img");
+  const img = path.join(dir, "ro");
+  const name = `LAWBARRO${process.pid}${Math.floor(Math.random() * 1e6)}`;
+  execFileSync("hdiutil", ["create", "-size", "8m", "-fs", "HFS+", "-volname", name, "-quiet", img]);
+  const out = execFileSync("hdiutil", ["attach", `${img}.dmg`, "-readonly", "-nobrowse"], { encoding: "utf8" });
+  const match = out.split("\n").map((l) => l.match(/(\/Volumes\/.+?)\s*$/)).find(Boolean);
+  assert.ok(match, `hdiutil attach reported no mount point:\n${out}`);
+  const volume = match[1];
+  assert.ok(existsSync(volume), `mount point ${volume} does not exist`);
+  try {
+    // AWAIT, not `return fn(volume)`. Without the await this helper is synchronous, so `finally`
+    // fires the moment `fn` hands back its promise — detaching the volume while the callback is
+    // still using it. The first version did exactly that, and the failure looked like a mount
+    // point that had never existed rather than one pulled out from under the test.
+    return await fn(volume);
+  } finally {
+    try { execFileSync("hdiutil", ["detach", volume, "-quiet"]); } catch { /* already gone */ }
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("a READ-ONLY volume is named as such, not lumped in with 'unusable'", async () => {
+  const box = makeCaseBox();
+  try {
+    const code = await withReadOnlyVolume(async (volume) => {
+      const r = await backupInto(box, volume);
+      assert.equal(r.ok, false, "a read-only volume cannot receive a backup");
+      return r.code;
+    });
+    assert.equal(code, "destination_read_only",
+      "the owner must be told the disk is read-only, not told to check space that is already free");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); }
+});
+
+test("the read-only check runs BEFORE anything is created on the volume", async () => {
+  const box = makeCaseBox();
+  try {
+    await withReadOnlyVolume(async (volume) => {
+      const before = readdirSync(volume).filter((f) => !f.startsWith("."));
+      const r = await backupInto(box, volume);
+      assert.equal(r.ok, false);
+      assert.deepEqual(readdirSync(volume).filter((f) => !f.startsWith(".")), before,
+        "a refused backup must leave the destination exactly as it found it");
+    });
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); }
+});
+
+test("a WRITABLE-but-permission-denied directory is NOT reported as read-only", async () => {
+  // The two are different problems with different remedies, and conflating them would send the
+  // owner to reformat a disk whose permissions merely need fixing.
+  const box = makeCaseBox();
+  const parent = tempRoot("perm");
+  const dest = path.join(parent, "locked");
+  try {
+    mkdirSync(dest);
+    chmodSync(dest, 0o500); // readable + executable, not writable
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, false);
+    assert.equal(r.code, "destination_unusable", "EACCES is not EROFS");
+    assert.notEqual(r.code, "destination_read_only");
+  } finally {
+    try { chmodSync(dest, 0o700); } catch { /* fine */ }
+    box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true });
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
