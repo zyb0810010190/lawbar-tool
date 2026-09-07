@@ -13,13 +13,15 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, statSync, mkdirSync, writeFileSync, realpathSync, readFileSync } from "node:fs";
+import { existsSync, statSync, mkdirSync, writeFileSync, realpathSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import {
   PREFLIGHT, VERIFY, SENTINEL, IDENTITY_PRESENT, NO_IDENTITY, KEYCHAIN_ONLY, PKG_DIR,
   STUBBED_BINARIES, PASSTHROUGH_BINARIES, REAL_BUNDLE_REL,
   makeCase, makeStubDir, makeTempRoot, assertStubsShadow, readInvocationLog,
   runScript, runProbe, skipReason, isUnderTmp, isUnderRepo, assertNoCommandNotFound,
+  LOCK_MKDIR, LOCK_RMDIR, LOCK_MAX_ATTEMPTS, CHILD_TIMEOUT_MS, childEnv,
 } from "./_release-script-harness.mjs";
 
 const APPLE_OK = {
@@ -425,4 +427,144 @@ test("T10.3 every registered path still exists on disk", () => {
   const missing = REGISTERED.filter((f) => !existsSync(path.join(PKG_DIR, f)));
   assert.deepEqual(missing, [], `registered but absent: ${missing.join(", ")}`);
   assert.ok(REGISTERED.length >= 60, `expected >= 60 registered files, got ${REGISTERED.length}`);
+});
+
+// ---------------------------------------------------------------- WI-F7: the invocation-log lock
+//
+// The lock in `logPrelude` called BARE `mkdir`/`rmdir`, and the child's PATH is deliberately the
+// stub directory alone — which has never contained either. So every acquisition failed with
+// command-not-found, the bounded spin ran all 5,001 iterations, and the record was appended with
+// NO LOCK. The suite stayed green throughout: nothing asserted that the lock could be taken, only
+// that records could be read back, and a single-threaded case reads back fine unlocked.
+//
+// These cases assert the lock as a MECHANISM rather than as a side effect, which is what the
+// original was missing.
+
+test("T7.9 the lock commands the stubs use are absolute and really exist", () => {
+  // If either were relative, PATH would decide — and PATH here is a directory that contains
+  // neither. This is the whole defect, in one assertion.
+  for (const p of [LOCK_MKDIR, LOCK_RMDIR]) {
+    assert.ok(path.isAbsolute(p), `${p} must be absolute; PATH here cannot resolve it`);
+    assert.ok(existsSync(p), `${p} does not exist on this host`);
+    assert.ok((statSync(p).mode & 0o111) !== 0, `${p} is not executable`);
+  }
+  // And they are NOT passthrough stubs: a passthrough runs logPrelude, so locking through one
+  // would recurse — take the lock to take the lock.
+  for (const name of ["mkdir", "rmdir"]) {
+    assert.equal(Object.keys(PASSTHROUGH_BINARIES).includes(name), false,
+      `${name} must not become a logging passthrough: the lock would recurse through itself`);
+  }
+});
+
+test("T7.10 a stub really WAITS on a held lock, then proceeds when it is released", async () => {
+  // The concurrency has to come from Node, not from the probe shell: the isolated PATH has no
+  // `sleep`, and more importantly the stub's spin is BOUNDED — after LOCK_MAX_ATTEMPTS it gives
+  // up and appends unprotected on purpose, so "the log stays empty forever while held" is not
+  // something the design promises and must not be asserted. What IS promised is that the stub
+  // waits rather than walking straight past a held lock, and that is what this measures.
+  const kase = makeCase();
+  try {
+    mkdirSync(`${kase.logPath}.lock`);
+
+    const child = spawn("/bin/bash", ["-c", "codesign --version"], {
+      cwd: kase.root,
+      env: childEnv(kase),
+      stdio: "ignore",
+    });
+    const exited = new Promise((resolve) => child.on("exit", resolve));
+
+    // While the lock is held the record must not appear. Checked over a window comfortably
+    // shorter than the spin bound, so this observes waiting rather than racing the giving-up.
+    await new Promise((r) => setTimeout(r, 400));
+    assert.deepEqual(readInvocationLog(kase.logPath, { all: true }), [],
+      "the stub walked straight past a held lock — which is what a broken lock looks like");
+    assert.equal(child.exitCode, null, "the stub should still be waiting, not finished");
+
+    rmSync(`${kase.logPath}.lock`, { recursive: true, force: true });
+    assert.equal(await exited, 0, "the stub failed once the lock was free");
+
+    assert.ok(readInvocationLog(kase.logPath).some((r) => r.name === "codesign"),
+      "the stub never logged its call once the lock was released");
+    assert.equal(existsSync(`${kase.logPath}.lock`), false,
+      "the lock directory was left behind, so every later call would spin to its bound");
+  } finally { kase.cleanup(); }
+});
+
+test("T7.11 concurrent stubs writing LONG arguments still parse as separate records", () => {
+  // The real failure this lock exists for: the anchored Developer-ID regex made the `grep`
+  // record long enough to exceed the stdio buffer, and the two sides of `security … | grep …`
+  // interleaved into one corrupt record on a clean CI runner. Long arguments are the trigger,
+  // so they are the input here.
+  const kase = makeCase();
+  try {
+    const long = "L".repeat(9000);
+    const probe = [
+      `for i in 1 2 3 4 5 6 7 8; do`,
+      `  codesign --verify --long "${long}-$i" &`,
+      `  spctl --assess --long "${long}-$i" &`,
+      `done`,
+      `wait`,
+    ].join("\n");
+    const r = runProbe(probe, kase);
+    assert.equal(r.status, 0, r.stderr);
+
+    const records = readInvocationLog(kase.logPath);
+    assert.equal(records.length, 16, `expected 16 records, got ${records.length}`);
+    for (const rec of records) {
+      assert.ok(["codesign", "spctl"].includes(rec.name),
+        `a record name was corrupted by interleaving: ${JSON.stringify(rec.name.slice(0, 80))}`);
+      assert.equal(rec.argv.length, 3, `record argv was split or merged: ${JSON.stringify(rec.argv.map((a) => a.slice(0, 40)))}`);
+      assert.equal(rec.argv[2].length, long.length + 2, "a long argument did not round-trip whole");
+      assert.ok(rec.argv[2].startsWith(long), "a long argument was truncated or spliced");
+    }
+    assert.equal(records.filter((r) => r.name === "codesign").length, 8);
+    assert.equal(records.filter((r) => r.name === "spctl").length, 8);
+  } finally { kase.cleanup(); }
+});
+
+test("T7.12 a missing lock command fails FAST and says so, rather than spinning silently", () => {
+  // The old behaviour on exactly this input: 5,001 no-op iterations, then an unlocked append and
+  // a zero exit — a lock that had stopped existing, reported as success. A stub that cannot lock
+  // must say so, because everything downstream of it is now unproven.
+  const kase = makeCase();
+  try {
+    const stubBody = readFileSync(path.join(kase.stubDir, "codesign"), "utf8");
+    assert.ok(stubBody.includes(LOCK_MKDIR), "the stub does not use the absolute lock command");
+
+    const broken = stubBody.split(LOCK_MKDIR).join("/nonexistent/lawbar-no-such-mkdir");
+    writeFileSync(path.join(kase.stubDir, "codesign"), broken, { mode: 0o755 });
+
+    const started = Date.now();
+    const r = runProbe(`codesign --version`, kase);
+    const elapsed = Date.now() - started;
+
+    assert.notEqual(r.status, 0, "a stub that cannot lock its log exited 0");
+    assert.equal(r.status, 97, "the missing-lock-command exit code is its own signal");
+    assert.ok(/cannot be locked/.test(r.stderr), `the failure must name the cause; got: ${r.stderr}`);
+    assert.ok(elapsed < 10_000, `fail-fast means fail fast; took ${elapsed}ms`);
+    assert.deepEqual(readInvocationLog(kase.logPath, { all: true }), [],
+      "a stub that could not lock must not append an unprotected record anyway");
+  } finally { kase.cleanup(); }
+});
+
+test("T7.13 harness-spawned children carry a timeout, so nothing can hang the suite", () => {
+  assert.ok(Number.isFinite(CHILD_TIMEOUT_MS) && CHILD_TIMEOUT_MS > 0,
+    "CHILD_TIMEOUT_MS must be a positive number of milliseconds");
+  const kase = makeCase();
+  try {
+    // A real block, killed by a real timeout. `/bin/sleep` by ABSOLUTE path: the isolated PATH
+    // deliberately holds only the stubs, so a bare `sleep` here would exit 127 immediately and
+    // this case would pass without the timeout ever being exercised — which is how the first
+    // version of it was wrong.
+    const started = Date.now();
+    const r = runProbe(`/bin/sleep 30`, kase, { timeout: 750 });
+    const elapsed = Date.now() - started;
+
+    assert.equal(r.error?.code, "ETIMEDOUT", `the child was not killed by the timeout: ${r.error?.code}`);
+    assert.ok(elapsed < 10_000, `the timeout must actually fire; took ${elapsed}ms`);
+
+    // And an ordinary child still completes normally under the same plumbing.
+    const ok = runProbe(`/bin/sleep 0`, kase);
+    assert.equal(ok.status, 0, "a normal child must not be affected by the timeout");
+  } finally { kase.cleanup(); }
 });

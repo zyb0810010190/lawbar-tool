@@ -712,7 +712,7 @@ const DDL_BY_VERSION: ReadonlyMap<number, ReadonlyArray<string>> = new Map([
  * transaction so the "newer-than-supported" precondition can refuse
  * without any write.
  */
-function readMaxSchemaVersion(db: Database): number {
+export function readMaxSchemaVersion(db: Database): number {
   const tableRow = db
     .prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'",

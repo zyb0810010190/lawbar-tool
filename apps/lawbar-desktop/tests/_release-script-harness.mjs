@@ -174,12 +174,49 @@ function sq(s) {
 //
 // The two sides of that pipeline are genuinely concurrent, so the fix is an actual lock
 // rather than a bigger buffer. `mkdir` is atomic on every POSIX filesystem, needs no tools
-// beyond the shell, and works on bash 3.2. The spin is bounded so a stub that dies holding
-// the lock degrades to a possibly-interleaved record instead of hanging the suite.
+// beyond the shell, and works on bash 3.2.
+//
+// AND THE LOCK DID NOT WORK, for ten months, in a way that left no trace. It called BARE
+// `mkdir` and `rmdir` — resolved through PATH, and PATH here is deliberately set to the stub
+// directory alone (property 2: the scripts must not silently reach a real system binary). That
+// directory contains the five stubbed tools and bash/grep/sed. It has never contained `mkdir`.
+// So every acquisition failed with command-not-found, the bounded spin ran its full 5,001
+// iterations, and the record was then appended WITH NO LOCK — the exact interleaving the lock
+// was added to prevent, plus 5,001 wasted process-less iterations per logged call. Measured by
+// an external audit on 2026-09-06: ~3,312 ms for a single `codesign --version` under this
+// harness, ~8.4 ms with working lock commands.
+//
+// ABSOLUTE PATHS ARE THE FIX, and specifically NOT adding mkdir/rmdir to PASSTHROUGH_BINARIES.
+// A passthrough stub calls `logPrelude` itself, so the lock would try to take the lock, which
+// would run the passthrough, which would try to take the lock. Absolute paths sidestep PATH
+// entirely without adding anything the scripts under test could see.
+//
+// The two failure modes are now LOUD rather than silent, because a logging lock that has
+// stopped working produces tests that pass while proving less — which is what happened:
+//   - lock tools absent  -> exit non-zero immediately, with a message naming the cause.
+//   - spin exhausted     -> a diagnostic on stderr, then append anyway. Degrading to a
+//                           possibly-interleaved record still beats hanging the suite, but it
+//                           may no longer do so quietly.
 //
 // Format: name line, one line per argv element, blank-line terminator. One argv element per
 // line means arguments containing SPACES round-trip exactly (T7.8). Known limit: an argv
 // element that is itself the empty string would read as a terminator. No case here passes one.
+
+/** Absolute paths, so the lock never depends on the deliberately-empty stub PATH. */
+export const LOCK_MKDIR = "/bin/mkdir";
+export const LOCK_RMDIR = "/bin/rmdir";
+
+/**
+ * How many times a stub retries the lock before giving up and appending unprotected.
+ *
+ * Lowered from 5,000 when the lock started working. That number was chosen when every attempt
+ * was a failed PATH lookup inside the shell — free, and the whole loop was a no-op. Each attempt
+ * is now a real `/bin/mkdir` process: ~1.4 ms measured here, so 5,000 attempts cost ~7 seconds
+ * EVERY time a stub dies holding the lock. 2,000 is ~2.8 s, still far more contention headroom
+ * than the 16-way concurrent case in T7.11 needs, and a bound rather than a hang.
+ */
+export const LOCK_MAX_ATTEMPTS = 2000;
+
 function logPrelude(name) {
   return [
     `__rec=${sq(name)}`,
@@ -187,12 +224,22 @@ function logPrelude(name) {
     `$__a"; done`,
     `__log="\${LAWBAR_STUB_LOG:-/dev/null}"`,
     `if [ "$__log" != "/dev/null" ]; then`,
+    `  if [ ! -x ${LOCK_MKDIR} ] || [ ! -x ${LOCK_RMDIR} ]; then`,
+    `    printf 'lawbar-stub: %s or %s is missing; the invocation log cannot be locked\\n' \\`,
+    `      ${LOCK_MKDIR} ${LOCK_RMDIR} >&2`,
+    `    exit 97`,
+    `  fi`,
     `  __i=0`,
-    `  while ! mkdir "$__log.lock" 2>/dev/null; do`,
-    `    __i=$((__i + 1)); [ "$__i" -gt 5000 ] && break`,
+    `  while ! ${LOCK_MKDIR} "$__log.lock" 2>/dev/null; do`,
+    `    __i=$((__i + 1))`,
+    `    if [ "$__i" -gt ${LOCK_MAX_ATTEMPTS} ]; then`,
+    `      printf 'lawbar-stub: gave up waiting for %s.lock; this record may interleave\\n' \\`,
+    `        "$__log" >&2`,
+    `      break`,
+    `    fi`,
     `  done`,
     `  printf '%s\\n\\n' "$__rec" >> "$__log"`,
-    `  rmdir "$__log.lock" 2>/dev/null`,
+    `  ${LOCK_RMDIR} "$__log.lock" 2>/dev/null`,
     `else`,
     `  printf '%s\\n\\n' "$__rec" >> "$__log"`,
     `fi`,
@@ -337,23 +384,40 @@ export function childEnv(kase, extra = {}) {
   return env;
 }
 
+/**
+ * How long any harness-spawned child may run before it is killed.
+ *
+ * Every script under this harness talks only to stubs, so a run that has not finished in this
+ * long is not slow, it is stuck — and the realistic way to get stuck is a stub that died holding
+ * the invocation-log lock while another waits on it. Without a timeout that hangs the whole
+ * suite with no output; with one it fails as a timeout, which names the cause. Generous enough
+ * that a loaded machine never trips it.
+ */
+export const CHILD_TIMEOUT_MS = 60_000;
+
 /** Run a script under the isolated environment. */
 export function runScript(scriptPath, args, kase, { env = {}, cwd = kase.root } = {}) {
   return spawnSync("/bin/bash", [scriptPath, ...args], {
     cwd,
     encoding: "utf8",
     env: childEnv(kase, env),
+    timeout: CHILD_TIMEOUT_MS,
   });
 }
 
 /** Run an ad-hoc probe script body under the same isolation. */
-export function runProbe(body, kase, { env = {}, cwd = kase.root, args = [] } = {}) {
+export function runProbe(
+  body, kase, { env = {}, cwd = kase.root, args = [], timeout = CHILD_TIMEOUT_MS } = {},
+) {
   const file = path.join(kase.root, `probe-${Math.random().toString(36).slice(2)}.sh`);
   writeFileSync(file, `#!/bin/bash\n${body}\n`, { mode: 0o755 });
   return spawnSync("/bin/bash", [file, ...args], {
     cwd,
     encoding: "utf8",
     env: childEnv(kase, env),
+    // Overridable so the timeout itself is testable without a 60-second test. Production callers
+    // take the default; only the case that asserts the timeout fires passes a short one.
+    timeout,
   });
 }
 
@@ -363,6 +427,7 @@ export function runCommand(command, kase, { env = {}, cwd = kase.root } = {}) {
     cwd,
     encoding: "utf8",
     env: childEnv(kase, env),
+    timeout: CHILD_TIMEOUT_MS,
   });
 }
 

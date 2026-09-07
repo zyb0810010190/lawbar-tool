@@ -29,17 +29,21 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import {
-  runBackup, verifyBackup, chainHeads, referencedContentHashes, chainHeadDisagreements,
+  runBackup, verifyBackup, chainHeads, referencedContentHashes,
   listDocumentFiles, isInside, onSameVolume,
 } from "../dist/src/backup/runBackup.js";
+import { storeDocumentFile } from "../dist/src/caseBox/documentStorage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..", "..");
 const require_ = createRequire(import.meta.url);
 
 const Database = require_(path.join(REPO, "services/case-box-persistence/node_modules/better-sqlite3"));
-const { applySchema, CURRENT_SCHEMA_VERSION } = require_(
+const { openSqliteCaseBoxPersistence, CURRENT_SCHEMA_VERSION } = require_(
   path.join(REPO, "services/case-box-persistence/dist/index.js"),
+);
+const { makeMatterInput, makeDocumentInput, makeIdGenerator } = await import(
+  path.join(REPO, "services/case-box-persistence/tests/conformance/fixtures.mjs")
 );
 
 const sha = (b) => createHash("sha256").update(b).digest("hex");
@@ -54,53 +58,59 @@ function tempRoot(label) {
 /**
  * A case box with two matters, so a per-matter assertion can actually distinguish them, and two
  * documents whose bytes really live in the store.
+ *
+ * BUILT THROUGH THE PERSISTENCE API, NOT RAW SQL — and that changed after an external audit on
+ * 2026-09-06. This fixture used to INSERT audit rows directly, with an invented `event_hash` and
+ * `event_json = "{}"`. Those rows are internally consistent and are not a chain: no event in them
+ * would survive `verifyAuditChain`. That mattered more than it looked, because it made this file
+ * structurally unable to hold the judgement it appears to hold. With a fake chain there is no
+ * healthy control — a real verifier rejects the fixture as loudly as it rejects a tamper — so the
+ * engine could ship a chain check that only compared COUNTS, and every test here stayed green
+ * while four corrupt case boxes were reported as VERIFIED.
+ *
+ * `createMatter` and `registerDocument` write real canonicalized events, real SHA-256 event
+ * hashes, real prev-links and a real head anchor. The negative matrix lives in
+ * backup-verified-integrity.test.mjs; this file keeps the engine's other properties.
  */
-function makeCaseBox() {
+async function makeCaseBox() {
   const userDataDir = tempRoot("data");
   const dbPath = path.join(userDataDir, "case-box.sqlite");
   const docsRoot = path.join(userDataDir, "case-box-documents");
-  const db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
-  applySchema(db);
+  mkdirSync(docsRoot, { recursive: true });
+  const ids = makeIdGenerator("enginebk");
+  const opened = openSqliteCaseBoxPersistence({ path: dbPath, generateId: ids });
+  const db = opened.db;
 
   const docs = [];
-  const addDoc = (matterId, id, body) => {
-    const bytes = Buffer.from(body, "utf8");
-    const dir = path.join(docsRoot, id);
-    mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `${id}.txt`);
-    writeFileSync(file, bytes);
-    const content_hash = sha(bytes);
-    db.prepare(
-      "INSERT INTO case_box_documents (id, tenant_id, matter_id, actor_user_id, status, received_at, doc_type, payload_json) " +
-        "VALUES (?,?,?,?,?,?,?,?)",
-    ).run(id, "t1", matterId, "u1", "registered", "2026-09-02T00:00:00.000Z", "pleading",
-      JSON.stringify({ id, content_hash, byte_size: bytes.length, filename: `${id}.txt` }));
-    docs.push({ id, content_hash, file, relative: path.relative(docsRoot, file) });
-  };
+  const matterIds = [];
+  for (const name of ["SYNTHETIC MATTER ONE", "SYNTHETIC MATTER TWO"]) {
+    const matter = makeMatterInput({ id: ids(), name });
+    await opened.persistence.createMatter(matter);
+    matterIds.push(matter.id);
 
-  const addEvents = (matterId, n) => {
-    let prev = null;
-    for (let i = 1; i <= n; i++) {
-      const hash = sha(`${matterId}:${i}:${prev ?? "GENESIS"}`);
-      db.prepare(
-        "INSERT INTO case_box_audit_events (event_id, tenant_id, matter_id, sequence, action, entity_type, " +
-          "actor_user_id, timestamp, prev_event_hash, event_hash, event_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-      ).run(`${matterId}-e${i}`, "t1", matterId, i, "create", "matter", "u1",
-        `2026-09-02T00:00:0${i}.000Z`, prev, hash, "{}");
-      prev = hash;
-    }
-    db.prepare(
-      "INSERT INTO case_box_audit_chain_heads (matter_id, head_hash, last_event_id, event_count, updated_at) " +
-        "VALUES (?,?,?,?,?)",
-    ).run(matterId, prev, `${matterId}-e${n}`, n, "2026-09-02T00:00:00.000Z");
-  };
+    const id = ids();
+    const source = path.join(userDataDir, `${id}-source.txt`);
+    writeFileSync(source, `SYNTHETIC BYTES FOR ${id}`);
+    const stored = await storeDocumentFile({
+      sourcePath: source, storageRoot: docsRoot, documentId: id, filename: "source.txt",
+    });
+    rmSync(source);
+    await opened.persistence.registerDocument(matter.id, makeDocumentInput({
+      id, matter_id: matter.id, filename: stored.stored_filename,
+      content_hash: stored.content_hash, storage_uri: stored.storage_uri,
+      byte_size: stored.byte_size,
+    }));
+    const file = path.join(docsRoot, id, stored.stored_filename);
+    docs.push({ id, content_hash: stored.content_hash, file, relative: path.relative(docsRoot, file) });
+  }
 
-  addEvents("M-AAA", 3);
-  addEvents("M-BBB", 5);
-  addDoc("M-AAA", "D-0001", "first document bytes");
-  addDoc("M-BBB", "D-0002", "second document bytes");
-  return { userDataDir, dbPath, docsRoot, db, docs };
+  // The control is only a control if the product's own full verifier passes it first.
+  for (const id of matterIds) {
+    const chain = await opened.persistence.verifyAuditChainForMatter(id);
+    assert.equal(chain.ok, true, `fixture chain for ${id} must be legitimate: ${chain.detail ?? ""}`);
+  }
+
+  return { userDataDir, dbPath, docsRoot, db, docs, matterIds, persistence: opened.persistence, ids };
 }
 
 const openBackupDb = (file) => new Database(file, { readonly: true });
@@ -119,25 +129,27 @@ async function backupInto(box, destRoot) {
 
 // MARK: - The SQL actually matches the product's schema
 
-test("the schema this module queries is the schema the product creates", () => {
-  const box = makeCaseBox();
+test("the schema this module queries is the schema the product creates", async () => {
+  const box = await makeCaseBox();
   try {
     // Each of these would have thrown "no such table"/"no such column" against the first draft.
     const heads = chainHeads(box.db);
     assert.equal(heads.length, 2, "two matters were seeded");
-    assert.deepEqual(heads.map((h) => h.matterId), ["M-AAA", "M-BBB"]);
-    assert.deepEqual(heads.map((h) => h.eventCount), [3, 5]);
+    assert.deepEqual(heads.map((h) => h.matterId), [...box.matterIds].sort());
+    for (const h of heads) {
+      assert.ok(h.eventCount >= 2,
+        "createMatter writes a genesis event and registerDocument writes another");
+      assert.equal(typeof h.headHash, "string");
+    }
 
     const hashes = referencedContentHashes(box.db);
     assert.equal(hashes.length, 2, "content_hash comes out of payload_json, not a column");
     assert.deepEqual(hashes, box.docs.map((d) => d.content_hash).sort());
-
-    assert.deepEqual(chainHeadDisagreements(box.db), [], "seeded box is internally consistent");
   } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); }
 });
 
 test("the manifest binds a head PER MATTER, not one global head", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest");
   try {
     const r = await backupInto(box, dest);
@@ -145,39 +157,49 @@ test("the manifest binds a head PER MATTER, not one global head", async () => {
     assert.equal(r.manifest.chainHeads.length, 2,
       "a single head would under-bind every matter but one — this product has no global chain");
     const byId = Object.fromEntries(r.manifest.chainHeads.map((h) => [h.matterId, h]));
-    assert.equal(byId["M-AAA"].eventCount, 3);
-    assert.equal(byId["M-BBB"].eventCount, 5);
-    assert.notEqual(byId["M-AAA"].headHash, byId["M-BBB"].headHash);
+    const [a, b] = box.matterIds;
+    assert.ok(byId[a].eventCount >= 2, "each matter's own event count travels in the manifest");
+    assert.ok(byId[b].eventCount >= 2);
+    assert.notEqual(byId[a].headHash, byId[b].headHash,
+      "two matters with identical event counts must still have distinct heads");
   } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
 });
 
 // MARK: - A live snapshot under concurrent writes
 
 test("a backup taken WHILE the database is being written is internally consistent", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest");
   try {
-    let i = 100;
+    // The writes go through `createMatter`, not raw INSERTs. A raw INSERT of invented audit rows
+    // would make this test assert `ok: true` about an archive whose chains are broken — the
+    // concurrency claim would be indistinguishable from a verifier that checks nothing, which is
+    // the exact confusion this whole change is about. Real matters keep the archive verifiable,
+    // so `ok: true` still means what it says while writes commit underneath the snapshot.
+    let started = 0;
+    const inflight = [];
     const writer = setInterval(() => {
-      const hash = sha(`M-AAA:${i}`);
-      box.db.prepare(
-        "INSERT INTO case_box_audit_events (event_id, tenant_id, matter_id, sequence, action, entity_type, " +
-          "actor_user_id, timestamp, prev_event_hash, event_hash, event_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-      ).run(`M-AAA-x${i}`, "t1", "M-XXX", i, "create", "matter", "u1", "2026-09-02T00:00:00.000Z", null, hash, "{}");
-      i++;
+      started++;
+      inflight.push(
+        box.persistence
+          .createMatter(makeMatterInput({ id: box.ids(), name: `SYNTHETIC CONCURRENT ${started}` }))
+          .catch(() => {}), // a write racing the close at teardown is not this test's subject
+      );
     }, 1);
     const r = await backupInto(box, dest);
     clearInterval(writer);
+    await Promise.all(inflight);
+
     assert.equal(r.ok, true, r.ok ? "" : `${r.code}: ${r.detail}`);
     const bk = new Database(path.join(r.dir, "case-box.sqlite"), { readonly: true });
     assert.equal(bk.pragma("integrity_check", { simple: true }), "ok");
     bk.close();
-    assert.ok(i > 100, "the writer must actually have run, or this proves nothing");
+    assert.ok(started > 0, "the writer must actually have run, or this proves nothing");
   } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
 });
 
 test("the live database and document store are unchanged by a backup", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest");
   try {
     const before = box.docs.map((d) => sha(readFileSync(d.file)));
@@ -192,7 +214,7 @@ test("the live database and document store are unchanged by a backup", async () 
 // MARK: - "Verified" has to be able to say NO
 
 test("a referenced document missing from the archive FAILS verification", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest");
   try {
     const r = await backupInto(box, dest);
@@ -201,7 +223,7 @@ test("a referenced document missing from the archive FAILS verification", async 
     const victim = path.join(r.dir, "case-box-documents", box.docs[0].relative);
     rmSync(victim);
     const bk = new Database(path.join(r.dir, "case-box.sqlite"), { readonly: true });
-    const findings = verifyBackup(bk, r.manifest, path.join(r.dir, "case-box-documents"));
+    const findings = await verifyBackup(bk, r.manifest, path.join(r.dir, "case-box-documents"));
     bk.close();
     assert.ok(findings.length > 0,
       "an archive whose database cites a document it does not contain must not verify");
@@ -211,7 +233,7 @@ test("a referenced document missing from the archive FAILS verification", async 
 });
 
 test("a copied document whose bytes changed FAILS verification", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest");
   try {
     const r = await backupInto(box, dest);
@@ -219,28 +241,37 @@ test("a copied document whose bytes changed FAILS verification", async () => {
     const victim = path.join(r.dir, "case-box-documents", box.docs[1].relative);
     writeFileSync(victim, "tampered-or-truncated-by-the-medium");
     const bk = new Database(path.join(r.dir, "case-box.sqlite"), { readonly: true });
-    const findings = verifyBackup(bk, r.manifest, path.join(r.dir, "case-box-documents"));
+    const findings = await verifyBackup(bk, r.manifest, path.join(r.dir, "case-box-documents"));
     bk.close();
     assert.ok(findings.some((f) => f.includes("hashes to")),
       `a byte change must be caught by hash, not by size; got ${JSON.stringify(findings)}`);
   } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
 });
 
-test("a chain head disagreeing with its events is reported", () => {
-  const box = makeCaseBox();
+test("a chain head disagreeing with its events is reported, and only for that matter", async () => {
+  // This used to call `chainHeadDisagreements`, a count-only check local to the backup engine.
+  // That function is gone: it was the whole of what "verified" meant for the audit chain, and a
+  // count comparison certifies an edited event. The invariant it carried is kept — it now runs
+  // inside `verifyAllAuditChains` — so this asserts it through the engine's real entry point,
+  // which also proves the check is actually WIRED rather than merely present.
+  const box = await makeCaseBox();
+  const dest = tempRoot("dest");
   try {
-    box.db.prepare("UPDATE case_box_audit_chain_heads SET event_count = 99 WHERE matter_id = 'M-AAA'").run();
-    const found = chainHeadDisagreements(box.db);
-    assert.ok(found.some((f) => f.includes("M-AAA") && f.includes("99")),
-      `truncation shows up as a head/event mismatch; got ${JSON.stringify(found)}`);
-    assert.ok(!found.some((f) => f.includes("M-BBB")), "the intact matter must not be implicated");
-  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); }
+    const [victim, intact] = box.matterIds;
+    box.db.prepare("UPDATE case_box_audit_chain_heads SET event_count = 99 WHERE matter_id = ?").run(victim);
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, false, "a head that miscounts its own events must not verify");
+    assert.equal(r.code, "verification_failed");
+    assert.ok(r.detail.includes(victim) && r.detail.includes("99"),
+      `the finding must name the matter and the declared count; got ${r.detail}`);
+    assert.equal(r.detail.includes(intact), false, "the intact matter must not be implicated");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
 });
 
 // MARK: - Refusals
 
 test("a destination inside the app data directory is REFUSED", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   try {
     const inside = path.join(box.userDataDir, "backups");
     mkdirSync(inside, { recursive: true });
@@ -252,7 +283,7 @@ test("a destination inside the app data directory is REFUSED", async () => {
 });
 
 test("a destination that is not a directory is REFUSED", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest");
   try {
     const file = path.join(dest, "not-a-dir");
@@ -266,7 +297,7 @@ test("a destination that is not a directory is REFUSED", async () => {
 // MARK: - The manifest is a claim, so it may only exist when the claim is true
 
 test("no manifest is written when verification fails", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest");
   try {
     // Reference a document whose bytes were never stored: the copy cannot contain it.
@@ -314,7 +345,7 @@ test("listDocumentFiles skips symlinks rather than following them out of the sto
 // whole feature exists for, and the one a green suite was quietest about.
 
 test("REGRESSION: a destination SYMLINKED into the data directory is refused", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const outer = tempRoot("outer");
   try {
     // `path.resolve` normalises `..` and makes a path absolute; it does NOT follow symlinks. So a
@@ -333,7 +364,7 @@ test("REGRESSION: a destination SYMLINKED into the data directory is refused", a
 
 test("REGRESSION: a symlinked destination that is genuinely elsewhere is still ALLOWED", async () => {
   // The fix must not refuse every symlink — an external drive reached through one is ordinary.
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const real = tempRoot("realdest");
   const outer = tempRoot("outer");
   try {
@@ -345,7 +376,7 @@ test("REGRESSION: a symlinked destination that is genuinely elsewhere is still A
 });
 
 test("REGRESSION: the manifest's databaseSha256 is actually CHECKED, not merely recorded", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest");
   try {
     const r = await backupInto(box, dest);
@@ -358,7 +389,7 @@ test("REGRESSION: the manifest's databaseSha256 is actually CHECKED, not merely 
     const original = readFileSync(dbFile);
     writeFileSync(dbFile, Buffer.concat([original, Buffer.from("trailing damage")]));
     const bk = new Database(dbFile, { readonly: true });
-    const findings = verifyBackup(bk, r.manifest, path.join(r.dir, "case-box-documents"));
+    const findings = await verifyBackup(bk, r.manifest, path.join(r.dir, "case-box-documents"));
     bk.close();
     assert.ok(findings.some((f) => f.includes("database file hashes to")),
       `a changed archive database must be caught by its recorded hash; got ${JSON.stringify(findings)}`);
@@ -366,7 +397,7 @@ test("REGRESSION: the manifest's databaseSha256 is actually CHECKED, not merely 
 });
 
 test("REGRESSION: a destination that disappears before verification is refused", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest");
   try {
     // WHAT THIS TEST DOES AND DOES NOT PIN. The deletion is injected inside `openBackupDb`, which
@@ -396,7 +427,7 @@ test("REGRESSION: a destination that disappears before verification is refused",
 // MARK: - Found by writing a real archive to a real external volume
 
 test("REGRESSION: the archive contains ONLY what the manifest lists", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest");
   try {
     const r = await backupInto(box, dest);
@@ -417,7 +448,7 @@ test("REGRESSION: the archive contains ONLY what the manifest lists", async () =
 });
 
 test("REGRESSION: the manifest says outright that it is the authority on what is evidentiary", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest");
   try {
     const r = await backupInto(box, dest);
@@ -433,7 +464,7 @@ test("REGRESSION: the manifest says outright that it is the authority on what is
 });
 
 test("REGRESSION: no file handle is left open on the archive — the disk must be ejectable", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest");
   try {
     const r = await backupInto(box, dest);
@@ -512,7 +543,7 @@ async function withWritableVolume(fn) {
 }
 
 test("a READ-ONLY volume is named as such, not lumped in with 'unusable'", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   try {
     const code = await withReadOnlyVolume(async (volume) => {
       const r = await backupInto(box, volume);
@@ -525,7 +556,7 @@ test("a READ-ONLY volume is named as such, not lumped in with 'unusable'", async
 });
 
 test("the read-only check runs BEFORE anything is created on the volume", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   try {
     await withReadOnlyVolume(async (volume) => {
       const before = readdirSync(volume).filter((f) => !f.startsWith("."));
@@ -540,7 +571,7 @@ test("the read-only check runs BEFORE anything is created on the volume", async 
 test("a WRITABLE-but-permission-denied directory is NOT reported as read-only", async () => {
   // The two are different problems with different remedies, and conflating them would send the
   // owner to reformat a disk whose permissions merely need fixing.
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const parent = tempRoot("perm");
   const dest = path.join(parent, "locked");
   try {
@@ -560,7 +591,7 @@ test("a WRITABLE-but-permission-denied directory is NOT reported as read-only", 
 // MARK: - Same-volume backups are real, and must not be reported as more than they are
 
 test("a backup onto the SAME volume as the case box is flagged, not refused", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   const dest = tempRoot("dest"); // both under os.tmpdir() -> same device on this machine
   try {
     const r = await backupInto(box, dest);
@@ -574,7 +605,7 @@ test("a backup onto the SAME volume as the case box is flagged, not refused", as
 });
 
 test("a backup onto a DIFFERENT volume is not flagged", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   try {
     // A mounted disk image is a genuinely different device — the only honest way to test this.
     await withWritableVolume(async (volume) => {
@@ -588,7 +619,7 @@ test("a backup onto a DIFFERENT volume is not flagged", async () => {
 });
 
 test("onSameVolume compares device ids, not path prefixes", async () => {
-  const box = makeCaseBox();
+  const box = await makeCaseBox();
   try {
     await withWritableVolume(async (volume) => {
       // Nothing about these two paths shares a prefix, and they are genuinely different devices.

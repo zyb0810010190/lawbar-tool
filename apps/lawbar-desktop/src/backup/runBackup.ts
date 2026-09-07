@@ -36,6 +36,22 @@
 // document reference against the bytes actually copied. Until that passes, this module reports a
 // failure and writes no success record. "Copied" is not a claim worth making; only "verified" is.
 //
+// AND HOW THAT SENTENCE WAS ONCE FALSE. An external audit on 2026-09-06 reproduced four false
+// VERIFIEDs against this module. It said it recomputed chains; it compared COUNTS
+// (`event_count == COUNT(*) == MAX(sequence)`) and drove that comparison FROM the chain-heads
+// table, so an edited event payload passed and a DELETED head removed its matter from the checked
+// set altogether — producing a `chainHeads: []` manifest reported as success. It said it checked
+// document references; it compared a SET of content hashes, so a registered exhibit renamed on
+// disk passed (its bytes were still somewhere in the archive), and a document row whose JSON no
+// longer parsed was `continue`d past into a `documents: 0` success.
+//
+// Both are now delegated to the verifiers the product already had and was not calling:
+// `verifyAllAuditChains` (case-box-persistence/archive-verify — per-event hashes, prev-links,
+// sequence, genesis shape, head anchor, over the UNION of every matter the database mentions) and
+// `verifyDocumentStore` (documentVerify.ts — per-document derived path, containment, exclusive
+// hold, re-hash). The rule this leaves behind: a second, weaker copy of a check the product
+// already owns is not a cheaper version of it, it is a way of not performing it.
+//
 // AND WHAT NO CODE HERE CAN SUPPLY. `docs/reference/audit-chain-evidentiary-scope.md` is blunt
 // about it: a backup written by this machine to storage this machine can still reach sits under
 // the SAME write authority as the database. It becomes a witness only when retained OUTSIDE that
@@ -50,10 +66,24 @@ import {
 } from "node:fs";
 import path from "node:path";
 
+// The subpath, NOT the package root. `case-box-persistence` re-exports
+// `openSqliteCaseBoxPersistence`, which value-imports `better-sqlite3`; the desktop app's copy of
+// that native module is built for ELECTRON's ABI and aborts the process on first use under plain
+// `node`, which is how this module's tests run. `archive-verify` has no native binding in its
+// import graph, and a test in backup-verified-integrity.test.mjs holds that line.
+import { verifyAllAuditChains } from "case-box-persistence/archive-verify";
+
+import { safeBasename } from "../caseBox/documentStorage.js";
+import { verifyDocumentStore } from "../caseBox/documentVerify.js";
+import type { DocumentVerifyRecord } from "../caseBox/documentVerify.js";
+
 /** The minimal surface this module needs from better-sqlite3, so tests need no Electron ABI. */
 export interface BackupCapableDb {
   backup(destination: string): Promise<{ totalPages: number }>;
-  prepare(sql: string): { all: (...params: unknown[]) => unknown[] };
+  prepare(sql: string): {
+    all: (...params: unknown[]) => unknown[];
+    get: (...params: unknown[]) => unknown;
+  };
   /** Present on the handle we open over the ARCHIVE; absent on the live handle, which we never close. */
   close?(): void;
 }
@@ -250,47 +280,108 @@ export function chainHeads(db: BackupCapableDb): MatterChainHead[] {
  * only at runtime, against the real database, which is the worst place to find out.
  */
 export function referencedContentHashes(db: BackupCapableDb): string[] {
-  const rows = db
-    .prepare("SELECT payload_json FROM case_box_documents")
-    .all() as Array<{ payload_json: string }>;
   const hashes = new Set<string>();
-  for (const r of rows) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(r.payload_json);
-    } catch {
-      continue; // a row we cannot parse is reported by verification, not silently repaired here
-    }
-    const h = (parsed as { content_hash?: unknown } | null)?.content_hash;
-    if (typeof h === "string" && h.length > 0) hashes.add(h);
-  }
+  for (const doc of readDocumentRows(db).records) hashes.add(doc.content_hash);
   return [...hashes].sort();
 }
 
 /**
- * The per-matter invariant the schema documents: `event_count == COUNT(*) == MAX(sequence)`.
- * Checked against the BACKUP, where a torn snapshot would show up as a head row disagreeing with
- * the events it summarises.
+ * One registered document, as the archive's own database describes it.
+ *
+ * `id` is the ROW's primary key rather than the payload's, because the row key is the identity
+ * the rest of the schema joins on. The payload carries its own `id`; a disagreement between the
+ * two is corruption and is reported as such rather than silently resolved in either direction.
  */
-export function chainHeadDisagreements(db: BackupCapableDb): string[] {
-  const rows = db
-    .prepare(
-      "SELECT h.matter_id AS matterId, h.event_count AS declared, " +
-        "  (SELECT COUNT(*) FROM case_box_audit_events e WHERE e.matter_id = h.matter_id) AS actual, " +
-        "  (SELECT MAX(sequence) FROM case_box_audit_events e WHERE e.matter_id = h.matter_id) AS maxSeq " +
-        "FROM case_box_audit_chain_heads h ORDER BY h.matter_id",
-    )
-    .all() as Array<{ matterId: string; declared: number; actual: number; maxSeq: number | null }>;
-  const out: string[] = [];
-  for (const r of rows) {
-    if (Number(r.declared) !== Number(r.actual)) {
-      out.push(`${r.matterId}: head declares ${r.declared} events, backup holds ${r.actual}`);
-    } else if (r.actual > 0 && Number(r.maxSeq) !== Number(r.actual)) {
-      out.push(`${r.matterId}: ${r.actual} events but MAX(sequence)=${r.maxSeq}`);
-    }
-  }
-  return out;
+export interface RegisteredDocument extends DocumentVerifyRecord {
+  readonly byteSize: number | null;
+  /** Where this document's bytes must be, relative to the document store root. Derived, never read. */
+  readonly expectedRelativePath: string;
 }
+
+export interface DocumentRowReadResult {
+  readonly records: RegisteredDocument[];
+  /** Rows that could not be turned into a checkable record. NEVER silently dropped. */
+  readonly findings: string[];
+}
+
+/**
+ * Every row of `case_box_documents`, parsed — and every row that CANNOT be parsed, reported.
+ *
+ * `content_hash` is not a column: `case_box_documents` lifts only the fields its indices need
+ * (status, doc_type, received_at, supersedes_document_id) and keeps the canonical record in
+ * `payload_json`. Reading it therefore means parsing that JSON, which is why an unparseable row
+ * is possible at all — and the previous version of this function `continue`d past one. That is
+ * how a case box whose only document row was corrupt produced a `documents: 0` archive reported
+ * as verified: the row that proved the archive was broken was the row that got skipped.
+ *
+ * A row this function cannot read is therefore a FINDING, not an omission. The set of documents
+ * to verify must be derived from the number of rows, never from the number of rows that happened
+ * to parse.
+ */
+export function readDocumentRows(db: BackupCapableDb): DocumentRowReadResult {
+  const rows = db
+    .prepare("SELECT id, payload_json FROM case_box_documents ORDER BY id")
+    .all() as Array<{ id: string; payload_json: string }>;
+  const records: RegisteredDocument[] = [];
+  const findings: string[] = [];
+
+  for (const row of rows) {
+    const rowId = typeof row.id === "string" ? row.id : String(row.id);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.payload_json);
+    } catch {
+      findings.push(`document row ${rowId}: its stored record is not valid JSON and cannot be checked`);
+      continue;
+    }
+    if (typeof parsed !== "object" || parsed === null) {
+      findings.push(`document row ${rowId}: its stored record is not an object`);
+      continue;
+    }
+    const p = parsed as Record<string, unknown>;
+
+    // The payload's own id must agree with the row key it is stored under. A payload id that
+    // disagrees is either corruption or an attempt to make a record describe a different file.
+    if (typeof p.id !== "string" || p.id !== rowId) {
+      findings.push(
+        `document row ${rowId}: the stored record identifies itself as ${JSON.stringify(p.id)}`,
+      );
+      continue;
+    }
+    if (typeof p.content_hash !== "string" || p.content_hash.length === 0) {
+      findings.push(`document row ${rowId}: no content_hash, so nothing about its bytes can be proven`);
+      continue;
+    }
+    if (typeof p.filename !== "string" || p.filename.length === 0) {
+      findings.push(`document row ${rowId}: no filename, so its stored path cannot be derived`);
+      continue;
+    }
+
+    records.push({
+      id: rowId,
+      filename: p.filename,
+      content_hash: p.content_hash,
+      byteSize: typeof p.byte_size === "number" ? p.byte_size : null,
+      // Derived exactly as `storeDocumentFile` writes it and `verifyDocumentStore` reads it.
+      // `storage_uri` is deliberately NOT consulted: it bakes in an absolute path containing the
+      // macOS username, and an archive is going to be read on some other machine.
+      expectedRelativePath: path.join(rowId, safeBasename(p.filename, rowId)),
+    });
+  }
+
+  return { records, findings };
+}
+
+// `chainHeadDisagreements` USED TO LIVE HERE, and its removal is the point of this change rather
+// than tidying around it. It compared `event_count == COUNT(*) == MAX(sequence)` and was the ONLY
+// thing standing behind the word "verified" for the audit chain. A count comparison cannot see an
+// edited event payload, a rewritten prev-link or a moved head, and because it read its matter list
+// FROM `case_box_audit_chain_heads`, deleting a head deleted the matter from the check.
+//
+// The invariant it did carry is real and is kept — `verifyAllAuditChains` performs it per matter
+// as `head_count_mismatch` / `sequence_gap`, alongside the full chain verification, over a matter
+// set that no single deletion can shrink. Leaving the old function exported but uncalled would
+// have left a tested, plausible-looking verifier for the next person to wire back in.
 
 /**
  * Copy the content-addressed document store. Plain file copies: these blobs are immutable once
@@ -319,20 +410,27 @@ function copyDocuments(sourceRoot: string, destRoot: string): DocumentEntry[] {
 /**
  * Prove the archive is usable, not merely present.
  *
- * Three questions, because a backup can pass any two and still be worthless:
- *   1. is the database file itself sound?            -> integrity_check
- *   2. do the audit chains it carries hold together? -> chainHeadDisagreements
- *   3. does every document it CITES actually exist here, with the right bytes?
+ * Four questions, because a backup can pass any three and still be worthless:
+ *   1. is the database file itself sound?               -> integrity_check + databaseSha256
+ *   2. do the audit chains it carries hold together?    -> verifyAllAuditChains
+ *   3. does EVERY document row still describe a file?   -> readDocumentRows + verifyDocumentStore
+ *   4. do the bytes that were copied still hash right?  -> the manifest re-read
  *
- * (3) is the one a chain check cannot answer and the one that matters most in a court-facing
- * product: a perfectly valid chain describing documents that were never copied would restore into
- * a case box that references evidence it does not have.
+ * (2) and (3) are the two this module previously answered with cheaper proxies — a count
+ * comparison and a hash-set intersection — and both proxies certified corrupt archives. The
+ * distinction that matters in (3) is between "a file with this digest exists in the archive" and
+ * "the file THIS RECORD points at exists in the archive": only the second is reference integrity,
+ * and only the second refuses a renamed exhibit or two records sharing one digest where one of
+ * their files is gone.
+ *
+ * Async because per-document verification streams and hashes each file. Everything it touches is
+ * inside the archive; the source case box is not read here at all.
  */
-export function verifyBackup(
+export async function verifyBackup(
   backupDb: BackupCapableDb & { pragma?: (s: string, o?: unknown) => unknown },
   manifest: BackupManifest,
   documentsDir: string,
-): string[] {
+): Promise<string[]> {
   const findings: string[] = [];
 
   // The manifest records `databaseSha256`. Recording a hash and never checking it is a claim
@@ -353,9 +451,64 @@ export function verifyBackup(
     findings.push(`integrity_check returned ${JSON.stringify(integrity)}`);
   }
 
-  findings.push(...chainHeadDisagreements(backupDb));
+  // THE AUDIT CHAINS, in full, over every matter the archive mentions anywhere — not only those
+  // with a chain-head row, because deleting a head is one of the tampers being looked for and a
+  // head-driven query lets it delete its own entry from the list of things to check.
+  const chains = verifyAllAuditChains(backupDb);
+  for (const f of chains.findings) findings.push(`audit chain: ${f.detail}`);
 
-  // Every hash the RESTORED database would look for must be present in the copied bytes.
+  // A verification that examined nothing is not a pass. `chainHeads` is read from the same
+  // archive, so a database that lost its matters entirely would otherwise sail through with an
+  // empty manifest and no findings at all.
+  if (chains.mattersChecked === 0 && manifest.chainHeads.length > 0) {
+    findings.push(
+      `the archive lists ${manifest.chainHeads.length} chain heads but no matter could be verified`,
+    );
+  }
+
+  // EVERY DOCUMENT ROW, INDIVIDUALLY. Rows that cannot be parsed are findings in their own right;
+  // the rest are verified by identity and derived path, not by digest membership.
+  const { records, findings: rowFindings } = readDocumentRows(backupDb);
+  findings.push(...rowFindings);
+
+  const store = await verifyDocumentStore(records, { storageRoot: documentsDir });
+  for (const id of store.missing) {
+    findings.push(`document ${id} is registered but its file is not at its expected path in the archive`);
+  }
+  for (const id of store.mismatched) {
+    findings.push(`document ${id} is present but its bytes do not match the recorded content_hash`);
+  }
+  for (const u of store.unverifiable) {
+    findings.push(`document ${u.id} could not be verified (${u.reason})`);
+  }
+  if (store.checked !== records.length) {
+    findings.push(`only ${store.checked} of ${records.length} document records were examined`);
+  }
+
+  // Each record's derived path must also be one the MANIFEST lists, with the same digest and
+  // size. Without this the database and the manifest could describe two different archives — the
+  // documents present and correct, and the manifest a reader is told is authoritative not naming
+  // them.
+  const manifestByPath = new Map(manifest.documents.map((d) => [d.relativePath, d]));
+  for (const r of records) {
+    const entry = manifestByPath.get(r.expectedRelativePath);
+    if (entry === undefined) {
+      findings.push(`document ${r.id} is registered but the manifest does not list its file`);
+      continue;
+    }
+    if (entry.sha256.toLowerCase() !== r.content_hash.toLowerCase()) {
+      findings.push(`document ${r.id}: the manifest records a different digest than the record does`);
+    }
+    if (r.byteSize !== null && entry.byteSize !== r.byteSize) {
+      findings.push(
+        `document ${r.id}: the record says ${r.byteSize} bytes, the archive holds ${entry.byteSize}`,
+      );
+    }
+  }
+
+  // Every hash the RESTORED database would look for must also be present in the copied bytes.
+  // Subsumed by the per-document check above for well-formed rows, and kept because it is the one
+  // question that stays answerable when a row's derived path is itself in doubt.
   const present = new Set(manifest.documents.map((d) => d.sha256));
   for (const wanted of referencedContentHashes(backupDb)) {
     if (!present.has(wanted)) {
@@ -482,7 +635,7 @@ export async function runBackup(
     referencedContentHashes: referencedContentHashes(backupDb),
   };
 
-  const findings = verifyBackup(backupDb, manifest, docsDir);
+  const findings = await verifyBackup(backupDb, manifest, docsDir);
 
   // CLOSE THE ARCHIVE HANDLE, then remove the WAL sidecars OUR OWN read opened.
   //
