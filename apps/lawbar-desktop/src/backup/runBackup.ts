@@ -45,7 +45,7 @@
 
 import { createHash } from "node:crypto";
 import {
-  existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, lstatSync,
+  existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, lstatSync,
   realpathSync,
 } from "node:fs";
 import path from "node:path";
@@ -54,6 +54,8 @@ import path from "node:path";
 export interface BackupCapableDb {
   backup(destination: string): Promise<{ totalPages: number }>;
   prepare(sql: string): { all: (...params: unknown[]) => unknown[] };
+  /** Present on the handle we open over the ARCHIVE; absent on the live handle, which we never close. */
+  close?(): void;
 }
 
 export interface MatterChainHead {
@@ -69,8 +71,19 @@ export interface DocumentEntry {
   readonly byteSize: number;
 }
 
+/**
+ * Stored in the manifest so a reader of the ARCHIVE — who may not have this source — knows that
+ * files present but unlisted are not evidence. macOS writes `._*` sidecars onto exFAT and NTFS
+ * volumes on its own, so an archive on removable media will generally contain some.
+ */
+export const MANIFEST_NOTE =
+  "This manifest is authoritative: only the database file and the documents listed below are " +
+  "part of this backup. Any other file present in this directory was added by the operating " +
+  "system or the filesystem and is not evidentiary.";
+
 export interface BackupManifest {
   readonly manifestVersion: 1;
+  readonly note: string;
   readonly appVersion: string;
   readonly schemaVersion: number;
   readonly createdAt: string;
@@ -402,6 +415,7 @@ export async function runBackup(
   const backupDb = openBackupDb(dbFile);
   const manifest: BackupManifest = {
     manifestVersion: 1,
+    note: MANIFEST_NOTE,
     appVersion: options.appVersion,
     schemaVersion: options.schemaVersion,
     createdAt: now().toISOString(),
@@ -413,6 +427,27 @@ export async function runBackup(
   };
 
   const findings = verifyBackup(backupDb, manifest, docsDir);
+
+  // CLOSE THE ARCHIVE HANDLE, then remove the WAL sidecars OUR OWN read opened.
+  //
+  // `db.backup()` writes one complete file. Opening it — even read-only — makes SQLite create
+  // `-wal` and `-shm` beside it, and leaving the handle open kept them there. Found by writing a
+  // real archive to a real external volume and listing it: a 0-byte `-wal` and a 32 KB `-shm`
+  // sitting in an evidentiary archive that the manifest does not list. An archive whose contents
+  // exceed its manifest cannot tell a reader which files are the evidence, which is the whole job
+  // of having a manifest. They are artifacts of verification, not part of the snapshot, so they go.
+  //
+  // (macOS still writes `._*` AppleDouble sidecars on exFAT/NTFS volumes, which no application can
+  // prevent. The manifest is authoritative about what is evidentiary; see MANIFEST_NOTE.)
+  backupDb.close?.();
+  for (const sidecar of [`${dbFile}-wal`, `${dbFile}-shm`]) {
+    try {
+      if (existsSync(sidecar)) rmSync(sidecar);
+    } catch {
+      // Leaving a sidecar behind is untidy, not unsafe: the manifest still says what counts.
+    }
+  }
+
   if (findings.length > 0) {
     return { ok: false, code: "verification_failed", detail: findings.join("; ") };
   }

@@ -20,11 +20,12 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync, readdirSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -389,5 +390,67 @@ test("REGRESSION: a destination that disappears before verification is refused",
       return new Database(file, { readonly: true });
     }).catch((e) => ({ ok: false, code: "threw", detail: String(e.message) }));
     assert.equal(r.ok, false, "an archive that is no longer there must not be reported as verified");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+// MARK: - Found by writing a real archive to a real external volume
+
+test("REGRESSION: the archive contains ONLY what the manifest lists", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest");
+  try {
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, true, r.ok ? "" : `${r.code}: ${r.detail}`);
+
+    // `db.backup()` writes ONE complete file, but opening it — even read-only, which is what
+    // verification does — makes SQLite create `-wal` and `-shm` beside it, and the handle was
+    // never closed so they stayed. Listing a real archive on a real external volume is what
+    // showed it: a 0-byte `-wal` and a 32 KB `-shm` sitting in an evidentiary archive that the
+    // manifest does not mention. An archive whose contents exceed its manifest cannot tell a
+    // reader which files are the evidence, which is the entire job of having a manifest.
+    const top = readdirSync(r.dir).filter((f) => !f.startsWith("._")); // macOS AppleDouble on exFAT/NTFS
+    assert.deepEqual(top.sort(), ["case-box-documents", "case-box.sqlite", "manifest.json"],
+      `unexpected files in the archive: ${top.join(", ")}`);
+    assert.equal(existsSync(path.join(r.dir, "case-box.sqlite-wal")), false, "-wal left behind");
+    assert.equal(existsSync(path.join(r.dir, "case-box.sqlite-shm")), false, "-shm left behind");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+test("REGRESSION: the manifest says outright that it is the authority on what is evidentiary", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest");
+  try {
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, true);
+    // A reader of the archive may not have this source tree. macOS writes `._*` sidecars onto
+    // exFAT and NTFS on its own and no application can prevent it, so the archive must carry the
+    // statement that unlisted files are not evidence.
+    const onDisk = JSON.parse(readFileSync(path.join(r.dir, "manifest.json"), "utf8"));
+    assert.equal(typeof onDisk.note, "string");
+    assert.ok(onDisk.note.includes("authoritative"), "the manifest must claim authority explicitly");
+    assert.ok(onDisk.note.includes("not evidentiary"), "and say what unlisted files are NOT");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+test("REGRESSION: no file handle is left open on the archive — the disk must be ejectable", async () => {
+  const box = makeCaseBox();
+  const dest = tempRoot("dest");
+  try {
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, true, r.ok ? "" : `${r.code}: ${r.detail}`);
+
+    // WHY THIS IS ITS OWN TEST. Removing `backupDb.close?.()` leaves every other assertion in this
+    // file green — the explicit `rmSync` still clears the sidecars from the listing — so the close
+    // looked redundant until the question was asked properly. It is not: an open descriptor on the
+    // archive means macOS reports the volume as in use and refuses to eject it. The backup screen
+    // tells the owner, in `backup.custody`, to disconnect the disk afterwards. A product that
+    // says "disconnect this" while still holding the file open is giving an instruction it has
+    // itself made impossible to follow.
+    const out = execFileSync("lsof", ["+D", r.dir], { encoding: "utf8" }).trim();
+    assert.equal(out, "", `something still holds the archive open:\n${out}`);
+  } catch (err) {
+    // `lsof +D` exits 1 with no output when nothing matches, which is the PASSING case.
+    if (err?.status === 1 && String(err.stdout ?? "").trim() === "") return;
+    throw err;
   } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
 });
