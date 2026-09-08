@@ -154,25 +154,61 @@ test("the manifest binds a head PER MATTER, not one global head", async () => {
 // MARK: - A live snapshot under concurrent writes
 
 test("a backup taken WHILE the database is being written is internally consistent", async () => {
+  // HOW THIS ACHIEVES CONCURRENCY, and why the obvious way does not.
+  //
+  // The first version started a `setInterval(..., 1)` writer and awaited the backup. It passed
+  // locally and FAILED IN CI on its own guard ("the writer must actually have run"), because
+  // `db.backup()` finished in 12 ms on the runner and a same-thread timer cannot fire while
+  // synchronous work holds the event loop. Exactly the mistake I had already diagnosed in an
+  // out-of-repo probe and then repeated here.
+  //
+  // better-sqlite3's `backup(file, { progress })` runs its handler BETWEEN copy steps, on this
+  // thread, deterministically — so writing from inside it is genuinely mid-copy with no timing
+  // assumption at all. Measured on a 5,000-row fixture: the handler fires 3 times and the source
+  // page count grows 266 -> 267 -> 268 across them, which is the source changing under the copy.
+  //
+  // The engine is NOT modified for this. The test supplies its own `BackupCapableDb`, which is the
+  // seam that already exists.
   const box = makeCaseBox();
   const dest = tempRoot("dest");
+  let midCopyWrites = 0;
+  const writingDb = {
+    prepare: (sql) => box.db.prepare(sql),
+    close: () => box.db.close(),
+    pragma: (...a) => box.db.pragma(...a),
+    backup: (file) =>
+      box.db.backup(file, {
+        progress({ remainingPages }) {
+          if (remainingPages > 0) {
+            const seq = 1000 + midCopyWrites;
+            box.db
+              .prepare(
+                "INSERT INTO case_box_audit_events (event_id, tenant_id, matter_id, sequence, action, " +
+                  "entity_type, actor_user_id, timestamp, prev_event_hash, event_hash, event_json) " +
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              )
+              .run(`M-MID-${seq}`, "t1", "M-MIDCOPY", seq, "create", "matter", "u1",
+                "2026-09-02T00:00:00.000Z", null, sha(`mid:${seq}`), "{}");
+            midCopyWrites += 1;
+          }
+          return 1; // one page per step, so the handler is reached repeatedly on a small fixture
+        },
+      }),
+  };
   try {
-    let i = 100;
-    const writer = setInterval(() => {
-      const hash = sha(`M-AAA:${i}`);
-      box.db.prepare(
-        "INSERT INTO case_box_audit_events (event_id, tenant_id, matter_id, sequence, action, entity_type, " +
-          "actor_user_id, timestamp, prev_event_hash, event_hash, event_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-      ).run(`M-AAA-x${i}`, "t1", "M-XXX", i, "create", "matter", "u1", "2026-09-02T00:00:00.000Z", null, hash, "{}");
-      i++;
-    }, 1);
-    const r = await backupInto(box, dest);
-    clearInterval(writer);
+    const r = await runBackup({
+      db: writingDb, documentsRoot: box.docsRoot, userDataDir: box.userDataDir,
+      destinationRoot: dest, appVersion: "0.1.0-test", schemaVersion: CURRENT_SCHEMA_VERSION,
+      now: () => new Date("2026-09-02T12:00:00.000Z"),
+    }, openBackupDb);
+
+    assert.ok(midCopyWrites > 0,
+      "the source must actually have been written during the copy, or this proves nothing");
     assert.equal(r.ok, true, r.ok ? "" : `${r.code}: ${r.detail}`);
     const bk = new Database(path.join(r.dir, "case-box.sqlite"), { readonly: true });
-    assert.equal(bk.pragma("integrity_check", { simple: true }), "ok");
+    assert.equal(bk.pragma("integrity_check", { simple: true }), "ok",
+      "a snapshot taken under concurrent writes must still be internally consistent");
     bk.close();
-    assert.ok(i > 100, "the writer must actually have run, or this proves nothing");
   } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
 });
 
