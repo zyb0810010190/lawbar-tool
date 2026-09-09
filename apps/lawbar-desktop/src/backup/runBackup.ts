@@ -45,8 +45,8 @@
 
 import { createHash } from "node:crypto";
 import {
-  existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, lstatSync,
-  realpathSync,
+  accessSync, constants as FS, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
+  statSync, writeFileSync, lstatSync, realpathSync,
 } from "node:fs";
 import path from "node:path";
 
@@ -102,6 +102,7 @@ export type BackupOutcome =
 
 export type BackupFailureCode =
   | "destination_inside_data_dir"
+  | "destination_read_only"
   | "destination_unusable"
   | "snapshot_failed"
   | "documents_copy_failed"
@@ -372,6 +373,32 @@ export async function runBackup(
   }
   if (!existsSync(options.destinationRoot) || !statSync(options.destinationRoot).isDirectory()) {
     return { ok: false, code: "destination_unusable", detail: "the destination is not a directory" };
+  }
+
+  // A READ-ONLY VOLUME IS ITS OWN ANSWER, and it deserves its own one.
+  //
+  // This is the single likeliest real-world failure, not an exotic one: external drives ship
+  // NTFS-formatted from the factory, and macOS mounts NTFS READ-ONLY. Measured on exactly such a
+  // drive — a 1 TB Seagate with 445 GB free, connected and visible in Finder, and completely
+  // unwritable. "Check the disk is connected and has space" is true, useless, and sends the owner
+  // to look at the two things that are already fine.
+  //
+  // The probe is `access(W_OK)` rather than a trial mkdir because `mkdirSync(recursive: true)`
+  // reports ENOENT for this — the recursive walk fails on the child before the kernel ever
+  // returns EROFS for the parent — so a mkdir-based guess would name the wrong cause. Measured:
+  // access -> EROFS, mkdir(single) -> EROFS, mkdir(recursive) -> ENOENT.
+  try {
+    accessSync(options.destinationRoot, FS.W_OK);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EROFS") {
+      return {
+        ok: false,
+        code: "destination_read_only",
+        detail: "the volume is mounted read-only",
+      };
+    }
+    return { ok: false, code: "destination_unusable", detail: `not writable (${String(code)})` };
   }
 
   const stamp = now().toISOString().replace(/[:.]/g, "-");

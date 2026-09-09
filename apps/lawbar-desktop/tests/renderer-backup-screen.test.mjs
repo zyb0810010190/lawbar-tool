@@ -179,7 +179,11 @@ test("backup failure copy either follows 无法…请重试。 or names a correc
   // retry invites them to repeat the same failure on the same faulty medium.
   //
   // Asserting it here makes the deviation deliberate rather than an accident of key naming.
-  const CORRECTIVE = ["请选择", "请确认", "更换", "断开"];
+  // An explicit enumeration, deliberately. A looser check ("contains 请") would accept 请重试 and
+  // defeat the whole point; this list grows only when a genuinely new corrective instruction is
+  // written, and it caught `backup.failed.readOnly` on the way in — which said 请改用, a real
+  // instruction that simply was not yet on the list.
+  const CORRECTIVE = ["请选择", "请确认", "请改用", "更换", "断开", "格式化"];
   const keys = Object.keys(CATALOG).filter((k) => k.startsWith("backup.failed."));
   assert.ok(keys.length >= 4, `expected the backup failure family; found ${keys.length}`);
   for (const k of keys) {

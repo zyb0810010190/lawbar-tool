@@ -749,6 +749,13 @@ export const CATALOG = {
   "backup.status.unavailable": "无法读取备份状态，请重试。",
   "backup.failed.insideDataDir": "备份位置不能位于应用数据目录内，否则会与本机数据一同丢失。请选择外部磁盘。",
   "backup.failed.destinationUnusable": "无法写入所选位置。请确认磁盘已连接、有可用空间，并可写入。",
+  // The likeliest real failure, and it needs its own sentence. External drives ship NTFS-formatted
+  // from the factory and macOS mounts NTFS read-only, so the disk is connected, has space, shows up
+  // in Finder — and cannot be written to. Telling the owner to "check it is connected and has
+  // space" would send them to inspect the two things that are already fine. 通常 rather than 因为:
+  // a read-only mount can also come from a write-protect switch or a damaged filesystem, and this
+  // string must not assert a cause it did not measure.
+  "backup.failed.readOnly": "该磁盘是只读的，无法写入。通常是因为它是 Windows（NTFS）格式，macOS 只能读取这类磁盘。请改用另一块磁盘，或将这块磁盘格式化为 exFAT——格式化会清除该磁盘上的全部现有内容。",
   // Deliberately NOT 请重试 alone: a verification failure means the archive was not proven, and
   // repeating it on the same faulty medium is the least likely thing to help.
   "backup.failed.verification": "备份未通过校验，未记为有效备份。请重试；若再次失败，请更换磁盘。",

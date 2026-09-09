@@ -20,7 +20,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync, readdirSync, chmodSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
@@ -154,25 +154,61 @@ test("the manifest binds a head PER MATTER, not one global head", async () => {
 // MARK: - A live snapshot under concurrent writes
 
 test("a backup taken WHILE the database is being written is internally consistent", async () => {
+  // HOW THIS ACHIEVES CONCURRENCY, and why the obvious way does not.
+  //
+  // The first version started a `setInterval(..., 1)` writer and awaited the backup. It passed
+  // locally and FAILED IN CI on its own guard ("the writer must actually have run"), because
+  // `db.backup()` finished in 12 ms on the runner and a same-thread timer cannot fire while
+  // synchronous work holds the event loop. Exactly the mistake I had already diagnosed in an
+  // out-of-repo probe and then repeated here.
+  //
+  // better-sqlite3's `backup(file, { progress })` runs its handler BETWEEN copy steps, on this
+  // thread, deterministically — so writing from inside it is genuinely mid-copy with no timing
+  // assumption at all. Measured on a 5,000-row fixture: the handler fires 3 times and the source
+  // page count grows 266 -> 267 -> 268 across them, which is the source changing under the copy.
+  //
+  // The engine is NOT modified for this. The test supplies its own `BackupCapableDb`, which is the
+  // seam that already exists.
   const box = makeCaseBox();
   const dest = tempRoot("dest");
+  let midCopyWrites = 0;
+  const writingDb = {
+    prepare: (sql) => box.db.prepare(sql),
+    close: () => box.db.close(),
+    pragma: (...a) => box.db.pragma(...a),
+    backup: (file) =>
+      box.db.backup(file, {
+        progress({ remainingPages }) {
+          if (remainingPages > 0) {
+            const seq = 1000 + midCopyWrites;
+            box.db
+              .prepare(
+                "INSERT INTO case_box_audit_events (event_id, tenant_id, matter_id, sequence, action, " +
+                  "entity_type, actor_user_id, timestamp, prev_event_hash, event_hash, event_json) " +
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              )
+              .run(`M-MID-${seq}`, "t1", "M-MIDCOPY", seq, "create", "matter", "u1",
+                "2026-09-02T00:00:00.000Z", null, sha(`mid:${seq}`), "{}");
+            midCopyWrites += 1;
+          }
+          return 1; // one page per step, so the handler is reached repeatedly on a small fixture
+        },
+      }),
+  };
   try {
-    let i = 100;
-    const writer = setInterval(() => {
-      const hash = sha(`M-AAA:${i}`);
-      box.db.prepare(
-        "INSERT INTO case_box_audit_events (event_id, tenant_id, matter_id, sequence, action, entity_type, " +
-          "actor_user_id, timestamp, prev_event_hash, event_hash, event_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-      ).run(`M-AAA-x${i}`, "t1", "M-XXX", i, "create", "matter", "u1", "2026-09-02T00:00:00.000Z", null, hash, "{}");
-      i++;
-    }, 1);
-    const r = await backupInto(box, dest);
-    clearInterval(writer);
+    const r = await runBackup({
+      db: writingDb, documentsRoot: box.docsRoot, userDataDir: box.userDataDir,
+      destinationRoot: dest, appVersion: "0.1.0-test", schemaVersion: CURRENT_SCHEMA_VERSION,
+      now: () => new Date("2026-09-02T12:00:00.000Z"),
+    }, openBackupDb);
+
+    assert.ok(midCopyWrites > 0,
+      "the source must actually have been written during the copy, or this proves nothing");
     assert.equal(r.ok, true, r.ok ? "" : `${r.code}: ${r.detail}`);
     const bk = new Database(path.join(r.dir, "case-box.sqlite"), { readonly: true });
-    assert.equal(bk.pragma("integrity_check", { simple: true }), "ok");
+    assert.equal(bk.pragma("integrity_check", { simple: true }), "ok",
+      "a snapshot taken under concurrent writes must still be internally consistent");
     bk.close();
-    assert.ok(i > 100, "the writer must actually have run, or this proves nothing");
   } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
 });
 
@@ -453,4 +489,88 @@ test("REGRESSION: no file handle is left open on the archive — the disk must b
     if (err?.status === 1 && String(err.stdout ?? "").trim() === "") return;
     throw err;
   } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+// MARK: - A read-only destination, which is the likeliest real failure of all
+//
+// External drives ship NTFS-formatted from the factory and macOS mounts NTFS READ-ONLY. Measured
+// on exactly such a drive: 1 TB, 445 GB free, connected, visible in Finder, and completely
+// unwritable. Before this, the owner was told "check the disk is connected and has space" —
+// true, useless, and pointing at the two things that were already fine.
+
+/**
+ * A genuinely read-only filesystem. `chmod` cannot produce EROFS — only a real mount can, which is
+ * why this goes to the trouble of making one. `hdiutil` is already a CI dependency here: the
+ * packaging step builds DMGs with it.
+ *
+ * The mount point is PARSED from hdiutil's output rather than assumed from the volume name. macOS
+ * appends a suffix when a name is already taken (`/Volumes/NAME 1`), so a guessed path is right
+ * until two runs overlap and then silently points at nothing.
+ */
+async function withReadOnlyVolume(fn) {
+  const dir = tempRoot("ro-img");
+  const img = path.join(dir, "ro");
+  const name = `LAWBARRO${process.pid}${Math.floor(Math.random() * 1e6)}`;
+  execFileSync("hdiutil", ["create", "-size", "8m", "-fs", "HFS+", "-volname", name, "-quiet", img]);
+  const out = execFileSync("hdiutil", ["attach", `${img}.dmg`, "-readonly", "-nobrowse"], { encoding: "utf8" });
+  const match = out.split("\n").map((l) => l.match(/(\/Volumes\/.+?)\s*$/)).find(Boolean);
+  assert.ok(match, `hdiutil attach reported no mount point:\n${out}`);
+  const volume = match[1];
+  assert.ok(existsSync(volume), `mount point ${volume} does not exist`);
+  try {
+    // AWAIT, not `return fn(volume)`. Without the await this helper is synchronous, so `finally`
+    // fires the moment `fn` hands back its promise — detaching the volume while the callback is
+    // still using it. The first version did exactly that, and the failure looked like a mount
+    // point that had never existed rather than one pulled out from under the test.
+    return await fn(volume);
+  } finally {
+    try { execFileSync("hdiutil", ["detach", volume, "-quiet"]); } catch { /* already gone */ }
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("a READ-ONLY volume is named as such, not lumped in with 'unusable'", async () => {
+  const box = makeCaseBox();
+  try {
+    const code = await withReadOnlyVolume(async (volume) => {
+      const r = await backupInto(box, volume);
+      assert.equal(r.ok, false, "a read-only volume cannot receive a backup");
+      return r.code;
+    });
+    assert.equal(code, "destination_read_only",
+      "the owner must be told the disk is read-only, not told to check space that is already free");
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); }
+});
+
+test("the read-only check runs BEFORE anything is created on the volume", async () => {
+  const box = makeCaseBox();
+  try {
+    await withReadOnlyVolume(async (volume) => {
+      const before = readdirSync(volume).filter((f) => !f.startsWith("."));
+      const r = await backupInto(box, volume);
+      assert.equal(r.ok, false);
+      assert.deepEqual(readdirSync(volume).filter((f) => !f.startsWith(".")), before,
+        "a refused backup must leave the destination exactly as it found it");
+    });
+  } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); }
+});
+
+test("a WRITABLE-but-permission-denied directory is NOT reported as read-only", async () => {
+  // The two are different problems with different remedies, and conflating them would send the
+  // owner to reformat a disk whose permissions merely need fixing.
+  const box = makeCaseBox();
+  const parent = tempRoot("perm");
+  const dest = path.join(parent, "locked");
+  try {
+    mkdirSync(dest);
+    chmodSync(dest, 0o500); // readable + executable, not writable
+    const r = await backupInto(box, dest);
+    assert.equal(r.ok, false);
+    assert.equal(r.code, "destination_unusable", "EACCES is not EROFS");
+    assert.notEqual(r.code, "destination_read_only");
+  } finally {
+    try { chmodSync(dest, 0o700); } catch { /* fine */ }
+    box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true });
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
