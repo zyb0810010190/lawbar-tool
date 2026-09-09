@@ -106,6 +106,21 @@ export interface DocumentOpenDeps {
    * early EOF, which is `document_altered`). Same pattern and reason as `verify`.
    */
   readonly openReadStream?: (fd: number) => Readable;
+  /**
+   * Directory the read-only copy's private 0700 directory is created inside. Defaults to
+   * `os.tmpdir()`, which is what production uses and what the comment on `previousCopyDir`
+   * describes; injectable ONLY so a test can measure what THIS call left behind.
+   *
+   * The seam exists because its absence made a test unsound rather than merely awkward. AUDIT-6
+   * asserts that a failed hand-off leaves no copy, and it did so by counting `lawbar-open-*`
+   * directories in the shared `os.tmpdir()` before and after. That count is not private to the
+   * test: `documentOpenHandlers` calls this same engine, so `document-open-handlers.test.mjs`
+   * creates directories with that prefix, and under `--test-isolation=process` the two files run
+   * at once. A directory created by the other file inside the window failed the assertion, and a
+   * directory removed inside it could have hidden a real leak. Unsound in both directions, and
+   * intermittent, which is the worst way to be wrong.
+   */
+  readonly tmpBase?: string;
 }
 
 /**
@@ -276,7 +291,7 @@ async function runOpen(
       //
       // Create the new copy BEFORE disposing of the old one. Disposing first meant a failure here
       // left the owner with neither the previous copy nor a new one.
-      const dir = mkdtempSync(path.join(os.tmpdir(), "lawbar-open-"));
+      const dir = mkdtempSync(path.join(deps.tmpBase ?? os.tmpdir(), "lawbar-open-"));
       dirToDiscard = dir;
       const copy = path.join(dir, path.basename(record.filename));
       const hash = createHash("sha256");

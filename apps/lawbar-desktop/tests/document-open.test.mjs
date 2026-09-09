@@ -259,15 +259,42 @@ test("AUDIT-2: the descriptor is re-asserted, so a passing verdict is not taken 
 
 test("AUDIT-6: a failed hand-off leaves NO copy behind", async () => {
   const store = makeStore();
-  const { deps: d } = deps(store, { reveal: async () => "no application can open this" });
+  // The copy goes in a base private to THIS test, and the count is taken over that base alone.
+  //
+  // It used to count `lawbar-open-*` in the shared `os.tmpdir()`, which made the assertion a
+  // measurement of the whole machine. `documentOpenHandlers` calls this engine, so
+  // `document-open-handlers.test.mjs` creates directories with the same prefix, and process
+  // isolation runs the two files at once. A neighbour's directory arriving inside the window
+  // failed this test (observed twice); a neighbour's directory leaving inside it would have
+  // masked a real leak. The decoy below pins the fix: it creates exactly the interference that
+  // used to break this, in the real tmpdir, at the moment the window is open.
+  const base = mkdtempSync(path.join(os.tmpdir(), "docopen-audit6-"));
+  const count = () => readdirSync(base).filter((n) => n.startsWith("lawbar-open-")).length;
+  const decoys = [];
+  let during = null;
+  const { deps: d } = deps(store, {
+    tmpBase: base,
+    // Runs with the finished copy on disk: the one moment the copy is observable from outside.
+    reveal: async () => {
+      during = count();
+      decoys.push(mkdtempSync(path.join(os.tmpdir(), "lawbar-open-")));
+      return "no application can open this";
+    },
+  });
   try {
-    const before = readdirSync(os.tmpdir()).filter((n) => n.startsWith("lawbar-open-")).length;
     const r = await openRegisteredOriginal("M-1", store.id, d);
     assert.equal(r.ok, false);
-    const after = readdirSync(os.tmpdir()).filter((n) => n.startsWith("lawbar-open-")).length;
-    assert.equal(after, before,
+    // Without this the test is vacuous: counting a directory the engine never writes to would
+    // report zero before and zero after, and pass whatever the engine did with the copy.
+    assert.equal(during, 1, "the copy must exist in THIS test's base during the hand-off, or the count below measures nothing");
+    assert.equal(count(), 0,
       "a copy the owner never received is privileged client material nobody asked for");
-  } finally { rmSync(store.storageRoot, { recursive: true, force: true }); _resetOpenCacheForTesting(); }
+    assert.equal(decoys.length, 1, "the interference this test is immune to must actually have happened");
+  } finally {
+    for (const dir of decoys) rmSync(dir, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true });
+    rmSync(store.storageRoot, { recursive: true, force: true }); _resetOpenCacheForTesting();
+  }
 });
 
 test("AUDIT-6b: a failed open does not destroy the copy the owner already has", async () => {
