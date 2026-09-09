@@ -479,6 +479,21 @@ export const CATALOG = {
   "document.detail.contentHash": "内容哈希",
   "document.detail.storage": "存储位置",
   "document.detail.pages": "页数",
+
+  // Opening a registered original (WI-6). One string per refusal code the main process can send,
+  // and the vocabulary is narrow on purpose: "done" says only what was proved — the original was
+  // verified and a READ-ONLY COPY was opened; the original itself was not. `altered` is a FINDING
+  // about the evidence, not a failed operation, so it does not invite a retry; repeating the open
+  // returns the same verdict, and 请重试 would tell a litigator that a changed exhibit is a glitch.
+  "document.open.button": "打开原件",
+  "document.open.working": "正在核验原件并生成只读副本…",
+  "document.open.done": "已核验原件，并在系统中打开了只读副本；原件本身未被打开。",
+  "document.open.failed.unknown": "无法找到该文档，请刷新页面后重试。",
+  "document.open.failed.missing": "该文档的原件已不在本机存储中，无法打开。请从备份恢复后重试。",
+  "document.open.failed.altered": "原件内容与登记时记录的哈希不一致，已拒绝打开。这不是操作失败，而是对该文件的认定：请核查其来源与保管过程。",
+  "document.open.failed.unverifiable": "无法确认该原件仍处于本应用的独占保管之下，已拒绝打开。请核查存储目录是否被移动、链接或改动。",
+  "document.open.failed.open": "无法在本机打开该文档的只读副本，请重试。",
+  "document.open.failed.request": "无法发出打开请求，请重试。",
   "document.detail.language": "语言",
   "document.detail.mime": "MIME 类型",
   "document.detail.bytes": "字节数",
