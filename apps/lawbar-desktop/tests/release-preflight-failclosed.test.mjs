@@ -36,19 +36,24 @@ const manifest = JSON.parse(readFileSync(path.join(PKG_DIR, "package.json"), "ut
 // T5.1–T5.3 — the `dist:release` recipe is a gate, not a suggestion
 // ===========================================================================
 
-test("T5.1 dist:release is &&-chained: preflight first, build, then signing verification", () => {
+test("T5.1 dist:release is &&-chained: preflight first, build, helper, then signing verification", () => {
   const raw = manifest.scripts["dist:release"];
   const stages = raw.split(" && ");
   // FOUR stages since D-5. The recipe used to end at electron-builder, so no ship path ever
   // ran the signing exit contract — the tool built a signed app and never checked its own
-  // claim about it, the stapling half least of all.
-  assert.equal(stages.length, 4, `unexpected stage count in: ${raw}`);
+  // claim about it, the stapling half least of all. FIVE since R3 / WI-12 step 2: the OCR
+  // helper is built and pinned before electron-builder packages it, on this path as on `dist` —
+  // the review found a release recipe that would have shipped a stale helper or none.
+  assert.equal(stages.length, 5, `unexpected stage count in: ${raw}`);
   assert.equal(stages[0], "bash scripts/release-preflight.sh");
-  assert.match(stages[2], /^electron-builder\b/);
+  assert.equal(stages[1], "npm run build");
+  assert.equal(stages[2], "npm run build:helper",
+    "the helper must be built and pinned AFTER the app build (the pin lands in dist/) and BEFORE packaging");
+  assert.match(stages[3], /^electron-builder\b/);
   // EXACT, not a substring match. `/verify:signing:release/` alone is satisfied by
   // `echo verify:signing:release` or `npm run not-verify:signing:release` — a shape test that
   // accepts a decoy is not a gate.
-  assert.equal(stages[3], "npm run verify:signing:release",
+  assert.equal(stages[4], "npm run verify:signing:release",
     "the build must be followed by verification, or dist:release asserts nothing about signing");
   assert.equal(manifest.scripts["verify:signing:release"],
     "bash scripts/verify-macos-signing-all.sh",

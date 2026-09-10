@@ -280,10 +280,20 @@ const documentOpenApi: DocumentOpenApi = {
   open: (req) => ipcRenderer.invoke("document:open", req),
 };
 
+// R3 / WI-12 step 2: one read-only OCR channel, no payload. The renderer learns what the bundled
+// helper is (digest, version), what this Mac supports (Vision languages), and nothing else.
+interface OcrApi {
+  probe(): Promise<unknown>;
+}
+const ocrApi: OcrApi = {
+  probe: () => ipcRenderer.invoke("ocr:probe"),
+};
+
 contextBridge.exposeInMainWorld("lawbar", {
   theme: themeApi,
   caseBox: caseBoxApi,
   appInfo: appInfoApi,
   backup: backupApi,
   documentOpen: documentOpenApi,
+  ocr: ocrApi,
 });
