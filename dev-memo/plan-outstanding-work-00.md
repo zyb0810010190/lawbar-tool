@@ -227,6 +227,62 @@ platform-specific failures are real here.
 **Done when:** a renderer-only PR runs the fast lane, a scripts-touching PR runs both, and no
 test is silently dropped from `scripts.test`.
 
+### WI-10 — R2 evidence entry: the write path the catalogue has been waiting for
+
+**Why this item exists, and why now.** R1 is on `main` (2026-09-10). R2's exit evidence is "a new
+two-client matter with both-side material reaches a correct T3 after restart and isolated restore;
+unadopted evidence is absent." Three subsystems for that already exist and are inert: the three
+evidence schemas (`case-box-evidence-item` carries `status: proposed | accepted | rejected | superseded`,
+`party_side`, `evidence_title`, `proof_statement`, `display_order`, `exhibit_page_range`), the
+persistence write API (`appendEvidenceItem`, `transitionEvidenceItem`, `getEvidenceItem`,
+`listEvidenceItems`), and the T3 catalogue read channel, preview and DOCX export (S0–S3, shipped).
+**No production code calls `appendEvidenceItem`, and no `casebox:evidence:*` write channel exists**,
+so the catalogue can only ever be empty on a real matter. This item is the smallest change that turns
+three shipped subsystems into a workflow.
+
+**What was checked before writing this, so the item is not built on a misreading.**
+- *Is the T3 table filing-shaped?* A premortem argued, from 《民事诉讼证据的若干规定》第十九条, that the
+  export lacks required columns (来源, 副本份数, 提交日期) and that fields must come before a screen.
+  That reading was wrong for this repo. DR-00 (`dev-memo/forms-spec-a10-t3-t5-sample-adr-00.md` §A,
+  §H, 2026-07-02, an owner decision grounded on a filed 证据目录及说明 read in place) records the real
+  form: exactly four columns — 序号 / 证据名称 / 证明内容 / 页码 — which is exactly what
+  `t3DocxExport.ts` emits. 来源 is not a column; 提交时间, signature and 复印件/原件 are a FOOTER block
+  and a footer note. DR-00 further decides the form is an internal trial-review tool this phase, so
+  the footer is not required yet. Adding the footer when the form becomes a filing artifact is an
+  export-level change with no schema impact. **Not this item.**
+- *Does A0.7 block this?* No, and the plan should say so. A0.7 gates PDF-rendered geometry (page/region
+  citations, anchors, previews — R5). An evidence-item record consumes none of it; `exhibit_page_range`
+  is lawyer-typed and the schema declines to constrain it. `docs/product/product-plan.md` lines 94 and
+  153 say "No Evidence UI ships until it is genuinely green" unqualified; that sentence contradicts the
+  plan's own R2 row. **Owner action, not mine:** amend both to "A0.7 gates only Evidence UI that consumes
+  PDF-rendered geometry (R5); it does not gate R2 evidence-item records; any R2 screen that adds a
+  preview, a jump-to-page, or a machine-derived page reference re-enters the gate." That file carries
+  the owner's uncommitted edits and was not touched here.
+
+**Scope.** Exactly the document-open shape (WI-5/6/7), applied to evidence items:
+1. `casebox:evidence:create` / `casebox:evidence:transition` IPC handlers in `src/caseBox/`, validating
+   the payload against the contract, tenant- and matter-scoped like every other case-box handler; codes
+   not messages; no path or filesystem text crosses the boundary. `list` already exists for T3.
+2. Preload entries; a renderer section on the matter view (sibling module, lazy, the documents-disclosure
+   pattern): list per matter; create from a registered document ("promote this document to evidence" —
+   `source_document_id` set, title prefilled from the document, NOT a standalone form, so an exhibit is
+   described once); review; adopt / exclude (`accepted` / `rejected`); submitter side.
+3. zh-CN catalog strings; allowlist reseeded only after a scan proves the multiset unchanged.
+4. Tests: handler (real SQLite persistence, tenant/matter scoping, `__proto__` payloads), renderer
+   (identity-only across the bridge, every code mapped to a sentence), Electron bridge, and a PACKAGED
+   acceptance test that must read CELL TEXT out of the exported DOCX against an expected 证据目录 row —
+   a round-trip-only assertion proves persistence and is mistaken for proof of usefulness.
+5. Mutation pass on the handler's scoping and the screen's refusal copy.
+
+**Done when:** in the packaged app, on one temp profile across two launches and one isolated restore,
+a two-client synthetic matter with both-side material yields a T3 DOCX whose rows match the adopted
+items in `display_order`, whose 页码 cells are the typed ranges, and in which every excluded item is
+absent; `appendEvidenceItem` has a production caller; and the A0.7 amendment above is in the plan.
+
+**Deliberately not in this item:** the footer block (DR-00: not this phase); any page preview, page
+jump or OCR-derived reference (re-enters A0.7); T4/T5 (gated by their own plan); a standalone
+evidence form unlinked to a document.
+
 ## Not work items — owner decisions
 
 These are recorded so the review is complete. They are **not** for an executor and must not be
