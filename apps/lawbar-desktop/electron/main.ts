@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
 import path from "node:path";
+import { appendFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +12,7 @@ import {
   BACKUP_CHANNEL, backupRunHandler, backupStatusHandler,
 } from "../src/backup/backupHandlers.js";
 import type { BackupCapableDb } from "../src/backup/runBackup.js";
+import { DOCUMENT_OPEN_CHANNEL, documentOpenHandler } from "../src/caseBox/documentOpenHandlers.js";
 import { CURRENT_SCHEMA_VERSION } from "case-box-persistence";
 import { makeStoreFile } from "../src/caseBox/documentStorage.js";
 import { loadThemePreference } from "../src/persistence/themePreference.js";
@@ -189,6 +191,31 @@ async function startProduct(): Promise<void> {
   ipcMain.handle(BACKUP_CHANNEL.status, () => backupStatusHandler(backupDeps));
   ipcMain.handle(BACKUP_CHANNEL.run, () => backupRunHandler(backupDeps));
 
+  // Controlled opening of a registered original (product plan R1, WI-5). The renderer sends an
+  // identity; this process resolves and authorizes the path and hands a READ-ONLY COPY to the OS.
+  // `shell.openPath` resolves to "" on success and to an OS message otherwise — the handler never
+  // forwards that message, only a code.
+  // LAWBAR_DOCUMENT_OPEN_TEST_HOOK=true (set ONLY by the wrapper-driven
+  // tests/document-open.packaged.electron.test.mjs): the copy is NOT handed to the OS — which would
+  // launch Preview on the test host — but its path is appended to a log inside the test's own
+  // --user-data-dir, so the test can prove what WOULD have been opened is a read-only copy and not
+  // the original. Same gate discipline as the two hooks at the end of this function: default-off,
+  // no IPC channel, no renderer surface, nothing installed in a production launch.
+  const revealOriginal: (file: string) => Promise<string> =
+    process.env.LAWBAR_DOCUMENT_OPEN_TEST_HOOK === "true"
+      ? async (file) => {
+          appendFileSync(path.join(userDataDir, "document-open-reveal.log"), `${file}\n`, "utf-8");
+          return "";
+        }
+      : (file) => shell.openPath(file);
+  ipcMain.handle(DOCUMENT_OPEN_CHANNEL.open, (_evt, payload: unknown) =>
+    documentOpenHandler(payload, {
+      provide: () => caseBoxRuntime,
+      storageRoot: documentStorageRoot,
+      reveal: revealOriginal,
+    }),
+  );
+
   registerCaseBoxIpcHandlers({
     persistenceProvider: () => caseBoxRuntime,
     storeDocumentFile: makeStoreFile(documentStorageRoot),
@@ -258,6 +285,18 @@ async function startProduct(): Promise<void> {
     const { seedLinkRoundtripFixture } = await import("../src/caseBox/testSeed/linkRoundtripSeed.js");
     (globalThis as { __lawbarCaseBoxLinkSeed?: typeof seedLinkRoundtripFixture }).__lawbarCaseBoxLinkSeed =
       seedLinkRoundtripFixture;
+  }
+
+  // Document-open packaged acceptance seed (product plan R1, WI-7). DEFAULT-OFF: when (and only
+  // when) LAWBAR_DOCUMENT_OPEN_TEST_HOOK=true, lazily install a fixed-fixture seed on globalThis
+  // that the test invokes via app.evaluate. It creates one synthetic matter through the real
+  // persistence API and registers one synthetic original through the real store path, so the store
+  // layout is production's. Registers NO IPC channel, NO preload surface, NO renderer global, and
+  // accepts no arguments at all. Production launches never import the module.
+  if (process.env.LAWBAR_DOCUMENT_OPEN_TEST_HOOK === "true") {
+    const { seedDocumentOpenFixture } = await import("../src/caseBox/testSeed/documentOpenSeed.js");
+    (globalThis as { __lawbarDocumentOpenSeed?: typeof seedDocumentOpenFixture }).__lawbarDocumentOpenSeed =
+      seedDocumentOpenFixture;
   }
 }
 

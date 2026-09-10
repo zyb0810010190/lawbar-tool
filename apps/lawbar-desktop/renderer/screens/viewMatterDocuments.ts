@@ -82,6 +82,9 @@ export function renderDocumentsDisclosure(
   doc: Document,
   api: CaseBoxApi,
   matterId: string,
+  // Optional and last, so every existing caller is untouched: production resolves the preload
+  // bridge; tests inject a stub. `null` renders no open control at all.
+  openOriginal: OpenOriginalFn | null = defaultOpenOriginal(),
 ): HTMLElement {
   // The list container is owned by loadDocuments (cleared + refilled), so a
   // successful registration can refresh it in place.
@@ -91,7 +94,7 @@ export function renderDocumentsDisclosure(
     [],
     doc,
   );
-  const refresh = (): Promise<void> => loadDocuments(listContainer, doc, api, matterId);
+  const refresh = (): Promise<void> => loadDocuments(listContainer, doc, api, matterId, openOriginal);
   const addControl = renderAddControl(doc, api, matterId, refresh);
 
   const body = el(
@@ -117,7 +120,7 @@ export function renderDocumentsDisclosure(
   summary.addEventListener("click", () => {
     if (loaded) return;
     loaded = true;
-    void loadDocuments(listContainer, doc, api, matterId);
+    void loadDocuments(listContainer, doc, api, matterId, openOriginal);
   });
   return details;
 }
@@ -235,11 +238,87 @@ function renderDocumentDetail(doc: Document, d: DocumentDetail): HTMLElement {
   );
 }
 
+// Opening a registered original (product plan R1, WI-6).
+//
+// The renderer sends an IDENTITY — matter id and document id — and nothing else. The main process
+// resolves the path, verifies the file, and hands a READ-ONLY COPY to the OS. What comes back is a
+// code, never a message and never a path: a path can carry a client's name, and this status line
+// is exactly the kind of thing that gets photographed into a bug report.
+type OpenOriginalResult = { readonly ok: true } | { readonly ok: false; readonly code: string; readonly reason?: string };
+export type OpenOriginalFn = (matterId: string, documentId: string) => Promise<OpenOriginalResult>;
+
+/**
+ * The preload bridge, or null when there is none — in which case the control is not rendered
+ * at all. A button that promises to open a document and cannot is the readiness-window defect
+ * (#283) in a new place. The `typeof window` guard is not test scaffolding: this module is loaded
+ * where no window exists, and an unguarded reference throws during render.
+ */
+function defaultOpenOriginal(): OpenOriginalFn | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as {
+    lawbar?: { documentOpen?: { open: (req: { matterId: string; documentId: string }) => Promise<OpenOriginalResult> } };
+  };
+  const bridge = w.lawbar?.documentOpen;
+  return bridge === undefined ? null : (matterId, documentId) => bridge.open({ matterId, documentId });
+}
+
+/** Every code main can send, mapped to copy. Unknown codes degrade to the request-failed sentence. */
+function openFailureKey(code: string): Parameters<typeof t>[0] {
+  switch (code) {
+    case "unknown_document": return "document.open.failed.unknown";
+    case "document_missing": return "document.open.failed.missing";
+    case "document_altered": return "document.open.failed.altered";
+    case "document_unverifiable": return "document.open.failed.unverifiable";
+    case "open_failed": return "document.open.failed.open";
+    default: return "document.open.failed.request"; // invalid_request, and anything a later version adds
+  }
+}
+
+function renderOpenControl(
+  doc: Document,
+  matterId: string,
+  documentId: string,
+  openOriginal: OpenOriginalFn,
+): HTMLElement {
+  const status = el("p", { class: "view-docs-open-status", "data-test-id": "view-docs-open-status" }, [], doc);
+  const btn = el(
+    "button",
+    { type: "button", class: "button view-docs-open-btn", "data-test-id": "view-docs-open" },
+    [t("document.open.button")],
+    doc,
+  ) as HTMLButtonElement;
+  btn.addEventListener("click", () => {
+    btn.disabled = true; // a second click mid-verification would queue a second open
+    status.removeAttribute("role");
+    setText(status, t("document.open.working"));
+    void (async () => {
+      try {
+        const r = await openOriginal(matterId, documentId);
+        if (r.ok) {
+          status.setAttribute("role", "status");
+          setText(status, t("document.open.done"));
+          return;
+        }
+        status.setAttribute("role", "alert");
+        setText(status, t(openFailureKey(r.code)));
+      } catch {
+        // A rejection is a transport failure; the bridge never throws on a refusal.
+        status.setAttribute("role", "alert");
+        setText(status, t("document.open.failed.open"));
+      } finally {
+        btn.disabled = false;
+      }
+    })();
+  });
+  return el("div", { class: "view-docs-open", "data-test-id": "view-docs-open-control" }, [btn, status], doc);
+}
+
 function renderDocumentRow(
   doc: Document,
   api: CaseBoxApi,
   matterId: string,
   row: DocumentRow,
+  openOriginal: OpenOriginalFn | null,
 ): HTMLElement {
   const summary = el(
     "summary",
@@ -295,6 +374,10 @@ function renderDocumentRow(
         return;
       }
       detailBody.appendChild(renderDocumentDetail(doc, env.value as DocumentDetail));
+      // The open control exists only once the detail has loaded, and only when a bridge exists.
+      if (openOriginal !== null) {
+        detailBody.appendChild(renderOpenControl(doc, matterId, row.id, openOriginal));
+      }
     })();
   });
   return el("li", { class: "view-docs-item-li" }, [details], doc);
@@ -305,6 +388,7 @@ async function loadDocuments(
   doc: Document,
   api: CaseBoxApi,
   matterId: string,
+  openOriginal: OpenOriginalFn | null,
 ): Promise<void> {
   // Clear any prior render so this can be called again to refresh after a
   // successful registration.
@@ -365,7 +449,7 @@ async function loadDocuments(
     }
     const page = env.value as ListDocumentsPage;
     for (const row of page.rows) {
-      list.appendChild(renderDocumentRow(doc, api, matterId, row));
+      list.appendChild(renderDocumentRow(doc, api, matterId, row, openOriginal));
       total += 1;
     }
     if (total === 0) {

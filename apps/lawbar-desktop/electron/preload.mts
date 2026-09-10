@@ -252,9 +252,24 @@ const backupApi: BackupApi = {
   run: () => ipcRenderer.invoke("backup:run"),
 };
 
+// Controlled document opening (WI-5). ONE argument — the identity — and no path anywhere in the
+// contract. Main resolves the path from the record; a renderer that could name a path could open
+// any file on this machine with the owner's privileges. The result is codes only.
+interface DocumentOpenApi {
+  open(req: { matterId: string; documentId: string }): Promise<
+    | { ok: true }
+    | { ok: false; code: string; reason?: string }
+  >;
+}
+
+const documentOpenApi: DocumentOpenApi = {
+  open: (req) => ipcRenderer.invoke("document:open", req),
+};
+
 contextBridge.exposeInMainWorld("lawbar", {
   theme: themeApi,
   caseBox: caseBoxApi,
   appInfo: appInfoApi,
   backup: backupApi,
+  documentOpen: documentOpenApi,
 });
