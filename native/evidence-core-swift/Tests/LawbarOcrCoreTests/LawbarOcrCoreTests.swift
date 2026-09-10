@@ -26,9 +26,11 @@ final class LawbarOcrCoreTests: XCTestCase {
         return url
     }
 
-    private func collect(_ url: URL, range: ClosedRange<Int>? = nil) throws -> [PageRecord] {
+    private func collect(_ url: URL, range: ClosedRange<Int>? = nil, layerOnly: Bool = false) throws -> [PageRecord] {
         var out: [PageRecord] = []
-        try Extract.run(file: url, range: range, options: Extract.Options()) { out.append($0) }
+        var options = Extract.Options()
+        options.layerOnly = layerOnly
+        try Extract.run(file: url, range: range, options: options) { out.append($0) }
         return out
     }
 
@@ -55,9 +57,9 @@ final class LawbarOcrCoreTests: XCTestCase {
         XCTAssertNil(p.error)
         XCTAssertEqual(compact(p.layer_text ?? ""), text, "PDFKit must return the text layer intact")
         XCTAssertEqual(p.layer_chars, text.count)
-        XCTAssertEqual(compact(p.vision_text), text, "Vision on the render is the independent reading the caller compares against")
-        XCTAssertGreaterThan(p.render_width, 0)
-        XCTAssertEqual(p.render_digest.count, 64)
+        XCTAssertEqual(compact(p.vision_text ?? ""), text, "Vision on the render is the independent reading the caller compares against")
+        XCTAssertGreaterThan(p.render_width ?? 0, 0)
+        XCTAssertEqual(p.render_digest?.count, 64)
     }
 
     func testScannedPDF_noLayerVisionReads() throws {
@@ -65,9 +67,9 @@ final class LawbarOcrCoreTests: XCTestCase {
         let url = try tempFile("scan.pdf", try XCTUnwrap(SyntheticPage.scannedPDF(text: text)))
         let p = try XCTUnwrap(try collect(url).first)
         XCTAssertEqual(p.layer_chars, 0, "a scan has no text layer")
-        XCTAssertEqual(compact(p.vision_text), text)
-        XCTAssertGreaterThan(p.vision_lines.count, 0)
-        XCTAssertGreaterThan(p.vision_lines[0].confidence, 0.5)
+        XCTAssertEqual(compact(p.vision_text ?? ""), text)
+        let first = try XCTUnwrap(p.vision_lines?.first, "Vision must return at least one line")
+        XCTAssertGreaterThan(first.confidence, 0.5)
     }
 
     func testImageBehavesLikeOnePageScan() throws {
@@ -79,7 +81,7 @@ final class LawbarOcrCoreTests: XCTestCase {
         XCTAssertEqual(pages.count, 1)
         XCTAssertEqual(pages[0].source, "image")
         XCTAssertNil(pages[0].layer_text)
-        XCTAssertEqual(compact(pages[0].vision_text), "证据目录")
+        XCTAssertEqual(compact(pages[0].vision_text ?? ""), "证据目录")
         XCTAssertThrowsError(try collect(url, range: 1...2)) { err in
             XCTAssertEqual(err as? Extract.Failure, .pageOutOfRange(requested: 1...2, pageCount: 1))
         }
@@ -107,6 +109,52 @@ final class LawbarOcrCoreTests: XCTestCase {
         XCTAssertEqual(a.helper_build_digest, b.helper_build_digest)
         XCTAssertEqual(a.helper_build_digest, Digest.selfDigest())
         XCTAssertEqual(a.render_digest, b.render_digest, "the same page renders to the same bytes — the identity a citation can be checked against")
+    }
+
+
+    func testLayerOnly_readsTheLayerAndTouchesNothingElse() throws {
+        let text = "民事判决书"
+        let url = try tempFile("layer.pdf", try XCTUnwrap(SyntheticPage.textLayerPDF(text: text)))
+        let p = try XCTUnwrap(try collect(url, layerOnly: true).first)
+        XCTAssertEqual(p.mode, "layer_only")
+        XCTAssertEqual(compact(p.layer_text ?? ""), text)
+        XCTAssertEqual(p.layer_chars, text.count)
+        XCTAssertNotNil(p.layer_ms, "the layer read is timed")
+        XCTAssertNil(p.vision_text, "nothing was recognised")
+        XCTAssertNil(p.vision_ms)
+        XCTAssertNil(p.render_digest, "nothing was rendered")
+        XCTAssertNil(p.render_ms)
+        XCTAssertNil(p.error)
+        // The JSON omits what was not measured rather than printing zeros for it.
+        let json = String(decoding: try JSONEncoder().encode(p), as: UTF8.self)
+        XCTAssertFalse(json.contains("vision_ms"), json)
+        XCTAssertFalse(json.contains("render_digest"), json)
+        XCTAssertTrue(json.contains("\"mode\":\"layer_only\""), json)
+    }
+
+    func testLayerOnly_scanAndImageReportNoLayerWithoutRecognising() throws {
+        let scan = try tempFile("scan.pdf", try XCTUnwrap(SyntheticPage.scannedPDF(text: "合作协议")))
+        let s = try XCTUnwrap(try collect(scan, layerOnly: true).first)
+        XCTAssertEqual(s.mode, "layer_only")
+        XCTAssertEqual(s.layer_chars, 0)
+        XCTAssertNil(s.vision_text)
+        let img = try XCTUnwrap(SyntheticPage.make(text: "证据目录"))
+        let png = try tempFile("page.tiff", try XCTUnwrap(img.tiffRepresentation))
+        let i = try XCTUnwrap(try collect(png, layerOnly: true).first)
+        XCTAssertEqual(i.source, "image")
+        XCTAssertEqual(i.layer_chars, 0)
+        XCTAssertNil(i.layer_ms, "an image has no layer to time")
+        XCTAssertNil(i.vision_text)
+    }
+
+    func testFullModeStillMeasuresEverythingAndSaysSo() throws {
+        let url = try tempFile("layer.pdf", try XCTUnwrap(SyntheticPage.textLayerPDF(text: "民事判决书")))
+        let p = try XCTUnwrap(try collect(url).first)
+        XCTAssertEqual(p.mode, "full")
+        XCTAssertNotNil(p.layer_ms)
+        XCTAssertNotNil(p.vision_ms)
+        XCTAssertNotNil(p.render_ms)
+        XCTAssertNotNil(p.render_digest)
     }
 
     func testFileDigestIsSha256() throws {

@@ -521,6 +521,45 @@ spawn, which is the check that exists for it); "add PDF negative cases for path 
 mismatch" (the validators are shared with the PNG kind and tested there; the finding's premise
 that `loadManifest` hashes bytes is false, so the committed-fixture hash assertion can fire).
 
+**Progress — helper 0.2.0, the layer tier's numbers become its own, 2026-09-10.** `lawbar-ocr
+extract --layer-only` reads the PDF text layer and renders and recognises nothing. Every page
+record now carries `mode` (`full` | `layer_only`) and `layer_ms` (the timed layer read; absent
+for an image, which has none), and the render and Vision fields are ABSENT in layer-only mode —
+an absent field says "not measured" where a zero would lie. The harness's shared boundary asks
+for the mode a candidate needs and refuses a record whose `mode` is not the one asked for; a
+layer-only PDF record must time its layer read; the layer candidate needs no Vision language.
+The desktop's consumer is `probe`, which did not change; the packaged app was rebuilt with the
+new binary (sha256 c36631cc…, pin regenerated) and the packaged proof and the desktop lane rerun.
+**Measured, same fifteen fixtures, packaged 0.2.0 helper:** the layer tier now costs 38–51 ms a
+page at 17 MB, against Vision's 283–351 ms at 70–106 MB; its timed layer read is 1–2 ms. CER
+unchanged in every cell (layer 5/5 exact; Vision 3/5 on PDF renders, 2/5 on PNGs; PaddleOCR 2/5).
+The dishonest number recorded in the previous stamp no longer exists.
+**Changed:** `native/evidence-core-swift` (`LawbarOcrCore.swift`: record fields, option, mode,
+version 0.2.0; `main.swift`: the flag; three new package tests), `services/ocr-worker-bakeoff`
+(`lawbar-ocr-helper.ts` mode-aware boundary and 0.2.0 pin; the two candidates; both test files;
+`README.md`).
+**Verified:** Swift package 177/177 (11 helper tests) and a Swift mutant that ignores the flag
+killed; desktop unit tests 14/14, packaged app rebuilt, the packaged probe proof (relocated copy,
+PATH empty, swapped helper refused unrun) green, desktop lane 1497/1497; bake-off lane 138 tests
+green and the opt-in real run on all ten PDFs; five harness mutants killed (mode check dropped;
+layer-only asking for a full extract; the layer_ms requirement dropped; the present-fields check
+dropped; the image layer_ms check dropped). After the review fixes the helper was rebuilt once
+more (sha256 4c091aa6…), and the packaged proof and desktop lane rerun against that binary.
+**Reviewed:** Codex, one job per diff, read-only, `gpt-5.6-sol` — threads 01a08d70-114c (Swift),
+01a08d70-1bd1 (harness), 01a08d70-26da (tests). 9 findings; 7 verified and fixed before this
+stamp: a PDF render failure fabricated zero dimensions, a placeholder digest and a zero Vision
+time → those fields are absent and only the measured render attempt remains; the layer-only
+image path decoded the bitmap before checking the flag → the flag is checked after the headers
+are read and before anything rasterises; a layer-only record carrying render or Vision fields,
+even as zeros or nulls, and an image record claiming a layer time, are refused as malformed;
+a Swift test indexed `[0]` where an empty array would trap; the argument assertions now precede
+the outcome assertion so a wrong mode is named as the cause; the real-helper memory claim is
+a matched control (layer-only under three quarters of Vision's RSS and faster, on the same
+page) instead of an absolute bound another Mac could pass or fail for its own reasons, and the
+latency bound that measured the machine is gone. Not adopted: `cold_model_load_ms` for the
+layer tier (the contract's name for what remains of the wall clock; documented as overhead,
+not a model load — the same disposition as the two earlier stamps).
+
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
 evidence names a multi-page scan processed offline with every page's outcome visible. What exists:

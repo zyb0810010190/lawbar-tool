@@ -3,7 +3,7 @@
 //
 // Usage:
 //   lawbar-ocr probe [--roundtrip]
-//   lawbar-ocr extract <file.pdf|image> [--pages a-b] [--lang zh-Hans,en-US] [--dpi 150]
+//   lawbar-ocr extract <file.pdf|image> [--pages a-b] [--lang zh-Hans,en-US] [--dpi 150] [--layer-only]
 //
 // Output: JSON, one object per line on stdout ({"kind":"probe"...}, {"kind":"page"...},
 // {"kind":"error"...}). stderr carries nothing a caller should parse.
@@ -35,7 +35,7 @@ func fail(_ code: String, _ detail: String, exit status: Int32) -> Never {
 }
 
 var args = Array(CommandLine.arguments.dropFirst())
-guard let command = args.first else { fail("bad_arguments", "usage: lawbar-ocr probe [--roundtrip] | extract <file> [--pages a-b] [--lang l1,l2] [--dpi N]", exit: 2) }
+guard let command = args.first else { fail("bad_arguments", "usage: lawbar-ocr probe [--roundtrip] | extract <file> [--pages a-b] [--lang l1,l2] [--dpi N] [--layer-only]", exit: 2) }
 args.removeFirst()
 
 switch command {
@@ -69,6 +69,9 @@ case "extract":
             guard let v = value, let d = Double(v), d >= 36, d <= 600 else { fail("bad_arguments", "--dpi must be 36...600", exit: 2) }
             options.dpi = d
             i += 2
+        case "--layer-only":
+            options.layerOnly = true
+            i += 1
         default:
             fail("bad_arguments", "unknown option \(a)", exit: 2)
         }

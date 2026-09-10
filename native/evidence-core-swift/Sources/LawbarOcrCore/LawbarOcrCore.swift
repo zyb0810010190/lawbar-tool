@@ -45,21 +45,25 @@ public struct RecognizedLine: Codable, Equatable {
 
 public struct PageRecord: Codable, Equatable {
     public let kind: String                      // "page"
+    public let mode: String                      // "full" | "layer_only" — what this record measured
     public let page: Int                         // 1-based
     public let page_count: Int
     public let source: String                    // "pdf" | "image"
     public let layer_text: String?               // PDFKit text layer, nil for images
     public let layer_chars: Int
-    public let render_width: Int, render_height: Int
-    public let render_digest: String             // sha256 of the rendered RGBA bytes — the page image identity, never written to disk
-    public let vision_lines: [RecognizedLine]
-    public let vision_text: String               // lines joined with "\n" in Vision's reading order
-    public let vision_ms: Int
-    public let render_ms: Int
+    public let layer_ms: Int?                    // time to read the text layer; nil for images (there is none to read)
+    // The render and Vision fields are absent in layer_only mode: nothing was rendered and nothing
+    // was recognised, and an absent field says so where a zero would lie.
+    public let render_width: Int?, render_height: Int?
+    public let render_digest: String?            // sha256 of the rendered RGBA bytes — the page image identity, never written to disk
+    public let vision_lines: [RecognizedLine]?
+    public let vision_text: String?              // lines joined with "\n" in Vision's reading order
+    public let vision_ms: Int?
+    public let render_ms: Int?
     public let helper_build_digest: String
     public let error: String?                    // "render_failed" | "vision_failed" — the page is reported, never skipped
-    public init(kind: String, page: Int, page_count: Int, source: String, layer_text: String?, layer_chars: Int, render_width: Int, render_height: Int, render_digest: String, vision_lines: [RecognizedLine], vision_text: String, vision_ms: Int, render_ms: Int, helper_build_digest: String, error: String?) {
-        self.kind = kind; self.page = page; self.page_count = page_count; self.source = source; self.layer_text = layer_text; self.layer_chars = layer_chars; self.render_width = render_width; self.render_height = render_height; self.render_digest = render_digest; self.vision_lines = vision_lines; self.vision_text = vision_text; self.vision_ms = vision_ms; self.render_ms = render_ms; self.helper_build_digest = helper_build_digest; self.error = error
+    public init(kind: String, mode: String = "full", page: Int, page_count: Int, source: String, layer_text: String?, layer_chars: Int, layer_ms: Int? = nil, render_width: Int?, render_height: Int?, render_digest: String?, vision_lines: [RecognizedLine]?, vision_text: String?, vision_ms: Int?, render_ms: Int?, helper_build_digest: String, error: String?) {
+        self.kind = kind; self.mode = mode; self.page = page; self.page_count = page_count; self.source = source; self.layer_text = layer_text; self.layer_chars = layer_chars; self.layer_ms = layer_ms; self.render_width = render_width; self.render_height = render_height; self.render_digest = render_digest; self.vision_lines = vision_lines; self.vision_text = vision_text; self.vision_ms = vision_ms; self.render_ms = render_ms; self.helper_build_digest = helper_build_digest; self.error = error
     }
 }
 
@@ -90,7 +94,7 @@ public enum Digest {
 // MARK: - Probe
 
 public enum LawbarOcrCore {
-    public static let version = "0.1.0"
+    public static let version = "0.2.0"   // 0.2.0: layer_only mode; render/Vision fields optional, layer_ms, mode
 
     public static func probe(roundtrip: Bool) -> ProbeRecord {
         let v = ProcessInfo.processInfo.operatingSystemVersion
@@ -178,6 +182,8 @@ public enum Extract {
     public struct Options {
         public var languages: [String] = ["zh-Hans", "en-US"]
         public var dpi: Double = 150
+        /// Read the text layer only: no render, no Vision. The cheapest tier's own cost, and nothing else's.
+        public var layerOnly: Bool = false
         public init() {}
     }
 
@@ -205,26 +211,45 @@ public enum Extract {
             }
             for n in r {
                 guard let page = doc.page(at: n - 1) else { continue }
+                let tl = Date()
                 let layer = page.string ?? ""
+                let layerMs = Int(Date().timeIntervalSince(tl) * 1000)
+                if options.layerOnly {
+                    emit(PageRecord(kind: "page", mode: "layer_only", page: n, page_count: count, source: "pdf", layer_text: layer, layer_chars: layer.count, layer_ms: layerMs,
+                                    render_width: nil, render_height: nil, render_digest: nil, vision_lines: nil, vision_text: nil, vision_ms: nil, render_ms: nil,
+                                    helper_build_digest: selfDigest, error: nil))
+                    continue
+                }
                 let t0 = Date()
                 guard let cg = Render.pdfPage(page, dpi: options.dpi) else {
-                    emit(PageRecord(kind: "page", page: n, page_count: count, source: "pdf", layer_text: layer, layer_chars: layer.count,
-                                    render_width: 0, render_height: 0, render_digest: "unavailable", vision_lines: [], vision_text: "",
-                                    vision_ms: 0, render_ms: Int(Date().timeIntervalSince(t0) * 1000), helper_build_digest: selfDigest, error: "render_failed"))
+                    // The attempt to render is what was measured; there is no image and no
+                    // recognition to report, so those fields are absent, not zero.
+                    emit(PageRecord(kind: "page", page: n, page_count: count, source: "pdf", layer_text: layer, layer_chars: layer.count, layer_ms: layerMs,
+                                    render_width: nil, render_height: nil, render_digest: nil, vision_lines: nil, vision_text: nil,
+                                    vision_ms: nil, render_ms: Int(Date().timeIntervalSince(t0) * 1000), helper_build_digest: selfDigest, error: "render_failed"))
                     continue
                 }
                 let renderMs = Int(Date().timeIntervalSince(t0) * 1000)
                 let (lines, visionMs) = Vision.recognize(cgImage: cg, languages: options.languages)
-                emit(PageRecord(kind: "page", page: n, page_count: count, source: "pdf", layer_text: layer, layer_chars: layer.count,
+                emit(PageRecord(kind: "page", page: n, page_count: count, source: "pdf", layer_text: layer, layer_chars: layer.count, layer_ms: layerMs,
                                 render_width: cg.width, render_height: cg.height, render_digest: Render.digest(of: cg), vision_lines: lines,
                                 vision_text: lines.map { $0.text }.joined(separator: "\n"), vision_ms: visionMs, render_ms: renderMs,
                                 helper_build_digest: selfDigest, error: nil))
             }
             return
         }
-        if let img = NSImage(contentsOf: file), let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+        if let img = NSImage(contentsOf: file) {
             let r = range ?? (1...1)
             guard r == (1...1) else { throw Failure.pageOutOfRange(requested: r, pageCount: 1) }
+            if options.layerOnly {
+                // An image has no text layer. Say so before the bitmap is ever decoded: NSImage reads
+                // the headers here; `cgImage(forProposedRect:)` below is what rasterises.
+                emit(PageRecord(kind: "page", mode: "layer_only", page: 1, page_count: 1, source: "image", layer_text: nil, layer_chars: 0, layer_ms: nil,
+                                render_width: nil, render_height: nil, render_digest: nil, vision_lines: nil, vision_text: nil, vision_ms: nil, render_ms: nil,
+                                helper_build_digest: selfDigest, error: nil))
+                return
+            }
+            guard let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { throw Failure.unreadableInput(file.lastPathComponent) }
             let (lines, visionMs) = Vision.recognize(cgImage: cg, languages: options.languages)
             emit(PageRecord(kind: "page", page: 1, page_count: 1, source: "image", layer_text: nil, layer_chars: 0,
                             render_width: cg.width, render_height: cg.height, render_digest: Render.digest(of: cg), vision_lines: lines,

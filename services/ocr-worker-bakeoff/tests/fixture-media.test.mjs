@@ -111,13 +111,24 @@ test("runner: a candidate that did not declare pdf never sees a PDF fixture — 
 // PDFKit text-layer candidate, with a fake helper
 // ---------------------------------------------------------------------------
 
-const PROBE_TAIL = '"helper_version":"0.1.0","os_version":"0","os_build":"0F0","arch":"fake","vision_languages":["zh-Hans","en-US"]';
+const PROBE_TAIL = '"helper_version":"0.2.0","os_version":"0","os_build":"0F0","arch":"fake","vision_languages":["zh-Hans","en-US"]';
 
-function makeFakeHelper(pageOverrides) {
+/**
+ * A fake helper that honours the mode it is asked for: `--layer-only` yields a layer_only record
+ * with no render or Vision fields (as the real 0.2.0 helper does); a plain extract yields a full
+ * record. `pageOverrides` apply to whichever is emitted, so a test can make either malformed. The
+ * arguments it was called with are written beside it, so a test can assert what was asked.
+ */
+function makeFakeHelper(pageOverrides = {}) {
   const dir = mkdtempSync(join(tmpdir(), "bakeoff-layer-fake-"));
   const path = join(dir, "lawbar-ocr");
-  const record = JSON.stringify({
-    kind: "page", page: 1, page_count: 1, source: "pdf", layer_text: "文本", layer_chars: 2,
+  const layerOnly = JSON.stringify({
+    kind: "page", mode: "layer_only", page: 1, page_count: 1, source: "pdf", layer_text: "文本", layer_chars: 2, layer_ms: 3,
+    helper_build_digest: "%DIGEST%", error: null,
+    ...pageOverrides,
+  });
+  const full = JSON.stringify({
+    kind: "page", mode: "full", page: 1, page_count: 1, source: "pdf", layer_text: "文本", layer_chars: 2, layer_ms: 3,
     render_width: 100, render_height: 100, render_digest: "0".repeat(64), vision_lines: [],
     vision_text: "文本", vision_ms: 40, render_ms: 5, helper_build_digest: "%DIGEST%", error: null,
     ...pageOverrides,
@@ -126,12 +137,15 @@ function makeFakeHelper(pageOverrides) {
     "#!/bin/sh",
     'read d < "$0.digest"',
     `if [ "$1" = "probe" ]; then printf '{"kind":"probe","helper_build_digest":"%s",${PROBE_TAIL}}\\n' "$d"; exit 0; fi`,
-    `printf '%s\\n' "$(printf '%s' '${record}' | /usr/bin/sed "s/%DIGEST%/$d/")"`,
+    `printf '%s\\n' "$*" > "${join(dir, "args")}"`,
+    `case " $* " in *" --layer-only "*) rec='${layerOnly}';; *) rec='${full}';; esac`,
+    `printf '%s\\n' "$(printf '%s' "$rec" | /usr/bin/sed "s/%DIGEST%/$d/")"`,
   ].join("\n"));
   chmodSync(path, 0o755);
   writeFileSync(`${path}.digest`, `${sha256OfFile(path)}\n`);
   return path;
 }
+const argsOf = (fakePath) => readFileSync(join(dirname(fakePath), "args"), "utf8").trim();
 
 function makeFakeTimeBin() {
   const dir = mkdtempSync(join(tmpdir(), "bakeoff-layer-time-"));
@@ -146,16 +160,47 @@ const COLD = { run_kind: "cold", timeout_ms: 10_000 };
 const pdfFixture = { id: "page", path: "synthetic/page.pdf", language: "zh-Hans", media: "pdf" };
 const pngFixture = { id: "page", path: "synthetic/page.png", language: "zh-Hans", media: "png" };
 
-test("layer candidate: layer_text is the transcript; inference is reported as 0 because the helper does not time the layer read", async () => {
-  const c = makeLawbarOcrPdfkitLayerCandidate(fixturesRoot, optsFor(makeFakeHelper({ layer_text: "本院经审理查明", layer_chars: 7 })));
+test("layer candidate: asks for --layer-only, layer_text is the transcript, the timed layer read is the inference, and no Vision language is required", async () => {
+  const fakePath = makeFakeHelper({ layer_text: "本院经审理查明", layer_chars: 7, layer_ms: 3 });
+  const c = makeLawbarOcrPdfkitLayerCandidate(fixturesRoot, optsFor(fakePath));
   assert.deepEqual(c.supported_media, ["pdf"]);
   const o = await c.run(pdfFixture, COLD);
+  // The arguments first: if the wrong mode were asked for, the fake would answer in the wrong
+  // mode and the outcome assertion would fail before this one could name the cause.
+  assert.match(argsOf(fakePath), /--layer-only/, "the helper must be asked for the layer only");
+  assert.doesNotMatch(argsOf(fakePath), /--lang/, "no language: nothing is recognised");
   assert.equal(o.outcome, "success", JSON.stringify(o));
   assert.equal(o.transcript, "本院经审理查明");
-  assert.equal(o.per_page_inference_ms, 0);
-  assert.equal(o.cold_model_load_ms, Math.max(0, o.latency_ms - 40 - 5), "the overhead field is the wall clock minus the helper's two timings");
+  assert.equal(o.per_page_inference_ms, 3);
+  assert.equal(o.cold_model_load_ms, Math.max(0, o.latency_ms - 3), "the overhead field is the wall clock minus the timed layer read");
   assert.equal(o.peak_rss_bytes, 1474560);
   assert.equal(o.engine_name, "lawbar-ocr-pdfkit-layer");
+  // A language the harness cannot map does not stop the layer tier: it recognises nothing.
+  const jpn = await c.run({ ...pdfFixture, language: "jpn" }, COLD);
+  assert.equal(jpn.outcome, "success", JSON.stringify(jpn));
+});
+
+test("layer candidate: a full-mode answer to a layer-only request, or a layer_only PDF record without layer_ms, is malformed output", async () => {
+  const wrongMode = makeLawbarOcrPdfkitLayerCandidate(fixturesRoot, optsFor(makeFakeHelper({ mode: "full" })));
+  let o = await wrongMode.run(pdfFixture, COLD);
+  assert.equal(o.outcome, "failure");
+  assert.equal(o.code, "helper_output_unparseable");
+  assert.match(o.message, /asked for layer_only/);
+  const untimed = makeLawbarOcrPdfkitLayerCandidate(fixturesRoot, optsFor(makeFakeHelper({ layer_ms: null })));
+  o = await untimed.run(pdfFixture, COLD);
+  assert.equal(o.outcome, "failure");
+  assert.equal(o.code, "helper_output_unparseable");
+  assert.match(o.message, /time the layer read/);
+});
+
+test("layer candidate: a layer_only record that carries render or Vision fields — even as zeros or nulls — is malformed: what was not measured must be absent", async () => {
+  for (const overrides of [{ vision_ms: 0, render_ms: 0 }, { vision_text: null }, { render_digest: "0".repeat(64) }]) {
+    const c = makeLawbarOcrPdfkitLayerCandidate(fixturesRoot, optsFor(makeFakeHelper(overrides)));
+    const o = await c.run(pdfFixture, COLD);
+    assert.equal(o.outcome, "failure", JSON.stringify(overrides));
+    assert.equal(o.code, "helper_output_unparseable", JSON.stringify(overrides));
+    assert.match(o.message, /must not carry/);
+  }
 });
 
 test("layer candidate: a page with no text layer is the structured no_text_layer failure, never an empty transcript", async () => {
@@ -193,8 +238,13 @@ test("layer candidate: the shared boundary still applies — a record with anoth
   assert.equal(o.code, "helper_identity_mismatch");
 });
 
-test("vision candidate declares png AND pdf, so the runner hands it every PDF fixture", () => {
+test("vision candidate declares png AND pdf, so the runner hands it every PDF fixture, and asks for a full extract", async () => {
   assert.deepEqual(makeLawbarOcrVisionCandidate(fixturesRoot, {}).supported_media, ["png", "pdf"]);
+  const fakePath = makeFakeHelper();
+  const o = await makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(fakePath)).run(pdfFixture, COLD);
+  assert.doesNotMatch(argsOf(fakePath), /--layer-only/);
+  assert.match(argsOf(fakePath), /--lang zh-Hans/);
+  assert.equal(o.outcome, "success", JSON.stringify(o));
 });
 
 // ---------------------------------------------------------------------------
@@ -215,6 +265,15 @@ test(
       if (f.id.endsWith("-pdf-layer")) {
         assert.equal(lo.outcome, "success", `${f.id}: ${JSON.stringify(lo)}`);
         assert.deepEqual(normalizeForCer(lo.transcript), expected, `${f.id}: the layer must read back the authored text exactly under the CER normalisation`);
+        assert.ok(Number.isFinite(lo.per_page_inference_ms) && lo.per_page_inference_ms >= 0, `${f.id}: the layer read is timed by the helper (${lo.per_page_inference_ms})`);
+        // The claim is "layer-only does not carry Vision", so the control is a matched full-mode
+        // run on the SAME page, not an absolute number that a different Mac could fail or pass
+        // for reasons of its own. A quarter is a generous noise allowance: measured here, the
+        // layer tier is ~17 MB against Vision's ~70 MB.
+        const vo = await vision.run(f, { run_kind: "cold", timeout_ms: 60_000 });
+        assert.equal(vo.outcome, "success", `${f.id}: ${JSON.stringify(vo)}`);
+        assert.ok(lo.peak_rss_bytes < vo.peak_rss_bytes * 0.75, `${f.id}: layer-only ${Math.round(lo.peak_rss_bytes / 1048576)} MB must be well under Vision's ${Math.round(vo.peak_rss_bytes / 1048576)} MB on the same page`);
+        assert.ok(lo.latency_ms < vo.latency_ms, `${f.id}: layer-only ${lo.latency_ms} ms must be faster than Vision's ${vo.latency_ms} ms on the same page`);
       } else {
         assert.equal(lo.outcome, "failure", `${f.id}: a scan has no layer`);
         assert.equal(lo.code, "no_text_layer");

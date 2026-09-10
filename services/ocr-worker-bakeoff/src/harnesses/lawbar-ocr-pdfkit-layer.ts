@@ -12,12 +12,11 @@
 //   `page.string` is not proof (plan risk "text-layer semantics"). That is what the different-
 //   engine control is for; here the fixture's expected text plays the control.
 //
-// Timings and memory, stated plainly: the helper today ALWAYS renders the page and runs Vision,
-// so this candidate's `latency_ms` and `peak_rss_bytes` include an OCR pass the layer tier would
-// never pay in production. They are upper bounds, not the tier's cost. `per_page_inference_ms` is
-// 0 because the helper does not time the layer read, and the overhead field is the wall clock
-// minus render and Vision. A layer-only helper mode is the fix (a protocol change, its own item);
-// until then this candidate's measurement is the TRANSCRIPT, and the numbers say what they are not.
+// Timings and memory are the tier's own: the helper runs in `--layer-only` mode (0.2.0), which
+// reads the text layer and renders and recognises nothing, so `latency_ms` and `peak_rss_bytes`
+// are what a production text-layer read would cost. `per_page_inference_ms` is the helper's
+// timed layer read (`layer_ms`); the overhead field is the rest of the wall clock — process
+// start, PDFKit's document load, `time`, pipe teardown — not a model load, which this tier has none of.
 
 import type { EngineCandidate, EngineObservation } from "../types.js";
 import {
@@ -50,7 +49,7 @@ export function makeLawbarOcrPdfkitLayerCandidate(
       if (fixture.media !== "pdf") {
         return { outcome: "failure", fixture_id: fixture.id, engine_name: ENGINE_NAME, code: "unsupported_media", message: `the PDFKit text layer exists only for PDF fixtures; ${fixture.id} is ${String(fixture.media)}` };
       }
-      const page = await extractVerifiedPage(ENGINE_NAME, fixture, opts, options, fixturesRoot, cache);
+      const page = await extractVerifiedPage(ENGINE_NAME, fixture, opts, options, fixturesRoot, cache, "layer_only");
       if (!isVerifiedPage(page)) return page;
       const chars = page.record.layer_chars;
       const text = page.record.layer_text;
@@ -75,8 +74,8 @@ export function makeLawbarOcrPdfkitLayerCandidate(
         transcript: text,
         latency_ms: page.latency_ms,
         peak_rss_bytes: page.peak_rss_bytes,
-        cold_model_load_ms: Math.max(0, page.latency_ms - page.vision_ms - page.render_ms),
-        per_page_inference_ms: 0,
+        cold_model_load_ms: Math.max(0, page.latency_ms - (page.layer_ms ?? 0)),
+        per_page_inference_ms: page.layer_ms ?? 0,
         run_kind: "cold",
       };
     },
