@@ -38,7 +38,12 @@ Ordering reflects what blocks what, not effort.
   validator were deleted 2026-08-10, and the audit preceding that deletion found agent-side
   attestation is not a trust boundary at all. So A0.7 cannot be called green — not because the
   harness is known wrong, but because no artifact here is entitled to assert it is right.
-  No Evidence UI ships until it is genuinely green; a class-2 result reopens the geometry-source
+  **A0.7 gates only Evidence UI that consumes PDF-rendered geometry** — page/region citations,
+  anchors, in-app previews and any coordinate-derived output (R5). It does not gate R2 evidence-item
+  records (create / review / adopt / exclude, submitter side, lawyer-typed page range); any R2 screen
+  that adds a preview, a jump-to-page or a machine-derived page reference re-enters the gate.
+  *(Amended 2026-09-10: the earlier unqualified "No Evidence UI ships" contradicted this plan's own R2
+  row.)* A class-2 result reopens the geometry-source
   assumption entirely. Detail: `docs/product/product-definition.md`.
 
   **A scope limit worth stating plainly**, because nothing else in this repo says it: A0.7's entire
@@ -97,7 +102,8 @@ the oracle JSON before being written; file:line citations are the evidence.*
 
 **Why this lane exists.** A0.7 (`renderer-conformance`) is the first real Evidence architecture
 gate: it validates that PDFKit reports page geometry reproducibly enough for citations and anchors
-to be stable. No Evidence UI ships before it is genuinely green. It is **PROVISIONAL, not green**,
+to be stable. No Evidence UI that consumes that geometry (R5) ships before it is genuinely green; R2
+evidence-item records are not gated by it (amended 2026-09-10). It is **PROVISIONAL, not green**,
 and until 2026-08-12 it was the only outstanding item in this product with no plan at all —
 including in the file you are reading.
 
