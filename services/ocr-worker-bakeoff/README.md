@@ -16,6 +16,15 @@ ocr-review}` and `docs/contracts` MUST NOT depend on this package.
   `paddleocr` / `paddlepaddle` exists.
 - **Commit δ** — RapidOCR baseline. Adds an ONNX-Runtime-Node harness
   with pinned model artifacts.
+- **R3 / WI-12 step 3 (2026-09-10)** — `lawbar-ocr-vision`: Apple Vision reached
+  THROUGH the desktop app's packaged helper (`src/harnesses/lawbar-ocr-vision.ts`).
+  The binary is resolved from `apps/lawbar-desktop/release/mac-*/lawbar.app`
+  first, the staged `build/helpers` second, or `LAWBAR_OCR_HELPER`; it runs with
+  an empty `PATH` under a process-group deadline, and its self-reported digest
+  must equal the executed file's sha256 or the observation is a failure. Cold
+  runs only (one process per page). Opt-in real run:
+  `OCR_REAL_LAWBAR_OCR_TESTS=1`. The PDFKit text-layer candidate waits on a PDF
+  fixture kind, which the manifest does not have yet.
 - **Commit ε** — ADR-11A.1 verdict + lockfile + assembled license
   artifact. Lands only after all three v1 candidates have measurements
   and the hybrid fixture set is complete (≥5 active synthetic + ≥2

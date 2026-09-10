@@ -388,6 +388,67 @@ packaged app" — designed away: the pin refuses a swapped resource before any p
 packaged hang test could only be written by defeating the pin. "A missing `ipcMain.handle` leaves
 the unit test green" — true and covered by `ocr.electron.test.mjs`, which the job could not see.
 
+**Progress — step (3) of "the first code", 2026-09-10: the bake-off points at the packaged
+boundary.** `services/ocr-worker-bakeoff/src/harnesses/lawbar-ocr-vision.ts` is a candidate that
+calls `lawbar-ocr extract` — resolved from `apps/lawbar-desktop/release/mac-*/lawbar.app` first, the
+staged build second, or `LAWBAR_OCR_HELPER` — with an empty `PATH`, detached, under the harness's
+process-group deadline, and refuses any record whose self-reported digest is not the sha256 of
+the executed file. The probe records which binary answered and the OS build, because Vision's
+model changes with the OS. Cold runs only; `vision_ms` is the per-page inference, the remainder of
+the wall clock is process start plus framework init. The PDFKit text-layer candidate is NOT here:
+the manifest has no PDF fixture kind, and a text-layer candidate measured on PNGs would measure
+nothing; it lands with PDF fixtures (a manifest schema change) as its own item.
+**First measurement through the boundary (synthetic tuning set, five verdict fixtures, this Mac,
+arm64, macOS build 24G90, helper sha256 8ccdda7d…, packaged binary):**
+
+| candidate | mean CER | exact pages | latency/page | inference/page | cold load | peak RSS |
+|---|---|---|---|---|---|---|
+| paddleocr-onnx 1.4.8 | 0.057 | 2/5 | 307–384 ms | 52–88 ms | 107–155 ms | 296–329 MB |
+| lawbar-ocr-vision (packaged) | 0.063 | 2/5 | 282–308 ms | 221–248 ms | 57–64 ms | 71–77 MB |
+| tesseract 5.5.2 | — | — | — | — | — | probe: no `chi_sim` model |
+
+**What the non-zero CERs actually are — read, not inferred from the number:** every non-zero
+score but one is punctuation width or whitespace, which the CER metric deliberately does not fold:
+both engines emit full-width `（2025）` where the fixture text has half-width `(2025)`; PaddleOCR
+drops the double space in the party row, Vision halves it. The one real error is Vision's: on the
+judgment paragraph it inserted a spurious `不` and a line break mid-sentence
+(`…查明：不\n被告于…`) where PaddleOCR read the line exactly — a hallucinated character at a line
+boundary, the kind of error a same-engine re-run cannot see and the different-engine control in
+item 4 is for. Numbers this small on five synthetic pages decide nothing; they are the tuning-set
+baseline the holdout and the owner's real pages (item 6) are measured against.
+**Changed:** the harness, `tests/lawbar-ocr-vision.test.mjs`, `bin/bakeoff.mjs` (third candidate),
+`package.json` (test list; the lane now runs three test files at a time — see Verified), `README.md`
+(status entry).
+**Verified:** bake-off lane 122 tests / 115 pass / 7 opt-in skipped; the opt-in real run passes
+against the packaged helper (pinned by the desktop build, exact transcript on the heading fixture);
+the other eight commit lanes green (the six `services/` lanes in the main tree, whose service
+directories this branch does not touch). The lane's file concurrency is bounded to three because
+the unbounded default (seven files on eight cores) starved the Tesseract fake-binary test past its
+5 s budget once the bin-cli test began spawning a third real engine — measured: 3.3 s at seven,
+0.7 s at three, 0.4 s alone; a spawn-heavy deadline test under unbounded parallelism measures the
+machine, the same lesson as the desktop lane. Twelve mutants of the compiled harness killed:
+run identity check dropped; probe identity check dropped; leader-only kill; one-record rule
+loosened; PATH not emptied; pin check dropped; version check dropped; language recheck dropped;
+allowlist bypassed; overflow no longer kills; timing validation dropped; the pre-fix escape
+behaviour.
+**Reviewed:** Codex, one job per file, read-only, `gpt-5.6-sol` — threads 01a08beb-69df (harness),
+01a08beb-74ef (tests), 01a08beb-80b2 (wiring: no findings). 17 findings; 11 verified and fixed
+before this stamp: the app's build pin is now the bake-off's required digest (`bad_version`
+otherwise — the bake-off measures exactly the binary the app ships); the helper version is
+checked against the pin; stdout/stderr are capped and a flood is killed; helper error codes are an
+allowlist, so a path or a client's filename can never become an observation code; `run` rechecks
+the fixture language against what Vision offers; a hashing failure is a structured result, not a
+throw; malformed timings are refused rather than zeroed; the probe deadline is injectable and a
+hanging probe is tested with no survivor; an escaped descendant is tested and bounded; the
+overhead field is documented as overhead, not a measured model load. Not adopted, with reasons:
+containment of a descendant that leaves the process group (no macOS job-object equivalent
+without launchd; the bake-off returns bounded and the orphan is the harness's, not a client's);
+a pinned code-signing requirement (R7; local builds are unsigned); `LAWBAR_OCR_HELPER` losing to
+the packaged binary (the override is an operator's explicit choice for a bake-off and the probe
+detail names the source); multi-page records (one fixture is one PNG, by the manifest); RSS read
+from a stderr the helper shares (parity with the other two harnesses; `time -o` is a later
+change for all three); the non-macOS platform-guard ordering (the product is macOS-only).
+
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
 evidence names a multi-page scan processed offline with every page's outcome visible. What exists:
