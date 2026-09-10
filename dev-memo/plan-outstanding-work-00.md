@@ -449,6 +449,78 @@ detail names the source); multi-page records (one fixture is one PNG, by the man
 from a stderr the helper shares (parity with the other two harnesses; `time -o` is a later
 change for all three); the non-macOS platform-guard ordering (the product is macOS-only).
 
+**Progress — the PDF fixture kind and the text-layer tier, 2026-09-10.** Fixtures now carry
+`media: png | pdf` (default png; the file extension must agree or the manifest is refused), and a
+candidate declares `supported_media` (absent means png). The runner records `unsupported_media`
+instead of calling `run()` for undeclared media, so a PDF's bytes never reach an engine that would
+read them as an image. Ten PDF fixtures were authored with macOS system tools from the five
+Chinese pages and committed with hashes: `*-pdf-layer.pdf` (a text layer authored from the
+expected text with `cupsfilter`) and `*-pdf-scan.pdf` (image-only, the PNG wrapped with `sips`),
+each reusing its sibling's expected text. The helper boundary moved to a shared module
+(`lawbar-ocr-helper.ts`); `lawbar-ocr-vision` takes png and pdf (PDFKit renders the page at
+150 dpi first); the new `lawbar-ocr-pdfkit-layer` takes pdf only, calls `layer_text` the
+transcript, and reports a page with no layer as the structured failure `no_text_layer` — the
+escalation signal item 3 reads, excluded from CER so the layer tier is scored only on pages
+that have one. Its `per_page_inference_ms` is 0 by declaration: the helper does not time the
+layer read, and a number that means nothing would be a lie; this tier's measurement is the
+transcript.
+**Measured (fifteen verdict fixtures, this Mac, packaged helper sha256 8ccdda7d…, macOS 24G90):**
+
+| candidate | media | mean CER | exact | notes |
+|---|---|---|---|---|
+| lawbar-ocr-pdfkit-layer | pdf-layer | 0.000 | 5/5 | the authored layer read back exactly |
+| lawbar-ocr-pdfkit-layer | pdf-scan | — | 0/5 | all five `no_text_layer`, as they must be |
+| lawbar-ocr-vision | pdf-layer (rendered) | 0.037 | 3/5 | |
+| lawbar-ocr-vision | pdf-scan (rendered) | 0.047 | 3/5 | no spurious character on the paragraph |
+| lawbar-ocr-vision | png | 0.063 | 2/5 | the earlier baseline |
+| paddleocr-onnx | png | 0.057 | 2/5 | `unsupported_media` on all ten PDFs |
+
+Every remaining non-zero Vision score is full-width parentheses or a collapsed double space —
+the same two artefacts as before. Two things this measurement says that the PNG run could not:
+the text-layer tier is exact on born-digital pages and correctly silent on scans, which is the
+whole premise of the cheapest tier; and Vision on PDFKit's 150 dpi render read the judgment
+paragraph exactly where it hallucinated a character on the 800-pixel PNG, so the render scale
+is a variable the bake-off must control, not assume. Still true: five pages per cell decide
+nothing about tiers; the holdout and the owner's real pages (item 6) do.
+**Changed:** `types.ts`, `manifest.ts`, `runner.ts` (the media contract and gate),
+`harnesses/lawbar-ocr-helper.ts` (new, shared), `harnesses/lawbar-ocr-vision.ts` (thin),
+`harnesses/lawbar-ocr-pdfkit-layer.ts` (new), `bin/bakeoff.mjs` (fourth candidate),
+`fixtures/manifest.json` and ten `fixtures/synthetic/*-pdf-*.{pdf,sha256}`,
+`tests/fixture-media.test.mjs` (new), `package.json`, `README.md`; `tests/tesseract.test.mjs`
+happy-path budget 5 s → 20 s (a happy-path budget, not a deadline under test; measured 3–5 s
+for a trivial fake to start while other suites spawn fresh executables alongside).
+**A number this measurement does NOT make honest yet, said here so it is not read as one:** the
+layer candidate's `latency_ms` and `peak_rss_bytes` include a Vision pass, because the helper
+today always renders and recognises; they are upper bounds, not the tier's cost. The fix is a
+layer-only mode in the helper — a protocol change, the next native item — after which those two
+fields become the tier's own.
+**Verified:** bake-off lane green (136 tests, 8 opt-in skipped) and the other eight commit
+lanes green (the five untouched `services/` lanes in the main tree); the opt-in real run on all
+ten PDFs passes (layer exact under the CER normalisation on the five authored layers,
+`no_text_layer` on the five scans, Vision reads every scan); nine mutants killed on this change:
+runner media gate dropped; manifest extension check dropped; manifest default flipped to pdf;
+empty layer accepted as a transcript; the layer candidate's PNG refusal dropped; the malformed
+(counted but empty) layer check dropped; the probe inside `run()` unbounded by `timeout_ms`;
+the pre-spawn re-hash dropped; the exit code dynamic again. One test failed honestly along the
+way: a helper exiting non-zero with no output was judged "unparseable" before "exited" — the
+order is now error record, exit status, then absent record.
+**Reviewed:** Codex, one job per file, read-only, `gpt-5.6-sol` — threads 01a08c11-6f97 (contract
+diff: no findings), 01a08c11-7a2c (layer candidate), 01a08c11-865f (shared boundary),
+01a08c11-8c0a (tests). 11 findings; 8 verified and fixed before this stamp: a run before any
+probe used the probe's own 15 s deadline outside the run's budget → the probe is cached per
+candidate, a first run probes under the run's `timeout_ms`, and every run re-hashes the file
+immediately before spawning (a helper whose bytes changed since the probe is refused, tested);
+signal and exit codes were an unbounded vocabulary → fixed `helper_terminated` /
+`helper_exit_nonzero`; a record that counts layer characters but carries none is malformed
+output, not `no_text_layer`; the tests now assert `outcome` before `code`, the layer candidate's
+overhead field, the Vision candidate's media declaration, and compare the real transcripts under
+the harness's own CER normaliser. Not adopted, with reasons: the layer tier's Vision-inflated
+latency/RSS (stated above; needs the helper mode); "verify the digest on error records" (the
+error record carries none by protocol — the executed file is hashed immediately before the
+spawn, which is the check that exists for it); "add PDF negative cases for path escape and hash
+mismatch" (the validators are shared with the PNG kind and tested there; the finding's premise
+that `loadManifest` hashes bytes is false, so the committed-fixture hash assertion can fire).
+
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
 evidence names a multi-page scan processed offline with every page's outcome visible. What exists:

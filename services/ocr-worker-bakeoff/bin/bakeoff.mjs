@@ -22,6 +22,7 @@ import { dirname, join } from "node:path";
 import { makeTesseractCandidate } from "../dist/harnesses/tesseract.js";
 import { makePaddleOcrOnnxCandidate } from "../dist/harnesses/paddleocr-onnx.js";
 import { makeLawbarOcrVisionCandidate } from "../dist/harnesses/lawbar-ocr-vision.js";
+import { makeLawbarOcrPdfkitLayerCandidate } from "../dist/harnesses/lawbar-ocr-pdfkit-layer.js";
 import { runBakeoff } from "../dist/runner.js";
 import { loadManifest, ManifestValidationError, collectLanguages } from "../dist/manifest.js";
 
@@ -83,9 +84,14 @@ const paddleocrOnnx = makePaddleOcrOnnxCandidate(fixturesRoot, {
 const lawbarOcrVision = makeLawbarOcrVisionCandidate(fixturesRoot, {
   required_languages: probeLanguages,
 });
+// The cheapest tier: PDFKit's text layer, PDF fixtures only. A page without a layer is the
+// structured `no_text_layer` failure — the escalation signal, excluded from CER.
+const lawbarOcrPdfkitLayer = makeLawbarOcrPdfkitLayerCandidate(fixturesRoot, {
+  required_languages: probeLanguages,
+});
 
 const report = await runBakeoff({
-  candidates: [tesseract, paddleocrOnnx, lawbarOcrVision],
+  candidates: [tesseract, paddleocrOnnx, lawbarOcrVision, lawbarOcrPdfkitLayer],
   fixtures,
   roleFilter: args.role,
   fixturesRoot,

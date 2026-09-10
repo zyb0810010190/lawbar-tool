@@ -349,7 +349,10 @@ test("run: happy path with fake binary + fake time → success observation", asy
     },
   };
 
-  const obs = await candidate.run(fixture, { run_kind: "cold", timeout_ms: 5000 });
+  // A generous budget on purpose: this is the happy path, not a deadline test. Under the full
+  // lane a trivial shell fake has been measured at 3–5 s to start when other suites are spawning
+  // fresh executables alongside (R3 / WI-12); at 5 s the test measured the machine, not the run.
+  const obs = await candidate.run(fixture, { run_kind: "cold", timeout_ms: 20_000 });
   assert.equal(obs.outcome, "success", `expected success, got ${JSON.stringify(obs)}`);
   if (obs.outcome === "success") {
     assert.equal(obs.transcript, "stub transcript\n");

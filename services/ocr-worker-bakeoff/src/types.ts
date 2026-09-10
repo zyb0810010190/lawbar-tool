@@ -198,6 +198,12 @@ export interface EngineCandidate {
    * both.
    */
   supported_run_kinds: readonly RunKind[];
+  /**
+   * Media this candidate can take. Absent means ["png"] — the two original harnesses take page
+   * images only. The runner records an `unsupported_media` failure for any other fixture instead
+   * of calling `run()`, so a PDF never reaches an engine that would misread its bytes as an image.
+   */
+  supported_media?: readonly FixtureMedia[];
   probe(): Promise<ProbeResult>;
   run(fixture: ActiveBakeoffFixture, opts: RunOptions): Promise<EngineObservation>;
   /** Tear down any subprocesses / loaded models. */
@@ -233,6 +239,13 @@ export interface RunOptions {
  * `verdict` fixtures.
  */
 export type FixtureRole = "smoke" | "verdict";
+
+/**
+ * What the fixture file is. `png` is a single page image; `pdf` is a one-page PDF, which may carry
+ * a text layer (a born-digital page) or none (a scan). A candidate declares which media it can
+ * take; the runner never hands a candidate a fixture it did not declare for.
+ */
+export type FixtureMedia = "png" | "pdf";
 
 /**
  * Render provenance for synthetic active fixtures. Records enough intent
@@ -274,6 +287,8 @@ interface ActiveBakeoffFixtureBase {
   dpi?: number;
   /** Primary language tag of the expected text (e.g. "zh-Hans"). */
   language: string;
+  /** Defaults to "png" in the manifest; every fixture before the PDF kind was a PNG. */
+  media: FixtureMedia;
   /** Free-form provenance summary. */
   provenance: string;
   /** ISO-8601 timestamp of last manual verification of the bytes + expected text. */
