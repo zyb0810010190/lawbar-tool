@@ -28,6 +28,7 @@ import { isAbsolute, resolve, sep } from "node:path";
 import type {
   BakeoffFixture,
   ActiveBakeoffFixture,
+  FixtureMedia,
   FixtureRole,
 } from "./types.js";
 
@@ -129,6 +130,13 @@ function validateFixture(raw: unknown, index: number, root: string): BakeoffFixt
     const expected_text_sha256 = expectHex64(f, "expected_text_sha256", index);
     const provenance = expectNonEmptyString(f, "provenance", index);
     const last_verified_at = expectNonEmptyString(f, "last_verified_at", index);
+    // Media defaults to png (every fixture before the PDF kind), and the file extension must agree
+    // with it: a ".pdf" declared as png would be handed to image-only engines as an image.
+    const media = (f.media === undefined ? "png" : expectEnum(f, "media", ["png", "pdf"], index)) as FixtureMedia;
+    const ext = path.toLowerCase().endsWith(".pdf") ? "pdf" : path.toLowerCase().endsWith(".png") ? "png" : null;
+    if (ext !== media) {
+      throw new ManifestValidationError(`fixtures[${index}].media is "${media}" but path "${path}" ${ext === null ? "has neither a .png nor a .pdf extension" : `is a .${ext}`}`);
+    }
 
     const base: Omit<ActiveBakeoffFixture, "kind" | "render" | "real_source" | "pii_review"> & { active: true } = {
       active: true,
@@ -141,6 +149,7 @@ function validateFixture(raw: unknown, index: number, root: string): BakeoffFixt
       expected_text_sha256,
       dpi: typeof f.dpi === "number" ? f.dpi : undefined,
       language,
+      media,
       provenance,
       last_verified_at,
       notes: typeof f.notes === "string" ? f.notes : undefined,

@@ -20,6 +20,7 @@ import type {
   EngineObservation,
   FixtureRole,
   ProbeResult,
+  FixtureMedia,
 } from "./types.js";
 
 export interface RunBakeoffOptions {
@@ -154,6 +155,21 @@ export async function runBakeoff(opts: RunBakeoffOptions): Promise<BakeoffRunRep
     // dispose() for future engines that hold persistent state.
     try {
       for (const fx of scoredFixtures) {
+        // Media gate BEFORE anything is read: a candidate that declared png only never sees a
+        // PDF's bytes. The failure is structured and excluded from CER like every failure.
+        const media = candidate.supported_media ?? ["png"];
+        // A fixture built by hand (tests, older callers) carries no media; the manifest default is png.
+        const fxMedia = (fx as { media?: FixtureMedia }).media ?? "png";
+        if (!media.includes(fxMedia)) {
+          observations.push({
+            outcome: "failure",
+            fixture_id: fx.id,
+            engine_name: candidate.name,
+            code: "unsupported_media",
+            message: `candidate ${candidate.name} takes ${media.join("|")}; fixture ${fx.id} is ${fxMedia}`,
+          });
+          continue;
+        }
         // Audit 019e36a0 D3.6 / contract gap: enforce the active-fixture
         // hash gate at RUNTIME, not only in the manifest test. Drifted
         // bytes against the manifest's recorded SHA-256 → fail this

@@ -369,6 +369,39 @@ test("run: a helper that floods stdout is killed at the cap and refused as helpe
   assert.ok(took < 15_000, `the flood was read until the deadline: ${took} ms`);
 });
 
+test("run before any probe: the probe runs under the RUN's deadline, not its own; a hanging probe fails within timeout_ms", async () => {
+  const fake = makeFakeHelper({ probeBody: `trap '' TERM; /bin/sleep 30 & wait` });
+  const c = makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(fake)); // no probe() call first
+  const t0 = Date.now();
+  const o = await c.run(zh02, { run_kind: "cold", timeout_ms: 2000 });
+  const took = Date.now() - t0;
+  assert.equal(o.outcome, "failure");
+  assert.equal(o.code, "helper_probe_failed");
+  assert.match(o.message, /exceeded 2000 ms/);
+  assert.ok(took < 10_000, `the probe inside run() escaped the run's deadline: ${took} ms`);
+});
+
+test("a helper whose bytes change after the probe is refused before it is spawned again — the record's digest is not the only check", async () => {
+  const fake = makeFakeHelper({ pageLine: pageRecord() });
+  const c = makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(fake));
+  assert.equal((await c.probe()).status, "available");
+  assert.equal((await c.run(zh02, COLD)).outcome, "success");
+  // Rewrite the executable in place; the pin and the cached probe still describe the old bytes.
+  writeFileSync(fake.path, readFileSync(fake.path, "utf8") + "\n# changed\n");
+  const o = await c.run(zh02, COLD);
+  assert.equal(o.outcome, "failure");
+  assert.equal(o.code, "helper_identity_mismatch");
+  assert.match(o.message, /changed since it was probed/);
+});
+
+test("signal and exit failures carry FIXED codes; the number lives in the message", async () => {
+  const dying = makeFakeHelper({ extractBody: "exit 7" });
+  const o = await makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(dying)).run(zh02, COLD);
+  assert.equal(o.outcome, "failure");
+  assert.equal(o.code, "helper_exit_nonzero");
+  assert.match(o.message, /code 7/);
+});
+
 // ---------------------------------------------------------------------------
 // Through the runner
 // ---------------------------------------------------------------------------

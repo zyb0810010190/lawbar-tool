@@ -23,8 +23,16 @@ ocr-review}` and `docs/contracts` MUST NOT depend on this package.
   an empty `PATH` under a process-group deadline, and its self-reported digest
   must equal the executed file's sha256 or the observation is a failure. Cold
   runs only (one process per page). Opt-in real run:
-  `OCR_REAL_LAWBAR_OCR_TESTS=1`. The PDFKit text-layer candidate waits on a PDF
-  fixture kind, which the manifest does not have yet.
+  `OCR_REAL_LAWBAR_OCR_TESTS=1`.
+- **R3 / WI-12 PDF fixture kind (2026-09-10)** — fixtures carry `media: png | pdf`
+  (default png; the extension must agree) and candidates declare
+  `supported_media`; the runner records `unsupported_media` instead of handing a
+  PDF to an image-only engine. Ten PDF fixtures derive from the five Chinese
+  pages: `*-pdf-layer.pdf` (text layer authored with `cupsfilter`) and
+  `*-pdf-scan.pdf` (image-only, wrapped with `sips`). `lawbar-ocr-pdfkit-layer`
+  (`src/harnesses/lawbar-ocr-pdfkit-layer.ts`) scores the text layer through the
+  same helper boundary (`src/harnesses/lawbar-ocr-helper.ts`); a page with no
+  layer is the structured `no_text_layer` failure — the escalation signal.
 - **Commit ε** — ADR-11A.1 verdict + lockfile + assembled license
   artifact. Lands only after all three v1 candidates have measurements
   and the hybrid fixture set is complete (≥5 active synthetic + ≥2
