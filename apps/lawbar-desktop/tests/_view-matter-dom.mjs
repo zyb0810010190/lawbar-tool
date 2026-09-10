@@ -206,6 +206,14 @@ export function makeStubApi(impl = {}) {
       impl.transitionDeadline ?? (async () => ({ ok: true, value: { id: "stub", status: "met" } })),
     listFacts:
       impl.listFacts ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
+    // WI-10: the Evidence disclosure lists on open and loads the matter's documents for the
+    // add control; create/transition default to success and are overridden by its own tests.
+    listEvidenceItems:
+      impl.listEvidenceItems ?? (async () => ({ ok: true, value: { rows: [], next_cursor: null } })),
+    createEvidenceItem:
+      impl.createEvidenceItem ?? (async () => ({ ok: true, value: { id: "stub", status: "proposed" } })),
+    transitionEvidenceItem:
+      impl.transitionEvidenceItem ?? (async () => ({ ok: true, value: { id: "stub", status: "accepted" } })),
     // WI-D4: the Deadlines disclosure now loads pending docket proposals on open,
     // so every consumer of this shared stub needs listDocketEntries. Default to an
     // empty page (proposals group stays hidden). dismissDocketEntry follows the

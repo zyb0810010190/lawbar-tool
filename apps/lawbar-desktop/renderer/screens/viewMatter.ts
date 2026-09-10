@@ -25,6 +25,7 @@ import {
 import { t } from "../i18n/t.js";
 import { renderChainHeadDisclosure } from "./viewMatterAudit.js";
 import { renderDocumentsDisclosure } from "./viewMatterDocuments.js";
+import { renderEvidenceDisclosure } from "./viewMatterEvidence.js";
 import { renderDeadlinesDisclosure } from "./viewMatterDeadlines.js";
 import { renderFactsDisclosure } from "./viewMatterFacts.js";
 import { renderClaimTracksDisclosure } from "./viewMatterClaimTracks.js";
@@ -430,6 +431,7 @@ function renderDetail(
   // Read-only lazy sections (B2/B6/B7 — internals + lazy <details> behavior
   // unchanged; PR3 only relocates them into the desktop two-column layout).
   const documentsDetails = renderDocumentsDisclosure(doc, deps.api, row.id);
+  const evidenceDetails = renderEvidenceDisclosure(doc, deps.api, row.id);
   const deadlinesDetails = renderDeadlinesDisclosure(doc, deps.api, row.id);
   const factsDetails = renderFactsDisclosure(doc, deps.api, row.id);
   const claimTracksDetails = renderClaimTracksDisclosure(doc, deps.api, row.id, row.parties);
@@ -440,7 +442,7 @@ function renderDetail(
   const mainCol = el(
     "div",
     { class: "view-main" },
-    [infoCard, documentsDetails, deadlinesDetails, factsDetails, claimTracksDetails, linksDetails, t3CatalogDetails],
+    [infoCard, documentsDetails, evidenceDetails, deadlinesDetails, factsDetails, claimTracksDetails, linksDetails, t3CatalogDetails],
     doc,
   );
 
