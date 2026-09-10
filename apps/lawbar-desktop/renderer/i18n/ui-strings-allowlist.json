@@ -109,13 +109,13 @@
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 242,
+    "line": 243,
     "text": "${jurisdiction.value}${lockedMarker}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatter.ts",
-    "line": 262,
+    "line": 263,
     "text": "${partyRoleLabel(p.role)} — ${p.display_name} (${partyKindLabel(p.party_kind)})",
     "kind": "text"
   },
@@ -459,6 +459,24 @@
     "file": "renderer/screens/viewMatterDocuments.ts",
     "line": 330,
     "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterEvidence.ts",
+    "line": 280,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterEvidence.ts",
+    "line": 306,
+    "text": "",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterEvidence.ts",
+    "line": 316,
+    "text": "${statusLabel(row.status)} · ${sideLabel(row.party_side)}",
     "kind": "text"
   },
   {

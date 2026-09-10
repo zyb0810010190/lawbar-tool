@@ -19,6 +19,9 @@ import type {
   ListDeadlinesDto,
   ListFactsDto,
   CreateFactDto,
+  ListEvidenceItemsDto,
+  CreateEvidenceItemDto,
+  TransitionEvidenceItemDto,
   CreateDocketEntryDto,
   ConfirmDocketEntryDto,
   ListDocketEntriesDto,
@@ -49,6 +52,9 @@ import type {
   ListDeadlinesResult,
   ListFactsResult,
   CreateFactResult,
+  ListEvidenceItemsResult,
+  CreateEvidenceItemResult,
+  TransitionEvidenceItemResult,
   CreateDocketEntryResult,
   ConfirmDocketEntryResult,
   ListDocketEntriesResult,
@@ -141,6 +147,11 @@ export interface CaseBoxApi {
   createDocketEntry(dto: CreateDocketEntryDto): Promise<CreateDocketEntryResult>;
   confirmDocketEntry(dto: ConfirmDocketEntryDto): Promise<ConfirmDocketEntryResult>;
   transitionFact(dto: TransitionFactDto): Promise<TransitionFactResult>;
+  // WI-10: evidence items — list, create-from-document, adopt/exclude. Guarded server-side
+  // (tenant/matter preflight, document-in-matter preflight, forbidden-field rejection).
+  listEvidenceItems(dto: ListEvidenceItemsDto): Promise<ListEvidenceItemsResult>;
+  createEvidenceItem(dto: CreateEvidenceItemDto): Promise<CreateEvidenceItemResult>;
+  transitionEvidenceItem(dto: TransitionEvidenceItemDto): Promise<TransitionEvidenceItemResult>;
   // WI-PTA-VS2: the ClaimTrack IPC layer (list + create). The write surface is
   // guarded server-side (matter/tenant preflight + party-ref preflight +
   // forbidden-field rejection + server-authority injection); renderer UI is VS-3.
@@ -201,6 +212,9 @@ const caseBoxApi: CaseBoxApi = {
   createDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:create", dto),
   confirmDocketEntry: (dto) => ipcRenderer.invoke("casebox:docket:confirm", dto),
   transitionFact: (dto) => ipcRenderer.invoke("casebox:fact:transition", dto),
+  listEvidenceItems: (dto) => ipcRenderer.invoke("casebox:evidence:list", dto),
+  createEvidenceItem: (dto) => ipcRenderer.invoke("casebox:evidence:create", dto),
+  transitionEvidenceItem: (dto) => ipcRenderer.invoke("casebox:evidence:transition", dto),
   createClaimTrack: (dto) => ipcRenderer.invoke("casebox:claimTrack:create", dto),
   listClaimTracks: (dto) => ipcRenderer.invoke("casebox:claimTrack:list", dto),
   listDocketEntries: (dto) => ipcRenderer.invoke("casebox:docket:list", dto),

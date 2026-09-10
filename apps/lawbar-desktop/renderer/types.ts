@@ -209,6 +209,33 @@ export interface EditDocketEntryDto {
 
 // Fact-transition targets (WI-804). The renderer offers only the legal edges for a
 // fact's current status; persistence owns the state machine.
+// WI-10 evidence items. Mirrors src/caseBox/dto/evidence.ts. The renderer forwards only what a
+// lawyer typed plus the matter and the registered document the evidence is drawn from; main
+// injects id / tenant / actor / status / created_at. Transitions are adopt (accepted) and
+// exclude (rejected) only; `superseded` needs a replacement and is not surfaced here.
+export interface ListEvidenceItemsDto {
+  readonly matterId: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+export type EvidencePartySide = "our" | "opposing";
+export type EvidenceLawyerWeight = "weak" | "moderate" | "strong";
+export interface CreateEvidenceItemDto {
+  readonly matterId: string;
+  readonly documentId: string;
+  readonly evidence_title: string;
+  readonly proof_statement?: string;
+  readonly exhibit_page_range?: string;
+  readonly party_side?: EvidencePartySide;
+  readonly lawyer_weight?: EvidenceLawyerWeight;
+  readonly display_order?: number;
+}
+export type EvidenceTransitionTarget = "accepted" | "rejected";
+export interface TransitionEvidenceItemDto {
+  readonly matterId: string;
+  readonly evidenceId: string;
+  readonly to: EvidenceTransitionTarget;
+}
 export type FactTransitionTarget = "reviewed" | "accepted" | "rejected";
 
 // Renderer-supplied fields for casebox:fact:transition (WI-804). The server injects
@@ -439,6 +466,28 @@ export const RENDERER_EDIT_DOCKET_DTO_FIELDS = Object.freeze([
   "reminder_offsets",
 ] as const);
 
+// WI-10: the evidence bridge allowlists. Each set-equals its canonical *_DTO_FIELDS in
+// src/caseBox/dto/evidence.ts (renderer-dto-sync.test.mjs enforces it).
+export const RENDERER_LIST_EVIDENCE_ITEMS_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "limit",
+  "cursor",
+] as const);
+export const RENDERER_CREATE_EVIDENCE_ITEM_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "documentId",
+  "evidence_title",
+  "proof_statement",
+  "exhibit_page_range",
+  "party_side",
+  "lawyer_weight",
+  "display_order",
+] as const);
+export const RENDERER_TRANSITION_EVIDENCE_ITEM_DTO_FIELDS = Object.freeze([
+  "matterId",
+  "evidenceId",
+  "to",
+] as const);
 export const RENDERER_TRANSITION_FACT_DTO_FIELDS = Object.freeze([
   "matterId",
   "factId",

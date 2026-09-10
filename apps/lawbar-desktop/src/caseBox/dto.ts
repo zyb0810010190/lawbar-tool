@@ -10,6 +10,7 @@ export * from "./dto/document.js";
 export * from "./dto/deadline.js";
 export * from "./dto/docket.js";
 export * from "./dto/fact.js";
+export * from "./dto/evidence.js";
 export * from "./dto/link.js";
 export * from "./dto/t3.js";
 export * from "./dto/claimTrack.js";

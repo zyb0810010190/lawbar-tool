@@ -34,6 +34,12 @@ import {
 // the same reason as the docket handlers above (handlers.ts barrel is outside
 // this WI's governed Allowed-files; CBW-601-BARREL follow-up).
 import { createFactHandler, transitionFactHandler } from "../../src/caseBox/factHandlers.js";
+// WI-10 evidence write path — imported DIRECTLY from the per-entity module, like facts.
+import {
+  listEvidenceItemsHandler,
+  createEvidenceItemHandler,
+  transitionEvidenceItemHandler,
+} from "../../src/caseBox/evidenceHandlers.js";
 // WI-PTA-VS2 ClaimTrack IPC handlers — imported DIRECTLY from the per-entity
 // module for the same reason as the docket/fact handlers above (the handlers.ts
 // barrel is outside this WI's governed Allowed-files).
@@ -226,6 +232,15 @@ export function registerCaseBoxIpcHandlers(
   });
   ipcMain.handle(CHANNEL.factTransition, async (_evt, payload: unknown) => {
     return transitionFactHandler(payload, provide, nowFn);
+  });
+  ipcMain.handle(CHANNEL.evidenceList, async (_evt, payload: unknown) => {
+    return listEvidenceItemsHandler(payload, provide);
+  });
+  ipcMain.handle(CHANNEL.evidenceCreate, async (_evt, payload: unknown) => {
+    return createEvidenceItemHandler(payload, provide, nowFn, idFactory);
+  });
+  ipcMain.handle(CHANNEL.evidenceTransition, async (_evt, payload: unknown) => {
+    return transitionEvidenceItemHandler(payload, provide);
   });
   ipcMain.handle(CHANNEL.claimTrackCreate, async (_evt, payload: unknown) => {
     return createClaimTrackHandler(payload, provide, nowFn, idFactory);

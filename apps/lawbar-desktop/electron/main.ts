@@ -234,7 +234,15 @@ async function startProduct(): Promise<void> {
     // renderer never handles raw `.docx` bytes. The OS dialog owns overwrite
     // confirmation; the default filename ends in `.docx` and the filter is DOCX.
     t3ExportDeps: {
+      // LAWBAR_EVIDENCE_TEST_HOOK=true (set ONLY by the wrapper-driven
+      // tests/evidence.packaged.electron.test.mjs): the OS save dialog cannot be driven by a test,
+      // so the export is written to ONE fixed path inside the test's own --user-data-dir and the
+      // test reads the DOCX back. Same gate discipline as the document-open hook above: default-off,
+      // no IPC channel, no renderer surface, nothing installed in a production launch.
       showSaveDialog: async ({ defaultFileName }) => {
+        if (process.env.LAWBAR_EVIDENCE_TEST_HOOK === "true") {
+          return { canceled: false, filePath: path.join(userDataDir, "t3-export-test.docx") };
+        }
         const win = mainWindow ?? undefined;
         const options = {
           defaultPath: defaultFileName,
@@ -297,6 +305,14 @@ async function startProduct(): Promise<void> {
     const { seedDocumentOpenFixture } = await import("../src/caseBox/testSeed/documentOpenSeed.js");
     (globalThis as { __lawbarDocumentOpenSeed?: typeof seedDocumentOpenFixture }).__lawbarDocumentOpenSeed =
       seedDocumentOpenFixture;
+  }
+  // LAWBAR_EVIDENCE_TEST_HOOK=true (set ONLY by tests/evidence.packaged.electron.test.mjs): a
+  // two-party matter with three registered originals, seeded through the REAL persistence and
+  // store paths so the evidence the test then creates through the shipped UI points at production-
+  // shaped documents. Registers NO IPC channel, NO preload surface, NO renderer global; no arguments.
+  if (process.env.LAWBAR_EVIDENCE_TEST_HOOK === "true") {
+    const { seedEvidenceFixture } = await import("../src/caseBox/testSeed/evidenceSeed.js");
+    (globalThis as { __lawbarEvidenceSeed?: typeof seedEvidenceFixture }).__lawbarEvidenceSeed = seedEvidenceFixture;
   }
 }
 

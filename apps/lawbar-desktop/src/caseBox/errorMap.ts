@@ -57,11 +57,26 @@ export function makeBoundaryError(
   return { kind: KIND, code, message: SAFE_MESSAGES[code] };
 }
 
+/**
+ * A CaseBoxPersistenceError that is not `instanceof` OUR CaseBoxPersistenceError. That happens when
+ * two copies of case-box-persistence are loaded — the desktop's installed tarball and the services
+ * build — which the handler tests do deliberately, because the tarball's better-sqlite3 is built for
+ * Electron's ABI and cannot load under plain node. Identity-based recognition then turns a precise
+ * code (illegal_transition) into "internal error", which is the wrong sentence for a lawyer to read.
+ * Recognition by name + a KNOWN code is as safe: the message returned is still the static one for
+ * that code, never the thrown text.
+ */
+function isPersistenceErrorShaped(err: unknown): err is { readonly code: CaseBoxPersistenceErrorCode; readonly message: string } {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { name?: unknown; code?: unknown; message?: unknown };
+  return e.name === "CaseBoxPersistenceError" && typeof e.code === "string" && Object.prototype.hasOwnProperty.call(SAFE_MESSAGES, e.code) && typeof e.message === "string";
+}
+
 export function mapThrownError(
   err: unknown,
   context: { channel: string },
 ): IpcErrorEnvelope {
-  if (err instanceof CaseBoxPersistenceError) {
+  if (err instanceof CaseBoxPersistenceError || isPersistenceErrorShaped(err)) {
     // Always log main-side so the diagnostic detail (identifiers, sql
     // parameter values, tenant mismatch specifics) is captured in the
     // audit trail. Renderer sees only the static safe message per code.

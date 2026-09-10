@@ -13,6 +13,9 @@ import type {
   ConfirmDocketEntryDto,
   CreateDocketEntryDto,
   CreateFactDto,
+  ListEvidenceItemsDto,
+  CreateEvidenceItemDto,
+  TransitionEvidenceItemDto,
   CreateMatterDto,
   DismissDocketEntryDto,
   EditDocketEntryDto,
@@ -48,6 +51,9 @@ import {
   RENDERER_CONFIRM_DOCKET_DTO_FIELDS,
   RENDERER_CREATE_DOCKET_DTO_FIELDS,
   RENDERER_CREATE_FACT_DTO_FIELDS,
+  RENDERER_LIST_EVIDENCE_ITEMS_DTO_FIELDS,
+  RENDERER_CREATE_EVIDENCE_ITEM_DTO_FIELDS,
+  RENDERER_TRANSITION_EVIDENCE_ITEM_DTO_FIELDS,
   RENDERER_DISMISS_DOCKET_DTO_FIELDS,
   RENDERER_EDIT_DOCKET_DTO_FIELDS,
   RENDERER_LIST_DOCKET_DTO_FIELDS,
@@ -93,6 +99,9 @@ export interface CaseBoxClient {
   createDocketEntry(dto: CreateDocketEntryDto): Promise<IpcEnvelope<unknown>>;
   confirmDocketEntry(dto: ConfirmDocketEntryDto): Promise<IpcEnvelope<unknown>>;
   transitionFact(dto: TransitionFactDto): Promise<IpcEnvelope<unknown>>;
+  listEvidenceItems(dto: ListEvidenceItemsDto): Promise<IpcEnvelope<unknown>>;
+  createEvidenceItem(dto: CreateEvidenceItemDto): Promise<IpcEnvelope<unknown>>;
+  transitionEvidenceItem(dto: TransitionEvidenceItemDto): Promise<IpcEnvelope<unknown>>;
   createClaimTrack(dto: CreateClaimTrackDto): Promise<IpcEnvelope<unknown>>;
   listClaimTracks(dto: ListClaimTracksDto): Promise<IpcEnvelope<unknown>>;
   listDocketEntries(dto: ListDocketEntriesDto): Promise<IpcEnvelope<unknown>>;
@@ -126,6 +135,9 @@ export interface CaseBoxApi {
   createDocketEntry(dto: CreateDocketEntryDto): Promise<IpcEnvelope<unknown>>;
   confirmDocketEntry(dto: ConfirmDocketEntryDto): Promise<IpcEnvelope<unknown>>;
   transitionFact(dto: TransitionFactDto): Promise<IpcEnvelope<unknown>>;
+  listEvidenceItems(dto: ListEvidenceItemsDto): Promise<IpcEnvelope<unknown>>;
+  createEvidenceItem(dto: CreateEvidenceItemDto): Promise<IpcEnvelope<unknown>>;
+  transitionEvidenceItem(dto: TransitionEvidenceItemDto): Promise<IpcEnvelope<unknown>>;
   createClaimTrack(dto: CreateClaimTrackDto): Promise<IpcEnvelope<unknown>>;
   listClaimTracks(dto: ListClaimTracksDto): Promise<IpcEnvelope<unknown>>;
   listDocketEntries(dto: ListDocketEntriesDto): Promise<IpcEnvelope<unknown>>;
@@ -200,6 +212,12 @@ export function createCaseBoxApi(client: CaseBoxClient): CaseBoxApi {
       client.confirmDocketEntry(stripDtoFields(dto, RENDERER_CONFIRM_DOCKET_DTO_FIELDS)),
     transitionFact: (dto) =>
       client.transitionFact(stripDtoFields(dto, RENDERER_TRANSITION_FACT_DTO_FIELDS)),
+    listEvidenceItems: (dto) =>
+      client.listEvidenceItems(stripDtoFields(dto, RENDERER_LIST_EVIDENCE_ITEMS_DTO_FIELDS)),
+    createEvidenceItem: (dto) =>
+      client.createEvidenceItem(stripDtoFields(dto, RENDERER_CREATE_EVIDENCE_ITEM_DTO_FIELDS)),
+    transitionEvidenceItem: (dto) =>
+      client.transitionEvidenceItem(stripDtoFields(dto, RENDERER_TRANSITION_EVIDENCE_ITEM_DTO_FIELDS)),
     createClaimTrack: (dto) =>
       client.createClaimTrack(stripDtoFields(dto, RENDERER_CREATE_CLAIM_TRACK_DTO_FIELDS)),
     listClaimTracks: (dto) =>
