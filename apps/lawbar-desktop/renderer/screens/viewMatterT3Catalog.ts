@@ -159,6 +159,7 @@ async function loadCatalog(
   api: CaseBoxApi,
   matterId: string,
   selection?: SubmitterSelection,
+  isCurrent: () => boolean = () => true,
 ): Promise<void> {
   setText(parent, "");
   const loading = el("p", { "data-test-id": "view-t3-loading" }, [t("viewT3.loading")], doc);
@@ -170,12 +171,14 @@ async function loadCatalog(
   } catch {
     // Stuck-spinner defect, same as the five load paths already fixed: the placeholder above is set
     // before the await and only removed after it, so a rejection left it on screen permanently.
+    if (!isCurrent()) return;
     loading.remove();
     parent.appendChild(
       el("p", { role: "alert", "data-test-id": "view-t3-error" }, [t("viewT3.load.failed")], doc),
     );
     return;
   }
+  if (!isCurrent()) return; // a later choice superseded this load; its answer must not render
   loading.remove();
 
   if (!env.ok) {
@@ -273,7 +276,7 @@ function renderSubmitterPicker(
   doc: Document,
   parties: ReadonlyArray<Party>,
   onChange: (selection: SubmitterSelection | undefined) => void,
-): HTMLElement | null {
+): { readonly control: HTMLElement; readonly select: HTMLElement } | null {
   const clientIndexes: number[] = [];
   parties.forEach((p, i) => { if (p.role === "client") clientIndexes.push(i); });
   if (clientIndexes.length === 1) return null; // the model auto-selects; nothing to choose
@@ -293,21 +296,28 @@ function renderSubmitterPicker(
     if (!Number.isInteger(idx) || idx < 0 || idx >= parties.length) { onChange(undefined); return; }
     onChange({ partyIndex: idx, displayNameEcho: parties[idx].display_name });
   });
-  return el(
+  const control = el(
     "label",
     { class: "view-t3-submitter-label", "data-test-id": "view-t3-submitter-control" },
     [t("viewT3.submitter.label"), " ", select],
     doc,
   );
+  return { control, select };
 }
 
 export function renderT3CatalogDisclosure(
   doc: Document,
   api: CaseBoxApi,
   matterId: string,
-  parties: ReadonlyArray<Party> = [],
+  parties: ReadonlyArray<Party>,
 ): HTMLElement {
   let selection: SubmitterSelection | undefined;
+  // Review finding (2026-09-10): choosing A, starting an export, then choosing B before it finished
+  // produced a DOCX for A under a screen that said B and "written". The picker is disabled for the
+  // whole export. And two previews in flight could land out of order, leaving A's catalogue under
+  // B's name: each load carries a generation and only the latest may render.
+  let previewGen = 0;
+  let pickerSelect: HTMLElement | null = null;
   const bodyContainer = el(
     "div",
     { class: "view-t3-container", "data-test-id": "view-t3-container" },
@@ -327,13 +337,19 @@ export function renderT3CatalogDisclosure(
     doc,
   );
   exportButton.addEventListener("click", () => {
-    void runExport(exportStatus, exportButton, doc, api, matterId, selection);
+    if (pickerSelect !== null) pickerSelect.setAttribute("disabled", "");
+    void runExport(exportStatus, exportButton, doc, api, matterId, selection).finally(() => {
+      if (pickerSelect !== null) pickerSelect.removeAttribute("disabled");
+    });
   });
-  const picker = renderSubmitterPicker(doc, parties, (next) => {
+  const picked = renderSubmitterPicker(doc, parties, (next) => {
     selection = next;
     setText(exportStatus, "");
-    void loadCatalog(bodyContainer, doc, api, matterId, selection);
+    const gen = ++previewGen;
+    void loadCatalog(bodyContainer, doc, api, matterId, selection, () => gen === previewGen);
   });
+  const picker = picked === null ? null : picked.control;
+  pickerSelect = picked === null ? null : picked.select;
   const exportBar = el(
     "div",
     { class: "view-t3-export-bar" },
@@ -352,7 +368,8 @@ export function renderT3CatalogDisclosure(
   summary.addEventListener("click", () => {
     if (loaded) return;
     loaded = true;
-    void loadCatalog(bodyContainer, doc, api, matterId, selection);
+    const gen = ++previewGen;
+    void loadCatalog(bodyContainer, doc, api, matterId, selection, () => gen === previewGen);
   });
   return details;
 }

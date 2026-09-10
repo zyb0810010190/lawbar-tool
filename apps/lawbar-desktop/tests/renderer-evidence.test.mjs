@@ -194,3 +194,39 @@ test("every evidence string is zh-CN, and no string claims an item is in the cat
   assert.equal(/已进入证据目录|已列入目录/.test(CATALOG["evidence.added"]), false, "added means proposed, not catalogued");
   assert.ok(CATALOG["evidence.added"].includes("待采纳"), "added must say it awaits adoption");
 });
+
+// MARK: - Review findings (2026-09-10)
+
+test("REVIEW: a cursor that never terminates is reported as a load failure, never a silently truncated list", async () => {
+  const { root } = await mount({
+    listEvidenceItems: async () => ({ ok: true, value: { rows: [evidenceRow()], next_cursor: "again" } }),
+  });
+  const err = findByTestId(root, "view-evidence-error");
+  assert.ok(err !== null, "the page cap must surface as an error");
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err), CATALOG["evidence.load.failed"]);
+});
+
+test("REVIEW: a document cursor that never terminates is reported on the add control, not swallowed", async () => {
+  const { root } = await mount({
+    listDocuments: async () => ({ ok: true, value: { rows: DOCS, next_cursor: "again" } }),
+  });
+  const err = findByTestId(root, "view-evidence-add-documents-error");
+  assert.ok(err !== null);
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.equal(collectText(err), CATALOG["evidence.load.failed"]);
+});
+
+test("REVIEW: a document load that fails once is retried on the next open, so the add control is not stranded", async () => {
+  let calls = 0;
+  const { root } = await mount({
+    listDocuments: async () => { calls += 1; if (calls === 1) throw new Error("transient"); return { ok: true, value: { rows: DOCS, next_cursor: null } }; },
+  });
+  assert.ok(findByTestId(root, "view-evidence-add-documents-error") !== null, "first open: the failure is shown");
+  findByTestId(root, "view-evidence-summary").dispatchEvent({ type: "click" });
+  await flush(); await flush();
+  const select = findByTestId(root, "view-evidence-add-document");
+  const options = select.children.filter((c) => (c.tagName ?? c.tag ?? "").toLowerCase() === "option");
+  assert.equal(options.length, 3, "second open: the documents arrived");
+  assert.equal(calls, 2);
+});
