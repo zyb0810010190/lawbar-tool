@@ -436,7 +436,7 @@ function renderDetail(
   const factsDetails = renderFactsDisclosure(doc, deps.api, row.id);
   const claimTracksDetails = renderClaimTracksDisclosure(doc, deps.api, row.id, row.parties);
   const linksDetails = renderLinksDisclosure(doc, deps.api, row.id);
-  const t3CatalogDetails = renderT3CatalogDisclosure(doc, deps.api, row.id);
+  const t3CatalogDetails = renderT3CatalogDisclosure(doc, deps.api, row.id, row.parties);
   const chainHeadDetails = renderChainHeadDisclosure(doc, deps.api, row.id);
 
   const mainCol = el(

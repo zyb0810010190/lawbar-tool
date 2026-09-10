@@ -88,3 +88,57 @@ export async function seedEvidenceFixture(): Promise<EvidenceSeedResult> {
   }
   return { matterId: MATTER_ID, documents };
 }
+
+// Second FIXED fixture for WI-11: a matter with TWO client parties, so the T3 model refuses without an
+// explicit submitter selection. One registered original, so one item can be created and adopted
+// through the shipped UI. Same containment as the fixture above; no arguments.
+const TWO_CLIENT_MATTER_ID = "01j0000000000000000t3smb2c";
+const TWO_CLIENT_DOCUMENT_ID = "01j0000000000000000t3smbd1";
+
+export interface T3SubmitterSeedResult {
+  readonly matterId: string;
+  readonly documentId: string;
+  readonly filename: string;
+  readonly clientNames: ReadonlyArray<string>;
+}
+
+export async function seedT3SubmitterFixture(): Promise<T3SubmitterSeedResult> {
+  const runtime = getCaseBoxRuntime();
+  const { persistence, db, dbPath } = runtime;
+  if (db === null || dbPath === null || dbPath === ":memory:") {
+    throw new Error("seedT3SubmitterFixture: SQLite runtime not materialized on disk");
+  }
+  const tenantId = getActiveTenantId();
+  const userDataDir = path.dirname(dbPath);
+  const storageRoot = path.join(userDataDir, "case-box-documents");
+  const clientNames = ["Synthetic Client Alpha Co", "Synthetic Client Beta Co"] as const;
+  await persistence.createMatter({
+    id: TWO_CLIENT_MATTER_ID,
+    tenant_id: tenantId,
+    actor_user_id: ACTOR,
+    name: "Synthetic matter — two clients, submitter choice",
+    jurisdiction: { value: "cn-sh", locked: false },
+    matter_type: "litigation",
+    parties: [
+      { role: "client", display_name: clientNames[0], party_kind: "organization" },
+      { role: "opposing", display_name: "Synthetic Counterparty Ltd", party_kind: "organization" },
+      { role: "client", display_name: clientNames[1], party_kind: "organization" },
+    ],
+    confidentiality_class: "normal",
+    status: "active",
+    external_ocr_authorized: false,
+    sync_grant_present: false,
+    llm_extraction_opt_in: false,
+    created_at: SEED_AT,
+  });
+  mkdirSync(userDataDir, { recursive: true });
+  const sourcePath = path.join(userDataDir, "t3-submitter-seed-source.txt");
+  writeFileSync(sourcePath, Buffer.from("SYNTHETIC ORIGINAL — submitter-choice fixture. Not a client document.\n", "utf8"));
+  const stored = await storeDocumentFile({ sourcePath, storageRoot, documentId: TWO_CLIENT_DOCUMENT_ID, filename: "synthetic-agreement.txt" });
+  await persistence.registerDocument(TWO_CLIENT_MATTER_ID, {
+    id: TWO_CLIENT_DOCUMENT_ID, tenant_id: tenantId, actor_user_id: ACTOR, matter_id: TWO_CLIENT_MATTER_ID,
+    source: "uploaded", filename: stored.stored_filename, content_hash: stored.content_hash, storage_uri: stored.storage_uri,
+    doc_type: "exhibit", received_at: SEED_AT, status: "registered", byte_size: stored.byte_size,
+  });
+  return { matterId: TWO_CLIENT_MATTER_ID, documentId: TWO_CLIENT_DOCUMENT_ID, filename: stored.stored_filename, clientNames };
+}

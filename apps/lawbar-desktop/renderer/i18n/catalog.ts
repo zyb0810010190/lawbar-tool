@@ -254,6 +254,8 @@ export const CATALOG = {
   "viewT3.position.defendant": "被告",
   // refusal review states (T3RefusalCode); the banner also shows the raw code.
   "viewT3.refusal.title": "需选择提交人：",
+  "viewT3.submitter.label": "提交人",
+  "viewT3.submitter.placeholder": "请选择提交人（委托人）",
   "viewT3.refusal.submitter_selection_required": "本案存在 0 个或多个当事人（委托人），请指定提交人后再预览。",
   "viewT3.refusal.submitter_index_out_of_range": "所选提交人序号超出当事人范围，请重新选择。",
   "viewT3.refusal.submitter_not_client": "所选当事人不是委托人，请重新选择。",
