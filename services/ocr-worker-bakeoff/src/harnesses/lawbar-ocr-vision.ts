@@ -72,8 +72,8 @@ export function makeLawbarOcrVisionCandidate(
         transcript: text,
         latency_ms: page.latency_ms,
         peak_rss_bytes: page.peak_rss_bytes,
-        cold_model_load_ms: Math.max(0, page.latency_ms - page.vision_ms - page.render_ms),
-        per_page_inference_ms: page.vision_ms,
+        cold_model_load_ms: Math.max(0, page.latency_ms - (page.vision_ms ?? 0) - (page.render_ms ?? 0)),
+        per_page_inference_ms: page.vision_ms ?? 0,
         run_kind: "cold",
       };
     },

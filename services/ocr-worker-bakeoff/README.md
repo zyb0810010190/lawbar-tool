@@ -33,6 +33,12 @@ ocr-review}` and `docs/contracts` MUST NOT depend on this package.
   (`src/harnesses/lawbar-ocr-pdfkit-layer.ts`) scores the text layer through the
   same helper boundary (`src/harnesses/lawbar-ocr-helper.ts`); a page with no
   layer is the structured `no_text_layer` failure — the escalation signal.
+- **R3 / WI-12 helper 0.2.0, `--layer-only` (2026-09-10)** — the layer tier's
+  numbers are its own: the helper reads the text layer and renders and
+  recognises nothing, records carry `mode` and `layer_ms`, and unmeasured fields
+  are absent rather than zero. The harness requires the record's `mode` to be
+  the one it asked for. Measured: ~40 ms and ~17 MB per page for the layer tier
+  against ~280 ms and ~70–106 MB for Vision.
 - **Commit ε** — ADR-11A.1 verdict + lockfile + assembled license
   artifact. Lands only after all three v1 candidates have measurements
   and the hybrid fixture set is complete (≥5 active synthetic + ≥2

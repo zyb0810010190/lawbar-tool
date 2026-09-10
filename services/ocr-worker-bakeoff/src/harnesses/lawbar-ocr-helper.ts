@@ -40,7 +40,7 @@ import type {
 } from "../types.js";
 
 /** The helper's own version string, as `lawbar-ocr probe` reports it. The digest is the real pin. */
-export const HELPER_VERSION_PINNED = "0.1.0";
+export const HELPER_VERSION_PINNED = "0.2.0"; // 0.2.0: layer_only mode, unmeasured fields absent
 
 
 // ---------------------------------------------------------------------------
@@ -477,9 +477,14 @@ export interface VerifiedPage {
   readonly record: Record<string, unknown>;
   readonly latency_ms: number;
   readonly peak_rss_bytes: number;
-  readonly vision_ms: number;
-  readonly render_ms: number;
+  /** Present in full mode only: the helper rendered and recognised the page. */
+  readonly vision_ms: number | null;
+  readonly render_ms: number | null;
+  /** Present when the page had a layer to read (a PDF); null for an image. */
+  readonly layer_ms: number | null;
 }
+
+export type ExtractMode = "full" | "layer_only";
 
 /**
  * Run `lawbar-ocr extract` on the fixture and return the page record ONLY after the helper has
@@ -494,6 +499,7 @@ export async function extractVerifiedPage(
   harnessOpts: LawbarOcrHelperOptions,
   fixturesRoot: string,
   cache: ProbeCache,
+  mode: ExtractMode = "full",
 ): Promise<VerifiedPage | EngineObservation> {
   const fail = (code: string, message: string, detail?: string): EngineObservation =>
     ({ outcome: "failure", fixture_id: fixture.id, engine_name: engineName, code, message, ...(detail !== undefined ? { detail } : {}) });
@@ -501,8 +507,9 @@ export async function extractVerifiedPage(
   if (opts.run_kind !== "cold") {
     return fail("unsupported_run_kind", `lawbar-ocr is one process per invocation; only run_kind "cold" is honest, got "${opts.run_kind}".`);
   }
-  const lang = resolveVisionLang(fixture.language);
-  if (lang === null) return fail("unsupported_language_tag", `No Vision language mapped for fixture.language "${fixture.language}".`);
+  // In layer_only mode nothing is recognised, so no Vision language is needed or checked.
+  const lang = mode === "full" ? resolveVisionLang(fixture.language) : null;
+  if (mode === "full" && lang === null) return fail("unsupported_language_tag", `No Vision language mapped for fixture.language "${fixture.language}".`);
 
   // The probe is cached per candidate. A run before any probe probes now, but under THIS run's
   // deadline, never the probe's own 15 s: the caller's timeout_ms bounds the whole call.
@@ -524,7 +531,7 @@ export async function extractVerifiedPage(
     cache.probed = undefined;
     return fail("helper_identity_mismatch", `the helper at ${probed.location.source} changed since it was probed (${probed.digest.slice(0, 12)}… → ${nowDigest.slice(0, 12)}…)`);
   }
-  if (!probed.vision_languages.includes(lang)) {
+  if (lang !== null && !probed.vision_languages.includes(lang)) {
     return fail("vision_language_unavailable", `Vision on macOS build ${probed.os_build} does not offer ${lang}; the fixture cannot be scored on this host.`);
   }
 
@@ -536,7 +543,9 @@ export async function extractVerifiedPage(
   const result = await runWithTimeout(
     spawner,
     timeBin,
-    ["-l", probed.location.path, "extract", filePath, "--lang", lang],
+    mode === "full"
+      ? ["-l", probed.location.path, "extract", filePath, "--lang", lang as string]
+      : ["-l", probed.location.path, "extract", filePath, "--layer-only"],
     opts.timeout_ms,
   );
   const latency_ms = Math.round(performance.now() - start);
@@ -568,15 +577,33 @@ export async function extractVerifiedPage(
     const mapped = helperCode("helper_", HELPER_PAGE_ERRORS, r.error);
     return fail(mapped.code, "lawbar-ocr could not process the page", mapped.unknown === null ? undefined : `unknown page error: ${mapped.unknown}`);
   }
+  // The record must say it measured what was asked for, and its timings must be real numbers.
+  // A measurement that cannot be trusted is not a measurement; a zeroed default would be a lie.
+  if (r.mode !== mode) return fail("helper_output_unparseable", `asked for ${mode}, the record says mode ${JSON.stringify(r.mode)}`);
   const isMs = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
-  if (!isMs(r.vision_ms) || !isMs(r.render_ms)) {
-    // A measurement that cannot be trusted is not a measurement; a zeroed default would be a lie.
+  const isMsOrAbsent = (v: unknown): v is number | null | undefined => v === null || v === undefined || isMs(v);
+  if (mode === "full" && (!isMs(r.vision_ms) || !isMs(r.render_ms))) {
     return fail("helper_output_unparseable", "page record timings are missing or malformed");
   }
+  if (!isMsOrAbsent(r.layer_ms)) return fail("helper_output_unparseable", "page record layer_ms is malformed");
+  if (mode === "layer_only" && r.source === "pdf" && !isMs(r.layer_ms)) return fail("helper_output_unparseable", "a layer_only PDF record must time the layer read");
+  // What was not measured must be ABSENT, not present as a number or a null: a layer-only record
+  // carrying render or Vision fields, or an image claiming a layer time, is not the helper's protocol.
+  const RENDER_VISION_FIELDS = ["render_width", "render_height", "render_digest", "render_ms", "vision_lines", "vision_text", "vision_ms"];
+  if (mode === "layer_only") {
+    const present = RENDER_VISION_FIELDS.filter((k) => k in r);
+    if (present.length > 0) return fail("helper_output_unparseable", `a layer_only record must not carry ${present.join(", ")}: nothing was rendered or recognised`);
+  }
+  if (r.source === "image" && "layer_ms" in r && r.layer_ms !== null) return fail("helper_output_unparseable", "an image has no text layer; a layer_ms on an image record is not a measurement");
   const peak_rss_bytes = parseMaxRssBytesFromTimeL(result.stderr);
   if (peak_rss_bytes === null) return fail("rss_parse_failed", "Could not parse `maximum resident set size` from /usr/bin/time -l output", truncate(result.stderr, 500));
 
-  return { probed, record: r, latency_ms, peak_rss_bytes, vision_ms: Math.round(r.vision_ms), render_ms: Math.round(r.render_ms) };
+  return {
+    probed, record: r, latency_ms, peak_rss_bytes,
+    vision_ms: isMs(r.vision_ms) ? Math.round(r.vision_ms) : null,
+    render_ms: isMs(r.render_ms) ? Math.round(r.render_ms) : null,
+    layer_ms: isMs(r.layer_ms) ? Math.round(r.layer_ms) : null,
+  };
 }
 
 export function isVerifiedPage(v: VerifiedPage | EngineObservation): v is VerifiedPage {

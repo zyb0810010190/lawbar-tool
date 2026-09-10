@@ -37,7 +37,7 @@ const realTestsRequested = process.env[REAL_ENV_KEY] === "1";
 // Fakes (POSIX)
 // ---------------------------------------------------------------------------
 
-const PROBE_TAIL = '"helper_version":"0.1.0","os_version":"0","os_build":"0F0","arch":"fake","vision_languages":["zh-Hans","en-US"]';
+const PROBE_TAIL = '"helper_version":"0.2.0","os_version":"0","os_build":"0F0","arch":"fake","vision_languages":["zh-Hans","en-US"]';
 
 /**
  * A fake helper. `probe` answers with its OWN digest (read from a sidecar written after the file
@@ -70,7 +70,7 @@ function makeFakeHelper({ pageLine = "", claimedDigest = null, extractBody = nul
 
 function pageRecord(overrides = {}) {
   return JSON.stringify({
-    kind: "page", page: 1, page_count: 1, source: "image", layer_text: null, layer_chars: 0,
+    kind: "page", mode: "full", page: 1, page_count: 1, source: "image", layer_text: null, layer_chars: 0, layer_ms: null,
     render_width: 800, render_height: 80, render_digest: "0".repeat(64),
     vision_lines: [{ text: "上海市浦东新区人民法院", confidence: 1, x: 0.2, y: 0.2, w: 0.6, h: 0.6 }],
     vision_text: "上海市浦东新区人民法院", vision_ms: 45, render_ms: 3,
@@ -156,7 +156,7 @@ test("probe: an honest, pinned fake helper is available, and the resolved versio
   const c = makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(fake, { required_languages: ["zh-Hans", "eng"] }));
   const p = await c.probe();
   assert.equal(p.status, "available", JSON.stringify(p));
-  assert.equal(p.resolved_version, `0.1.0+sha256.${sha256OfFile(fake.path).slice(0, 12)}`);
+  assert.equal(p.resolved_version, `0.2.0+sha256.${sha256OfFile(fake.path).slice(0, 12)}`);
   assert.match(p.detail, /helper=option:/);
   assert.match(p.detail, /os_build=0F0/);
 });
@@ -180,7 +180,7 @@ test("probe: a helper reporting a version other than the pinned one is bad_versi
   const fake = makeFakeHelper({ probeBody: `printf '{"kind":"probe","helper_build_digest":"%s","helper_version":"9.9.9","os_version":"0","os_build":"0F0","arch":"fake","vision_languages":["zh-Hans"]}\\n' "$d"` });
   const p = await makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(fake)).probe();
   assert.equal(p.status, "bad_version");
-  assert.equal(p.required_version, "0.1.0");
+  assert.equal(p.required_version, "0.2.0");
   assert.equal(p.resolved_version, "9.9.9");
 });
 
@@ -204,7 +204,7 @@ test("probe: a missing helper is missing_dependency with a build remediation; an
 });
 
 test("probe: a language this macOS build's Vision does not offer is missing_model, naming the OS build", async () => {
-  const fake = makeFakeHelper({ probeBody: `printf '{"kind":"probe","helper_build_digest":"%s","helper_version":"0.1.0","os_version":"0","os_build":"0F0","arch":"fake","vision_languages":["en-US"]}\\n' "$d"` });
+  const fake = makeFakeHelper({ probeBody: `printf '{"kind":"probe","helper_build_digest":"%s","helper_version":"0.2.0","os_version":"0","os_build":"0F0","arch":"fake","vision_languages":["en-US"]}\\n' "$d"` });
   const p = await makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(fake)).probe();
   assert.equal(p.status, "missing_model");
   assert.equal(p.model, "zh-Hans");
@@ -257,12 +257,12 @@ test("run: a page record becomes a success observation — vision_text is the tr
   assert.equal(o.per_page_inference_ms, 45);
   assert.equal(o.peak_rss_bytes, 1474560);
   assert.equal(o.run_kind, "cold");
-  assert.equal(o.engine_version, `0.1.0+sha256.${sha256OfFile(fake.path).slice(0, 12)}`);
+  assert.equal(o.engine_version, `0.2.0+sha256.${sha256OfFile(fake.path).slice(0, 12)}`);
   assert.equal(o.cold_model_load_ms, Math.max(0, o.latency_ms - 45 - 3), "overhead is the wall clock minus the helper's two timings");
 });
 
 test("run: the helper runs with an EMPTY PATH (a helper that needs a tool on PATH finds nothing)", async () => {
-  const fake = makeFakeHelper({ extractBody: `printf '{"kind":"page","page":1,"page_count":1,"source":"image","layer_chars":0,"render_width":1,"render_height":1,"render_digest":"x","vision_lines":[],"vision_text":"[%s]","vision_ms":1,"render_ms":0,"helper_build_digest":"%s"}\\n' "$PATH" "$d"` });
+  const fake = makeFakeHelper({ extractBody: `printf '{"kind":"page","page":1,"page_count":1,"mode":"full","source":"image","layer_chars":0,"render_width":1,"render_height":1,"render_digest":"x","vision_lines":[],"vision_text":"[%s]","vision_ms":1,"render_ms":0,"helper_build_digest":"%s"}\\n' "$PATH" "$d"` });
   const o = await makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(fake)).run(zh02, COLD);
   assert.equal(o.outcome, "success", JSON.stringify(o));
   assert.equal(o.transcript, "[]");
@@ -276,7 +276,7 @@ test("run: a page record carrying another binary's digest is helper_identity_mis
 });
 
 test("run: a fixture language Vision does not offer on this host is refused at run time too", async () => {
-  const fake = makeFakeHelper({ pageLine: pageRecord(), probeBody: `printf '{"kind":"probe","helper_build_digest":"%s","helper_version":"0.1.0","os_version":"0","os_build":"0F0","arch":"fake","vision_languages":["en-US"]}\\n' "$d"` });
+  const fake = makeFakeHelper({ pageLine: pageRecord(), probeBody: `printf '{"kind":"probe","helper_build_digest":"%s","helper_version":"0.2.0","os_version":"0","os_build":"0F0","arch":"fake","vision_languages":["en-US"]}\\n' "$d"` });
   const o = await makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(fake, { required_languages: ["eng"] })).run(zh02, COLD);
   assert.equal(o.outcome, "failure");
   assert.equal(o.code, "vision_language_unavailable");
@@ -400,6 +400,22 @@ test("signal and exit failures carry FIXED codes; the number lives in the messag
   assert.equal(o.outcome, "failure");
   assert.equal(o.code, "helper_exit_nonzero");
   assert.match(o.message, /code 7/);
+});
+
+test("an image record that claims a layer time is malformed: an image has no layer to time", async () => {
+  const fake = makeFakeHelper({ pageLine: pageRecord({ source: "image", layer_ms: 12 }) });
+  const o = await makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(fake)).run(zh02, COLD);
+  assert.equal(o.outcome, "failure");
+  assert.equal(o.code, "helper_output_unparseable");
+  assert.match(o.message, /image has no text layer/);
+});
+
+test("a record whose mode is not the one asked for is refused — a layer-only answer to a full request would be a transcript of nothing", async () => {
+  const fake = makeFakeHelper({ pageLine: pageRecord({ mode: "layer_only" }) });
+  const o = await makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(fake)).run(zh02, COLD);
+  assert.equal(o.outcome, "failure");
+  assert.equal(o.code, "helper_output_unparseable");
+  assert.match(o.message, /asked for full/);
 });
 
 // ---------------------------------------------------------------------------
