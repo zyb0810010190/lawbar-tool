@@ -385,30 +385,153 @@ same load from inside the packaged bundle (asarUnpack), which is the first asser
 The packaged acceptance Codex named — after a restart, the document row's persisted page outcome contains the
 fixture manifest's expected recognised text — is adopted as this item's Done-when.
 
+**RE-SELECTED 2026-09-10, at the owner's direction, against the approach of `xiaolai/klode`.** klode's
+ingestion turns any source into grep-ready, page-keyed text under five rules, each adopted here:
+*tiers chosen by measurement, cheapest first, escalating only when a measured score says the cheap
+tier failed; external tools called over subprocess with a wall-clock deadline, never in-process
+engines with no bound; zero third-party runtime dependencies; every extraction verified against the
+rendered page (containment, inflation, order, coverage — thresholds in klode's `integrity.py`) and
+its limits recorded rather than hoped away; verbatim anchors so a citation can be re-verified
+later ("cite, don't recall").* The bundled-ONNX plan above (Codex's A/A/A) violates three of them:
+it bundles 87 MB of third-party native engine into the process tree, it has no measured tier
+ladder, and it trusts the engine's output.
+
+**What this platform gives for free, measured today on this Mac (spikes in the session scratchpad):**
+- **Apple Vision** (`VNRecognizeTextRequest`, `.accurate`, zh-Hans/zh-Hant/en offline, ships with
+  macOS): recognises `zh-02-court-heading.png` exactly at confidence 1.00 in 602 ms including
+  first-call warm-up.
+- **PDFKit** (ships with macOS): loads a PDF, exposes the text layer (`page.string`), renders a page
+  at 150 dpi (`thumbnail(of:for:)`), ~200 ms a page. One 60-line Swift CLI did all three plus Vision.
+- **Scanned PDF** built from the fixture: text layer 0 chars → Vision reads the heading exactly.
+- **Text-layer PDF** built from UTF-8 text: PDFKit returns both lines intact (17 chars); Vision on the
+  render also reads both exactly; **poppler's `pdftotext -layout` scrambled the reading order** on the
+  same file — every character present (containment 1.00 against the Vision control), two of them
+  emitted on later lines. A corruption score cannot see that; klode's *order* metric against a
+  rendered-page control is what catches it, which is the argument for step 4 below. By klode's rule,
+  PDFKit earns the tier-0 slot over poppler, and poppler (GPL, Homebrew-only) is not needed at all.
+- The repo's own 11A.1 bakeoff chose PaddleOCR-ONNX because Tesseract had no Chinese model
+  installed (`probe_missing_model`), not because it won; Vision was never a candidate.
+
+**The re-selected architecture — one system-framework helper, called under a deadline:**
+1. `lawbar-ocr`, a new executable target in the existing `native/evidence-core-swift` package (which
+   already ships four CLIs), zero third-party dependencies: `probe` (build digest, OS build,
+   `supportedRecognitionLanguages`, one fixture round-trip), `extract <pdf|image> --pages a-b
+   --lang zh-Hans,en-US`. JSON-lines on stdout, **one invocation per page RANGE** so a 300-page scan
+   pays framework initialisation once, not 300 times; page images travel over pipes or in memory,
+   never through temp files (a crash mid-render must leave no client page on disk); exit codes for
+   "no text layer", "unreadable", "timeout"; each record carries the helper's build digest.
+2. Main invokes it with `execFile`, a per-page wall-clock deadline, and a process-group kill — the
+   discipline `fileVaultProbe.ts` and the bakeoff harness already use. The audit chain cannot be
+   touched by a helper crash.
+3. **Tiers are NOT assigned by this item.** The cheapest tier is the PDFKit text layer, gated by a
+   cheap score only to decide whether OCR must run at all — klode's Latin corruption metric (`t~e`,
+   mid-word caps) does not transfer to Chinese, and a character-class score cannot see plausible
+   substitutions or reordering, so the score gates *escalation*, never *acceptance* (item 4 does
+   that). Which OCR engine holds the next slot — Vision or the existing PaddleOCR worker — is
+   decided by the bakeoff in item 6, on a holdout and on the owner's private real pages, and
+   PaddleOCR may win it. The adversarial review (Codex, thread 01a08a9e) was right that the first
+   draft of this item assigned Vision before the evidence; it no longer does.
+4. **Verify, don't trust — with a control that can disagree.** A page result is accepted only when it
+   agrees with a *different* extractor on the rendered page: for a text-layer result, an OCR engine
+   on the render; for an OCR result, the *other* OCR engine (Vision vs PaddleOCR — both exist), not
+   the same engine at another scale, which measures agreement, not correctness. klode's containment
+   / inflation / order thresholds; agreement is a signal, never proof; a failing page is flagged
+   *needs review*, never silently accepted; critical fields (names, dates, amounts) are the owner's
+   to verify on real material. The value-transposition limit klode records is recorded here too.
+5. **Page-keyed text with verbatim anchors** persisted per document page (`ocr.sqlite` beside the
+   case box): raw text, normalised search text, character offsets, the page-image digest, the tier,
+   the extractor and helper build digest, and the verification state — so a fact's
+   `document_id + page_number + excerpt` can be re-verified by exact match even when an excerpt
+   occurs twice on a page (the A1 posture). **Cross-database rule:** `ocr.sqlite` is *derived*; the
+   case box's ocr-link status is the authority; extraction is idempotent per (document, page,
+   helper digest) so a crash between the two writes reconciles on restart to *incomplete*, never to
+   a false *complete*.
+6. **The slot is earned by measurement, through the SAME boundary the app uses:** the bakeoff
+   harness (`{ probe, run, dispose }` candidates, CER, synthetic Chinese manifest) invokes the
+   packaged `lawbar-ocr` subprocess, not an in-process call, and gains a Vision candidate and a
+   PDFKit-text-layer candidate. Metrics and thresholds are pre-registered; six synthetic pages are
+   the tuning set, a separate synthetic holdout and the owner's private real pages (30–50, stratified
+   for skew, seals, faint fax, vertical text, tables; transcribed critical fields; compared blind)
+   are the evaluation; only aggregates and harness/version metadata are committed. The committed
+   result decides the tiers.
+
+**What this changes about the three decisions.** (1) Nothing third-party is bundled: Vision and PDFKit
+are the OS; the helper is a signed executable inside the .app, which the release path already does
+for the app itself. (2) PDF is in scope from the first slice, because PDFKit renders pages for free —
+the one-page-per-job cap in `ocr-ingestion` is irrelevant to a helper that is called per page.
+(3) Unchanged: read-only outcomes first; correction is a later contract change.
+
+**The first code is not the bakeoff.** It is the release boundary: (1) `lawbar-ocr probe`; (2) the
+packaged `.app` spawning that exact nested executable through the production Electron path with the
+real deadline and process-group kill; (3) the bakeoff pointed at that same subprocess boundary;
+(4) the comparison; (5) the committed result and the tiers. Measuring a development-only helper that
+later fails at the packaged boundary is the failure this session already hit twice.
+
+**The one packaged assertion that fails if the integration is wrong in the likeliest way:** with the
+repository unavailable, `PATH` empty, and the `.app` copied to a path containing spaces, the persisted
+successful extraction records a helper build digest **equal to the digest of the executable inside
+the launched bundle**. Expected text alone would pass on a development binary, a `PATH` fallback, or
+a stray unpacked copy.
+
+**Risks the adversarial review surfaced, each with the test that exposes it (verified against the
+repo where a fact was needed):**
+- *Deadline enforcement* — a helper that hangs, ignores SIGTERM and spawns a child must be killed as
+  a process group within the wall-clock bound with no survivors and a responsive main (the bakeoff
+  harness's pgid test is the model).
+- *Helper packaging* — the executable must not land inside asar, must keep its mode, must not
+  resolve from the development tree; the digest assertion above is the test.
+- *Sandbox* — **not a risk today, verified:** the release entitlements carry no
+  `com.apple.security.app-sandbox`; the app is unsandboxed. Signing of a nested executable, and
+  notarisation, are R7 claims and are not inferred from an unsigned local build.
+- *macOS-version behaviour* — the probe records OS build and supported languages with every run;
+  a change is a recorded event, not a silent one.
+- *Text-layer semantics* — a non-empty `page.string` can be stale, invisible, duplicated or in
+  column order; only the different-engine control in item 4 catches it. Generated PDFs with invisible
+  overlays, two columns, rotation and duplicated text are fixtures for the harness.
+- *Score mutation tests* — the escalation score must reject plausible substitutions, deleted digits and
+  swapped lines on a correct text layer, without rejecting correct mixed CJK/Latin pages.
+- *Soak and concurrency* — a 300-page packaged soak measuring p50/p95 per page, peak RSS and
+  cancellation latency, and a concurrency sweep of 1/2/4 while the UI is used; the default is
+  whatever measured well, bounded.
+- *Fault injection across the two databases* — terminate after each persistence step with audit
+  writes concurrent; restart must reconcile deterministically.
+
+**Open risks, stated so they are tested rather than assumed:** Vision's accuracy on REAL scans (skew,
+seals, faint fax) is unmeasured — only synthetic pages were measured, and real documents never enter
+the repo, so the measurement is Frank's to make with the built app on his own material, in place;
+Vision's language support varies by macOS version (the helper reports `supportedRecognitionLanguages`
+and refuses rather than guesses); a helper binary inside the bundle must be signed and, for external
+distribution, notarised with the app (R7, not this item).
+
 **Three decisions this item cannot make for the owner** (the product definition marks the engine
 class "STOP-AND-ASK runtime dependency"):
-1. **Bundle the OCR worker and its native binaries into the app** (tarballs + asarUnpack + a spawned
-   Electron-as-node child), or keep OCR as a separately installed tool the app calls. Bundling is
-   what "offline in the packaged app" means; it adds two native modules to the release surface.
-2. **First slice = single-page images only** (PNG/JPG; a multi-page scan as N single-page jobs), with
-   PDF rasterisation as its own later item, because nothing rasterises a PDF today.
+1. **Adopt the system-framework helper (Vision + PDFKit, one Swift CLI under a deadline) as R3's
+   engine path**, superseding the bundled-ONNX plan and the 11A.1 "engine = paddleocr-onnx" wording
+   in `product-definition.md` §8 and `case-box-step-0-boundary.md` §4, with PaddleOCR retained only as
+   a measured, opt-in tier. This is the STOP-AND-ASK engine decision the product definition names.
+2. **Let the bakeoff decide the tiers, through the packaged boundary**: accept that the first code
+   written is the helper's `probe` and the packaged spawn path, then the bakeoff candidates and a
+   committed result, and that the tier ladder follows the numbers — including the possibility that
+   PaddleOCR keeps the OCR slot and Vision is the control.
 3. **What "correction" means in v1.** Nothing writes a corrected OCR text. Either the first slice
    ships read-only outcomes (text, or the failure code, plus retry) and correction is a later item
    with its own contract change, or correction is a lawyer-authored fact citing the page — which the
    contract already allows.
 
-**Scope, once decided (the vertical slice, same shape as WI-10):** `ocr.sqlite` opened beside the
-case box; `casebox:ocr:submit` (documentId → one job per page image, `file` source rooted at the
-document store, ocr-link upserted, document status → `ocr_pending`); main spawns the worker bin on
-demand with `MAX_ITERATIONS` = the jobs submitted; `casebox:ocr:page` read via the review model; a
-section on the document row showing each page's outcome — text preview, or the failure code with
-retry; a packaged acceptance on a synthetic page image asserting the recognised text after a
-restart.
+**Scope, once decided (the vertical slice, same shape as WI-10):** the `lawbar-ocr` helper target
+and its Swift tests; the bakeoff candidates and the committed result; `casebox:ocr:extract`
+(documentId → per page: tier 0 or tier 1 under a deadline, verified, persisted with anchors,
+ocr-link upserted, document status → `ocr_complete | ocr_failed`); `casebox:ocr:page` read; a
+section on the document row showing each page's outcome — text preview with its tier and
+verification state, or the failure code with retry; a packaged acceptance on a synthetic scanned
+PDF AND a synthetic text-layer PDF asserting the recognised text after a restart, the tier each
+took, and that a deliberately unreadable page is flagged, not swallowed.
 
-**Done when (draft):** in the packaged app, a registered PNG page is submitted from the document row,
-the worker runs offline in a child process, the recognised text is visible on the row, survives a
-restart, and a page the engine cannot read shows its failure code and a working retry — no silent
-loss.
+**Done when (draft):** in the packaged app, a registered scanned PDF and a registered text-layer PDF
+are extracted from the document row by the bundled helper under a deadline, each page shows its text,
+its tier and its verification state, that survives a restart, a page the helper cannot read shows
+its failure code and a working retry, and the committed bakeoff result names why each tier holds its
+slot — no silent loss, no unmeasured choice.
 
 ## Not work items — owner decisions
 
