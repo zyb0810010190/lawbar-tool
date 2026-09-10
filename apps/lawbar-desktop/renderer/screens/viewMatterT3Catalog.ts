@@ -14,6 +14,7 @@
 // catalog via t() (renderer/i18n/catalog.ts).
 
 import type { CaseBoxApi } from "../api.js";
+import type { Party } from "../types.js";
 import type {
   T3Cell,
   T3PositionCell,
@@ -147,11 +148,17 @@ function renderModel(doc: Document, model: T3CatalogModelView): HTMLElement {
   return el("div", { class: "view-t3-body" }, [header, table], doc);
 }
 
+export interface SubmitterSelection {
+  readonly partyIndex: number;
+  readonly displayNameEcho: string;
+}
+
 async function loadCatalog(
   parent: HTMLElement,
   doc: Document,
   api: CaseBoxApi,
   matterId: string,
+  selection?: SubmitterSelection,
 ): Promise<void> {
   setText(parent, "");
   const loading = el("p", { "data-test-id": "view-t3-loading" }, [t("viewT3.loading")], doc);
@@ -159,7 +166,7 @@ async function loadCatalog(
 
   let env: Awaited<ReturnType<typeof api.previewT3Catalog>>;
   try {
-    env = await api.previewT3Catalog({ matterId });
+    env = await api.previewT3Catalog({ matterId, ...(selection !== undefined ? { submitterSelection: selection } : {}) });
   } catch {
     // Stuck-spinner defect, same as the five load paths already fixed: the placeholder above is set
     // before the await and only removed after it, so a rejection left it on screen permanently.
@@ -197,6 +204,7 @@ async function runExport(
   doc: Document,
   api: CaseBoxApi,
   matterId: string,
+  selection?: SubmitterSelection,
 ): Promise<void> {
   button.setAttribute("disabled", "");
   setText(status, "");
@@ -209,7 +217,7 @@ async function runExport(
   status.appendChild(working);
 
   try {
-    const env = await api.exportT3Docx({ matterId });
+    const env = await api.exportT3Docx({ matterId, ...(selection !== undefined ? { submitterSelection: selection } : {}) });
 
     if (!env.ok) {
       status.appendChild(
@@ -251,11 +259,55 @@ async function runExport(
   }
 }
 
+/**
+ * The submitter picker (WI-11). The model refuses a matter without exactly one client party and
+ * accepts an explicit `{ partyIndex, displayNameEcho }`; until now the screen showed only the
+ * refusal. The picker is rendered when the matter has anything other than exactly one client
+ * party and at least one to choose from: one option per `client` party, labelled by display
+ * name, valued by its index in the FULL parties array (that is what the model indexes). Choosing
+ * re-previews with the selection and the export forwards the same one. The rule is not
+ * re-implemented here: a non-client index or a stale echo still comes back from the model as a
+ * refusal, and the screen shows that sentence.
+ */
+function renderSubmitterPicker(
+  doc: Document,
+  parties: ReadonlyArray<Party>,
+  onChange: (selection: SubmitterSelection | undefined) => void,
+): HTMLElement | null {
+  const clientIndexes: number[] = [];
+  parties.forEach((p, i) => { if (p.role === "client") clientIndexes.push(i); });
+  if (clientIndexes.length === 1) return null; // the model auto-selects; nothing to choose
+  if (clientIndexes.length === 0) return null; // nothing to choose from; the refusal stands
+  const select = el(
+    "select",
+    { class: "view-t3-submitter", "data-test-id": "view-t3-submitter", "aria-label": t("viewT3.submitter.label") },
+    [
+      el("option", { value: "", selected: "" }, [t("viewT3.submitter.placeholder")], doc),
+      ...clientIndexes.map((i) => el("option", { value: String(i) }, [parties[i].display_name], doc)),
+    ],
+    doc,
+  );
+  select.addEventListener("change", () => {
+    const raw = (select as unknown as { value?: string }).value ?? "";
+    const idx = raw === "" ? -1 : Number(raw);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= parties.length) { onChange(undefined); return; }
+    onChange({ partyIndex: idx, displayNameEcho: parties[idx].display_name });
+  });
+  return el(
+    "label",
+    { class: "view-t3-submitter-label", "data-test-id": "view-t3-submitter-control" },
+    [t("viewT3.submitter.label"), " ", select],
+    doc,
+  );
+}
+
 export function renderT3CatalogDisclosure(
   doc: Document,
   api: CaseBoxApi,
   matterId: string,
+  parties: ReadonlyArray<Party> = [],
 ): HTMLElement {
+  let selection: SubmitterSelection | undefined;
   const bodyContainer = el(
     "div",
     { class: "view-t3-container", "data-test-id": "view-t3-container" },
@@ -275,9 +327,19 @@ export function renderT3CatalogDisclosure(
     doc,
   );
   exportButton.addEventListener("click", () => {
-    void runExport(exportStatus, exportButton, doc, api, matterId);
+    void runExport(exportStatus, exportButton, doc, api, matterId, selection);
   });
-  const exportBar = el("div", { class: "view-t3-export-bar" }, [exportButton, exportStatus], doc);
+  const picker = renderSubmitterPicker(doc, parties, (next) => {
+    selection = next;
+    setText(exportStatus, "");
+    void loadCatalog(bodyContainer, doc, api, matterId, selection);
+  });
+  const exportBar = el(
+    "div",
+    { class: "view-t3-export-bar" },
+    picker !== null ? [picker, " ", exportButton, exportStatus] : [exportButton, exportStatus],
+    doc,
+  );
   const summary = el("summary", { "data-test-id": "view-t3-summary" }, [t("viewT3.summary")], doc);
   const details = el(
     "details",
@@ -290,7 +352,7 @@ export function renderT3CatalogDisclosure(
   summary.addEventListener("click", () => {
     if (loaded) return;
     loaded = true;
-    void loadCatalog(bodyContainer, doc, api, matterId);
+    void loadCatalog(bodyContainer, doc, api, matterId, selection);
   });
   return details;
 }

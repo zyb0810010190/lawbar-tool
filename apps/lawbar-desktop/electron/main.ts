@@ -311,8 +311,9 @@ async function startProduct(): Promise<void> {
   // store paths so the evidence the test then creates through the shipped UI points at production-
   // shaped documents. Registers NO IPC channel, NO preload surface, NO renderer global; no arguments.
   if (process.env.LAWBAR_EVIDENCE_TEST_HOOK === "true") {
-    const { seedEvidenceFixture } = await import("../src/caseBox/testSeed/evidenceSeed.js");
+    const { seedEvidenceFixture, seedT3SubmitterFixture } = await import("../src/caseBox/testSeed/evidenceSeed.js");
     (globalThis as { __lawbarEvidenceSeed?: typeof seedEvidenceFixture }).__lawbarEvidenceSeed = seedEvidenceFixture;
+    (globalThis as { __lawbarT3SubmitterSeed?: typeof seedT3SubmitterFixture }).__lawbarT3SubmitterSeed = seedT3SubmitterFixture;
   }
 }
 

@@ -670,5 +670,17 @@
     "line": 656,
     "text": "${linkSourceTypeLabel(c.sourceType)} · ${c.sourceId}",
     "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterT3Catalog.ts",
+    "line": 299,
+    "text": " ",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterT3Catalog.ts",
+    "line": 340,
+    "text": " ",
+    "kind": "text"
   }
 ]
