@@ -168,33 +168,68 @@ test("the manifest binds a head PER MATTER, not one global head", async () => {
 // MARK: - A live snapshot under concurrent writes
 
 test("a backup taken WHILE the database is being written is internally consistent", async () => {
+  // HOW THIS ACHIEVES CONCURRENCY, and why the obvious way does not.
+  //
+  // A `setInterval(..., 1)` writer awaited alongside the backup passed locally and FAILED IN CI on
+  // its own guard ("the writer must actually have run"): `db.backup()` finished in 12 ms on the
+  // runner, and a same-thread timer cannot fire while synchronous work holds the event loop.
+  // better-sqlite3's `backup(file, { progress })` runs its handler BETWEEN copy steps, on this
+  // thread, deterministically — so writing from inside it is genuinely mid-copy with no timing
+  // assumption at all. The engine is NOT modified for this; the test supplies its own
+  // `BackupCapableDb`, which is the seam that already exists.
+  //
+  // WHAT IS WRITTEN, and why not raw rows. The writes go through `createMatter`, not raw INSERTs.
+  // A raw INSERT of invented audit rows would make this test assert `ok: true` about an archive
+  // whose chains are broken — the concurrency claim would be indistinguishable from a verifier
+  // that checks nothing, which is the exact confusion this change is about. Real matters keep the
+  // archive verifiable, so `ok: true` still means what it says while writes commit underneath the
+  // snapshot. `createMatter` has no `await` ahead of its transaction, so a call from inside the
+  // hook has COMMITTED before the hook returns; the promise merely settles later.
+  //
+  // MERGED 2026-09-09 from two branches that each had half of this: main had the deterministic
+  // hook writing invented rows (unverifiable under this branch's engine); this branch had real
+  // matters written from a timer that cannot fire during the copy. Either half alone is a test
+  // that passes for the wrong reason or fails for the wrong reason.
   const box = await makeCaseBox();
   const dest = tempRoot("dest");
+  let midCopyWrites = 0;
+  let committed = 0;
+  const inflight = [];
+  const writingDb = {
+    prepare: (sql) => box.db.prepare(sql),
+    close: () => box.db.close(),
+    pragma: (...a) => box.db.pragma(...a),
+    backup: (file) =>
+      box.db.backup(file, {
+        progress({ remainingPages }) {
+          if (remainingPages > 0) {
+            midCopyWrites += 1;
+            inflight.push(
+              box.persistence
+                .createMatter(makeMatterInput({ id: box.ids(), name: `SYNTHETIC CONCURRENT ${midCopyWrites}` }))
+                .then(() => { committed += 1; }),
+            );
+          }
+          return 1; // one page per step, so the handler is reached repeatedly on a small fixture
+        },
+      }),
+  };
   try {
-    // The writes go through `createMatter`, not raw INSERTs. A raw INSERT of invented audit rows
-    // would make this test assert `ok: true` about an archive whose chains are broken — the
-    // concurrency claim would be indistinguishable from a verifier that checks nothing, which is
-    // the exact confusion this whole change is about. Real matters keep the archive verifiable,
-    // so `ok: true` still means what it says while writes commit underneath the snapshot.
-    let started = 0;
-    const inflight = [];
-    const writer = setInterval(() => {
-      started++;
-      inflight.push(
-        box.persistence
-          .createMatter(makeMatterInput({ id: box.ids(), name: `SYNTHETIC CONCURRENT ${started}` }))
-          .catch(() => {}), // a write racing the close at teardown is not this test's subject
-      );
-    }, 1);
-    const r = await backupInto(box, dest);
-    clearInterval(writer);
+    const r = await runBackup({
+      db: writingDb, documentsRoot: box.docsRoot, userDataDir: box.userDataDir,
+      destinationRoot: dest, appVersion: "0.1.0-test", schemaVersion: CURRENT_SCHEMA_VERSION,
+      now: () => new Date("2026-09-02T12:00:00.000Z"),
+    }, openBackupDb);
     await Promise.all(inflight);
 
+    assert.ok(midCopyWrites > 0,
+      "the source must actually have been written during the copy, or this proves nothing");
+    assert.equal(committed, midCopyWrites, "every mid-copy write must have committed as a real matter");
     assert.equal(r.ok, true, r.ok ? "" : `${r.code}: ${r.detail}`);
     const bk = new Database(path.join(r.dir, "case-box.sqlite"), { readonly: true });
-    assert.equal(bk.pragma("integrity_check", { simple: true }), "ok");
+    assert.equal(bk.pragma("integrity_check", { simple: true }), "ok",
+      "a snapshot taken under concurrent writes must still be internally consistent");
     bk.close();
-    assert.ok(started > 0, "the writer must actually have run, or this proves nothing");
   } finally { box.db.close(); rmSync(box.userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
 });
 
