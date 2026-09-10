@@ -29,6 +29,15 @@ export interface BackupRecord {
   readonly lastVerifiedDir: string | null;
   /** The destination root the owner last chose, remembered so the next backup can offer it. */
   readonly lastDestinationRoot: string | null;
+  /**
+   * Whether that archive sits on the SAME physical volume as the case box.
+   *
+   * Persisted rather than recomputed, because by the time the owner next opens the screen the
+   * external disk is — correctly — unplugged, and a fresh check would then find the path missing
+   * and could not distinguish "another disk, currently detached" from "this disk". Recording what
+   * was true at the moment the backup was verified is the only answer that stays true.
+   */
+  readonly lastVerifiedSameVolume: boolean;
 }
 
 export const NO_BACKUP: BackupRecord = {
@@ -36,6 +45,7 @@ export const NO_BACKUP: BackupRecord = {
   lastVerifiedAt: null,
   lastVerifiedDir: null,
   lastDestinationRoot: null,
+  lastVerifiedSameVolume: false,
 };
 
 function isIsoLike(v: unknown): v is string {
@@ -65,6 +75,11 @@ export function loadBackupRecord(userDataDir: string): BackupRecord {
       lastVerifiedAt: at,
       lastVerifiedDir: dir,
       lastDestinationRoot: nullableString(o.lastDestinationRoot),
+      // A record written before this field existed says nothing about the volume. Defaulting to
+      // `true` would invent a warning; defaulting to `false` would invent reassurance. `false`
+      // is chosen because the pre-existing records on this machine were all written to external
+      // media, and an absent field is not evidence of a same-disk backup.
+      lastVerifiedSameVolume: o.lastVerifiedSameVolume === true,
     };
   } catch {
     return NO_BACKUP;

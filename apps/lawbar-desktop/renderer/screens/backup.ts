@@ -25,6 +25,7 @@ export interface BackupStatusView {
   readonly lastVerifiedAt: string | null;
   readonly daysSinceLastVerified: number | null;
   readonly hasEverBackedUp: boolean;
+  readonly lastBackupOnSameVolume?: boolean;
 }
 
 export type BackupRunView =
@@ -63,6 +64,8 @@ function failureKey(code: string): CatalogId | null {
       return null;
     case "destination_inside_data_dir":
       return "backup.failed.insideDataDir";
+    case "destination_read_only":
+      return "backup.failed.readOnly";
     case "destination_unusable":
       return "backup.failed.destinationUnusable";
     case "verification_failed":
@@ -91,7 +94,21 @@ function statusLine(status: BackupStatusView, doc: Document): HTMLElement {
     days === null || days <= 0
       ? t("backup.status.today")
       : t("backup.status.daysAgo", { days });
-  return el("p", { class: "backup-status", "data-test-id": "backup-status" }, [text], doc);
+  const line = el("p", { class: "backup-status", "data-test-id": "backup-status" }, [text], doc);
+  if (status.lastBackupOnSameVolume !== true) return line;
+
+  // Shown WITH the success line, not instead of it. The backup happened and it verified; what is
+  // qualified is the protection it provides, and only the owner can act on that.
+  const wrap = el("div", {}, [line], doc);
+  wrap.appendChild(
+    el(
+      "p",
+      { role: "alert", class: "backup-same-volume", "data-test-id": "backup-same-volume" },
+      [t("backup.status.sameVolume")],
+      doc,
+    ),
+  );
+  return wrap;
 }
 
 export async function mountBackup(root: HTMLElement, deps: BackupDeps = {}): Promise<void> {

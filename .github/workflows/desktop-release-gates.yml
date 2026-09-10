@@ -136,6 +136,30 @@ jobs:
       - name: Acceptance drill — data survives relaunch + in-app chain verification
         run: npm --prefix apps/lawbar-desktop run test:acceptance-relaunch
 
+      # Backup and restore, end to end, in the packaged binary. Added 2026-09-06 after an audit
+      # reproduced FOUR corrupt case boxes being reported as VERIFIED by the in-app backup, and a
+      # follow-up review found the restore tool accepting archives whose audit chain was broken.
+      #
+      # Registering the lane as an npm script — which is where it started — makes it runnable, not
+      # enforced. The claims this lane stands behind are the two a litigator's data depends on
+      # ("a bad backup is refused" and "a good one restores into a working profile"), and both were
+      # WRONG within the last week, so they are exactly the claims that must not be free to regress
+      # between manual runs.
+      #
+      # Four tests: an archive restored into a fresh isolated profile that the packaged app then
+      # opens and fully chain-verifies through real IPC; and three that drive the BACKUP BUTTON in
+      # the shipped UI — healthy success, refusal of a tampered case box, and a refusal after an
+      # earlier success leaving that earlier success unchanged on screen and on disk.
+      #
+      # Marginal cost only — `dist` above already built the bundle. Measured 2026-09-06 against a
+      # packaged build: 4 tests, 4 pass, ~40s of assertions plus the wrapper's mandatory 30s settle.
+      #
+      # WHAT THIS STEP LETS CI CLAIM: the in-app backup still refuses a corrupt case box through
+      # the real button, and an archive it accepts still restores into a profile the shipped app
+      # can open and verify.
+      - name: Backup/restore acceptance — real button + isolated restore, packaged
+        run: npm --prefix apps/lawbar-desktop run test:restore-acceptance-packaged
+
       # DELIBERATELY NOT RUN HERE, and this is a risk acceptance rather than a judgement that these
       # surfaces are redundant:
       #   test:packaged      — packaged-binary smoke (3 tests)

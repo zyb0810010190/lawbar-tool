@@ -7,18 +7,18 @@
       "sizeBytes": 92929,
       "integrity": "sha512-ZUxJEDqENU4lMr7Hkx+lzYEqI8q41W/MsjY6IO1jNU/YQ/303xg+ZodiQ7/LxcOValBNyGFDpcOAP5+e6rspYw==",
       "rewrites": {},
-      "packedAt": "2026-08-23T16:25:00.977Z"
+      "packedAt": "2026-09-07T05:01:14.434Z"
     },
     {
       "name": "case-box-persistence",
       "sourceDir": "services/case-box-persistence",
       "tarball": "dist-tarballs/case-box-persistence-0.1.0.tgz",
-      "sizeBytes": 338065,
-      "integrity": "sha512-PQ/h9ph6lmAVpu2ejgC8h3ti37r3m5ChHpieNaG9v519vZ0N3DWjf/A5wZxWBChSsOncPDF2Eq6MVN5mfx/9tQ==",
+      "sizeBytes": 347551,
+      "integrity": "sha512-CpneL4IZDuOzjIySsXQ/ss/uC1xRHrE3GslbbTrilgI2NDb2uDOfxS3BFGmcqG8eTVgmS7sTpIABY1xOC981VQ==",
       "rewrites": {
         "case-box-contract": "0.1.0"
       },
-      "packedAt": "2026-08-23T16:25:01.315Z"
+      "packedAt": "2026-09-07T05:01:14.748Z"
     }
   ],
   "generator": "scripts/pack-internal-packages.mjs",
