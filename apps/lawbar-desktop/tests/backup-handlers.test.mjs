@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, existsSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, existsSync, rmSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { createRequire } from "node:module";
@@ -162,5 +162,53 @@ test("the record stores no case content — only times and the owner's own paths
     assert.deepEqual(Object.keys(raw).sort(),
       ["lastDestinationRoot", "lastVerifiedAt", "lastVerifiedDir", "version"],
       "no matter names, no document names, no counts that could identify a client");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// MARK: - The same-volume flag has to survive the trip from disk to screen
+
+test("the status handler reports a same-volume backup as such", async () => {
+  // Caught by mutation: making the handler return a constant `false` here left every engine and
+  // screen test green, because each end was tested and the wire between them was not. The engine
+  // would have measured it, the screen would have been able to show it, and the owner would never
+  // have seen it — a warning that exists in two places and works in none.
+  const userDataDir = tmp("data"), dest = tmp("dest"), docsRoot = path.join(userDataDir, "case-box-documents");
+  const { db, deps } = makeDeps({ destination: dest, userDataDir, docsRoot });
+  try {
+    const r = await backupRunHandler(deps);
+    assert.equal(r.ok, true, r.ok ? "" : r.code);
+    // Both temp dirs are on the same device here; assert that precondition rather than assume it.
+    assert.equal(statSync(userDataDir).dev, statSync(dest).dev, "precondition: same device");
+    const status = backupStatusHandler(deps);
+    assert.equal(status.lastBackupOnSameVolume, true,
+      "the screen cannot warn about what the handler does not report");
+  } finally { db.close(); rmSync(userDataDir, { recursive: true, force: true }); rmSync(dest, { recursive: true, force: true }); }
+});
+
+test("with no backup at all, same-volume is false rather than an unexplained warning", () => {
+  const userDataDir = tmp("data"), docsRoot = path.join(userDataDir, "case-box-documents");
+  const { db, deps } = makeDeps({ destination: null, userDataDir, docsRoot });
+  try {
+    const status = backupStatusHandler(deps);
+    assert.equal(status.hasEverBackedUp, false);
+    assert.equal(status.lastBackupOnSameVolume, false,
+      "never-backed-up is its own alarm; a second one about a backup that does not exist is noise");
+  } finally { db.close(); rmSync(userDataDir, { recursive: true, force: true }); }
+});
+
+test("a record written before this field existed does not invent a warning", () => {
+  const dir = tmp("rec");
+  try {
+    writeFileSync(path.join(dir, "backup-record.json"), JSON.stringify({
+      version: 1,
+      lastVerifiedAt: "2026-08-20T00:00:00.000Z",
+      lastVerifiedDir: "/Volumes/Backup/lawbar-backup-x",
+      lastDestinationRoot: "/Volumes/Backup",
+      // lastVerifiedSameVolume deliberately absent — an older record
+    }));
+    const r = loadBackupRecord(dir);
+    assert.equal(r.lastVerifiedAt, "2026-08-20T00:00:00.000Z", "the rest of the record still loads");
+    assert.equal(r.lastVerifiedSameVolume, false,
+      "an absent field is not evidence of a same-disk backup, and must not become a warning");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

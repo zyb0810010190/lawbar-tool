@@ -83,10 +83,12 @@ test("the backup IPC channels answer from the main process", async (t) => {
   const status = await win.evaluate(async () => window.lawbar?.backup?.status?.());
   assert.ok(status !== undefined && status !== null, "window.lawbar.backup.status is not wired");
   assert.deepEqual(Object.keys(status).sort(),
-    ["daysSinceLastVerified", "hasEverBackedUp", "lastVerifiedAt"],
+    ["daysSinceLastVerified", "hasEverBackedUp", "lastBackupOnSameVolume", "lastVerifiedAt"],
     "the status payload shape changed");
   assert.equal(status.hasEverBackedUp, false, "a fresh profile has never been backed up");
   assert.equal(status.lastVerifiedAt, null);
+  assert.equal(status.lastBackupOnSameVolume, false,
+    "with no backup at all there is nothing to warn about — never-backed-up is its own alarm");
 });
 
 test("the backup bridge exposes exactly status + run, and run takes no path", async (t) => {

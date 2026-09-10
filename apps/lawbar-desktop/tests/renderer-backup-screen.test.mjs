@@ -220,3 +220,37 @@ test("every data-i18n key in index.html resolves — a missing one renders a bla
   const missing = keys.filter((k) => !(k in CATALOG));
   assert.deepEqual(missing, [], `data-i18n keys with no catalog entry: ${missing.join(", ")}`);
 });
+
+// MARK: - Same-volume: shown WITH the success, never instead of it
+
+test("a same-volume backup still reports its age, AND carries the warning", async () => {
+  const { root, promise } = mount({ status: { ...STALE, lastBackupOnSameVolume: true } });
+  await promise;
+  // The success line survives. Suppressing it would be its own lie: the backup did happen.
+  const status = findByTestId(root, "backup-status");
+  assert.ok(status, "the age line must still be there");
+  assert.ok(collectText(status).includes("13"));
+
+  const warn = findByTestId(root, "backup-same-volume");
+  assert.ok(warn, "a backup on the same disk must say so");
+  assert.equal(warn.getAttribute("role"), "alert");
+  assert.equal(collectText(warn), CATALOG["backup.status.sameVolume"]);
+});
+
+test("an external-disk backup carries NO warning — or the warning stops meaning anything", async () => {
+  for (const status of [STALE, RECENT, { ...RECENT, lastBackupOnSameVolume: false }]) {
+    const { root, promise } = mount({ status });
+    await promise;
+    assert.equal(findByTestId(root, "backup-same-volume"), null,
+      "warning shown for an off-disk backup; that trains the owner to ignore it");
+  }
+});
+
+test("the same-volume copy qualifies the PROTECTION, not the backup", async () => {
+  const v = CATALOG["backup.status.sameVolume"];
+  assert.ok(v.includes("同一块磁盘"), "it must name the actual condition");
+  assert.ok(v.includes("误操作"), "and credit what it DOES protect against");
+  assert.ok(v.includes("丢失") || v.includes("损坏"), "and name what it does not");
+  assert.equal(/备份失败|未备份|无效/.test(v), false,
+    "the backup succeeded and verified — this warning must not read as a failure");
+});

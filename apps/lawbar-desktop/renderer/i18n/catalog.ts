@@ -747,6 +747,11 @@ export const CATALOG = {
   "backup.status.today": "最近一次通过校验的备份：今天。",
   "backup.status.daysAgo": "最近一次通过校验的备份：{days} 天前。",
   "backup.status.unavailable": "无法读取备份状态，请重试。",
+  // A same-disk backup is REAL — it verifies, and it survives a mistake made inside the app. It
+  // survives nothing that happens to the disk. So this is a warning shown ALONGSIDE the success,
+  // never instead of it: refusing the backup would leave the owner with nothing, and reporting it
+  // as simply 备份完成 would be the false confidence this screen exists to prevent.
+  "backup.status.sameVolume": "注意：最近一次备份与案卷数据在同一块磁盘上。它可以防止应用内的误操作，但磁盘损坏或电脑丢失时同样会失去。请尽量备份到外接磁盘。",
   "backup.failed.insideDataDir": "备份位置不能位于应用数据目录内，否则会与本机数据一同丢失。请选择外部磁盘。",
   "backup.failed.destinationUnusable": "无法写入所选位置。请确认磁盘已连接、有可用空间，并可写入。",
   // The likeliest real failure, and it needs its own sentence. External drives ship NTFS-formatted
