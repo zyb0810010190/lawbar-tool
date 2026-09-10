@@ -560,6 +560,82 @@ latency bound that measured the machine is gone. Not adopted: `cold_model_load_m
 layer tier (the contract's name for what remains of the wall clock; documented as overhead,
 not a model load — the same disposition as the two earlier stamps).
 
+**Progress — item 6, the verdict, 2026-09-10 (synthetic half; the real-pages half waits on the
+owner).** Order of events, because it is the point: (1) `fixtures/verdict-spec.json` was written
+and committed on its own (e883e15) — per tier slot, the metric, subgroup, operator and value it
+must meet on the HOLDOUT role, with the tuning set as the only thing consulted; (2) then six
+holdout pages were authored unlike the tuning set (Songti and STHeiti instead of Hiragino,
+other sizes, 1.5° and −1° rotation, Gaussian and impulse noise, a faint blurred fax-like page, a
+red seal ring with small characters over the text, full-width parentheses IN the source) with
+text-layer and scanned PDF variants, eighteen fixtures; (3) `bin/verdict.mjs --role=holdout`
+ran once and wrote `results/2026-09-10-holdout-synthetic.json`. One re-authoring before the
+committed run, disclosed: the faint paragraph's first render lacked the 〇 glyph (Songti has
+none), found by reading both engines' transcripts — they agreed on the gap, which is the
+control working — and re-rendered in STHeiti Light; no threshold moved.
+**The registered lines:** text-layer slot — success and exact rate 1.0 on text-layer PDFs,
+`no_text_layer` on 100% of scans, p95 ≤ 200 ms, ≤ 64 MB. OCR slot — every page read, NFKC-folded
+mean CER ≤ 0.05 on page images, p95 ≤ 1.5 s, ≤ 512 MB; ranked by folded CER then memory; a gap
+under one character per page is a tie; the runner-up is item 4's control.
+**Measured on the holdout (packaged helper 0.2.0 sha256 4c091aa6…, macOS 24G90, spec sha256
+c75486e9…, manifest 1c819157…, harness e883e15):**
+
+| candidate | subgroup | read | raw CER | folded CER | exact | p95 | peak RSS |
+|---|---|---|---|---|---|---|---|
+| lawbar-ocr-pdfkit-layer | pdf-layer | 6/6 | 0.000 | 0.000 | 6/6 | 53 ms | 17.7 MB |
+| lawbar-ocr-pdfkit-layer | pdf-scan | `no_text_layer` 6/6 | — | — | — | — | — |
+| lawbar-ocr-vision | png | 6/6 | 0.018 | 0.018 | 5/6 | 336 ms | 87 MB |
+| lawbar-ocr-vision | pdf-scan (rendered) | 6/6 | 0.012 | 0.012 | 5/6 | 337 ms | 92 MB |
+| paddleocr-onnx | png | 6/6 | 0.043 | 0.034 | 4/6 | 417 ms | 353 MB |
+| tesseract | png | 0/6 (no `chi_sim`) | — | — | — | — | — |
+
+**Awarded, by the spec as written:** `text_layer` → `lawbar-ocr-pdfkit-layer` (every line
+passes); `ocr` → `lawbar-ocr-vision`, ranked above `paddleocr-onnx` by a folded-CER gap of
+0.017 (above the one-character tie line); **control → `paddleocr-onnx`**, which also qualifies.
+What the remaining errors are, read: PaddleOCR mis-widths one parenthesis and drops the hyphen
+and two punctuation marks in the Latin contract id; Vision reads the same id but breaks the
+line into four regions, and writes a full-width comma in `50,000` on one render. Both read the
+seal-covered page, the rotated pages, the noisy page and the faint page exactly. Six pages per
+subgroup is still six pages: the awards stand for the synthetic evaluation only; the real-pages
+run under the same spec decides for the owner's material.
+**Changed:** `src/verdict.ts`, `bin/verdict.mjs`, `fixtures/verdict-spec.json`, `fixtures/holdout/`
+(eighteen files plus sidecars), `fixtures/manifest.json`, `results/2026-09-10-holdout-synthetic.json`,
+`tests/verdict.test.mjs`, the holdout role in `types.ts`/`manifest.ts`/`runner.ts`/`bin/bakeoff.mjs`,
+`--fixtures-root` on both bins, `README.md`.
+**Still open in item 6:** the owner's real pages — 30–50, stratified, transcribed critical fields,
+in a private directory with a manifest of the same shape; `bin/verdict.mjs --role=holdout
+--fixtures-root=/abs/private --out=results/<date>-real.json` scores them in place under this
+spec and commits aggregates only. That run needs the owner's material and cannot be started
+by the agent.
+**Verified:** seventeen verdict tests; thirteen mutants of the compiled module killed (unmeasured
+requirement passing; tie never recorded; role check dropped; folded CER not folded; probe detail
+kept; code shape not enforced; the committability walk skipped; detail copied verbatim; a
+multi-candidate slot accepted without a ranking rule; nulls not last; reconciliation dropped;
+suffix check dropped; the tie judged on rounded values); bake-off lane 152 tests green with the
+35-fixture manifest; the committed result regenerated under the final code from the same spec
+(sha256 c75486e9…, now pinned in the test so an edit to a threshold must be made deliberately).
+**Reviewed:** Codex, one job per file, read-only, `gpt-5.6-sol` — threads 01a08d88-7182 (module),
+01a08d88-7b63 (bin), 01a08d88-8737 (tests), 01a08d88-7e5d (spec and result). 25 findings; 20
+verified and fixed before this stamp. The ones that changed what is committed: a `--spec` flag
+could have judged a run by a relaxed spec → removed, the committed spec is the only judge and
+its hash is in every result; probe detail was copied into the result and a failure code became
+a JSON key verbatim → only the macOS build and architecture are extracted by shape, a code
+that is not code-shaped is tallied under a fixed name, and the committability check walks every
+key and value refusing any path separator; rounded aggregates drove requirements and ties →
+judged unrounded, rounded only for the record; a `signal_rate` rank key lost its code and a
+multi-candidate slot with no ranking rule would have been ranked by name → both refused by the
+parser; a missing value ranked first on a descending key → last on every key; the scored count
+came from the report → from the manifest, with a mismatch refused, and a scored PDF with no
+subgroup suffix refused rather than dropped from every denominator; the result file is written
+create-only; the manifest and every expected text are read once, hashed, and the run refused if
+either changed under it. The tests gained a pinned spec hash, a spec-as-written pass that
+mutates operators, values, codes and ranking, every unmeasured line asserted, a hundred-sample
+percentile, an out-of-role observation, injected page text in every retained string, and the
+tie line tested from both sides. Not adopted, with reasons: renaming `exact_rate` (the registered
+spec defines it on the folded CER in its own words — a rename after the holdout was measured
+would be the thing pre-registration forbids); withholding the award inside a recorded tie (the
+registered decision rule says the tie is reported and the memory tie-break stated, which the
+result does).
+
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
 evidence names a multi-page scan processed offline with every page's outcome visible. What exists:

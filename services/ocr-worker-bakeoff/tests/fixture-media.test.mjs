@@ -63,15 +63,18 @@ test("manifest: a media that disagrees with the file extension is refused — a 
   assert.throws(() => loadManifest(manifestWith({}, { file: "page.tif" })), /neither a \.png nor a \.pdf/);
 });
 
-test("manifest: the committed manifest carries ten PDF fixtures, five text-layer and five scanned, each reusing its PNG sibling's expected text", () => {
+test("manifest: every PDF fixture is a text-layer or scanned variant of a PNG sibling in the same role, reusing its expected text — ten in the tuning set, twelve in the holdout", () => {
   const m = loadManifest(fixturesRoot);
   const pdfs = m.fixtures.filter((f) => f.active && f.media === "pdf");
-  assert.equal(pdfs.length, 10);
-  assert.equal(pdfs.filter((f) => f.id.endsWith("-pdf-layer")).length, 5);
-  assert.equal(pdfs.filter((f) => f.id.endsWith("-pdf-scan")).length, 5);
+  const byRole = (role) => pdfs.filter((f) => f.role === role);
+  assert.equal(byRole("verdict").length, 10);
+  assert.equal(byRole("holdout").length, 12);
+  assert.equal(pdfs.filter((f) => f.id.endsWith("-pdf-layer")).length, 11);
+  assert.equal(pdfs.filter((f) => f.id.endsWith("-pdf-scan")).length, 11);
   for (const f of pdfs) {
     const sibling = m.fixtures.find((s) => s.id === f.id.replace(/-pdf-(layer|scan)$/, ""));
     assert.ok(sibling, `PNG sibling of ${f.id}`);
+    assert.equal(sibling.role, f.role, `${f.id}: a variant stays in its sibling's role — a holdout page must never leak into the tuning set`);
     assert.equal(f.expected_text_path, sibling.expected_text_path);
     assert.equal(f.expected_text_sha256, sibling.expected_text_sha256);
     assert.equal(sha256(readFileSync(join(fixturesRoot, f.path))), f.sha256, `${f.id} bytes must match the manifest`);

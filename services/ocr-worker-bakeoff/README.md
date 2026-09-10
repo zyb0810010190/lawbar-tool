@@ -39,6 +39,19 @@ ocr-review}` and `docs/contracts` MUST NOT depend on this package.
   are absent rather than zero. The harness requires the record's `mode` to be
   the one it asked for. Measured: ~40 ms and ~17 MB per page for the layer tier
   against ~280 ms and ~70–106 MB for Vision.
+- **R3 / WI-12 item 6, the verdict (2026-09-10)** — `fixtures/verdict-spec.json`
+  registers, per tier slot, what must be met on the HOLDOUT role (metric,
+  subgroup, operator, value); it was committed before any holdout page was
+  authored. `fixtures/holdout/` holds six pages rendered unlike the tuning set
+  (other fonts, rotation, noise, a faint fax-like page, a seal over the text,
+  full-width punctuation in the source) with text-layer and scanned PDF
+  variants. `src/verdict.ts` aggregates a run per candidate and subgroup and
+  applies the spec as written; `bin/verdict.mjs --role=holdout --out=results/…`
+  writes the COMMITTABLE result — aggregates and identity only, never a
+  transcript, a fixture id, or a path — append-only. `results/` holds committed
+  verdicts. `--fixtures-root=/abs/path` points both bins at a manifest outside
+  the repository (the owner's real pages, read in place; same containment rules;
+  same result shape).
 - **Commit ε** — ADR-11A.1 verdict + lockfile + assembled license
   artifact. Lands only after all three v1 candidates have measurements
   and the hybrid fixture set is complete (≥5 active synthetic + ≥2

@@ -106,6 +106,20 @@ const zh02Expected = readFileSync(join(fixturesRoot, zh02.expected_text_path), "
 
 const COLD = { run_kind: "cold", timeout_ms: 10_000 };
 
+/**
+ * Is the process gone? A child killed with its group is a ZOMBIE until its new parent reaps it,
+ * and `kill(pid, 0)` still succeeds on a zombie — so a check made the instant the harness
+ * returns can call a dead child alive. Poll for up to two seconds; a real survivor sleeps thirty.
+ */
+async function gone(pid) {
+  const until = Date.now() + 2000;
+  for (;;) {
+    try { process.kill(pid, 0); } catch (e) { if (e.code === "ESRCH") return true; }
+    if (Date.now() > until) return false;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Language mapping, resolution, pin reading
 // ---------------------------------------------------------------------------
@@ -241,9 +255,7 @@ test("probe: a helper whose probe hangs and ignores SIGTERM is probe_failed with
   assert.ok(took < 10_000, `probe deadline not enforced: ${took} ms`);
   assert.ok(existsSync(childPidFile), "the fake must have started its child before the deadline");
   const childPid = Number(readFileSync(childPidFile, "utf8").trim());
-  let alive = true;
-  try { process.kill(childPid, 0); } catch (e) { alive = e.code !== "ESRCH"; }
-  assert.equal(alive, false, `SURVIVOR: child ${childPid} outlived the probe deadline`);
+  assert.equal(await gone(childPid), true, `SURVIVOR: child ${childPid} outlived the probe deadline`);
 });
 
 // ---------------------------------------------------------------------------
@@ -343,9 +355,7 @@ test("run: a helper that ignores SIGTERM and leaves a child is killed as a proce
   assert.ok(took < 10_000, `deadline not enforced: ${took} ms`);
   assert.ok(existsSync(childPidFile), "the fake must have started its child before the deadline");
   const childPid = Number(readFileSync(childPidFile, "utf8").trim());
-  let alive = true;
-  try { process.kill(childPid, 0); } catch (e) { alive = e.code !== "ESRCH"; }
-  assert.equal(alive, false, `SURVIVOR: child ${childPid} outlived the deadline`);
+  assert.equal(await gone(childPid), true, `SURVIVOR: child ${childPid} outlived the deadline`);
 });
 
 test("run: a descendant that ESCAPES the process group and holds the pipe cannot hold the bake-off past the deadline", async () => {
