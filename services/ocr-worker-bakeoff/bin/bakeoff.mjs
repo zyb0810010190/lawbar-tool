@@ -21,6 +21,7 @@ import { dirname, join } from "node:path";
 
 import { makeTesseractCandidate } from "../dist/harnesses/tesseract.js";
 import { makePaddleOcrOnnxCandidate } from "../dist/harnesses/paddleocr-onnx.js";
+import { makeLawbarOcrVisionCandidate } from "../dist/harnesses/lawbar-ocr-vision.js";
 import { runBakeoff } from "../dist/runner.js";
 import { loadManifest, ManifestValidationError, collectLanguages } from "../dist/manifest.js";
 
@@ -77,9 +78,14 @@ const tesseract = makeTesseractCandidate(fixturesRoot, {
 const paddleocrOnnx = makePaddleOcrOnnxCandidate(fixturesRoot, {
   required_languages: probeLanguages,
 });
+// R3 / WI-12 step 3: Apple Vision reached through the app's own packaged helper, so the slot is
+// earned at the boundary the app uses. Resolution order and identity are recorded in its probe.
+const lawbarOcrVision = makeLawbarOcrVisionCandidate(fixturesRoot, {
+  required_languages: probeLanguages,
+});
 
 const report = await runBakeoff({
-  candidates: [tesseract, paddleocrOnnx],
+  candidates: [tesseract, paddleocrOnnx, lawbarOcrVision],
   fixtures,
   roleFilter: args.role,
   fixturesRoot,
