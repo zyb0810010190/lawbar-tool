@@ -13,6 +13,8 @@ import {
 } from "../src/backup/backupHandlers.js";
 import type { BackupCapableDb } from "../src/backup/runBackup.js";
 import { DOCUMENT_OPEN_CHANNEL, documentOpenHandler } from "../src/caseBox/documentOpenHandlers.js";
+import { OCR_CHANNEL, ocrProbeHandler } from "../src/ocr/ocrHandlers.js";
+import { readPinnedDigest, resolveHelperPath } from "../src/ocr/helper.js";
 import { CURRENT_SCHEMA_VERSION } from "case-box-persistence";
 import { makeStoreFile } from "../src/caseBox/documentStorage.js";
 import { loadThemePreference } from "../src/persistence/themePreference.js";
@@ -215,6 +217,17 @@ async function startProduct(): Promise<void> {
       reveal: revealOriginal,
     }),
   );
+
+  // R3 / WI-12 step 2: the bundled OCR helper's probe. Packaged, the helper is resolved ONLY from
+  // this bundle's Resources; in development from the staged build under build/helpers. The pin —
+  // the digest of the helper this build was made with — ships inside the asar next to this code.
+  // The handler refuses a helper that is not the pinned bytes, and refuses output whose self-digest
+  // is not those bytes: the assertion the packaged acceptance makes from a relocated copy of the
+  // app with PATH empty.
+  const ocrHelperPath = resolveHelperPath({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() });
+  const ocrPinnedDigest = readPinnedDigest(path.join(app.getAppPath(), "dist", "src", "ocr", "helper-pin.json"));
+  ipcMain.handle(OCR_CHANNEL.probe, (_evt, payload: unknown) =>
+    ocrProbeHandler(payload, { helperPath: ocrHelperPath, pinnedDigest: ocrPinnedDigest, timeoutMs: 15_000 }));
 
   registerCaseBoxIpcHandlers({
     persistenceProvider: () => caseBoxRuntime,

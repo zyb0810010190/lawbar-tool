@@ -14,3 +14,5 @@ tests/_wrapper-suicide.test.mjs
 # clean/packaged builds bundle the current contract/persistence payloads. A semantic
 # drift guard (scripts/workflow/check-internal-tarballs.mjs) keeps them in sync with source.
 # (Previously gitignored per the tarball-PoC plan §5.2; superseded by DESKTOP-DEPS-00.)
+# R3 / WI-12: the staged OCR helper is a build product (npm run build:helper), never committed
+build/helpers/

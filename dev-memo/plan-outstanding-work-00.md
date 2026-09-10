@@ -332,6 +332,62 @@ re-validation surface, which is not this item).
 
 ### WI-12 — R3 first slice: one scanned page, OCR'd offline, readable in the app (CANDIDATE — needs three owner decisions before it starts)
 
+**Progress — steps (1) and (2) of "the first code" built, 2026-09-10.** Not Done: the slice's
+Done-when (a persisted extraction readable after a restart) is steps (3)–(5), which wait on the
+bakeoff. Step (1), PR #300: `lawbar-ocr` in `native/evidence-core-swift` — `probe` (self digest,
+OS build, arch, Vision languages, a 合同 render-and-read round-trip) and `extract --pages a-b`;
+8 package tests, 2 mutants killed. Step (2), this branch: `scripts/build-ocr-helper.mjs` builds
+the helper universal (arm64+x86_64, asserted with `lipo`), runs its probe under a 30 s deadline,
+parses the one record and requires its self-digest to be the bytes just built, stages it under
+`build/helpers/` and **pins its sha256 into `dist/src/ocr/helper-pin.json`, which ships inside the
+asar with the main-process code**; electron-builder `extraResources` places the binary at
+`Contents/Resources/helpers/lawbar-ocr` (mode kept, outside asar); `pretest`, `dist` and
+`dist:release` all run `build:helper`. `src/ocr/helper.ts` is the only place that decides which
+executable runs (packaged: that Resources path and nowhere else; dev: the staged build), for how
+long (detached spawn, empty `PATH`, SIGTERM at the deadline, SIGKILL after a grace, the pipes
+dropped so a descendant that escaped the group cannot hold main), and whether it is believed
+(pin == bytes of the resolved file == the helper's self-report; a symlink is not the helper; an
+8 MB output cap that kills a flood; exactly one record per line). `ocr:probe` is the one channel,
+no payload, exposed as `window.lawbar.ocr.probe()`; codes only cross.
+**Changed:** `apps/lawbar-desktop/{scripts/build-ocr-helper.mjs, src/ocr/helper.ts,
+src/ocr/ocrHandlers.ts, electron/main.ts, electron/preload.mts, package.json, .gitignore}` and
+three tests (`ocr-helper.unit`, `ocr.electron`, `ocr-probe.packaged.electron`);
+`tests/release-preflight-failclosed.test.mjs` T5.1 now pins five stages, the helper build third.
+**Verified:** desktop lane 1497/1497 (after one load flake — the group-kill fake's shell had not
+started its child inside a 500 ms deadline while Electron suites ran alongside; the deadline is
+4 s now and the bound is still a third of the child's sleep); the packaged assertion above, as written — the `.app` copied to `案 卷 copy/`,
+launched with `PATH` empty, answers pin == executable digest == self-report for the helper inside
+THAT copy, universal, round-trip text exactly 合同; then the copy's helper is swapped for a script
+reporting the real digest and a relaunch refuses it as `helper_stale` without executing it (a
+marker proves it never ran). Unit: 14 tests over fake helpers — honest, stale (never run),
+unpinned, impostor (pinned bytes, foreign self-report), symlink, SIGTERM-ignoring child killed
+with the group, an escaped descendant holding the pipe (bounded), a flood (stopped at the cap),
+two records, non-record, non-zero exit, missing, execute-only, spawn failure reported not thrown,
+empty `PATH`, CJK split across chunks, payload refused (null included). Nine mutants of the
+compiled boundary killed: identity check dropped; leader-only kill; SIGTERM-only; payload check
+dropped; `stat` for `lstat`; pin check dropped; overflow no longer kills; error listener removed
+(the test process dies of the unhandled event); the pre-fix escape behaviour (30 s hold). One
+mutant survived by redundancy, not by weakness: dropping only the force-resolve leaves the
+pipe-destroy, and either alone bounds the escape. Commit lanes 9/9 green (the six `services/`
+lanes run in the main tree, whose service directories this branch does not touch — proved by
+diff — because a fresh worktree lacks their linked packages).
+**Reviewed:** Codex, one job per file, read-only, `gpt-5.6-sol` — threads 01a08bbe-8366 (helper.ts),
+01a08bbe-901f (build script), 01a08bbe-a0fe (unit test), 01a08bbe-9945 (packaged test),
+01a08bbe-a66e (wiring diff). 21 findings; 13 verified and fixed before this stamp: the self-report
+alone proved nothing (any replacement hashes itself) → the build-time pin; `dist:release` never
+built the helper → it does; `spawnSync` without a deadline and substring-matched probe output in
+the build script; symlink followed by `stat`; a descendant that escapes the process group holding
+the pipe forever; an `error` event unhandled when spawn fails without a pid; hashing failure
+leaking filesystem text; multi-record output accepted; UTF-8 split across chunks; unbounded
+reading of a flood; `null` accepted as "no payload"; universal slices unasserted; the packaged
+probe unbounded at the test level; the round-trip text accepted when merely non-empty. Not
+adopted, with reasons: "authenticate with a pinned code-signing requirement and the running PID" —
+signing of the nested helper is R7 and a local build is unsigned; the pin plus self-report is what
+an unsigned bundle can prove, and the stamp says so. "Reject a swapped helper by hang test in the
+packaged app" — designed away: the pin refuses a swapped resource before any process starts, so a
+packaged hang test could only be written by defeating the pin. "A missing `ipcMain.handle` leaves
+the unit test green" — true and covered by `ocr.electron.test.mjs`, which the job could not see.
+
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
 evidence names a multi-page scan processed offline with every page's outcome visible. What exists:
