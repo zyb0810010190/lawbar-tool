@@ -25,7 +25,10 @@ repository before it was made; none is a matter of taste.
 5. THE UNATTENDED AUDIT-FIX STEP IS REMOVED. Its report ends by recommending `git checkout .`,
    which discards every uncommitted change in the tree; it fixes all findings without asking; and
    this repo records autonomous fixers editing outside scope and misreporting it. Run
-   /cc-suite:audit-fix by hand, on a clean tree, when you choose to.
+   /cc-suite:audit-fix by hand, on a clean tree, when you choose to. What REPLACES it (added
+   2026-09-10, after two R2 items merged with no second head on new IPC boundary code) is a
+   READ-ONLY review station in Step 3 item 5: the Codex runner, one file per job, findings
+   verified before anything is touched.
 6. HARD STOPS ARE RESTATED HERE because a command that "ships completely" is exactly where they
    get forgotten. See Rules.
 -->
@@ -110,13 +113,50 @@ Work items one at a time, in plan order. For each item:
    For additive work, where red-first is inherently inconclusive, run at least one mutation
    against each claim the item makes and record which mutants died. A surviving mutant is either
    a missing test or a measurement that corrects the claim — say which.
-5. Quote the result line of each check. Then, and only then, `Edit` the plan to stamp the item
+5. **Independent review, read-only, before the stamp.** The gate proves the code does what its
+   own tests say; it cannot see what the same head wrote and then tested. Whenever the item added
+   or changed BOUNDARY code — an IPC handler, a preload entry, a DTO allowlist, an error mapper,
+   a persistence query, anything the audit chain or the store touches — put each such file through
+   a second head before stamping. This is a review, not a fixer: nothing it says is applied
+   without being verified against the file first.
+
+   The route is cc-suite's Codex runner, invoked by absolute path (no `/cc-suite:init`):
+
+   ```bash
+   bash ~/.claude/plugins/cache/xiaolai/cc-suite/2.0.1/scripts/codex-preflight.sh   # model list first; never guess a slug
+   node ~/.claude/plugins/cache/xiaolai/cc-suite/2.0.1/scripts/codex-runner.mjs \
+     --kind audit --model <slug from preflight> --effort high --sandbox read-only \
+     --timeout-ms 540000 -- "$(cat <prompt-file>)"
+   ```
+
+   Constraints, each learned the hard way:
+   - **One job per file.** A combined job stalls past the deadline.
+   - **Inline the text.** Paste the unified diff plus every whole function it touches, and say
+     "do not run commands, read files, or search; every fact you need is below." Pointing Codex
+     at the tree makes it explore until the deadline.
+   - **Gate what you transmit.** Run the prompt file through the eight PATTERNS in
+     `apps/lawbar-desktop/scripts/check-no-real-data.mjs` first (the CLI reports "0 files in
+     scope" for a scratch file, which is vacuous — apply the regexes directly). Never inline the
+     `f86c8e4` diff.
+   - **Findings are evidence, not verdicts.** Verify each against the file. A verified High or
+     Medium blocks the stamp until it is fixed and the full gate in item 4 has run again; a Low
+     is recorded under **Outstanding work**. A finding that does not survive verification is
+     recorded as such — the disagreement is part of the trail.
+   - **If the route is unreachable** (preflight fails, or the job stalls twice), substitute a
+     fresh subagent with no conversation context given the same inlined text, and say in the
+     stamp which head was used.
+
+   Record the review in the stamp as `**Reviewed:** codex <thread id> — N findings, M verified,
+   K fixed` (or `subagent` in place of `codex`, or `not required — no boundary code`).
+
+6. Quote the result line of each check. Then, and only then, `Edit` the plan to stamp the item
    directly beneath its heading, using this exact block:
 
    ```markdown
    **Done:** 2026-01-01
    **Changed:** path/to/file.ts, path/to/other.ts
    **Verified:** gate commit (1284 passed) · no-real-data OK · doc-references 172/172 · mutants 3/3 killed
+   **Reviewed:** codex 01a0abcd — 3 findings, 2 verified, 2 fixed
    ```
 
    Use `**Blocked:** <what stopped it>` in place of the three lines when the item cannot be
@@ -149,6 +189,8 @@ Do not begin Step 4 while any item in this plan is unstamped.
 When this step finishes, return to Step 2 for the next plan. Once every plan is done, go to Step 5.
 
 ## Step 5 — Final report
+
+Include the `**Reviewed:**` line of every stamped item in the report, so a reader can see which items had a second head and which were declared to need none.
 
 Print this structure and nothing beyond it. Repeat the per-plan block once for each plan, in
 processing order, then print one combined summary.
@@ -193,7 +235,9 @@ processing order, then print one combined summary.
 - **Never** weaken or remove the audit-chain mechanism. It is the product's court-facing claim.
 - Never stamp `Done:` without the repo gate having passed, and never cite a check that did not run.
 - `Skill` is permitted for exactly one purpose: `/tdd-guardian:gate commit`. It is not licence
-  to invoke `/cc-suite:audit-fix` or any other fixer from inside this command.
+  to invoke `/cc-suite:audit-fix` or any other fixer from inside this command. The cc-suite
+  **runner** in Step 3 item 5 is different in kind — `--sandbox read-only`, one file per job,
+  text inlined and gated — and is the only cc-suite invocation this command makes.
 - Never widen scope past what a plan states. Note a needed change outside the plan under
   **Outstanding work** instead of making it.
 - Never delete or rewrite existing plan prose — stamps are additive.
