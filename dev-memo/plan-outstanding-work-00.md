@@ -330,6 +330,86 @@ packaged DOCX after an isolated restore is cell-for-cell the DOCX before it.
 across sessions (the model's stale-echo refusal is the reason a stored choice is unsafe without a
 re-validation surface, which is not this item).
 
+### WI-12 — R3 first slice: one scanned page, OCR'd offline, readable in the app (CANDIDATE — needs three owner decisions before it starts)
+
+**The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
+says "existing local OCR services become a visible, correctable desktop workflow" and its exit
+evidence names a multi-page scan processed offline with every page's outcome visible. What exists:
+
+- **Engine:** `@gutenye/ocr-node` 1.4.8 with the bundled `@gutenye/ocr-models` `ch_PP-OCRv4` set
+  (ADR-11C.3b, CHOSEN). ONNX, offline. Cold-loads on this Mac in ~310 ms
+  (`engines.real-paddleocr-engine.test.mjs`, 6 pass). The native binaries are `onnxruntime-node`
+  (darwin/arm64 present) and `sharp`.
+- **Worker:** `services/ocr-worker/bin/ocr-worker.mjs`, a Node process configured by environment
+  (`OCR_WORKER_PERSISTENCE=sqlite`, `OCR_WORKER_QUEUE=sqlite`, `OCR_WORKER_SQLITE_PATH`,
+  `OCR_WORKER_MAX_ITERATIONS`, `OCR_WORKER_IDLE_DELAY_MS`, `OCR_WORKER_ID`, `OCR_WORKER_REQUIRE_REAL`).
+  Proved cross-process by 10L: an ingestion process enqueues, a spawned worker drains, the review
+  read-model sees the result. Page sources admitted: `file` (absolute path, lexical AND realpath
+  containment under an `allowedFileRoot`) and `https`. **No PDF handling anywhere in the worker**;
+  ADR-11B budgets "raster_max(M pages of PDF)" but nothing implements it.
+- **Persistence:** `SqliteOcrPersistence` + `SqliteOcrQueue` over an already-open better-sqlite3
+  database, creating `ocr_jobs`, `ocr_queue_jobs`, `ocr_queue_receipts`, `ocr_results`,
+  `ocr_status_events` AND a `schema_version` table — which would collide with the case box's if they
+  shared a file. So the seam is a second file, `ocr.sqlite`, beside `case-box.sqlite`.
+- **Ingestion:** `createOcrSubmissionFromDocument({ tenant_id, document_id, submitted_by, pages: [{
+  page_id, page_number, source }] })`. **v1 caps a job at ONE page** (`MULTI_PAGE_UNSUPPORTED`, "so
+  lease-renewal math holds", ADR-11B §3). A multi-page scan is therefore N jobs, one per page,
+  orchestrated by whoever submits.
+- **Review read-model:** `getReviewableOcrPage(persistence, { job_id, page_id })` → per-page text
+  preview (`TEXT_PREVIEW_MAX_CHARS`), `getOcrJobLifecycle`, `summarizeOcrIngestionOutcome`.
+- **Case box:** `case-box-ocr-link` (document_id ↔ ocr_job_id, direction, status_snapshot) via
+  `persistence.upsertOcrLink`; document status already carries `ocr_pending | ocr_complete |
+  ocr_failed`. **No desktop runtime, channel, screen or handler touches any of it.**
+- **Correction:** the product definition's v1 acceptance bar is "every page OCR cannot read with
+  confidence is visible in S5 for lawyer correction". **No correction write exists in any package**,
+  and no S5 screen exists in the desktop. Citation binding (§9) points facts at
+  `document_id + page_number + excerpt` — a lawyer-authored fact citing OCR text is the only
+  "correction" surface the contract currently has.
+- **Fixtures:** synthetic Chinese page images with expected text exist
+  (`services/ocr-worker-bakeoff/fixtures/synthetic/zh-02-court-heading.png` and five more, with a
+  manifest); the worker's own tests use one. A packaged test can assert recognised text.
+- **Packaging:** `ocr-worker` is not a desktop dependency. The desktop's internal packages arrive as
+  committed tarballs (the documented drift trap); `asarUnpack` today covers only `better-sqlite3`.
+  Shipping the worker means the same tarball discipline for `ocr-worker`, `ocr-persistence`,
+  `ocr-ingestion`, `ocr-review` and the OCR contract, plus unpacking `onnxruntime-node` and `sharp`,
+  plus running the bin under Electron's node (`ELECTRON_RUN_AS_NODE=1`, `process.execPath`).
+
+**Codex consult (thread 01a08a4f, 2026-09-10):** A / A / A on the three decisions below, and one fact to
+verify before anything else — that an Electron-as-node child can load both native modules and the bundled
+models. **Measured the same day, from the dev node_modules (not yet from a packaged .app):** under
+`ELECTRON_RUN_AS_NODE=1` with Electron 39.8.10 (Node 22.22.1, arm64) the engine imports in 282 ms, creates
+in 163 ms, and recognises `zh-02-court-heading.png` in 68 ms with exactly the manifest's expected text;
+plain Node 24.14 gives the same text (112 / 114 / 67 ms). Asset sizes: models 15 MB, onnxruntime
+darwin-arm64 72 MB, sharp 276 KB. The ABI and loading question is settled; what remains to prove is the
+same load from inside the packaged bundle (asarUnpack), which is the first assertion of the packaged test.
+The packaged acceptance Codex named — after a restart, the document row's persisted page outcome contains the
+fixture manifest's expected recognised text — is adopted as this item's Done-when.
+
+**Three decisions this item cannot make for the owner** (the product definition marks the engine
+class "STOP-AND-ASK runtime dependency"):
+1. **Bundle the OCR worker and its native binaries into the app** (tarballs + asarUnpack + a spawned
+   Electron-as-node child), or keep OCR as a separately installed tool the app calls. Bundling is
+   what "offline in the packaged app" means; it adds two native modules to the release surface.
+2. **First slice = single-page images only** (PNG/JPG; a multi-page scan as N single-page jobs), with
+   PDF rasterisation as its own later item, because nothing rasterises a PDF today.
+3. **What "correction" means in v1.** Nothing writes a corrected OCR text. Either the first slice
+   ships read-only outcomes (text, or the failure code, plus retry) and correction is a later item
+   with its own contract change, or correction is a lawyer-authored fact citing the page — which the
+   contract already allows.
+
+**Scope, once decided (the vertical slice, same shape as WI-10):** `ocr.sqlite` opened beside the
+case box; `casebox:ocr:submit` (documentId → one job per page image, `file` source rooted at the
+document store, ocr-link upserted, document status → `ocr_pending`); main spawns the worker bin on
+demand with `MAX_ITERATIONS` = the jobs submitted; `casebox:ocr:page` read via the review model; a
+section on the document row showing each page's outcome — text preview, or the failure code with
+retry; a packaged acceptance on a synthetic page image asserting the recognised text after a
+restart.
+
+**Done when (draft):** in the packaged app, a registered PNG page is submitted from the document row,
+the worker runs offline in a child process, the recognised text is visible on the row, survives a
+restart, and a page the engine cannot read shows its failure code and a working retry — no silent
+loss.
+
 ## Not work items — owner decisions
 
 These are recorded so the review is complete. They are **not** for an executor and must not be
