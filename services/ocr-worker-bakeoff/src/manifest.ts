@@ -125,7 +125,7 @@ function validateFixture(raw: unknown, index: number, root: string): BakeoffFixt
   assertLexicallyContained(root, expected_text_path, `fixtures[${index}].expected_text_path`);
 
   if (f.active === true) {
-    const role = expectEnum(f, "role", ["smoke", "verdict"], index) as FixtureRole;
+    const role = expectEnum(f, "role", ["smoke", "verdict", "holdout"], index) as FixtureRole;
     const sha256 = expectHex64(f, "sha256", index);
     const expected_text_sha256 = expectHex64(f, "expected_text_sha256", index);
     const provenance = expectNonEmptyString(f, "provenance", index);

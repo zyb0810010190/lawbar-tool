@@ -230,12 +230,14 @@ test("probe: a helper whose probe hangs and ignores SIGTERM is probe_failed with
   const dir = mkdtempSync(join(tmpdir(), "bakeoff-probe-hang-"));
   const childPidFile = join(dir, "child.pid");
   const fake = makeFakeHelper({ probeBody: `trap '' TERM; /bin/sleep 30 & echo $! > "${childPidFile}"; wait` });
-  const c = makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(fake, { probe_timeout_ms: 2000 }));
+  // 4 s, not 2: under the full lane a shell fake can take over a second to start its child, and a
+  // deadline that fires first measures the machine. The bound below is still a third of the sleep.
+  const c = makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(fake, { probe_timeout_ms: 4000 }));
   const t0 = Date.now();
   const p = await c.probe();
   const took = Date.now() - t0;
   assert.equal(p.status, "probe_failed", JSON.stringify(p));
-  assert.match(p.error_message, /exceeded 2000 ms/);
+  assert.match(p.error_message, /exceeded 4000 ms/);
   assert.ok(took < 10_000, `probe deadline not enforced: ${took} ms`);
   assert.ok(existsSync(childPidFile), "the fake must have started its child before the deadline");
   const childPid = Number(readFileSync(childPidFile, "utf8").trim());

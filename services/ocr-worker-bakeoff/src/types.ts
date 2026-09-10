@@ -238,7 +238,12 @@ export interface RunOptions {
  * depends on. The runner filters by role; the verdict path only sees
  * `verdict` fixtures.
  */
-export type FixtureRole = "smoke" | "verdict";
+/**
+ * smoke: a sanity page, never scored. verdict: the TUNING set — the pages the harness was developed
+ * against. holdout: the EVALUATION set — authored separately, after the thresholds in
+ * fixtures/verdict-spec.json were registered, and never used to tune anything.
+ */
+export type FixtureRole = "smoke" | "verdict" | "holdout";
 
 /**
  * What the fixture file is. `png` is a single page image; `pdf` is a one-page PDF, which may carry
