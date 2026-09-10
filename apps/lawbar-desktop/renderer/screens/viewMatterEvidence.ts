@@ -51,6 +51,9 @@ interface DocumentsPage {
   readonly next_cursor: string | null;
 }
 
+/** Guard against a cursor that never terminates. Exhausting it is an ERROR, never a silent stop. */
+const MAX_PAGES = 50;
+
 const STATUS_ID: Readonly<Record<string, CatalogId>> = {
   proposed: "evidence.status.proposed",
   accepted: "evidence.status.accepted",
@@ -100,11 +103,11 @@ export function renderEvidenceDisclosure(doc: Document, api: CaseBoxApi, matterI
   );
   let loaded = false;
   summary.addEventListener("click", () => {
+    // The document list is attempted on EVERY open until it has succeeded once (it guards itself),
+    // so one transient failure does not permanently strand the add control. Review finding.
+    void loadDocuments();
     if (loaded) return;
     loaded = true;
-    // The add control's document list rides along with the first open, not with render, so a
-    // closed disclosure costs nothing.
-    void loadDocuments();
     void runLoad();
   });
   return details;
@@ -193,25 +196,41 @@ function renderAddEvidenceControl(
   // Documents disclosure; they are the natural default title for the evidence drawn from them.
   const filenameById = new Map<string, string>();
   let documentsLoaded = false;
+  let documentsLoading = false;
+  const showLoadFailure = (): void => {
+    status.setAttribute("role", "alert");
+    status.setAttribute("data-test-id", "view-evidence-add-documents-error");
+    setText(status, t("evidence.load.failed"));
+  };
   const loadDocuments = async (): Promise<void> => {
-    if (documentsLoaded) return;
-    documentsLoaded = true;
+    if (documentsLoaded || documentsLoading) return;
+    documentsLoading = true;
     let cursor: string | null = null;
-    for (let page = 0; page < 20; page += 1) {
-      let env: Awaited<ReturnType<typeof api.listDocuments>>;
-      try {
-        env = await api.listDocuments({ matterId, ...(cursor !== null ? { cursor } : {}) });
-      } catch {
-        return;
+    let exhausted = true;
+    try {
+      // A page cap is a guard against a cursor that never terminates, not a silent limit: hitting
+      // it is reported, never swallowed (review finding — 20 × 50 documents used to vanish quietly).
+      for (let page = 0; page < MAX_PAGES; page += 1) {
+        let env: Awaited<ReturnType<typeof api.listDocuments>>;
+        try {
+          env = await api.listDocuments({ matterId, ...(cursor !== null ? { cursor } : {}) });
+        } catch {
+          showLoadFailure();
+          return;
+        }
+        if (!env.ok) { showLoadFailure(); return; }
+        const value = env.value as DocumentsPage;
+        for (const row of value.rows) {
+          filenameById.set(row.id, row.filename);
+          documentSelect.appendChild(el("option", { value: row.id }, [row.filename], doc));
+        }
+        cursor = value.next_cursor;
+        if (cursor === null) { exhausted = false; break; }
       }
-      if (!env.ok) return;
-      const value = env.value as DocumentsPage;
-      for (const row of value.rows) {
-        filenameById.set(row.id, row.filename);
-        documentSelect.appendChild(el("option", { value: row.id }, [row.filename], doc));
-      }
-      cursor = value.next_cursor;
-      if (cursor === null) break;
+      if (exhausted) { showLoadFailure(); return; }
+      documentsLoaded = true;
+    } finally {
+      documentsLoading = false;
     }
     if (filenameById.size === 0) {
       status.setAttribute("data-test-id", "view-evidence-add-no-documents");
@@ -423,7 +442,8 @@ async function loadEvidence(
   parent.appendChild(loading);
   let cursor: string | null = null;
   let total = 0;
-  for (let page = 0; page < 50; page += 1) {
+  let exhausted = true;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
     let env: Awaited<ReturnType<typeof api.listEvidenceItems>>;
     try {
       env = await api.listEvidenceItems({ matterId, ...(cursor !== null ? { cursor } : {}) });
@@ -445,9 +465,14 @@ async function loadEvidence(
       total += 1;
     }
     cursor = value.next_cursor;
-    if (cursor === null) break;
+    if (cursor === null) { exhausted = false; break; }
   }
   loading.remove();
+  if (exhausted) {
+    // Rows beyond the cap would be silently missing from a court-facing list. Say so instead.
+    parent.appendChild(el("p", { role: "alert", "data-test-id": "view-evidence-error" }, [t("evidence.load.failed")], doc));
+    return;
+  }
   if (total === 0) {
     parent.appendChild(
       el(

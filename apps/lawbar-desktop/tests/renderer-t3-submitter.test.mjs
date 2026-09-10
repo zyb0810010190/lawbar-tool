@@ -131,3 +131,47 @@ test("the picker strings are zh-CN and name the role the choice is restricted to
   for (const k of ["viewT3.submitter.label", "viewT3.submitter.placeholder"]) assert.match(CATALOG[k], /[一-鿿]/, k);
   assert.ok(CATALOG["viewT3.submitter.placeholder"].includes("委托人"), "only clients can be the submitter; the placeholder must say so");
 });
+
+// MARK: - Review findings (2026-09-10), each pinned by a test that fails on the pre-fix screen
+
+test("REVIEW: the picker is disabled for the whole export and re-enabled after — a choice mid-export cannot mislabel the DOCX", async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const { root } = await open(TWO_CLIENTS, {
+    previewT3Catalog: async (dto) => dto.submitterSelection === undefined
+      ? { ok: true, value: { kind: "refusal", code: "submitter_selection_required" } }
+      : { ok: true, value: { kind: "model", model: model(ALPHA) } },
+    exportT3Docx: async () => { await gate; return { ok: true, value: { written: true } }; },
+  });
+  const select = findByTestId(root, "view-t3-submitter");
+  select.value = "0";
+  select.dispatchEvent({ type: "change" });
+  await flush();
+  findByTestId(root, "view-t3-export-docx").dispatchEvent({ type: "click" });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(select.getAttribute("disabled"), "", "while the export is in flight the picker must not accept a different submitter");
+  release();
+  await flush();
+  assert.equal(select.getAttribute("disabled"), null, "and it comes back afterwards");
+});
+
+test("REVIEW: two previews in flight — the earlier choice's late answer must NOT render over the later choice", async () => {
+  const resolvers = [];
+  const { root } = await open(TWO_CLIENTS, {
+    previewT3Catalog: async (dto) => {
+      if (dto.submitterSelection === undefined) return { ok: true, value: { kind: "refusal", code: "submitter_selection_required" } };
+      return new Promise((resolve) => { resolvers.push(() => resolve({ ok: true, value: { kind: "model", model: model(dto.submitterSelection.displayNameEcho) } })); });
+    },
+  });
+  const select = findByTestId(root, "view-t3-submitter");
+  select.value = "0"; select.dispatchEvent({ type: "change" });   // ALPHA, slow
+  select.value = "2"; select.dispatchEvent({ type: "change" });   // BETA, the lawyer's final choice
+  await new Promise((r) => setImmediate(r));
+  assert.equal(resolvers.length, 2);
+  resolvers[1](); await flush();                                    // BETA answers first
+  resolvers[0](); await flush();                                    // ALPHA answers late
+  const headers = findAllByTestId(root, "view-t3-header");
+  assert.equal(headers.length, 1, "exactly one catalogue is on screen");
+  assert.equal(collectText(headers[0]).includes(BETA), true, "and it is the LAST choice's");
+  assert.equal(collectText(headers[0]).includes(ALPHA), false);
+});

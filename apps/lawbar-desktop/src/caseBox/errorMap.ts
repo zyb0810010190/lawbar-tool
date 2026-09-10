@@ -66,22 +66,33 @@ export function makeBoundaryError(
  * Recognition by name + a KNOWN code is as safe: the message returned is still the static one for
  * that code, never the thrown text.
  */
-function isPersistenceErrorShaped(err: unknown): err is { readonly code: CaseBoxPersistenceErrorCode; readonly message: string } {
-  if (typeof err !== "object" || err === null) return false;
-  const e = err as { name?: unknown; code?: unknown; message?: unknown };
-  return e.name === "CaseBoxPersistenceError" && typeof e.code === "string" && Object.prototype.hasOwnProperty.call(SAFE_MESSAGES, e.code) && typeof e.message === "string";
+function snapshotPersistenceError(err: unknown): { readonly code: CaseBoxPersistenceErrorCode; readonly message: string } | null {
+  if (typeof err !== "object" || err === null) return null;
+  // Read each property EXACTLY ONCE. A getter that answers one value to the check and another to
+  // the envelope would otherwise send the second across IPC unchecked (review finding).
+  let name: unknown, code: unknown, message: unknown;
+  try {
+    const e = err as { name?: unknown; code?: unknown; message?: unknown };
+    name = e.name; code = e.code; message = e.message;
+  } catch {
+    return null;
+  }
+  if (name !== "CaseBoxPersistenceError" || typeof code !== "string" || typeof message !== "string") return null;
+  if (!Object.prototype.hasOwnProperty.call(SAFE_MESSAGES, code)) return null;
+  return { code: code as CaseBoxPersistenceErrorCode, message };
 }
 
 export function mapThrownError(
   err: unknown,
   context: { channel: string },
 ): IpcErrorEnvelope {
-  if (err instanceof CaseBoxPersistenceError || isPersistenceErrorShaped(err)) {
+  const snap = err instanceof CaseBoxPersistenceError ? { code: err.code, message: err.message } : snapshotPersistenceError(err);
+  if (snap !== null) {
     // Always log main-side so the diagnostic detail (identifiers, sql
     // parameter values, tenant mismatch specifics) is captured in the
     // audit trail. Renderer sees only the static safe message per code.
-    console.error(`[casebox-ipc-handler:${context.channel}] ${err.code}:`, err.message);
-    return { kind: KIND, code: err.code, message: SAFE_MESSAGES[err.code] };
+    console.error(`[casebox-ipc-handler:${context.channel}] ${snap.code}:`, snap.message);
+    return { kind: KIND, code: snap.code, message: SAFE_MESSAGES[snap.code] };
   }
   console.error(`[casebox-ipc-handler:${context.channel}]`, err);
   return {

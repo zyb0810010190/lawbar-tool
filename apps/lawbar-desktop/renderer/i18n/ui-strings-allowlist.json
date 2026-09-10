@@ -463,19 +463,19 @@
   },
   {
     "file": "renderer/screens/viewMatterEvidence.ts",
-    "line": 280,
+    "line": 299,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterEvidence.ts",
-    "line": 306,
+    "line": 325,
     "text": "",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterEvidence.ts",
-    "line": 316,
+    "line": 335,
     "text": "${statusLabel(row.status)} · ${sideLabel(row.party_side)}",
     "kind": "text"
   },
@@ -673,13 +673,13 @@
   },
   {
     "file": "renderer/screens/viewMatterT3Catalog.ts",
-    "line": 299,
+    "line": 302,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterT3Catalog.ts",
-    "line": 340,
+    "line": 356,
     "text": " ",
     "kind": "text"
   }
