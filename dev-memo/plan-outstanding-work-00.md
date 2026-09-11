@@ -805,6 +805,35 @@ half the lines, or ship Vision alone and present every OCR'd page as a draft the
 Not an engineering question: it trades install size against the owner's reading time, in a tool
 whose whole point is the owner's time.
 
+**The whole corpus graded, no human time, 2026-09-11.** Because agreement is now a validated
+signal, every scanned page the owner has could be graded without asking him anything:
+`scratchpad/grade-corpus.py` rendered each page locally, read it with both engines, and scored how
+much the two readings contain of each other (order ignored, since the two order dense pages
+differently and that is not a reading error). 938 scanned pages across 38 documents, about 50
+minutes. A per-document report naming the owner's files stays in the private root for him alone;
+only the distribution is recorded here.
+
+| page agreement | pages | share |
+|---|---|---|
+| ≥ 0.95, the two engines read the same page | 370 | 39% |
+| 0.80–0.95, minor divergence | 250 | 27% |
+| 0.50–0.80, substantial divergence | 288 | 31% |
+| < 0.50, no agreement at all | 30 | 3% |
+
+Median page 0.907; median document 0.91; 28 of 38 documents have every page at or above 0.80;
+2 pages are blank to both engines.
+**And the grade predicts the error, checked against the hand-verified lines** (20 documents carry
+both an automatic grade and lines the owner transcribed): documents graded below 0.80 measured
+0.302 CER, those at 0.80–0.95 measured 0.135, those at 0.95 and above measured 0.049. Correlation
+−0.43 on 20 documents. So the signal is real but coarse.
+**What that gives the product — two levels, each doing what it can:**
+- **Document and page level, free and automatic:** triage. Which documents are worth recognising
+  and which will need heavy reading. Useful, but NOT certification: even the best-graded documents
+  average 0.049, right at the registered line, and one of them measured 0.186.
+- **Line level, needs the control:** certification. Exact agreement between two different engines
+  accepted 25 of 25 in round one and 15 of 15 blind, with zero wrong accepted. This is the only
+  thing measured here that can mark text trustworthy.
+
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
 evidence names a multi-page scan processed offline with every page's outcome visible. What exists:
