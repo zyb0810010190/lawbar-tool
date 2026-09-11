@@ -742,6 +742,36 @@ off the machine; crops, answers and intermediates live in `~/Documents/lawbar-oc
 owner-only permissions; the committed result is counts and means, checked to contain no crop id,
 no path and no CJK character, and it passes the no-real-data patterns.
 
+**The blind round, 2026-09-11: agreement does predict correctness, within a stated bound.** The
+linchpin assumption was tested rather than assumed. Fifteen lines were cropped from eighteen
+documents NOT used in the first round, kept only where the two engines agreed EXACTLY, and served
+with no proposal shown; the agreed text sat in a file the server never opens, and it was verified
+that none of the fifteen answers reached the browser (the payload carries the key `id` and nothing
+else). The owner typed all fifteen from the image alone.
+**Result: 15 of 15 exact. Mean character error of the agreed reading against the owner's typing:
+0.000; worst single line 0.000.** Lines were 3 to 44 characters.
+**The bound, because fifteen is fifteen.** Zero failures in fifteen trials puts the 95% upper
+bound on the failure rate at about 3/15 = 0.20 (rule of three). So the honest claim is "agreement
+is a strong predictor, with a failure rate below roughly one in five at 95% confidence", NOT
+"agreement is always right". For a gate that routes pages to the lawyer's attention that is
+sufficient: a false accept still leaves the critical-field rule, and a wider sample tightens the
+bound whenever one is wanted. Set against the other half of the same corpus — where the engines
+DISAGREE, both average 0.33 — the signal separates cleanly.
+**The tiers are therefore decided by measurement, which is what item 6 existed to do:**
+- **Tier 0, text layer** — `lawbar-ocr --layer-only`. Exact on 6/6 synthetic and 168/168 real
+  born-digital pages, 40–60 ms and ~18 MB a page. Runs first; if the page has a usable layer, no
+  OCR runs at all.
+- **Tier 1, OCR** — **Apple Vision**, via the packaged helper. Not because it reads better:
+  against PaddleOCR it is 0.190 to 0.189 on real scans, a coin flip (head-to-head 11 / 13 / 32).
+  It wins on cost — 98 MB against 476 MB, 389 ms against 538 ms at p95 — and on shipping nothing:
+  no bundled model, no third-party native engine, no 87 MB of ONNX in the app.
+- **The control — PaddleOCR**, exactly as item 4 required: a DIFFERENT engine, not the same one
+  twice. Where the two agree, accept (15/15 blind). Where they disagree, the page is flagged
+  *needs review* and never silently accepted.
+- **What no tier fixes:** at 0.19 on real scans neither engine meets the registered 0.05 line, and
+  the error is per-document (11 of 20 under 0.05, 3 above 0.4). The product answer is the gate,
+  not a better engine, and critical fields stay the owner's to verify.
+
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
 evidence names a multi-page scan processed offline with every page's outcome visible. What exists:
