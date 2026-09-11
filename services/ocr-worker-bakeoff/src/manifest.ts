@@ -137,6 +137,13 @@ function validateFixture(raw: unknown, index: number, root: string): BakeoffFixt
     if (ext !== media) {
       throw new ManifestValidationError(`fixtures[${index}].media is "${media}" but path "${path}" ${ext === null ? "has neither a .png nor a .pdf extension" : `is a .${ext}`}`);
     }
+    // A pdf fixture always carries its page (default 1); a png never does.
+    let page: number | undefined = media === "pdf" ? 1 : undefined;
+    if (f.page !== undefined) {
+      if (media !== "pdf") throw new ManifestValidationError(`fixtures[${index}].page is only meaningful for a pdf`);
+      if (typeof f.page !== "number" || !Number.isInteger(f.page) || f.page < 1) throw new ManifestValidationError(`fixtures[${index}].page must be a positive integer`);
+      page = f.page;
+    }
 
     const base: Omit<ActiveBakeoffFixture, "kind" | "render" | "real_source" | "pii_review"> & { active: true } = {
       active: true,
@@ -150,6 +157,7 @@ function validateFixture(raw: unknown, index: number, root: string): BakeoffFixt
       dpi: typeof f.dpi === "number" ? f.dpi : undefined,
       language,
       media,
+      ...(page !== undefined ? { page } : {}),
       provenance,
       last_verified_at,
       notes: typeof f.notes === "string" ? f.notes : undefined,

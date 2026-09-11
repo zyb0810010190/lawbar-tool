@@ -19,6 +19,9 @@ import {
   assertCommittable,
   buildVerdict,
   computeCERFolded,
+  computeContainment,
+  computeInflation,
+  computeOrder,
   evaluate,
   parseVerdictSpec,
   readSpecFile,
@@ -153,6 +156,27 @@ test("aggregate refuses a report whose scored count disagrees with the manifest,
   assert.throws(() => aggregate({ ...goodRun(), fixtures_scored: 8 }, fx, expectedText), /has no subgroup/);
 });
 
+test("containment, inflation and order see what CER cannot: the same characters in another order score containment 1, order low, CER high", () => {
+  const ref = "原告王五诉被告赵六借款合同纠纷一案";
+  const reordered = "借款合同纠纷一案原告王五诉被告赵六"; // two blocks swapped — a column read in the wrong order
+  assert.equal(computeContainment(ref, reordered), 1);
+  assert.equal(computeInflation(ref, reordered), 1);
+  assert.ok(computeOrder(ref, reordered) < 0.6, `order ${computeOrder(ref, reordered)}`);
+  assert.ok(computeCERFolded(ref, reordered) > 0.4, "CER punishes the swap as if half the page were misread");
+  // A genuine misread: containment drops, order stays.
+  const misread = "原告王五诉被告赵六借款合同纠纷一桌";
+  assert.ok(computeContainment(ref, misread) < 1 && computeContainment(ref, misread) > 0.9);
+  assert.equal(computeOrder(ref, misread), 1);
+  // Width and whitespace do not count; extra text inflates.
+  assert.equal(computeContainment("(2025) 沪", "（2025）\n沪"), 1);
+  assert.ok(computeInflation("沪", "沪沪沪") > 2.9);
+  // An empty reference has no ratio: null, never 1, never Infinity — and null is excluded from means.
+  assert.equal(computeContainment("", "x"), null);
+  assert.equal(computeInflation("", "x"), null);
+  assert.equal(computeOrder("", ""), null);
+  assert.equal(computeOrder("abc", "xyz"), null, "nothing contained: no order to speak of");
+});
+
 test("subgroupOf: png by media; PDFs by id suffix; an unrecognised PDF id is not scored", () => {
   assert.equal(subgroupOf({ id: "x", media: "png" }), "png");
   assert.equal(subgroupOf({ id: "x-pdf-layer", media: "pdf" }), "pdf-layer");
@@ -166,6 +190,9 @@ test("aggregate: per candidate and subgroup — counts, failure tallies, both CE
   assert.equal(v.fixtures, 3, "the tuning-only fixture is not a holdout fixture");
   assert.equal(v.successes, 3, "its observation is not counted either");
   assert.equal(v.exact_rate, 1, "an out-of-role wrong transcript must not lower the rate");
+  assert.equal(v.mean_containment, 1);
+  assert.equal(v.mean_order, 1);
+  assert.ok(Math.abs(v.mean_inflation - 1) < 0.01);
   assert.equal(v.success_rate, 1);
   assert.ok(v.mean_cer > 0, "raw CER sees the full-width parentheses");
   assert.equal(v.mean_cer_folded, 0, "folded CER does not");

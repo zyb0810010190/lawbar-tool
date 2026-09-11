@@ -57,6 +57,15 @@ test("manifest: media defaults to png; pdf is accepted with a .pdf path; an unkn
   assert.throws(() => loadManifest(manifestWith({ media: "tiff" }, { file: "page.tiff" })), (e) => e instanceof ManifestValidationError && /media/.test(e.message));
 });
 
+test("manifest: a pdf carries page (default 1), a png carries none, and page is refused on a png or when not a positive integer", () => {
+  assert.equal(loadManifest(manifestWith()).fixtures[0].page, undefined, "a png has no page");
+  assert.equal(loadManifest(manifestWith({ media: "pdf" }, { file: "page.pdf" })).fixtures[0].page, 1, "a pdf defaults to page 1");
+  assert.equal(loadManifest(manifestWith({ media: "pdf", page: 7 }, { file: "page.pdf" })).fixtures[0].page, 7);
+  assert.throws(() => loadManifest(manifestWith({ page: 2 })), /only meaningful for a pdf/);
+  assert.throws(() => loadManifest(manifestWith({ media: "pdf", page: 0 }, { file: "page.pdf" })), /positive integer/);
+  assert.throws(() => loadManifest(manifestWith({ media: "pdf", page: 1.5 }, { file: "page.pdf" })), /positive integer/);
+});
+
 test("manifest: a media that disagrees with the file extension is refused — a .pdf declared png would reach image-only engines", () => {
   assert.throws(() => loadManifest(manifestWith({}, { file: "page.pdf" })), /media is "png" but path .* is a \.pdf/);
   assert.throws(() => loadManifest(manifestWith({ media: "pdf" })), /media is "pdf" but path .* is a \.png/);
@@ -160,7 +169,7 @@ function makeFakeTimeBin() {
 
 const optsFor = (binary) => ({ binary_path: binary, pinned_digest: sha256OfFile(binary), time_binary: makeFakeTimeBin(), required_languages: ["zh-Hans"] });
 const COLD = { run_kind: "cold", timeout_ms: 10_000 };
-const pdfFixture = { id: "page", path: "synthetic/page.pdf", language: "zh-Hans", media: "pdf" };
+const pdfFixture = { id: "page", path: "synthetic/page.pdf", language: "zh-Hans", media: "pdf", page: 1 };
 const pngFixture = { id: "page", path: "synthetic/page.png", language: "zh-Hans", media: "png" };
 
 test("layer candidate: asks for --layer-only, layer_text is the transcript, the timed layer read is the inference, and no Vision language is required", async () => {
@@ -181,6 +190,25 @@ test("layer candidate: asks for --layer-only, layer_text is the transcript, the 
   // A language the harness cannot map does not stop the layer tier: it recognises nothing.
   const jpn = await c.run({ ...pdfFixture, language: "jpn" }, COLD);
   assert.equal(jpn.outcome, "success", JSON.stringify(jpn));
+});
+
+test("a PDF fixture's page is asked for as a one-page range, and a record for another page is refused", async () => {
+  const fakePath = makeFakeHelper({ page: 3 });
+  const c = makeLawbarOcrPdfkitLayerCandidate(fixturesRoot, optsFor(fakePath));
+  const o = await c.run({ ...pdfFixture, page: 3 }, COLD);
+  assert.match(argsOf(fakePath), /--pages 3-3/);
+  assert.equal(o.outcome, "success", JSON.stringify(o));
+  const wrong = await makeLawbarOcrPdfkitLayerCandidate(fixturesRoot, optsFor(makeFakeHelper({ page: 1 }))).run({ ...pdfFixture, page: 3 }, COLD);
+  assert.equal(wrong.outcome, "failure");
+  assert.match(wrong.message, /asked for page 3/);
+  // A PNG never gets a page range.
+  const pngFake = makeFakeHelper();
+  await makeLawbarOcrVisionCandidate(fixturesRoot, optsFor(pngFake)).run(pngFixture, COLD);
+  assert.doesNotMatch(argsOf(pngFake), /--pages/);
+  // A pdf fixture with no page did not come through the manifest: refused, never defaulted to 1.
+  const noPage = await makeLawbarOcrPdfkitLayerCandidate(fixturesRoot, optsFor(makeFakeHelper())).run({ id: "page", path: "synthetic/page.pdf", language: "zh-Hans", media: "pdf" }, COLD);
+  assert.equal(noPage.outcome, "failure");
+  assert.equal(noPage.code, "fixture_invalid");
 });
 
 test("layer candidate: a full-mode answer to a layer-only request, or a layer_only PDF record without layer_ms, is malformed output", async () => {

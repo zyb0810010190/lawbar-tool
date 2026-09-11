@@ -126,6 +126,17 @@ export interface SubgroupAggregate {
   readonly mean_cer: number | null;
   readonly mean_cer_folded: number | null;
   readonly exact_rate: number;
+  /**
+   * Order-insensitive agreement, reported BESIDE CER because CER cannot tell a misread from a
+   * different reading order on a dense page (klode's integrity triple, mapped onto CJK):
+   * containment — share of the reference's characters (as a multiset, NFKC, whitespace removed)
+   * present in the transcript; inflation — transcript length over reference length; order —
+   * of the reference characters present, the share that appear in the same order (longest common
+   * subsequence over the contained count). These are NOT registered requirements; they explain.
+   */
+  readonly mean_containment: number | null;
+  readonly mean_inflation: number | null;
+  readonly mean_order: number | null;
   readonly p50_latency_ms: number | null;
   readonly p95_latency_ms: number | null;
   readonly max_rss_mb: number | null;
@@ -136,6 +147,45 @@ export type Aggregates = Readonly<Record<string, Readonly<Partial<Record<Subgrou
 /** NFKC on both sides folds full-width ASCII-range punctuation and digits; raw CER is kept beside it. */
 export function computeCERFolded(reference: string, candidate: string): number {
   return computeCER(reference.normalize("NFKC"), candidate.normalize("NFKC"));
+}
+
+const bag = (s: string): string[] => Array.from(s.normalize("NFKC").replace(/\s+/g, ""));
+
+/** Share of the reference's characters (multiset) present anywhere in the transcript; null for an empty reference. */
+export function computeContainment(reference: string, candidate: string): number | null {
+  const ref = bag(reference), cand = bag(candidate);
+  if (ref.length === 0) return null;
+  const counts = new Map<string, number>();
+  for (const ch of cand) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+  let hit = 0;
+  for (const ch of ref) { const k = counts.get(ch) ?? 0; if (k > 0) { hit += 1; counts.set(ch, k - 1); } }
+  return hit / ref.length;
+}
+
+/** Transcript length over reference length, whitespace removed; null for an empty reference (no ratio exists). */
+export function computeInflation(reference: string, candidate: string): number | null {
+  const r = bag(reference).length;
+  return r === 0 ? null : bag(candidate).length / r;
+}
+
+/**
+ * Of the reference characters the transcript contains, the share that appear in the same order;
+ * null for an empty reference or when nothing is contained. Quadratic in page length: a 1,200-
+ * character page costs ~1.4 M cells, about a second across 168 pages — a page, not a book.
+ */
+export function computeOrder(reference: string, candidate: string): number | null {
+  const a = bag(reference), b = bag(candidate);
+  if (a.length === 0) return null;
+  const c = computeContainment(reference, candidate);
+  const contained = c === null ? 0 : Math.round(c * a.length);
+  if (contained === 0) return null;
+  let prev = new Array<number>(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i += 1) {
+    const cur = [0];
+    for (let j = 1; j <= b.length; j += 1) cur[j] = a[i - 1] === b[j - 1] ? prev[j - 1]! + 1 : Math.max(prev[j]!, cur[j - 1]!);
+    prev = cur;
+  }
+  return Math.min(1, prev[b.length]! / contained);
 }
 
 /** png by media; a PDF is pdf-layer or pdf-scan by the fixture id's suffix. Anything else is not scored. */
@@ -160,7 +210,7 @@ export function roundAggregates(agg: Aggregates): Aggregates {
   for (const [c, subs] of Object.entries(agg)) {
     out[c] = {};
     for (const [s, a] of Object.entries(subs) as [Subgroup, SubgroupAggregate][]) {
-      out[c][s] = { ...a, success_rate: round(a.success_rate, 4)!, mean_cer: round(a.mean_cer, 4), mean_cer_folded: round(a.mean_cer_folded, 4), exact_rate: round(a.exact_rate, 4)!, max_rss_mb: round(a.max_rss_mb, 1) };
+      out[c][s] = { ...a, success_rate: round(a.success_rate, 4)!, mean_cer: round(a.mean_cer, 4), mean_cer_folded: round(a.mean_cer_folded, 4), exact_rate: round(a.exact_rate, 4)!, mean_containment: round(a.mean_containment, 4), mean_inflation: round(a.mean_inflation, 4), mean_order: round(a.mean_order, 4), max_rss_mb: round(a.max_rss_mb, 1) };
     }
   }
   return out;
@@ -196,6 +246,9 @@ export function aggregate(
       const failures: Record<string, number> = {};
       const cers: number[] = [];
       const folded: number[] = [];
+      const containment: number[] = [];
+      const inflation: number[] = [];
+      const order: number[] = [];
       const latencies: number[] = [];
       const rss: number[] = [];
       let successes = 0;
@@ -213,6 +266,10 @@ export function aggregate(
         const ref = expectedText(byId.get(f.id)!);
         cers.push(computeCER(ref, o.transcript));
         folded.push(computeCERFolded(ref, o.transcript));
+        // Null metrics (an empty reference) are excluded from their means, never averaged as 0 or ∞.
+        const cn = computeContainment(ref, o.transcript); if (cn !== null) containment.push(cn);
+        const inf = computeInflation(ref, o.transcript); if (inf !== null) inflation.push(inf);
+        const ord = computeOrder(ref, o.transcript); if (ord !== null) order.push(ord);
         latencies.push(o.latency_ms);
         rss.push(o.peak_rss_bytes);
       }
@@ -226,6 +283,9 @@ export function aggregate(
         mean_cer: mean(cers),
         mean_cer_folded: mean(folded),
         exact_rate: folded.filter((c) => c === 0).length / members.length,
+        mean_containment: mean(containment),
+        mean_inflation: mean(inflation),
+        mean_order: mean(order),
         p50_latency_ms: percentile(latencies, 50),
         p95_latency_ms: percentile(latencies, 95),
         max_rss_mb: rss.length === 0 ? null : Math.max(...rss) / (1024 * 1024),

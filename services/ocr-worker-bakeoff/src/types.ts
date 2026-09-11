@@ -294,6 +294,12 @@ interface ActiveBakeoffFixtureBase {
   language: string;
   /** Defaults to "png" in the manifest; every fixture before the PDF kind was a PNG. */
   media: FixtureMedia;
+  /**
+   * For a PDF: WHICH page of the file this fixture is (1-based). Default 1. A fixture is always one
+   * page; a multi-page document (the owner's real files, read in place) yields one fixture per page,
+   * all sharing the file's hash. Present for every pdf, absent for a png.
+   */
+  page?: number;
   /** Free-form provenance summary. */
   provenance: string;
   /** ISO-8601 timestamp of last manual verification of the bytes + expected text. */

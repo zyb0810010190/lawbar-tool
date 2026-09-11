@@ -51,7 +51,15 @@ ocr-review}` and `docs/contracts` MUST NOT depend on this package.
   transcript, a fixture id, or a path — append-only. `results/` holds committed
   verdicts. `--fixtures-root=/abs/path` points both bins at a manifest outside
   the repository (the owner's real pages, read in place; same containment rules;
-  same result shape).
+  same result shape). A PDF fixture may carry `page` (1-based, default 1): a
+  multi-page document read in place yields one fixture per page, all sharing the
+  file's hash, and the helper is asked for that one-page range. Beside CER the
+  aggregates report `mean_containment`, `mean_inflation` and `mean_order`
+  (klode's integrity triple on CJK): CER cannot tell a misread from a different
+  reading order on a dense page; these can. They explain; they are not
+  registered requirements. First real run (`results/2026-09-10-real-born-digital.json`,
+  168 of the owner's born-digital pages, aggregates only): Vision containment
+  0.99, order 0.84, CER 0.27 — the same characters, another order.
 - **Commit ε** — ADR-11A.1 verdict + lockfile + assembled license
   artifact. Lands only after all three v1 candidates have measurements
   and the hybrid fixture set is complete (≥5 active synthetic + ≥2
