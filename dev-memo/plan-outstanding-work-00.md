@@ -772,6 +772,39 @@ DISAGREE, both average 0.33 — the signal separates cleanly.
   the error is per-document (11 of 20 under 0.05, 3 above 0.4). The product answer is the gate,
   not a better engine, and critical fields stay the owner's to verify.
 
+**Which control, measured rather than assumed (2026-09-11).** Accepting the control means accepting
+its cost: PaddleOCR is a 15 MB model set on a 72 MB native ONNX runtime, and bundling ~87 MB is
+exactly what choosing Vision avoided. So the cheap alternatives were tested on the 56 lines whose
+truth the owner supplied (throwaway spike `scratchpad/vision-level-spike.swift`; the shipped helper
+was NOT touched for an experiment whose outcome was unknown). Vision is wrong on 23 of the 56 at
+crop level.
+
+| control | catches of 23 errors | needlessly flags of 33 correct | accepts | wrong among accepted |
+|---|---|---|---|---|
+| PaddleOCR — a different engine, ~87 MB | **23** | 8 | 25 | **0** |
+| same engine at 2x scale — free | 20 | 4 | 32 | 3 |
+| same engine, language correction off — free | 0 | 0 | 56 | 23 |
+| Vision's own confidence < 0.5 — free | 16 of 21 (page-level lines) | 2 | 38 | 5 |
+
+- **Vision's FAST recognition level cannot be the control: it does not support Chinese at all.**
+  Measured: fast offers 6 languages, accurate 18, and every CJK language is accurate-only. That
+  closes the cheapest idea outright.
+- **Language correction on/off is not a control:** the two readings were identical on all 56 lines.
+- **The same engine at another scale is a real but leaky control** — it catches 20 of 23 and
+  silently accepts 3 wrong lines in 32. The plan's rule that the control must be a DIFFERENT
+  engine (item 4, from the adversarial pass) is therefore empirical now, not principled: the
+  same-engine control misses one error in eight, and a court-facing tool cannot accept those
+  silently.
+- **Only a different engine achieves zero wrong among accepted.** That is the whole value of the
+  gate: it partitions the lawyer's attention, certifying 45% of lines and directing them at the
+  rest. Without a control, OCR output can only be offered as a draft to be read in full.
+
+**The decision this forces, and it is the owner's:** bundle a second engine (~87 MB, or a
+Tesseract + chi_sim alternative that has not been measured and may be smaller) to certify about
+half the lines, or ship Vision alone and present every OCR'd page as a draft the owner must read.
+Not an engineering question: it trades install size against the owner's reading time, in a tool
+whose whole point is the owner's time.
+
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
 evidence names a multi-page scan processed offline with every page's outcome visible. What exists:
