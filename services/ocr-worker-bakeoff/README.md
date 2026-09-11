@@ -60,6 +60,16 @@ ocr-review}` and `docs/contracts` MUST NOT depend on this package.
   registered requirements. First real run (`results/2026-09-10-real-born-digital.json`,
   168 of the owner's born-digital pages, aggregates only): Vision containment
   0.99, order 0.84, CER 0.27 — the same characters, another order.
+- **R3 / WI-12 item 6, real SCANNED lines (2026-09-11)** —
+  `results/2026-09-11-real-scanned-lines.json`: 56 lines cropped from 20 of the
+  owner's scanned pages, each read by both engines and then verified by the owner
+  in a local page. Vision CER 0.190, PaddleOCR 0.189 — indistinguishable, both
+  about four times the registered 0.05 line, so the OCR slot is UNFILLED on real
+  scans. The error is a property of the document, not the engine: 11 of 20
+  documents read under 0.05, 3 above 0.4. Short lines are worst (0.31 at ≤6
+  characters against 0.11 over 20), which is where case numbers and amounts live.
+  26 of the 56 were confirmations of text both engines already agreed on and are
+  therefore weak evidence; the 30 typed independently are the discriminating half.
 - **Commit ε** — ADR-11A.1 verdict + lockfile + assembled license
   artifact. Lands only after all three v1 candidates have measurements
   and the hybrid fixture set is complete (≥5 active synthetic + ≥2

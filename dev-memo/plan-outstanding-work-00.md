@@ -690,6 +690,58 @@ quadratic one costs about a second across 168 real pages; a fixture is a page); 
 compiled output the patch does not contain" (every supported test invocation builds first —
 `pretest` and the lane — as for every test in this package).
 
+**Progress — item 6, the owner's real SCANNED pages, 2026-09-11. The measurement the whole item
+was for.** A scan has no text layer, so only a person can say what it says. Rather than ask the
+owner to transcribe pages, the work was cut to ten minutes: 20 scanned pages were sampled at
+random across all three cases (one per document), rendered locally at 150 dpi — what the app's
+own PDFKit render gives an engine — Vision's line boxes were cropped, and each crop was read
+independently by BOTH engines. The owner then confirmed or typed each line in a local page
+(`scratchpad/verify-crops.mjs`, bound to 127.0.0.1, serving only the crop folder, refusing a
+crafted path; answers saved beside the crops, mode 600). 56 crops; 3 were junk regions and the
+rest were verified by re-reading each crop and comparing with the recorded line.
+**Measured (`results/2026-09-11-real-scanned-lines.json`, aggregates only, leak-checked for ids,
+paths and CJK):**
+
+| candidate | read | folded CER | exact | containment | order | p95 | peak RSS |
+|---|---|---|---|---|---|---|---|
+| lawbar-ocr-vision | 56/56 | 0.190 | 33/56 | 0.840 | 0.995 | 389 ms | 98 MB |
+| paddleocr-onnx | 56/56 | 0.189 | 31/56 | 0.836 | 0.995 | 538 ms | 476 MB |
+
+**What this says, read rather than inferred.** (1) The registered OCR line is 0.05; both engines
+miss it by about four times on real scans, where the synthetic holdout had said 0.018. The OCR
+slot is UNFILLED on real material, and that is the finding, not a defect in the measurement.
+(2) The two engines are indistinguishable on accuracy: 0.0007 apart, far inside the tie line,
+and head-to-head per crop Vision is better on 11, PaddleOCR on 13, tied on 32. Vision wins on
+memory (5x) and speed, not on reading. (3) The error is NOT uniform — it is a property of the
+DOCUMENT. Per crop it is all-or-nothing (Vision: 33 exact, 10 wrong by more than half). Per
+document, 11 of 20 read at under 0.05 and 3 sit above 0.4. So the product answer is a per-page
+quality gate that tells the owner which pages need their eyes, which is what item 4 designed;
+a better engine would not fix the three bad documents. (4) Short lines are the dangerous ones:
+Vision averages 0.31 on lines of ≤6 characters against 0.11 on lines over 20. Case numbers,
+dates and amounts are short lines, so the plan's rule that critical fields are the owner's to
+verify is now empirical, not cautionary.
+**The caveat, stated because it bounds everything above.** 26 of the 56 answers were
+confirmations of text the two engines had already agreed on, and those score 0.000/0.002 by
+construction — the owner was shown the answer before confirming it. The discriminating half is
+the 30 the owner typed with nothing pre-filled: there both engines average 0.33 and Vision gets
+8 exactly right to PaddleOCR's 5. Every answer records whether it was confirmed, edited or typed,
+so the ratio is auditable.
+**What is open, and why it is the linchpin.** Everything downstream — grading all 951 scanned
+pages with no further human time, flagging the bad ones — rests on "when two different engines
+agree exactly, they are right". This run cannot test that, because the agreeing crops are the
+ones the owner confirmed after seeing them. A BLIND round is prepared
+(`scratchpad/prep-blind-crops.py`, `verify-crops.mjs --blind`): crops from documents NOT used
+here, kept only where the two engines agree exactly, served with no proposal shown and the agreed
+text in a file the server never opens, so the owner types from the image alone. Fifteen lines,
+about five minutes. If agreement predicts correctness, the 951-page grade is free; if it does
+not, the quality-gate design needs rethinking, and that is worth learning from fifteen lines
+rather than assuming.
+**Confidentiality, as executed.** The case folders were read in place; nothing was copied into the
+repository; no page text, file name or path from them entered the conversation or any prompt sent
+off the machine; crops, answers and intermediates live in `~/Documents/lawbar-ocr-crops` with
+owner-only permissions; the committed result is counts and means, checked to contain no crop id,
+no path and no CJK character, and it passes the no-real-data patterns.
+
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
 evidence names a multi-page scan processed offline with every page's outcome visible. What exists:
