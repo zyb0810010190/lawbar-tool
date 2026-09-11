@@ -80,7 +80,7 @@ test("manifest.json: every ACTIVE fixture has all required active-branch fields"
     assert.equal(typeof f.last_verified_at, "string");
     // Role is required and constrained to the documented enum.
     assert.ok(
-      ["smoke", "verdict"].includes(f.role),
+      ["smoke", "verdict", "holdout"].includes(f.role),
       `${f.id}: role must be "smoke" | "verdict" (got ${JSON.stringify(f.role)})`,
     );
     // Synthetic active fixtures require render provenance (α.1).

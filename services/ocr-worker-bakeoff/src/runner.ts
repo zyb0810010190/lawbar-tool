@@ -39,7 +39,7 @@ export interface BakeoffRunReport {
   generated_at: string;
   host: { platform: string; arch: string };
   role_filter: FixtureRole;
-  /** True only if `role_filter === "verdict"` AND at least one verdict fixture ran successfully. */
+  /** True only if `role_filter` is "verdict" or "holdout" AND at least one such fixture ran successfully. */
   verdict_ready: boolean;
   fixtures_scored: number;
   probes: Array<{ candidate: string; result: ProbeResult }>;
@@ -279,7 +279,7 @@ export async function runBakeoff(opts: RunBakeoffOptions): Promise<BakeoffRunRep
   }
 
   const verdict_ready =
-    role === "verdict" &&
+    (role === "verdict" || role === "holdout") &&
     cer_scores.some((s) => isFinite(s.cer));
 
   return {

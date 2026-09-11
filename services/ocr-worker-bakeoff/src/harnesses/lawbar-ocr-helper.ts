@@ -540,12 +540,21 @@ export async function extractVerifiedPage(
   const filePath = join(fixturesRoot, fixture.path);
 
   const start = performance.now();
+  // One page: a PDF fixture names its page (the manifest sets it, default 1) and is asked for that
+  // one-page range so a multi-page file yields exactly one record. No default here: a PDF fixture
+  // that reaches this boundary without a page did not come through the manifest and is refused.
+  const rawPage = (fixture as { page?: unknown }).page;
+  if (fixture.media === "pdf" && (typeof rawPage !== "number" || !Number.isInteger(rawPage) || rawPage < 1)) {
+    return fail("fixture_invalid", "a pdf fixture must name its page (a positive integer)");
+  }
+  const page = fixture.media === "pdf" ? (rawPage as number) : 1;
+  const pageArgs = fixture.media === "pdf" ? ["--pages", `${page}-${page}`] : [];
   const result = await runWithTimeout(
     spawner,
     timeBin,
     mode === "full"
-      ? ["-l", probed.location.path, "extract", filePath, "--lang", lang as string]
-      : ["-l", probed.location.path, "extract", filePath, "--layer-only"],
+      ? ["-l", probed.location.path, "extract", filePath, ...pageArgs, "--lang", lang as string]
+      : ["-l", probed.location.path, "extract", filePath, ...pageArgs, "--layer-only"],
     opts.timeout_ms,
   );
   const latency_ms = Math.round(performance.now() - start);
@@ -573,6 +582,7 @@ export async function extractVerifiedPage(
   if (r.helper_build_digest !== probed.digest) {
     return fail("helper_identity_mismatch", `the page record carries digest ${String(r.helper_build_digest).slice(0, 12)}…, the executable is ${probed.digest.slice(0, 12)}…`);
   }
+  if (r.page !== page) return fail("helper_output_unparseable", `asked for page ${page}, the record says page ${JSON.stringify(r.page)}`);
   if (r.error !== null && r.error !== undefined) {
     const mapped = helperCode("helper_", HELPER_PAGE_ERRORS, r.error);
     return fail(mapped.code, "lawbar-ocr could not process the page", mapped.unknown === null ? undefined : `unknown page error: ${mapped.unknown}`);

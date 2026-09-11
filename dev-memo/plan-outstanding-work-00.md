@@ -560,6 +560,136 @@ latency bound that measured the machine is gone. Not adopted: `cold_model_load_m
 layer tier (the contract's name for what remains of the wall clock; documented as overhead,
 not a model load — the same disposition as the two earlier stamps).
 
+**Progress — item 6, the verdict, 2026-09-10 (synthetic half; the real-pages half waits on the
+owner).** Order of events, because it is the point: (1) `fixtures/verdict-spec.json` was written
+and committed on its own (e883e15) — per tier slot, the metric, subgroup, operator and value it
+must meet on the HOLDOUT role, with the tuning set as the only thing consulted; (2) then six
+holdout pages were authored unlike the tuning set (Songti and STHeiti instead of Hiragino,
+other sizes, 1.5° and −1° rotation, Gaussian and impulse noise, a faint blurred fax-like page, a
+red seal ring with small characters over the text, full-width parentheses IN the source) with
+text-layer and scanned PDF variants, eighteen fixtures; (3) `bin/verdict.mjs --role=holdout`
+ran once and wrote `results/2026-09-10-holdout-synthetic.json`. One re-authoring before the
+committed run, disclosed: the faint paragraph's first render lacked the 〇 glyph (Songti has
+none), found by reading both engines' transcripts — they agreed on the gap, which is the
+control working — and re-rendered in STHeiti Light; no threshold moved.
+**The registered lines:** text-layer slot — success and exact rate 1.0 on text-layer PDFs,
+`no_text_layer` on 100% of scans, p95 ≤ 200 ms, ≤ 64 MB. OCR slot — every page read, NFKC-folded
+mean CER ≤ 0.05 on page images, p95 ≤ 1.5 s, ≤ 512 MB; ranked by folded CER then memory; a gap
+under one character per page is a tie; the runner-up is item 4's control.
+**Measured on the holdout (packaged helper 0.2.0 sha256 4c091aa6…, macOS 24G90, spec sha256
+c75486e9…, manifest 1c819157…, harness e883e15):**
+
+| candidate | subgroup | read | raw CER | folded CER | exact | p95 | peak RSS |
+|---|---|---|---|---|---|---|---|
+| lawbar-ocr-pdfkit-layer | pdf-layer | 6/6 | 0.000 | 0.000 | 6/6 | 53 ms | 17.7 MB |
+| lawbar-ocr-pdfkit-layer | pdf-scan | `no_text_layer` 6/6 | — | — | — | — | — |
+| lawbar-ocr-vision | png | 6/6 | 0.018 | 0.018 | 5/6 | 336 ms | 87 MB |
+| lawbar-ocr-vision | pdf-scan (rendered) | 6/6 | 0.012 | 0.012 | 5/6 | 337 ms | 92 MB |
+| paddleocr-onnx | png | 6/6 | 0.043 | 0.034 | 4/6 | 417 ms | 353 MB |
+| tesseract | png | 0/6 (no `chi_sim`) | — | — | — | — | — |
+
+**Awarded, by the spec as written:** `text_layer` → `lawbar-ocr-pdfkit-layer` (every line
+passes); `ocr` → `lawbar-ocr-vision`, ranked above `paddleocr-onnx` by a folded-CER gap of
+0.017 (above the one-character tie line); **control → `paddleocr-onnx`**, which also qualifies.
+What the remaining errors are, read: PaddleOCR mis-widths one parenthesis and drops the hyphen
+and two punctuation marks in the Latin contract id; Vision reads the same id but breaks the
+line into four regions, and writes a full-width comma in `50,000` on one render. Both read the
+seal-covered page, the rotated pages, the noisy page and the faint page exactly. Six pages per
+subgroup is still six pages: the awards stand for the synthetic evaluation only; the real-pages
+run under the same spec decides for the owner's material.
+**Changed:** `src/verdict.ts`, `bin/verdict.mjs`, `fixtures/verdict-spec.json`, `fixtures/holdout/`
+(eighteen files plus sidecars), `fixtures/manifest.json`, `results/2026-09-10-holdout-synthetic.json`,
+`tests/verdict.test.mjs`, the holdout role in `types.ts`/`manifest.ts`/`runner.ts`/`bin/bakeoff.mjs`,
+`--fixtures-root` on both bins, `README.md`.
+**Still open in item 6:** the owner's real pages — 30–50, stratified, transcribed critical fields,
+in a private directory with a manifest of the same shape; `bin/verdict.mjs --role=holdout
+--fixtures-root=/abs/private --out=results/<date>-real.json` scores them in place under this
+spec and commits aggregates only. That run needs the owner's material and cannot be started
+by the agent.
+**Verified:** seventeen verdict tests; thirteen mutants of the compiled module killed (unmeasured
+requirement passing; tie never recorded; role check dropped; folded CER not folded; probe detail
+kept; code shape not enforced; the committability walk skipped; detail copied verbatim; a
+multi-candidate slot accepted without a ranking rule; nulls not last; reconciliation dropped;
+suffix check dropped; the tie judged on rounded values); bake-off lane 152 tests green with the
+35-fixture manifest; the committed result regenerated under the final code from the same spec
+(sha256 c75486e9…, now pinned in the test so an edit to a threshold must be made deliberately).
+**Reviewed:** Codex, one job per file, read-only, `gpt-5.6-sol` — threads 01a08d88-7182 (module),
+01a08d88-7b63 (bin), 01a08d88-8737 (tests), 01a08d88-7e5d (spec and result). 25 findings; 20
+verified and fixed before this stamp. The ones that changed what is committed: a `--spec` flag
+could have judged a run by a relaxed spec → removed, the committed spec is the only judge and
+its hash is in every result; probe detail was copied into the result and a failure code became
+a JSON key verbatim → only the macOS build and architecture are extracted by shape, a code
+that is not code-shaped is tallied under a fixed name, and the committability check walks every
+key and value refusing any path separator; rounded aggregates drove requirements and ties →
+judged unrounded, rounded only for the record; a `signal_rate` rank key lost its code and a
+multi-candidate slot with no ranking rule would have been ranked by name → both refused by the
+parser; a missing value ranked first on a descending key → last on every key; the scored count
+came from the report → from the manifest, with a mismatch refused, and a scored PDF with no
+subgroup suffix refused rather than dropped from every denominator; the result file is written
+create-only; the manifest and every expected text are read once, hashed, and the run refused if
+either changed under it. The tests gained a pinned spec hash, a spec-as-written pass that
+mutates operators, values, codes and ranking, every unmeasured line asserted, a hundred-sample
+percentile, an out-of-role observation, injected page text in every retained string, and the
+tie line tested from both sides. Not adopted, with reasons: renaming `exact_rate` (the registered
+spec defines it on the folded CER in its own words — a rename after the holdout was measured
+would be the thing pre-registration forbids); withholding the award inside a recorded tie (the
+registered decision rule says the tie is reported and the memory tie-break stated, which the
+result does).
+
+**Progress — item 6, the owner's real pages, first cell, 2026-09-10.** The owner named three case
+folders (CASE-A, CASE-B, CASE-C here; never by name in anything committed). Rules kept, stated so
+they can be checked: the folders are read in place; no page text, file name, or path from them
+entered this conversation, which is itself processed off the machine — an inventory printed
+counts only; a private fixtures root outside the repository (`~/Documents/lawbar-ocr-private/`,
+mode 700) holds anonymous HARD LINKS `DOC-nn.pdf` to the born-digital files (same inode, no copy
+of bytes, nothing written into the case folders), one expected-text file per page written by the
+helper's own layer-only extraction, a manifest with ids `DOC-nn-pNN-pdf-layer`, and a source map
+that is the only record of which link is which original; the committed result carries counts
+and means only, was checked to contain no `DOC-`, no `/Users`, and no CJK character, and passes
+the no-real-data patterns. Harness change to make this possible: a PDF fixture carries a `page`
+(1-based, default 1); the helper is asked for that one-page range and a record for another page
+is refused (tested, mutant-killed).
+**Inventory (counts only):** 57 PDFs across the three cases; 168 pages with a text layer in 20
+born-digital documents; 951 scanned pages in 37 documents; page counts per document 1–156.
+**Measured (`results/2026-09-10-real-born-digital.json`, 168 real born-digital pages, expected
+text = the page's own text layer):** the layer tier is exact by construction on this cell (its
+output is the reference — that cell is circular and says nothing); `lawbar-ocr-vision` on the
+rendered pages: 168/168 read, **folded CER 0.274, exact 1/168** — and, beside it, **containment
+0.991, inflation 1.008, order 0.843**; p50 720 ms, p95 1.04 s, peak 166 MB. Read together:
+Vision produced the same characters as the layer, in the same quantity, on essentially every
+page (165 of 168 pages ≥ 0.95 containment); what CER punished is READING ORDER on dense
+multi-column and stamped pages, where Vision's region order and the layer's stream order
+disagree — and the layer's order is not known to be the right one either. Exactly the failure
+the plan's item 4 named ("only an ORDER metric sees it"). Consequence: the CER metric as
+registered is the right instrument for the crops the spec's `png` cell was written for, and the
+wrong one for whole pages; the aggregates now carry containment, inflation and order beside
+CER (not registered requirements; they explain), and any future registered line for whole pages
+must be written on those. Both spec slots are UNFILLED on this result, correctly: the spec's
+requirements name `png` and `pdf-scan` cells this root does not have.
+**Still needed from the owner for the scanned cell (951 pages):** crops. A crop is a screenshot of
+one region of a real scanned page — heading, case number, party line, amount, date, a seal-
+covered line, a faint fax line, a table row — saved as a PNG beside a text file with exactly what
+the crop shows; 30–50 crops from 10–15 documents, chosen by the owner, whose call it is which
+client material is used; a blurry crop is left out, not guessed. The manifest is generated by
+script from the folder; the run is one command; the result is aggregates only.
+**Changed:** `types.ts`, `manifest.ts`, `lawbar-ocr-helper.ts` (page), `verdict.ts` (three
+metrics), tests, `README.md`, `results/2026-09-10-real-born-digital.json`, and the synthetic result
+regenerated under the final code (same awards, now with containment/inflation/order: 1.0 order
+on every synthetic cell).
+**Verified:** 88 tests across the four affected suites; two mutants killed (the order metric
+returning 1; the page requirement at the boundary dropped so a missing page would default to 1);
+bake-off lane green; both results regenerated after the last code change; the real result passes
+the no-real-data patterns and contains no `DOC-`, no `/Users`, and no CJK character.
+**Reviewed:** Codex, one job on the diff, read-only, `gpt-5.6-sol` — thread 01a08dc7-3b95. 5
+findings; 3 verified and fixed before this stamp: a page number was normalised onto PNG fixtures
+(`page` is now present for every pdf and absent for a png); the boundary defaulted a missing page
+to 1 (a pdf fixture without a page is refused as `fixture_invalid`, never defaulted); an empty
+reference made inflation infinite and serialised as null (all three metrics are null for an empty
+reference and excluded from their means). Not adopted, with reasons: a bit-parallel LCS (the
+quadratic one costs about a second across 168 real pages; a fixture is a page); "tests import
+compiled output the patch does not contain" (every supported test invocation builds first —
+`pretest` and the lane — as for every test in this package).
+
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
 evidence names a multi-page scan processed offline with every page's outcome visible. What exists:

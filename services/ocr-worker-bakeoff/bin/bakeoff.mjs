@@ -17,7 +17,7 @@
 //   3 — bad CLI args
 
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 import { makeTesseractCandidate } from "../dist/harnesses/tesseract.js";
 import { makePaddleOcrOnnxCandidate } from "../dist/harnesses/paddleocr-onnx.js";
@@ -28,26 +28,34 @@ import { loadManifest, ManifestValidationError, collectLanguages } from "../dist
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(here, "..");
-const fixturesRoot = join(pkgRoot, "fixtures");
+const defaultFixturesRoot = join(pkgRoot, "fixtures");
 
 function parseArgs(argv) {
-  const out = { role: "smoke", fixtureId: undefined };
+  const out = { role: "smoke", fixtureId: undefined, fixturesRoot: undefined };
   for (const tok of argv) {
     if (tok.startsWith("--role=")) out.role = tok.slice("--role=".length);
     else if (tok.startsWith("--fixture-id=")) out.fixtureId = tok.slice("--fixture-id=".length);
+    // A manifest OUTSIDE the repository — the owner's private real pages, read in place. The
+    // manifest's own containment rules apply to that root; nothing under it is ever copied.
+    else if (tok.startsWith("--fixtures-root=")) out.fixturesRoot = tok.slice("--fixtures-root=".length);
     else {
       process.stderr.write(`unknown arg: ${tok}\n`);
       process.exit(3);
     }
   }
-  if (!["smoke", "verdict"].includes(out.role)) {
-    process.stderr.write(`--role must be smoke|verdict (got ${out.role})\n`);
+  if (!["smoke", "verdict", "holdout"].includes(out.role)) {
+    process.stderr.write(`--role must be smoke|verdict|holdout (got ${out.role})\n`);
+    process.exit(3);
+  }
+  if (out.fixturesRoot !== undefined && !isAbsolute(out.fixturesRoot)) {
+    process.stderr.write(`--fixtures-root must be an absolute path (got ${out.fixturesRoot})\n`);
     process.exit(3);
   }
   return out;
 }
 
 const args = parseArgs(process.argv.slice(2));
+const fixturesRoot = args.fixturesRoot ?? defaultFixturesRoot;
 
 let manifest;
 try {

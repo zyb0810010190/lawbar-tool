@@ -39,6 +39,27 @@ ocr-review}` and `docs/contracts` MUST NOT depend on this package.
   are absent rather than zero. The harness requires the record's `mode` to be
   the one it asked for. Measured: ~40 ms and ~17 MB per page for the layer tier
   against ~280 ms and ~70–106 MB for Vision.
+- **R3 / WI-12 item 6, the verdict (2026-09-10)** — `fixtures/verdict-spec.json`
+  registers, per tier slot, what must be met on the HOLDOUT role (metric,
+  subgroup, operator, value); it was committed before any holdout page was
+  authored. `fixtures/holdout/` holds six pages rendered unlike the tuning set
+  (other fonts, rotation, noise, a faint fax-like page, a seal over the text,
+  full-width punctuation in the source) with text-layer and scanned PDF
+  variants. `src/verdict.ts` aggregates a run per candidate and subgroup and
+  applies the spec as written; `bin/verdict.mjs --role=holdout --out=results/…`
+  writes the COMMITTABLE result — aggregates and identity only, never a
+  transcript, a fixture id, or a path — append-only. `results/` holds committed
+  verdicts. `--fixtures-root=/abs/path` points both bins at a manifest outside
+  the repository (the owner's real pages, read in place; same containment rules;
+  same result shape). A PDF fixture may carry `page` (1-based, default 1): a
+  multi-page document read in place yields one fixture per page, all sharing the
+  file's hash, and the helper is asked for that one-page range. Beside CER the
+  aggregates report `mean_containment`, `mean_inflation` and `mean_order`
+  (klode's integrity triple on CJK): CER cannot tell a misread from a different
+  reading order on a dense page; these can. They explain; they are not
+  registered requirements. First real run (`results/2026-09-10-real-born-digital.json`,
+  168 of the owner's born-digital pages, aggregates only): Vision containment
+  0.99, order 0.84, CER 0.27 — the same characters, another order.
 - **Commit ε** — ADR-11A.1 verdict + lockfile + assembled license
   artifact. Lands only after all three v1 candidates have measurements
   and the hybrid fixture set is complete (≥5 active synthetic + ≥2

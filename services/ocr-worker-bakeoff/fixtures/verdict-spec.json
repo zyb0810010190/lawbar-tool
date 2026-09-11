@@ -1,0 +1,56 @@
+{
+  "schema": "bakeoff-verdict-spec/1",
+  "registered_at": "2026-09-10",
+  "registered_before": "any holdout fixture was authored or measured; the git history of this file precedes fixtures/holdout/. The tuning set (role verdict, six synthetic pages and their PDF variants) informed these lines; nothing else did.",
+  "evaluate_on_role": "holdout",
+  "subgroups": {
+    "png": "media png — a page image",
+    "pdf-layer": "media pdf whose fixture id ends with -pdf-layer — a born-digital page with a text layer",
+    "pdf-scan": "media pdf whose fixture id ends with -pdf-scan — an image-only page, no text layer"
+  },
+  "metrics": {
+    "success_rate": "share of the subgroup's fixtures for which the candidate produced a success observation",
+    "signal_rate": "share of the subgroup's fixtures for which the candidate produced the failure code the requirement names — a structured refusal that IS the right answer (no_text_layer on a scan)",
+    "mean_cer": "mean CER over the candidate's success observations, under src/accuracy.ts (NFC, whitespace runs collapsed, punctuation width NOT folded)",
+    "mean_cer_folded": "the same after NFKC on both reference and transcript, so full-width ASCII-range punctuation and digits compare equal to half-width; raw mean_cer is always reported beside it",
+    "exact_rate": "share of the subgroup's fixtures whose folded CER is exactly 0",
+    "p95_latency_ms": "95th percentile (nearest rank) of latency_ms over success observations — the wall clock of one cold subprocess per page",
+    "max_rss_mb": "maximum peak_rss_bytes over success observations, in MiB"
+  },
+  "slots": [
+    {
+      "slot": "text_layer",
+      "meaning": "the cheapest tier: a born-digital PDF's text layer is the page's text and no OCR runs",
+      "candidates": ["lawbar-ocr-pdfkit-layer"],
+      "requirements": [
+        { "subgroup": "pdf-layer", "metric": "success_rate", "op": ">=", "value": 1.0 },
+        { "subgroup": "pdf-layer", "metric": "exact_rate", "op": ">=", "value": 1.0 },
+        { "subgroup": "pdf-scan", "metric": "signal_rate", "code": "no_text_layer", "op": ">=", "value": 1.0 },
+        { "subgroup": "pdf-layer", "metric": "p95_latency_ms", "op": "<=", "value": 200 },
+        { "subgroup": "pdf-layer", "metric": "max_rss_mb", "op": "<=", "value": 64 }
+      ],
+      "rank_by": []
+    },
+    {
+      "slot": "ocr",
+      "meaning": "the recognition tier for pages without a usable text layer",
+      "candidates": ["lawbar-ocr-vision", "paddleocr-onnx", "tesseract"],
+      "requirements": [
+        { "subgroup": "png", "metric": "success_rate", "op": ">=", "value": 1.0 },
+        { "subgroup": "png", "metric": "mean_cer_folded", "op": "<=", "value": 0.05 },
+        { "subgroup": "png", "metric": "p95_latency_ms", "op": "<=", "value": 1500 },
+        { "subgroup": "png", "metric": "max_rss_mb", "op": "<=", "value": 512 }
+      ],
+      "rank_by": [
+        { "subgroup": "png", "metric": "mean_cer_folded", "direction": "asc" },
+        { "subgroup": "png", "metric": "max_rss_mb", "direction": "asc" }
+      ]
+    }
+  ],
+  "control": {
+    "meaning": "item 4's different-engine control: the OCR slot's winner is checked by the best OTHER qualifying OCR candidate. If only one candidate qualifies, the control is null and the plan's verify-don't-trust step cannot be built on this host from this bake-off alone.",
+    "from_slot": "ocr"
+  },
+  "decision_rule": "A slot is awarded only when every one of its requirements passes on the holdout for the candidate; the ocr slot goes to the best-ranked qualifying candidate; a slot with no qualifying candidate is unfilled and the plan's ladder keeps its manual step. Five or six synthetic pages per subgroup cannot separate candidates whose folded CER differs by less than one character per page; a difference that small is reported as a tie, and the tie-break (memory) is stated as such.",
+  "not_measured_here": "the owner's real pages — skew, seals, faint fax, vertical text, tables, transcribed critical fields. They are scored in a separate private run under this same spec with --fixtures-root outside the repository; that run's committed result carries aggregates only, never a transcript, a fixture id, or a path."
+}
