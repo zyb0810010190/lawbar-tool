@@ -967,7 +967,41 @@ removing the matter's own tenant check broke nothing, because every scoping case
 the document's check — the first lock was untested. The test that isolates it (a case box that
 disagrees with itself: this tenant's document sitting in another tenant's matter) now exists.
 Both new test files are registered in `scripts.test`.
-**Not yet built:** main and preload registration, the screen, and the packaged acceptance.
+**Progress — the feature is REACHABLE, 2026-09-12.** `ocr:extract` and `ocr:pages` are registered
+in `electron/main.ts` between the document-open block and the case-box barrel (so they exist before
+the window can invoke them), exposed as `window.lawbar.ocr.{probe,extract,pages}` where the preload
+rebuilds the payload from two named fields, and driven end to end by
+`tests/ocr-extract.electron.test.mjs` against a seeded REAL born-digital PDF
+(`src/caseBox/testSeed/ocrSeed.ts`, env-gated by `LAWBAR_OCR_TEST_HOOK`, hand-written minimal PDF
+so PDFKit finds a genuine text layer and the document travels the production storage and
+registration path).
+**Reviewed BEFORE the stamp:** Codex, read-only, `gpt-5.6-sol` — 01a095d6-7b94 (wiring diff),
+01a095d6-864e (the Electron test). 5 findings, all 5 verified and fixed. Two mattered:
+- **One deadline covered two different kinds of work.** The layer read is ONE call for the whole
+  document and measured 40–60 ms a page; recognition is one call per page and measured p95 1.04 s.
+  A single 120 s number let a wedged layer read hold two minutes for work that should take
+  milliseconds. Split: 15 s for the layer, 120 s per recognised page, and a test asserts both.
+- **An unopenable derived store threw across IPC.** SQLite's error names the file, so a database
+  path could have reached the renderer. It is now `store_unavailable`; a test throws a
+  path-bearing error and asserts no path survives, on open and mid-document.
+Both reviews independently found the same hole from opposite sides: every test refused before the
+store was ever opened, so the WORKING path was untested. That gap is now an end-to-end test, and
+closing it found two more bugs of mine.
+**Three bugs the tests found that inspection did not:**
+1. The store was NOT lazy as claimed — building the deps object opened it, so a refused request
+   created a database in a profile that never OCRs, weakening the readiness guarantee. The handler
+   now takes a provider and opens nothing until a request passes scoping.
+2. My edit spliced the seed hook into the MIDDLE of an unrelated function, because the anchor I
+   matched occurred twice. It compiled. Compiling is not evidence; the end-to-end test is what
+   exposed it.
+3. The test then assumed the seed existed the instant the window appeared, but the seed hooks
+   install AFTER `createWindow()` — a race that passes on a fast machine and fails on a slow one.
+   It waits for the hook now.
+**Verified:** 5 Electron tests (bridge shape, malformed payload, end-to-end read-and-read-back,
+clean quit with the store open, laziness), 15 handler tests, desktop lane green. The end-to-end
+test asserts what nothing else could: the derived store is created ONLY at
+`<profile>/ocr-derived/ocr.sqlite`, and the profile root still holds exactly one database.
+**Not yet built:** the screen, and the packaged acceptance.
 
 **The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The
 interface must show the source page and must never label agreed text verified, with case numbers,

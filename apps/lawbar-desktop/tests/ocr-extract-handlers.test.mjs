@@ -61,8 +61,8 @@ function fakeHelper(plan) {
   const calls = [];
   return {
     calls,
-    extract: async (_deps, options) => {
-      calls.push({ layerOnly: options.layerOnly === true, pages: options.pages ?? null });
+    extract: async (helperDeps, options) => {
+      calls.push({ layerOnly: options.layerOnly === true, pages: options.pages ?? null, timeoutMs: helperDeps.timeoutMs });
       return plan(options, calls.length);
     },
   };
@@ -94,8 +94,10 @@ function harness(t, { plan, persistence, tenant = TENANT } = {}) {
       };
     },
     storageRoot: "/store",
-    store,
-    helper: { helperPath: "/nowhere/lawbar-ocr", pinnedDigest: DIGEST },
+    store: () => { touched.push("openStore"); return store; },
+    // The same two deadlines main passes, so a test that asserts them is asserting production's shape.
+    helper: { helperPath: "/nowhere/lawbar-ocr", pinnedDigest: DIGEST, timeoutMs: 15_000 },
+    recogniseTimeoutMs: 120_000,
     tenantId: () => tenant,
     now: () => "2026-09-12T00:00:00Z",
     extract: helper.extract,
@@ -130,8 +132,8 @@ test("scoping: a wrong tenant, a wrong matter and an unknown document all answer
     assert.deepEqual(await ocrExtractHandler(REQ, deps), { ok: false, code: "unknown_document" }, label);
     assert.deepEqual(await ocrPagesHandler(REQ, deps), { ok: false, code: "unknown_document" }, label);
     assert.equal(helper.calls.length, 0, `${label}: nothing may be read before scoping passes`);
-    assert.deepEqual(touched.filter((c) => c.startsWith("store.") || c === "resolveFile"), [],
-      `${label}: neither the derived store nor the file path may be touched before scoping passes`);
+    assert.deepEqual(touched.filter((c) => c.startsWith("store.") || c === "resolveFile" || c === "openStore"), [],
+      `${label}: the derived store must not even be OPENED, nor a path built, before scoping passes`);
   }
 });
 
@@ -173,7 +175,8 @@ test("the ladder: the layer is asked for ONCE for the whole document, and a page
   });
   const res = await ocrExtractHandler(REQ, deps);
   assert.equal(res.ok, true, JSON.stringify(res));
-  assert.deepEqual(helper.calls, [{ layerOnly: true, pages: null }], "one layer call, and no recognition at all");
+  assert.deepEqual(helper.calls.map(({ layerOnly, pages }) => ({ layerOnly, pages })),
+    [{ layerOnly: true, pages: null }], "one layer call, and no recognition at all");
   assert.deepEqual(res.value, { pageCount: 2, fromTextLayer: 2, recognised: 0, failed: 0, missing: 0, needsReview: 2 });
   assert.deepEqual(Object.keys(res.value).sort(),
     ["failed", "fromTextLayer", "missing", "needsReview", "pageCount", "recognised"],
@@ -193,7 +196,7 @@ test("recognition runs ONLY for pages without a usable layer, one call per page"
   });
   const res = await ocrExtractHandler(REQ, deps);
   assert.equal(res.ok, true, JSON.stringify(res));
-  assert.deepEqual(helper.calls, [
+  assert.deepEqual(helper.calls.map(({ layerOnly, pages }) => ({ layerOnly, pages })), [
     { layerOnly: true, pages: null },
     { layerOnly: false, pages: { from: 2, to: 2 } },
     { layerOnly: false, pages: { from: 3, to: 3 } },
@@ -324,6 +327,43 @@ test("a THROWN dependency becomes a code, never raw text across the boundary", a
   assert.deepEqual(rows.map((r) => r.outcome), ["failed", "ocr"]);
   assert.equal(rows[0].failureCode, "helper_bad_output");
   assert.ok(!JSON.stringify(rows).includes("/Users"), "no path may be stored either");
+});
+
+test("the two calls carry the deadlines their work needs, not one number for both", async (t) => {
+  const { deps, helper } = harness(t, {
+    plan: (options) => options.layerOnly
+      ? { ok: true, pages: [page(1, 1)], elapsed_ms: 5 }
+      : { ok: true, pages: [recognised(1, 1, "read")], elapsed_ms: 5 },
+  });
+  await ocrExtractHandler(REQ, deps);
+  assert.deepEqual(helper.calls.map((c) => [c.layerOnly, c.timeoutMs]), [[true, 15_000], [false, 120_000]],
+    "a whole-document layer read is not a per-page recognition and must not share its deadline");
+});
+
+test("a derived store that cannot be opened or written is a CODE, never raw text naming a file", async (t) => {
+  // Opening sqlite throws an error whose message names the file. That must not reach the renderer.
+  const boom = () => { throw new Error("SQLITE_CANTOPEN: unable to open database file /Users/someone/Library/ocr.sqlite"); };
+  const { deps } = harness(t, { plan: () => ({ ok: true, pages: [page(1, 1)], elapsed_ms: 5 }) });
+  deps.store = boom;
+  for (const res of [await ocrExtractHandler(REQ, deps), await ocrPagesHandler(REQ, deps)]) {
+    assert.deepEqual(Object.keys(res).sort(), ["code", "ok"]);
+    assert.equal(res.code, "store_unavailable");
+    assert.ok(!JSON.stringify(res).includes("/Users"), "no path may cross");
+  }
+  // A store that opens but fails mid-document answers the same way.
+  const mid = harness(t, {
+    plan: (options) => options.layerOnly
+      ? { ok: true, pages: [page(1, 2), page(2, 2)], elapsed_ms: 5 }
+      : { ok: true, pages: [recognised(options.pages.from, 2, "read")], elapsed_ms: 5 },
+  });
+  const realStore = mid.store;
+  mid.deps.store = () => ({
+    ...realStore,
+    putPage: () => { throw new Error("disk I/O error at /Users/someone/ocr.sqlite"); },
+  });
+  const res = await ocrExtractHandler(REQ, mid.deps);
+  assert.equal(res.code, "store_unavailable");
+  assert.ok(!JSON.stringify(res).includes("/Users"));
 });
 
 test("re-running is idempotent: the same pages, not doubled", async (t) => {

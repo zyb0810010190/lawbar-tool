@@ -71,6 +71,8 @@ export type OcrExtractRefusal =
   | "unknown_document"
   | "unsupported_document"
   | "helper_unavailable"
+  /** The derived store could not be opened or written. Regenerable, so this is recoverable. */
+  | "store_unavailable"
   | "extract_failed";
 
 export type OcrExtractResult =
@@ -91,7 +93,7 @@ export type OcrPagesResult =
         readonly missing: number | null;
       };
     }
-  | { readonly ok: false; readonly code: "invalid_request" | "unknown_document" | "helper_unavailable" };
+  | { readonly ok: false; readonly code: "invalid_request" | "unknown_document" | "helper_unavailable" | "store_unavailable" };
 
 /** The slice of persistence these handlers need. Structural, so the runtime satisfies it as-is. */
 export interface OcrDocumentPersistence {
@@ -108,8 +110,21 @@ export interface OcrExtractDeps {
   readonly provide: () => { readonly persistence: OcrDocumentPersistence };
   /** Where registered originals live; the same root `document:open` reads. */
   readonly storageRoot: string;
-  readonly store: OcrStore;
+  /**
+   * The derived store, resolved ONLY once a request has passed scoping. A provider rather than a
+   * value because building the deps object must not open a database: a profile that never OCRs
+   * must never grow one, or the readiness guarantee that nothing is written behind the FileVault
+   * gate quietly stops covering this store. An Electron test pins that.
+   */
+  readonly store: () => OcrStore;
   readonly helper: HelperDeps;
+  /**
+   * The deadline for ONE RECOGNISED PAGE, when it differs from the layer read's. The layer is a
+   * whole-document call that measured 40–60 ms a page; recognition measured p95 1.04 s a page and
+   * is retried per page. One number for both would either cut the layer short on a long document
+   * or let a wedged page hold a 120 s slot for work that should take 50 ms.
+   */
+  readonly recogniseTimeoutMs?: number;
   /** Injectable for tests only; defaults to the active tenant. */
   readonly tenantId?: () => string;
   readonly now?: () => string;
@@ -177,15 +192,24 @@ export async function ocrExtractHandler(payload: unknown, deps: OcrExtractDeps):
   if (helperDigest === null) return { ok: false, code: "helper_unavailable" };
   const run = deps.extract ?? extractPages;
   const file = (deps.resolveFile ?? defaultResolveFile)(deps.storageRoot, payload.documentId, doc.filename);
+  // Opening a sqlite file can throw, and what it throws names the file. A code crosses; the path
+  // does not. The store is derived, so this is recoverable: the owner can try again.
+  let store: OcrStore;
+  try {
+    store = deps.store();
+  } catch {
+    return { ok: false, code: "store_unavailable" };
+  }
   const at = (deps.now ?? (() => new Date().toISOString()))();
   const base = { matterId: payload.matterId, documentId: payload.documentId, helperDigest, pageCount: 1, at };
 
   // A THROWN helper is a coded refusal, never raw text across the boundary. `extractPages` returns
   // failures as fields, but an injected implementation, an OOM or a programming error can still
   // reject, and whatever message that carries may name a path.
-  const runSafely = async (options: Parameters<typeof extractPages>[1]): Promise<ExtractResult> => {
+  const runSafely = async (options: Parameters<typeof extractPages>[1], timeoutMs?: number): Promise<ExtractResult> => {
+    const helper = timeoutMs === undefined ? deps.helper : { ...deps.helper, timeoutMs };
     try {
-      return await run(deps.helper, options);
+      return await run(helper, options);
     } catch {
       return { ok: false, code: "helper_bad_output", elapsed_ms: 0 };
     }
@@ -207,10 +231,13 @@ export async function ocrExtractHandler(payload: unknown, deps: OcrExtractDeps):
   if (pageCount === 0) return { ok: false, code: "unsupported_document" };
   const withCount = { ...base, pageCount };
 
+  // Every store WRITE below is inside this guard for the same reason: a disk error mid-document
+  // must become a code, not a path in a dialog.
   const needOcr: HelperPage[] = [];
+  try {
   for (const p of layer.pages) {
     if (layerIsUsable(p)) {
-      deps.store.putPage(record(withCount, p.page, {
+      store.putPage(record(withCount, p.page, {
         outcome: "text_layer", text: p.layer_text as string, source: p.source, layerMs: p.layer_ms,
       }));
     } else {
@@ -220,26 +247,35 @@ export async function ocrExtractHandler(payload: unknown, deps: OcrExtractDeps):
 
   // TIER 1 — recognition, one call per page, so one hung page costs one page.
   for (const p of needOcr) {
-    const one = await runSafely({ file, pages: { from: p.page, to: p.page } });
+    const one = await runSafely({ file, pages: { from: p.page, to: p.page } }, deps.recogniseTimeoutMs);
     if (!one.ok) {
-      deps.store.putPage(record(withCount, p.page, { outcome: "failed", text: "", source: p.source, failureCode: one.code }));
+      store.putPage(record(withCount, p.page, { outcome: "failed", text: "", source: p.source, failureCode: one.code }));
       continue;
     }
     const got = one.pages[0];
     if (got === undefined || got.error !== null || typeof got.vision_text !== "string") {
-      deps.store.putPage(record(withCount, p.page, {
+      store.putPage(record(withCount, p.page, {
         outcome: "failed", text: "", source: p.source, failureCode: got?.error ?? "extract_failed",
       }));
       continue;
     }
-    deps.store.putPage(record(withCount, p.page, {
+    store.putPage(record(withCount, p.page, {
       outcome: "ocr", text: got.vision_text, source: got.source,
       layerMs: got.layer_ms, visionMs: got.vision_ms, renderMs: got.render_ms, renderDigest: got.render_digest,
     }));
   }
+  } catch {
+    return { ok: false, code: "store_unavailable" };
+  }
 
-  const counts = deps.store.countByOutcome(payload.matterId, payload.documentId, helperDigest);
-  const done = deps.store.completeness(payload.matterId, payload.documentId, helperDigest);
+  let counts;
+  let done;
+  try {
+    counts = store.countByOutcome(payload.matterId, payload.documentId, helperDigest);
+    done = store.completeness(payload.matterId, payload.documentId, helperDigest);
+  } catch {
+    return { ok: false, code: "store_unavailable" };
+  }
   return {
     ok: true,
     value: {
@@ -260,8 +296,15 @@ export async function ocrPagesHandler(payload: unknown, deps: OcrExtractDeps): P
   // A refusal, not an empty success: an empty list reads as "this document has no OCR", which is a
   // different fact from "this build cannot tell you".
   if (helperDigest === null) return { ok: false, code: "helper_unavailable" };
-  const rows = deps.store.listPages(payload.matterId, payload.documentId, helperDigest);
-  const done = deps.store.completeness(payload.matterId, payload.documentId, helperDigest);
+  let rows;
+  let done;
+  try {
+    const store = deps.store();
+    rows = store.listPages(payload.matterId, payload.documentId, helperDigest);
+    done = store.completeness(payload.matterId, payload.documentId, helperDigest);
+  } catch {
+    return { ok: false, code: "store_unavailable" };
+  }
   // Rebuilt field by field, not forwarded: a column added to the store later cannot cross by default.
   return {
     ok: true,

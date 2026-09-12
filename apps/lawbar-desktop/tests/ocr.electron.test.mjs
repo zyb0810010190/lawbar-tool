@@ -77,7 +77,9 @@ test("window.lawbar.ocr.probe reaches the staged helper, and the digest it retur
   }));
   assert.equal(shape.hasOcr, true, "preload must expose window.lawbar.ocr");
   assert.equal(shape.probeIsFn, true, "preload must expose window.lawbar.ocr.probe");
-  assert.deepEqual(shape.keys, ["probe"], "ocr exposes exactly one channel in step 2");
+  // The whole OCR surface, pinned exactly: probe (step 2) plus extract and pages (WI-12). A method
+  // appearing here that main does not register, or that no test drives, is the failure this asserts.
+  assert.deepEqual(shape.keys, ["extract", "pages", "probe"], "the ocr bridge exposes exactly these three");
 
   const r = await win.evaluate(() => window.lawbar.ocr.probe());
   assert.equal(r.ok, true, `probe failed: ${JSON.stringify(r)}`);
