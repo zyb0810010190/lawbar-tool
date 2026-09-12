@@ -880,6 +880,56 @@ rather than one universal bundle. Intel users keep a working app, each artifact 
 runtime it can execute (~410 MB rather than ~500 MB), and nobody downloads a runtime for a chip
 they do not have. electron-builder already produces `mac-arm64` and `mac` outputs; only the
 universal packaging of the second engine would change.
+**Progress — the derived store and page extraction, 2026-09-12. The first code of the slice.**
+`apps/lawbar-desktop/src/ocr/ocrStore.ts` (new) and `extractPages()` in `src/ocr/helper.ts`.
+**The design was decided by something verified rather than assumed.** `runBackup.ts` copies exactly
+one database, `case-box.sqlite`, by hardcoded name, hashes only that file and names it in the
+manifest; `restore-from-backup.mjs` refuses a manifest naming anything else — read, not inferred. A
+second database beside it would therefore be absent from every backup while the app reported the
+backup VERIFIED. So the store is built to make that omission CORRECT: it holds only what the app
+can produce again, the case box's ocr-link stays the authority, and it lives at
+`<userData>/ocr-derived/ocr.sqlite` — the directory name is the contract a reader meets while
+debugging a restore. Every row is keyed by the helper build digest that produced it, so an upgrade
+re-extracts instead of serving text no shipped binary would produce today.
+**Reviewed BEFORE the stamp, and it changed the code:** Codex, one job per file, read-only,
+`gpt-5.6-sol` — threads 01a094b5-9085 (store), 01a094b5-9ae4 (extraction diff), 01a094b5-a5d2
+(tests). 14 findings, all 14 verified against the code and all 14 real; none cosmetic. What they
+changed, in the order they matter:
+- **Scope.** The store was keyed by document id alone, so a leaked id could read another matter's
+  readings. Every row and every read now carries the matter — a second lock behind the handler's
+  tenant and matter check, not a replacement for it.
+- **The overclaim, in code this time.** The store would have accepted `control: "agreed"` from any
+  caller. Marking a page agreed now requires naming the DIFFERENT engine that agreed, and the set
+  of shippable control engines is EMPTY in this build, so it cannot be done at all. The invariant
+  is enforced by data rather than by remembering a version flag.
+- **Silent loss.** `extractPages` validated each page record and never checked that together they
+  were the document requested: a helper killed after page 2 of 100 returned `ok` with two pages and
+  nothing downstream could tell partial from complete. The boundary now requires every requested
+  page present, unique, and agreeing on the document's length; the store records `page_count` and
+  `completeness()` reports the gap, because the bar is every page's outcome, not every stored
+  page's outcome.
+- **Numbers with nothing behind them.** A failed page could carry invented text and invented
+  timings; both are refused now, in code and in SQLite CHECK constraints. Extraction rounded page
+  identifiers, so a record claiming page 1.6 attached a reading to page 2 — identifiers are safe
+  integers and are never rounded. Full-mode records must carry the fields the mode exists to
+  produce instead of passing with nulls, and layer-only records must NOT carry render or Vision
+  fields.
+- **Free text across the boundary.** A helper page error was forwarded verbatim; it is now an
+  allowlist, with anything unknown becoming `page_error`.
+- **Closed sets at run time.** `outcome`, `source` and `control` are checked as values, not only as
+  types, and mirrored as CHECK constraints — an unknown outcome would have vanished from the counts
+  and taken a page's visibility with it. A store written under another schema version is discarded
+  and rebuilt rather than read, which is what being derived buys.
+**Verified:** 10 store tests; 10 mutants killed across two rounds (store in the profile root, key
+without the helper digest, read ignoring the helper, failed page without a code, read ignoring the
+matter, any named engine certifying, failed page carrying timings, foreign schema version read
+anyway, completeness reporting stored as expected, closed sets unchecked). The test file is
+registered in `scripts.test`, and the reachability guard — which fails when a test exists that no
+runner lists — passes; it was NOT registered when first written, which is the "coverage that looks
+real" trap this repository has hit before.
+**Not yet built:** the extract handler with its tenant and matter scoping, the channels, the
+screen, and the packaged acceptance. The store and the boundary are the foundation those sit on.
+
 **The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The
 interface must show the source page and must never label agreed text verified, with case numbers,
 dates and amounts prompting review regardless of agreement, because short lines are where Vision is
