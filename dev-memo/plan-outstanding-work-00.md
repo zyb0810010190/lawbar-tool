@@ -927,8 +927,47 @@ anyway, completeness reporting stored as expected, closed sets unchecked). The t
 registered in `scripts.test`, and the reachability guard — which fails when a test exists that no
 runner lists — passes; it was NOT registered when first written, which is the "coverage that looks
 real" trap this repository has hit before.
-**Not yet built:** the extract handler with its tenant and matter scoping, the channels, the
-screen, and the packaged acceptance. The store and the boundary are the foundation those sit on.
+**Progress — the extract handler, 2026-09-12.** `src/ocr/ocrExtractHandlers.ts`: `ocr:extract` runs
+the ladder measurement decided — ONE layer call for the whole document, then recognition only for
+pages with no usable layer, one call per page so a hang costs one page — and `ocr:pages` returns
+the stored readings on a separate, explicit call. Scoping is `documentOpenHandlers`' invariant:
+the payload is an identity, never a path; wrong tenant, wrong matter and no such document are one
+refusal, so none confirms the other; nothing is read before that check passes. The 20-character
+layer threshold GATES ESCALATION ONLY — short escalates, and nothing is accepted for being long.
+Every page is stored `unchecked` and `needsReview` is the whole document, because no control
+engine ships.
+**Reviewed BEFORE the stamp** (both jobs STALLED with empty output first — the known failure of
+this route — and were recovered with `--resume <threadId>`, which is why the thread ids below are
+the resumed ones): Codex, read-only, `gpt-5.6-sol` — 01a094f2-dbf5 (handler), 01a094f2-e5e9
+(tests). 11 findings. **Nine verified and fixed; TWO REJECTED after checking the source**, and the
+rejections matter as much as the fixes: it reported a duplicate `const base` that "fails
+compilation" (there is none; `tsc` reports zero errors) and an unbounded per-page hang (every
+helper call is bounded by `runHelper`'s deadline). Agent output is evidence, not verdict.
+What the nine changed:
+- **A thrown dependency could cross as raw text.** `extractPages` returns failures as fields, but
+  an injected implementation, an OOM or a bug can still reject, and that message can name a path.
+  Every call is now wrapped; a test throws a path-bearing error and asserts no path survives into
+  the refusal or into the store.
+- **`needsReview` counted the wrong direction.** It summed successes, so a document with three
+  failed pages reported FEWER pages needing the owner's eyes than a clean one. It is now the whole
+  page count: a failed page needs reading more, not less.
+- **Two different facts shared one answer.** Reading back with no helper pin returned an empty
+  list, which reads as "this document has no OCR". It now refuses with `helper_unavailable`,
+  because that is a different fact from "there is nothing here".
+- **The tests were weaker than they looked:** "nothing is read before scoping" was asserted only
+  against the helper (the derived store and the file resolver are now counted too, via a proxy);
+  only the first returned page was shape-checked (every page now is, plus the envelope); two loops
+  would have passed vacuously with zero rows; and the threshold test claimed "one over" while
+  using exactly the threshold — it now covers under, at, and over.
+**Verified:** 13 handler tests; 10 mutants killed (matter unchecked, tenant unchecked, every page
+recognised, any layer accepted, a failed page aborting the document, `needsReview` zeroed, a thrown
+helper escaping, `needsReview` counting only successes, a no-pin read returning empty, plus the
+earlier six). One mutant SURVIVED the first round and that was the most useful result of the day:
+removing the matter's own tenant check broke nothing, because every scoping case was also caught by
+the document's check — the first lock was untested. The test that isolates it (a case box that
+disagrees with itself: this tenant's document sitting in another tenant's matter) now exists.
+Both new test files are registered in `scripts.test`.
+**Not yet built:** main and preload registration, the screen, and the packaged acceptance.
 
 **The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The
 interface must show the source page and must never label agreed text verified, with case numbers,
