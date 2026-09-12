@@ -690,6 +690,150 @@ quadratic one costs about a second across 168 real pages; a fixture is a page); 
 compiled output the patch does not contain" (every supported test invocation builds first —
 `pretest` and the lane — as for every test in this package).
 
+**Progress — item 6, the owner's real SCANNED pages, 2026-09-11. The measurement the whole item
+was for.** A scan has no text layer, so only a person can say what it says. Rather than ask the
+owner to transcribe pages, the work was cut to ten minutes: 20 scanned pages were sampled at
+random across all three cases (one per document), rendered locally at 150 dpi — what the app's
+own PDFKit render gives an engine — Vision's line boxes were cropped, and each crop was read
+independently by BOTH engines. The owner then confirmed or typed each line in a local page
+(`scratchpad/verify-crops.mjs`, bound to 127.0.0.1, serving only the crop folder, refusing a
+crafted path; answers saved beside the crops, mode 600). 56 crops; 3 were junk regions and the
+rest were verified by re-reading each crop and comparing with the recorded line.
+**Measured (`results/2026-09-11-real-scanned-lines.json`, aggregates only, leak-checked for ids,
+paths and CJK):**
+
+| candidate | read | folded CER | exact | containment | order | p95 | peak RSS |
+|---|---|---|---|---|---|---|---|
+| lawbar-ocr-vision | 56/56 | 0.190 | 33/56 | 0.840 | 0.995 | 389 ms | 98 MB |
+| paddleocr-onnx | 56/56 | 0.189 | 31/56 | 0.836 | 0.995 | 538 ms | 476 MB |
+
+**What this says, read rather than inferred.** (1) The registered OCR line is 0.05; both engines
+miss it by about four times on real scans, where the synthetic holdout had said 0.018. The OCR
+slot is UNFILLED on real material, and that is the finding, not a defect in the measurement.
+(2) The two engines are indistinguishable on accuracy: 0.0007 apart, far inside the tie line,
+and head-to-head per crop Vision is better on 11, PaddleOCR on 13, tied on 32. Vision wins on
+memory (5x) and speed, not on reading. (3) The error is NOT uniform — it is a property of the
+DOCUMENT. Per crop it is all-or-nothing (Vision: 33 exact, 10 wrong by more than half). Per
+document, 11 of 20 read at under 0.05 and 3 sit above 0.4. So the product answer is a per-page
+quality gate that tells the owner which pages need their eyes, which is what item 4 designed;
+a better engine would not fix the three bad documents. (4) Short lines are the dangerous ones:
+Vision averages 0.31 on lines of ≤6 characters against 0.11 on lines over 20. Case numbers,
+dates and amounts are short lines, so the plan's rule that critical fields are the owner's to
+verify is now empirical, not cautionary.
+**The caveat, stated because it bounds everything above.** 26 of the 56 answers were
+confirmations of text the two engines had already agreed on, and those score 0.000/0.002 by
+construction — the owner was shown the answer before confirming it. The discriminating half is
+the 30 the owner typed with nothing pre-filled: there both engines average 0.33 and Vision gets
+8 exactly right to PaddleOCR's 5. Every answer records whether it was confirmed, edited or typed,
+so the ratio is auditable.
+**What is open, and why it is the linchpin.** Everything downstream — grading all 951 scanned
+pages with no further human time, flagging the bad ones — rests on "when two different engines
+agree exactly, they are right". This run cannot test that, because the agreeing crops are the
+ones the owner confirmed after seeing them. A BLIND round is prepared
+(`scratchpad/prep-blind-crops.py`, `verify-crops.mjs --blind`): crops from documents NOT used
+here, kept only where the two engines agree exactly, served with no proposal shown and the agreed
+text in a file the server never opens, so the owner types from the image alone. Fifteen lines,
+about five minutes. If agreement predicts correctness, the 951-page grade is free; if it does
+not, the quality-gate design needs rethinking, and that is worth learning from fifteen lines
+rather than assuming.
+**Confidentiality, as executed.** The case folders were read in place; nothing was copied into the
+repository; no page text, file name or path from them entered the conversation or any prompt sent
+off the machine; crops, answers and intermediates live in `~/Documents/lawbar-ocr-crops` with
+owner-only permissions; the committed result is counts and means, checked to contain no crop id,
+no path and no CJK character, and it passes the no-real-data patterns.
+
+**The blind round, 2026-09-11: agreement does predict correctness, within a stated bound.** The
+linchpin assumption was tested rather than assumed. Fifteen lines were cropped from eighteen
+documents NOT used in the first round, kept only where the two engines agreed EXACTLY, and served
+with no proposal shown; the agreed text sat in a file the server never opens, and it was verified
+that none of the fifteen answers reached the browser (the payload carries the key `id` and nothing
+else). The owner typed all fifteen from the image alone.
+**Result: 15 of 15 exact. Mean character error of the agreed reading against the owner's typing:
+0.000; worst single line 0.000.** Lines were 3 to 44 characters.
+**The bound, because fifteen is fifteen.** Zero failures in fifteen trials puts the 95% upper
+bound on the failure rate at about 3/15 = 0.20 (rule of three). So the honest claim is "agreement
+is a strong predictor, with a failure rate below roughly one in five at 95% confidence", NOT
+"agreement is always right". For a gate that routes pages to the lawyer's attention that is
+sufficient: a false accept still leaves the critical-field rule, and a wider sample tightens the
+bound whenever one is wanted. Set against the other half of the same corpus — where the engines
+DISAGREE, both average 0.33 — the signal separates cleanly.
+**The tiers are therefore decided by measurement, which is what item 6 existed to do:**
+- **Tier 0, text layer** — `lawbar-ocr --layer-only`. Exact on 6/6 synthetic and 168/168 real
+  born-digital pages, 40–60 ms and ~18 MB a page. Runs first; if the page has a usable layer, no
+  OCR runs at all.
+- **Tier 1, OCR** — **Apple Vision**, via the packaged helper. Not because it reads better:
+  against PaddleOCR it is 0.190 to 0.189 on real scans, a coin flip (head-to-head 11 / 13 / 32).
+  It wins on cost — 98 MB against 476 MB, 389 ms against 538 ms at p95 — and on shipping nothing:
+  no bundled model, no third-party native engine, no 87 MB of ONNX in the app.
+- **The control — PaddleOCR**, exactly as item 4 required: a DIFFERENT engine, not the same one
+  twice. Where the two agree, accept (15/15 blind). Where they disagree, the page is flagged
+  *needs review* and never silently accepted.
+- **What no tier fixes:** at 0.19 on real scans neither engine meets the registered 0.05 line, and
+  the error is per-document (11 of 20 under 0.05, 3 above 0.4). The product answer is the gate,
+  not a better engine, and critical fields stay the owner's to verify.
+
+**Which control, measured rather than assumed (2026-09-11).** Accepting the control means accepting
+its cost: PaddleOCR is a 15 MB model set on a 72 MB native ONNX runtime, and bundling ~87 MB is
+exactly what choosing Vision avoided. So the cheap alternatives were tested on the 56 lines whose
+truth the owner supplied (throwaway spike `scratchpad/vision-level-spike.swift`; the shipped helper
+was NOT touched for an experiment whose outcome was unknown). Vision is wrong on 23 of the 56 at
+crop level.
+
+| control | catches of 23 errors | needlessly flags of 33 correct | accepts | wrong among accepted |
+|---|---|---|---|---|
+| PaddleOCR — a different engine, ~87 MB | **23** | 8 | 25 | **0** |
+| same engine at 2x scale — free | 20 | 4 | 32 | 3 |
+| same engine, language correction off — free | 0 | 0 | 56 | 23 |
+| Vision's own confidence < 0.5 — free | 16 of 21 (page-level lines) | 2 | 38 | 5 |
+
+- **Vision's FAST recognition level cannot be the control: it does not support Chinese at all.**
+  Measured: fast offers 6 languages, accurate 18, and every CJK language is accurate-only. That
+  closes the cheapest idea outright.
+- **Language correction on/off is not a control:** the two readings were identical on all 56 lines.
+- **The same engine at another scale is a real but leaky control** — it catches 20 of 23 and
+  silently accepts 3 wrong lines in 32. The plan's rule that the control must be a DIFFERENT
+  engine (item 4, from the adversarial pass) is therefore empirical now, not principled: the
+  same-engine control misses one error in eight, and a court-facing tool cannot accept those
+  silently.
+- **Only a different engine achieves zero wrong among accepted.** That is the whole value of the
+  gate: it partitions the lawyer's attention, certifying 45% of lines and directing them at the
+  rest. Without a control, OCR output can only be offered as a draft to be read in full.
+
+**The decision this forces, and it is the owner's:** bundle a second engine (~87 MB, or a
+Tesseract + chi_sim alternative that has not been measured and may be smaller) to certify about
+half the lines, or ship Vision alone and present every OCR'd page as a draft the owner must read.
+Not an engineering question: it trades install size against the owner's reading time, in a tool
+whose whole point is the owner's time.
+
+**The whole corpus graded, no human time, 2026-09-11.** Because agreement is now a validated
+signal, every scanned page the owner has could be graded without asking him anything:
+`scratchpad/grade-corpus.py` rendered each page locally, read it with both engines, and scored how
+much the two readings contain of each other (order ignored, since the two order dense pages
+differently and that is not a reading error). 938 scanned pages across 38 documents, about 50
+minutes. A per-document report naming the owner's files stays in the private root for him alone;
+only the distribution is recorded here.
+
+| page agreement | pages | share |
+|---|---|---|
+| ≥ 0.95, the two engines read the same page | 370 | 39% |
+| 0.80–0.95, minor divergence | 250 | 27% |
+| 0.50–0.80, substantial divergence | 288 | 31% |
+| < 0.50, no agreement at all | 30 | 3% |
+
+Median page 0.907; median document 0.91; 28 of 38 documents have every page at or above 0.80;
+2 pages are blank to both engines.
+**And the grade predicts the error, checked against the hand-verified lines** (20 documents carry
+both an automatic grade and lines the owner transcribed): documents graded below 0.80 measured
+0.302 CER, those at 0.80–0.95 measured 0.135, those at 0.95 and above measured 0.049. Correlation
+−0.43 on 20 documents. So the signal is real but coarse.
+**What that gives the product — two levels, each doing what it can:**
+- **Document and page level, free and automatic:** triage. Which documents are worth recognising
+  and which will need heavy reading. Useful, but NOT certification: even the best-graded documents
+  average 0.049, right at the registered line, and one of them measured 0.186.
+- **Line level, needs the control:** certification. Exact agreement between two different engines
+  accepted 25 of 25 in round one and 15 of 15 blind, with zero wrong accepted. This is the only
+  thing measured here that can mark text trustworthy.
+
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
 evidence names a multi-page scan processed offline with every page's outcome visible. What exists:

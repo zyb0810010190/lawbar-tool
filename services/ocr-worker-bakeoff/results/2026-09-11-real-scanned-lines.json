@@ -1,0 +1,307 @@
+{
+  "schema": "bakeoff-verdict/1",
+  "generated_at": "2026-09-11T06:43:56.997Z",
+  "spec": {
+    "sha256": "c75486e92c340bdb4201201c050f42120a764ee5eaaf9383033bf54a6256e8f3",
+    "registered_at": "2026-09-10",
+    "evaluate_on_role": "holdout"
+  },
+  "manifest": {
+    "sha256": "9caa3805e5a5b4ad750583be822943221dbb5da7acb6402be2b27762ebcea116",
+    "root": "external",
+    "role": "holdout",
+    "fixtures_scored": 56
+  },
+  "harness": {
+    "git_sha": "e4ac97c0e83894ab2bc8578c51a3f3806176d513",
+    "node": "v24.14.0"
+  },
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "candidates": {
+    "tesseract": {
+      "probe_status": "missing_model",
+      "resolved_version": null,
+      "os_build": null,
+      "arch": null
+    },
+    "paddleocr-onnx": {
+      "probe_status": "available",
+      "resolved_version": "1.4.8",
+      "os_build": null,
+      "arch": null
+    },
+    "lawbar-ocr-vision": {
+      "probe_status": "available",
+      "resolved_version": "0.2.0+sha256.4c091aa63be5",
+      "os_build": "24G90",
+      "arch": "arm64"
+    },
+    "lawbar-ocr-pdfkit-layer": {
+      "probe_status": "available",
+      "resolved_version": "0.2.0+sha256.4c091aa63be5",
+      "os_build": "24G90",
+      "arch": "arm64"
+    }
+  },
+  "aggregates": {
+    "tesseract": {
+      "png": {
+        "fixtures": 56,
+        "successes": 0,
+        "failures": {
+          "probe_missing_model": 56
+        },
+        "success_rate": 0,
+        "mean_cer": null,
+        "mean_cer_folded": null,
+        "exact_rate": 0,
+        "mean_containment": null,
+        "mean_inflation": null,
+        "mean_order": null,
+        "p50_latency_ms": null,
+        "p95_latency_ms": null,
+        "max_rss_mb": null
+      }
+    },
+    "paddleocr-onnx": {
+      "png": {
+        "fixtures": 56,
+        "successes": 56,
+        "failures": {},
+        "success_rate": 1,
+        "mean_cer": 0.1906,
+        "mean_cer_folded": 0.189,
+        "exact_rate": 0.5,
+        "mean_containment": 0.8361,
+        "mean_inflation": 0.9265,
+        "mean_order": 0.9951,
+        "p50_latency_ms": 399,
+        "p95_latency_ms": 538,
+        "max_rss_mb": 476.1
+      }
+    },
+    "lawbar-ocr-vision": {
+      "png": {
+        "fixtures": 56,
+        "successes": 56,
+        "failures": {},
+        "success_rate": 1,
+        "mean_cer": 0.1909,
+        "mean_cer_folded": 0.1897,
+        "exact_rate": 0.5536,
+        "mean_containment": 0.8402,
+        "mean_inflation": 0.9401,
+        "mean_order": 0.9946,
+        "p50_latency_ms": 287,
+        "p95_latency_ms": 389,
+        "max_rss_mb": 97.5
+      }
+    },
+    "lawbar-ocr-pdfkit-layer": {
+      "png": {
+        "fixtures": 56,
+        "successes": 0,
+        "failures": {
+          "unsupported_media": 56
+        },
+        "success_rate": 0,
+        "mean_cer": null,
+        "mean_cer_folded": null,
+        "exact_rate": 0,
+        "mean_containment": null,
+        "mean_inflation": null,
+        "mean_order": null,
+        "p50_latency_ms": null,
+        "p95_latency_ms": null,
+        "max_rss_mb": null
+      }
+    }
+  },
+  "slots": [
+    {
+      "slot": "text_layer",
+      "evaluations": [
+        {
+          "candidate": "lawbar-ocr-pdfkit-layer",
+          "present": true,
+          "requirements": [
+            {
+              "subgroup": "pdf-layer",
+              "metric": "success_rate",
+              "op": ">=",
+              "value": 1,
+              "measured": null,
+              "pass": false
+            },
+            {
+              "subgroup": "pdf-layer",
+              "metric": "exact_rate",
+              "op": ">=",
+              "value": 1,
+              "measured": null,
+              "pass": false
+            },
+            {
+              "subgroup": "pdf-scan",
+              "metric": "signal_rate",
+              "code": "no_text_layer",
+              "op": ">=",
+              "value": 1,
+              "measured": null,
+              "pass": false
+            },
+            {
+              "subgroup": "pdf-layer",
+              "metric": "p95_latency_ms",
+              "op": "<=",
+              "value": 200,
+              "measured": null,
+              "pass": false
+            },
+            {
+              "subgroup": "pdf-layer",
+              "metric": "max_rss_mb",
+              "op": "<=",
+              "value": 64,
+              "measured": null,
+              "pass": false
+            }
+          ],
+          "qualifies": false
+        }
+      ],
+      "awarded_to": null,
+      "ranking": [],
+      "tie": null
+    },
+    {
+      "slot": "ocr",
+      "evaluations": [
+        {
+          "candidate": "lawbar-ocr-vision",
+          "present": true,
+          "requirements": [
+            {
+              "subgroup": "png",
+              "metric": "success_rate",
+              "op": ">=",
+              "value": 1,
+              "measured": 1,
+              "pass": true
+            },
+            {
+              "subgroup": "png",
+              "metric": "mean_cer_folded",
+              "op": "<=",
+              "value": 0.05,
+              "measured": 0.1897,
+              "pass": false
+            },
+            {
+              "subgroup": "png",
+              "metric": "p95_latency_ms",
+              "op": "<=",
+              "value": 1500,
+              "measured": 389,
+              "pass": true
+            },
+            {
+              "subgroup": "png",
+              "metric": "max_rss_mb",
+              "op": "<=",
+              "value": 512,
+              "measured": 97.5,
+              "pass": true
+            }
+          ],
+          "qualifies": false
+        },
+        {
+          "candidate": "paddleocr-onnx",
+          "present": true,
+          "requirements": [
+            {
+              "subgroup": "png",
+              "metric": "success_rate",
+              "op": ">=",
+              "value": 1,
+              "measured": 1,
+              "pass": true
+            },
+            {
+              "subgroup": "png",
+              "metric": "mean_cer_folded",
+              "op": "<=",
+              "value": 0.05,
+              "measured": 0.189,
+              "pass": false
+            },
+            {
+              "subgroup": "png",
+              "metric": "p95_latency_ms",
+              "op": "<=",
+              "value": 1500,
+              "measured": 538,
+              "pass": true
+            },
+            {
+              "subgroup": "png",
+              "metric": "max_rss_mb",
+              "op": "<=",
+              "value": 512,
+              "measured": 476.0625,
+              "pass": true
+            }
+          ],
+          "qualifies": false
+        },
+        {
+          "candidate": "tesseract",
+          "present": true,
+          "requirements": [
+            {
+              "subgroup": "png",
+              "metric": "success_rate",
+              "op": ">=",
+              "value": 1,
+              "measured": 0,
+              "pass": false
+            },
+            {
+              "subgroup": "png",
+              "metric": "mean_cer_folded",
+              "op": "<=",
+              "value": 0.05,
+              "measured": null,
+              "pass": false
+            },
+            {
+              "subgroup": "png",
+              "metric": "p95_latency_ms",
+              "op": "<=",
+              "value": 1500,
+              "measured": null,
+              "pass": false
+            },
+            {
+              "subgroup": "png",
+              "metric": "max_rss_mb",
+              "op": "<=",
+              "value": 512,
+              "measured": null,
+              "pass": false
+            }
+          ],
+          "qualifies": false
+        }
+      ],
+      "awarded_to": null,
+      "ranking": [],
+      "tie": null
+    }
+  ],
+  "control": null
+}
