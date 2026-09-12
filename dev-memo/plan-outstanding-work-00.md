@@ -830,9 +830,60 @@ both an automatic grade and lines the owner transcribed): documents graded below
 - **Document and page level, free and automatic:** triage. Which documents are worth recognising
   and which will need heavy reading. Useful, but NOT certification: even the best-graded documents
   average 0.049, right at the registered line, and one of them measured 0.186.
-- **Line level, needs the control:** certification. Exact agreement between two different engines
-  accepted 25 of 25 in round one and 15 of 15 blind, with zero wrong accepted. This is the only
-  thing measured here that can mark text trustworthy.
+- **Line level, needs the control:** PRIORITISATION, not certification — see the correction below.
+  Exact agreement between two different engines accepted 25 of 25 in round one and 15 of 15 blind,
+  with zero wrong accepted. This is the only thing measured here that can direct the owner's
+  attention safely.
+
+**A word this plan had been using wrongly, corrected 2026-09-12 (Codex, thread 01a09483).** Earlier
+stamps called line-level agreement *certification*. It is not. Zero failures in fifteen blind lines
+bounds the true failure rate near one in five at 95% confidence; even counting all forty agreeing
+lines it is 7.5%. A court-facing tool must therefore say "these need your eyes first" and never
+"this is verified". The registered 0.05 threshold stays recorded as UNMET; any release that ships
+anyway must revise the spec explicitly rather than let agreement imply the bar was cleared.
+
+**Which second engine — measured, and the cheap hope lost (2026-09-12).** Codex advised measuring
+Tesseract under a timebox before committing to PaddleOCR's bundle, with the fallback "if the
+comparison is inconclusive, choose Paddle". It was not inconclusive. `brew install tesseract-lang`
+(authorised) put chi_sim on the machine at 2.4 MB; Tesseract 5.5.2 was already installed. Measured
+on the same 56 owner-verified lines, with Tesseract reading the 300 dpi crop of the same region
+because it returns almost nothing at 150 dpi and giving an engine the input it documents is the
+fair test:
+
+| control | catches Vision's 23 errors | leaves marked "likely fine" | wrong in that group | ships |
+|---|---|---|---|---|
+| PaddleOCR | 23 | 25 of 56 (45%) | 0 | ~70–105 MB, arm64 only |
+| Tesseract chi_sim, psm 7 | 23 | **5 of 56 (9%)** | 0 | ~5 MB |
+| Tesseract chi_sim, psm 3 | 22 | 7 of 56 (13%) | 1 | ~5 MB |
+| same engine at 2x scale | 20 | 32 of 56 (57%) | **3** | nothing |
+
+**Tesseract fails as a control for the opposite reason to the free options.** Its own CER on these
+lines is 0.49 — it reads Chinese badly — so it disagrees with Vision on 51 of 56 lines. Perfect
+recall, useless precision: a control that flags everything tells the owner nothing and leaves him
+reading 91% of the lines by hand. The free scale control has the opposite failure: it certifies
+the most (57%) but three of those 32 are wrong, which is precisely the error that reaches a filing
+because nobody looks at it again.
+**DECISION: PaddleOCR as the control, arm64 only.** It is the only option measured that both
+catches every error and saves meaningful reading. Sizes measured, not estimated: onnxruntime
+darwin-arm64 72 MB (36 MB of it a duplicated dylib that packaging can dedupe), Paddle models
+15 MB, sharp + libvips 15 MB, so ~70–105 MB against an app that is already 308 MB. For a
+single-user, locally installed, offline tool with no download and no store limit, that is not a
+real constraint; the true price is the recurring one — a Node native module needing asarUnpack and
+a rebuild per Electron version, under this repository's committed-tarball drift discipline.
+**Intel support is KEPT — the owner's decision, 2026-09-12, with the cost measured and accepted.**
+Only the arm64 runtime is installed on this machine (npm fetches the host platform's optional
+binaries), so an Intel-capable build must additionally fetch the x64 onnxruntime and the x64 sharp:
+about 72 MB and 15 MB more, taking the added weight from roughly 105 MB to roughly 190 MB and the
+app from 308 MB to about 500 MB.
+**Implementation note that honours the decision at lower cost:** ship TWO per-architecture builds
+rather than one universal bundle. Intel users keep a working app, each artifact carries only the
+runtime it can execute (~410 MB rather than ~500 MB), and nobody downloads a runtime for a chip
+they do not have. electron-builder already produces `mac-arm64` and `mac` outputs; only the
+universal packaging of the second engine would change.
+**The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The
+interface must show the source page and must never label agreed text verified, with case numbers,
+dates and amounts prompting review regardless of agreement, because short lines are where Vision is
+worst (0.31 at ≤6 characters).
 
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
