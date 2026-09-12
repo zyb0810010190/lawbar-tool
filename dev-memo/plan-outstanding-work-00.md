@@ -1001,6 +1001,94 @@ closing it found two more bugs of mine.
 clean quit with the store open, laziness), 15 handler tests, desktop lane green. The end-to-end
 test asserts what nothing else could: the derived store is created ONLY at
 `<profile>/ocr-derived/ocr.sqlite`, and the profile root still holds exactly one database.
+**A fourth bug, found by CI and not by any local run (2026-09-12).** The desktop gate FAILED on
+PR #307: all five OCR Electron tests passed, then the job hung for 38 minutes and died on the
+40-minute limit, with orphaned Electron processes named in the cleanup log. Cause: the clean-quit
+test used a `keepOpen` flag so it could own its own `app.close()` — and on a CI runner FileVault is
+OFF, so that test takes the readiness-gate branch and RETURNS BEFORE its close, leaving an app
+alive that `t.after` had been told to skip. `node --test` will not exit while a child process
+lives, so the suite never finished. The teardown now closes on EVERY path and the test closes
+again itself; a double close is harmless, and only the test's own close can fail loudly.
+**Verified against the failing condition, not just re-run:** forcing the gate branch locally
+(productWindow returning null, a throwaway edit, reverted) the suite now EXITS in 157 s with zero
+orphans where it previously hung. Suite green again on a normal run.
+**A limitation this exposed, stated rather than papered over:** on a FileVault-off CI runner every
+Electron test in this repository — mine included — takes the gate branch and asserts only that the
+readiness window is showing. So the END-TO-END OCR test does NOT exercise the ladder in CI; it
+runs fully only on a FileVault-on machine, which is the owner's. That is the established
+convention here (a runner cannot enable FileVault), but it means CI proves the app starts and
+refuses, not that OCR reads. The packaged acceptance is where that gap gets closed for real.
+**A fifth bug, and the worst kind: a test that fails while the code is right (2026-09-12).** With
+the leak fixed, the full desktop lane came back RED — not in the new code, but in the process-group
+kill test from step 2, twice in a row: `SURVIVOR: the helper's child outlived the deadline`. That
+file passes alone and passed in CI when it shipped. The assertion was
+`process.kill(childPid, 0)` executed in the same tick as the group SIGKILL. That reads a kernel
+transition as if it were a return value, and it is wrong twice over: `kill(2)` POSTS a signal and
+does not wait for the target to be scheduled, and a process that HAS terminated keeps answering
+signal 0 until it is reaped — and here its parent, the one that would reap it, was killed in the
+same group. So the test was measuring how quickly the machine got round to reaping, which under a
+lane running Electron suites on eight cores is sometimes not within one tick.
+**The evidence it was a reap race and not a broken kill:** synthetic CPU load (24 spinners) never
+reproduced it, 0/6; the full lane reproduced it 2/2 and then, after the fix, reported the child
+disappearing in 0–1 ms. Instant when it wins, one tick late when it loses. That is a boundary race,
+not a kill that failed.
+**The fix** polls for death with a five-second budget and, at the budget, distinguishes a zombie
+(terminated, merely unreaped — dead) from a running process, reporting the `ps` state in the
+failure message so a future red is diagnosable instead of mysterious. The wait duration is emitted
+as a diagnostic on success, so a kill that starts taking seconds becomes VISIBLE rather than being
+silently absorbed by the budget.
+**Two-sided, against a mutant, not just re-run green:** a copy of the built helper with `killGroup`
+neutered (the real build untouched, sha256 unchanged) makes the fixed test FAIL in 9.3 s with
+`ps state S` — the child genuinely running. The budget cannot let a real survivor through, because
+the child these tests start sleeps for 30 s.
+**What this actually was:** not a new discovery. `services/ocr-worker-bakeoff/tests/lawbar-ocr-vision.test.mjs`
+already carries the same helper, with the same comment about zombies and the same polling shape. The
+lesson had been learned one directory over and was not carried across when the desktop copy of this
+test was written. Full desktop lane after the fix: **1527 tests, 0 failures.**
+
+**REVIEWED (read-only Codex station, one job per file, both diffs gated through the eight
+no-real-data patterns applied directly — CLEAN — before transmission).** Nine findings; six
+adopted after checking each against the source, three declined with reasons.
+
+*On the process-group test.* **Adopted:** (1) the test could still pass with the kill broken, if the
+node process were starved long enough for a `sleep 30` to expire naturally — the assertion had two
+ways to be satisfied and was only as strong as the weaker one; the fake's child now sleeps
+effectively forever, so "gone" can only mean "killed", with a `t.after` that reaps it (verified: no
+stray processes after a deliberately failing run). (2) At the budget, a pid `ps` cannot find was
+being read as a SURVIVOR — a process that vanished between the last signal-0 and the `ps` call
+would have produced a false red. (3) `psState` reported a failure to RUN `ps` and a genuinely
+absent process with the same word, which made the diagnostic untrue. Now `spawnSync` with a
+timeout, and three distinguishable outcomes. (4) `Date.now()` is adjustable wall time; the budget
+is now monotonic. **Declined:** pid reuse inside the five-second budget could in principle make an
+unrelated new process look like a survivor — but the poll returns on the FIRST signal-0 after the
+kill, so the reuse would have to happen within about a millisecond, and the fix (having the fake
+record its process group and checking membership) buys protection against a false RED that the
+reported `ps` state already makes diagnosable. Complexity not earned.
+
+*On the Electron leak fix.* **Adopted:** (5) teardown was registered AFTER the two isolation
+assertions, so the refusal that exists to catch the app resolving the owner's real profile would
+have left an Electron process alive and hung the job — a refusal that reports nothing is worse than
+no refusal. Teardown is now registered immediately after launch. (6) `app.close()` had no bound and
+its error was swallowed; this app does work on `before-quit` (it closes the derived store), so a
+bug there would hang teardown — the same 40-minute death by another route — and a swallowed close
+error is a test that cannot fail. Close is now bounded at 20 s with a SIGKILL fallback, and the
+error is rethrown. The fallback was PROVEN reachable rather than assumed: a probe against the real
+app confirms `app.process()` returns a child with a pid and a `kill`, and that SIGKILL on it leaves
+nothing behind — a fallback nobody has fired is otherwise just a comment. The double close was
+checked the same way: the clean-quit test closes and teardown closes again, and with the error now
+rethrown the lane is still green, so closing an already-closed app reports nothing. **Declined:** the reviewer's first finding — that the clean-quit test is
+vacuous on CI — is TRUE and is the limitation recorded above, but its proposed fix is a test-only
+override of the FileVault readiness gate. That is a bypass of a court-facing safety gate shipped
+inside the product binary, it affects every Electron test rather than this one, and it is not
+WI-12's to decide. Recorded, not built.
+
+*One thing the review surfaced that is NOT fixed here:* registering teardown after the isolation
+assertions is the convention in every Electron test file in this repository (backup, document-open,
+evidence, ocr, readiness, smoke and others), not something this branch introduced. Both OCR files
+are fixed — the extract suite gets the bounded close as well, because it is the one that opens the
+derived store and so the one with real work on `before-quit`; the probe suite gets the ordering
+move alone, since it only probes and has nothing to block a quit. The other Electron suites are a
+separate change and are left alone deliberately.
 **Not yet built:** the screen, and the packaged acceptance.
 
 **The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The

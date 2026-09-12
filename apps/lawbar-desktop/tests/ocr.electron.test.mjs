@@ -34,6 +34,14 @@ async function launchIsolated(t) {
     cwd: projectRoot,
     env: { ...process.env, LAWBAR_MODE: "" },
   });
+  // TEARDOWN FIRST, before anything that can throw. The assertions below are refusals — they fire
+  // when the app resolved the wrong profile, the owner's real one included — and a refusal that
+  // leaves an Electron process alive turns a clear failure into a hung job that reports nothing:
+  // node:test will not exit while a child process lives. That cost a 40-minute CI job once.
+  t.after(async () => {
+    await app.close().catch(() => {});
+    rmSync(profile, { recursive: true, force: true });
+  });
   const resolved = await app.evaluate(async ({ app: a }) => a.getPath("userData"));
   assert.equal(realpathSync(resolved), realpathSync(profile), "the app ignored --user-data-dir");
   assert.notEqual(
@@ -41,10 +49,6 @@ async function launchIsolated(t) {
     existsSync(REAL_USER_DATA) ? realpathSync(REAL_USER_DATA) : REAL_USER_DATA,
     "REFUSING: the app resolved the REAL user-data directory.",
   );
-  t.after(async () => {
-    await app.close().catch(() => {});
-    rmSync(profile, { recursive: true, force: true });
-  });
   return app;
 }
 

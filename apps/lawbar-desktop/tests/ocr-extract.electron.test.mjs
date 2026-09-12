@@ -29,12 +29,56 @@ import { _electron as electron } from "playwright";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REAL_USER_DATA = path.join(os.homedir(), "Library", "Application Support", "lawbar");
 
-async function launchIsolated(t, { seed = false, keepOpen = false } = {}) {
+/**
+ * Close an Electron app so that it CANNOT outlive the test run.
+ *
+ * `app.close()` asks the app to quit and waits. That wait has no bound, and this app has work on
+ * `before-quit` (it closes the derived store), so a bug there would hang the await — and a hung
+ * teardown is the same 40-minute CI death as a leaked process, just with a different stack. So:
+ * ask nicely under a deadline, and if the deadline passes, kill the process outright.
+ *
+ * The close error is RETURNED, not swallowed. A quit that fails is a real defect in a court-facing
+ * app — the store must close cleanly or a later launch finds a locked database — and a teardown
+ * that hides it is a test that cannot fail.
+ */
+async function closeApp(app, deadlineMs = 20_000) {
+  let timer;
+  const timedOut = Symbol("timedOut");
+  try {
+    const raced = await Promise.race([
+      app.close().then(() => null, (e) => e),
+      new Promise((r) => { timer = setTimeout(() => r(timedOut), deadlineMs); }),
+    ]);
+    if (raced !== timedOut) return raced;
+  } finally {
+    clearTimeout(timer);
+  }
+  // It would not go. Take it, so node:test can exit and report.
+  const proc = app.process?.();
+  try { proc?.kill("SIGKILL"); } catch { /* already gone */ }
+  return new Error(`the app did not quit within ${deadlineMs} ms and was killed`);
+}
+
+async function launchIsolated(t, { seed = false } = {}) {
   const profile = mkdtempSync(path.join(os.tmpdir(), "lawbar-ocr-extract-"));
   const app = await electron.launch({
     args: [".", `--user-data-dir=${profile}`],
     cwd: projectRoot,
     env: { ...process.env, LAWBAR_MODE: "", ...(seed ? { LAWBAR_OCR_TEST_HOOK: "true" } : {}) },
+  });
+  // TEARDOWN FIRST, before anything that can throw. The isolation assertions below are refusals —
+  // they fire when the app resolved the wrong profile — and a refusal that leaves an Electron
+  // process alive turns a clear failure into a hung job that reports nothing at all.
+  //
+  // ALWAYS close, on every path. A test that returns early — the FileVault gate branch below does,
+  // and on a CI runner it always does — must still not leave an Electron process alive: node:test
+  // will not exit while one is, and the job dies on the 40-minute limit instead of reporting.
+  // That happened. A test may ALSO close the app itself to assert that quitting works; closing an
+  // already-closed app returns cleanly, so the second close reports nothing new.
+  t.after(async () => {
+    const err = await closeApp(app);
+    rmSync(profile, { recursive: true, force: true });
+    if (err) throw err;
   });
   const resolved = await app.evaluate(async ({ app: a }) => a.getPath("userData"));
   assert.equal(realpathSync(resolved), realpathSync(profile), "the app ignored --user-data-dir");
@@ -43,12 +87,6 @@ async function launchIsolated(t, { seed = false, keepOpen = false } = {}) {
     existsSync(REAL_USER_DATA) ? realpathSync(REAL_USER_DATA) : REAL_USER_DATA,
     "REFUSING: the app resolved the REAL user-data directory.",
   );
-  t.after(async () => {
-    // `keepOpen` is for the test that owns shutdown itself: swallowing a close failure here would
-    // hide a closer that blocks quitting, which is exactly what one test exists to catch.
-    if (!keepOpen) await app.close().catch(() => {});
-    rmSync(profile, { recursive: true, force: true });
-  });
   return { app, profile };
 }
 
@@ -167,9 +205,10 @@ test("END TO END: a real born-digital document is read, stored in the DERIVED st
 });
 
 test("the app quits cleanly once the derived store is open", async (t) => {
-  // A closer that throws, or a handle left open, would make quitting hang or fail. Teardown
-  // elsewhere swallows close failures; this test owns the close so a failure surfaces here.
-  const { app, profile } = await launchIsolated(t, { seed: true, keepOpen: true });
+  // A closer that throws, or a handle left open, would make quitting hang or fail. Teardown would
+  // catch that too, but it would be reported against whichever test happened to run — this test
+  // closes with the store OPEN on purpose, so the failure is attributed to the thing that caused it.
+  const { app, profile } = await launchIsolated(t, { seed: true });
   const win = await productWindow(app);
   if (win === null) { await assertGateIsBlocking(app, profile); return; }
   const seeded = await seedFixture(app);

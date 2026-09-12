@@ -31,6 +31,64 @@ function scratch(t) {
   return dir;
 }
 
+/**
+ * What the kernel says about a pid, told apart properly. `ps -p` exits non-zero with no output
+ * when there is no such process, which is NOT the same as `ps` failing to run — reporting both as
+ * "gone" would make the diagnostic untrue, and this repository's standard is that the claim a tool
+ * makes about itself is true. spawnSync rather than execFileSync: it returns failures instead of
+ * throwing them, and a wedged `ps` cannot hang the test.
+ */
+function psState(pid) {
+  const r = spawnSync("/bin/ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8", timeout: 2000 });
+  if (r.error) return { kind: "error", detail: String(r.error.code ?? r.error.message) };
+  if (r.signal) return { kind: "error", detail: `ps killed by ${r.signal}` };
+  const out = (r.stdout ?? "").trim();
+  if (r.status === 0 && out) return { kind: "state", state: out };
+  if (r.status !== 0 && out === "") return { kind: "gone" };
+  return { kind: "error", detail: `ps exit ${r.status}, output ${JSON.stringify(out)}` };
+}
+
+const describePs = (s) =>
+  s.kind === "state" ? `ps state ${s.state}` : s.kind === "gone" ? "ps says no such process" : `ps unavailable: ${s.detail}`;
+
+/**
+ * Wait for a process to be really dead, within a budget.
+ *
+ * WHY THIS IS NOT `process.kill(pid, 0)` ON THE SPOT. `kill(2)` POSTS a signal; it does not wait
+ * for the target to be scheduled, and it does not reap. So after a correct SIGKILL there is a
+ * window — short when the machine is idle, longer when eight cores are running Electron suites —
+ * in which the target is condemned but still answers signal 0. A terminated process also keeps
+ * answering it until its parent reaps it, and here the parent was killed in the same group.
+ * Asserting death in the same tick therefore measures the load average, not the kill, and it
+ * failed exactly that way against a process group that had been killed correctly.
+ *
+ * The budget does NOT weaken the claim, because the child these tests start never exits on its
+ * own: only a kill can end it, so ESRCH means killed, whenever it arrives. (A child that merely
+ * slept a long time would be weaker — a long enough stall would let natural expiry pass for a
+ * kill.) At the budget, a zombie counts as dead: it HAS terminated and is only awaiting reaping.
+ * So does a pid `ps` cannot find, which is the same news by a different route.
+ *
+ * Timing is monotonic: a wall-clock adjustment must not silently extend the budget.
+ */
+async function waitForDeath(pid, budgetMs) {
+  const t0 = performance.now();
+  const since = () => Math.round(performance.now() - t0);
+  for (;;) {
+    try {
+      process.kill(pid, 0);
+    } catch (e) {
+      // ESRCH is gone. EPERM means it exists and is not ours to signal, which is still alive.
+      if (e.code === "ESRCH") return { deadAfterMs: since() };
+    }
+    if (since() >= budgetMs) {
+      const s = psState(pid);
+      if (s.kind === "gone" || (s.kind === "state" && s.state.startsWith("Z"))) return { deadAfterMs: since() };
+      return { survived: describePs(s) };
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
 const PROBE_TAIL = '"helper_version":"fake","os_version":"0","os_build":"0","arch":"fake","vision_languages":["zh-Hans"]}';
 
 /** A fake helper that reports its OWN digest honestly: the digest is read from a sidecar written after the script exists. */
@@ -137,7 +195,12 @@ test("a helper that ignores SIGTERM and leaves a child behind is killed with its
   const childPidFile = path.join(dir, "child.pid");
   // trap '' TERM is inherited by the child across exec, so SIGTERM alone would leave BOTH alive;
   // the child also holds the stdout pipe, so `close` cannot fire until the child is dead.
-  writeFileSync(file, `#!/bin/sh\ntrap '' TERM\n/bin/sleep 30 &\necho $! > "${childPidFile}"\nwait\n`);
+  // The child NEVER exits on its own. A `sleep 30` would give the assertion below a second way to
+  // be satisfied — natural expiry — and a test with two ways to pass is only as strong as the
+  // weaker one. With an effectively endless sleep, the child being gone can only mean it was killed.
+  let childPid = null;
+  t.after(() => { if (childPid !== null) { try { process.kill(childPid, "SIGKILL"); } catch { /* already reaped */ } } });
+  writeFileSync(file, `#!/bin/sh\ntrap '' TERM\n/bin/sleep 100000 &\necho $! > "${childPidFile}"\nwait\n`);
   chmodSync(file, 0o755);
   // The deadline is generous on purpose: under a loaded machine (the full lane runs Electron
   // suites alongside this file) a shell can take over half a second just to start, and a deadline
@@ -150,12 +213,15 @@ test("a helper that ignores SIGTERM and leaves a child behind is killed with its
   assert.equal(r.code, "helper_timeout");
   assert.ok(took < 10_000, `deadline was not enforced: took ${took} ms`);
   assert.ok(existsSync(childPidFile), "the fake must have started its child before the deadline");
-  const childPid = Number(readFileSync(childPidFile, "utf8").trim());
+  childPid = Number(readFileSync(childPidFile, "utf8").trim());
   assert.ok(Number.isInteger(childPid) && childPid > 1, `bad child pid ${childPid}`);
-  // The child was alive at spawn (it wrote its pid). It must be gone now — not in a moment, now.
-  let alive = true;
-  try { process.kill(childPid, 0); } catch (e) { alive = e.code !== "ESRCH"; }
-  assert.equal(alive, false, `SURVIVOR: the helper's child ${childPid} outlived the deadline`);
+  // The child was alive at spawn (it wrote its pid). It must be gone — see waitForDeath for why
+  // "gone" cannot be read in the same tick, and why a five-second budget still cannot let a
+  // surviving `sleep 30` through.
+  const died = await waitForDeath(childPid, 5000);
+  assert.equal(died.survived, undefined,
+    `SURVIVOR: the helper's child ${childPid} outlived the deadline by 5 s (${died.survived})`);
+  t.diagnostic(`child ${childPid} disappeared ${died.deadAfterMs} ms after the group kill`);
 });
 
 test("a descendant that ESCAPES the process group and holds the pipe cannot hold main past the deadline", async (t) => {
