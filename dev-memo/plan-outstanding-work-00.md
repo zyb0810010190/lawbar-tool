@@ -870,11 +870,20 @@ darwin-arm64 72 MB (36 MB of it a duplicated dylib that packaging can dedupe), P
 single-user, locally installed, offline tool with no download and no store limit, that is not a
 real constraint; the true price is the recurring one — a Node native module needing asarUnpack and
 a rebuild per Electron version, under this repository's committed-tarball drift discipline.
-**Two things this decision does NOT settle, recorded so they are not assumed:** the app is built
-universal today, and shipping arm64 only would halve the cost — a separate decision, since it drops
-Intel support. And prioritisation is not certification: the interface must show the source page and
-must never label agreed text verified, with case numbers, dates and amounts prompting review
-regardless of agreement, because short lines are where Vision is worst (0.31 at ≤6 characters).
+**Intel support is KEPT — the owner's decision, 2026-09-12, with the cost measured and accepted.**
+Only the arm64 runtime is installed on this machine (npm fetches the host platform's optional
+binaries), so an Intel-capable build must additionally fetch the x64 onnxruntime and the x64 sharp:
+about 72 MB and 15 MB more, taking the added weight from roughly 105 MB to roughly 190 MB and the
+app from 308 MB to about 500 MB.
+**Implementation note that honours the decision at lower cost:** ship TWO per-architecture builds
+rather than one universal bundle. Intel users keep a working app, each artifact carries only the
+runtime it can execute (~410 MB rather than ~500 MB), and nobody downloads a runtime for a chip
+they do not have. electron-builder already produces `mac-arm64` and `mac` outputs; only the
+universal packaging of the second engine would change.
+**The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The
+interface must show the source page and must never label agreed text verified, with case numbers,
+dates and amounts prompting review regardless of agreement, because short lines are where Vision is
+worst (0.31 at ≤6 characters).
 
 **The survey (2026-09-10, one hour, read-only), so this item is not built on a misreading.** R3's row
 says "existing local OCR services become a visible, correctable desktop workflow" and its exit
