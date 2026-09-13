@@ -1156,6 +1156,39 @@ telephone-shaped fields tripped `check-no-real-data`, and a source COMMENT examp
 Both were synthetic, and both were reshaped rather than exempted. A fixture is not a reason to
 teach that gate exceptions.
 
+**A FOURTH instance of the flake family, and the structural fix this time.** The process-group test
+went red again, with the OTHER half of the same problem: not the child surviving observation, but
+`the fake must have started its child before the deadline` — the shell had not reached its first
+line within 4 s. That assertion is a PRECONDITION about the machine, not the claim: a deadline can
+only demonstrate a group kill if the group exists when it fires. The deadline now ESCALATES,
+4 s → 8 s → 16 s, and only until the child is running; the claim that the child is dead afterwards
+is asserted exactly once, on the attempt that got one. Retrying a precondition costs seconds on a
+loaded machine and nothing on an idle one. Retrying a CLAIM would be how a real defect gets waited
+out, and nothing here does that — verified by mutating `killGroup` to a no-op, which still fails
+the test with the child in `ps state S`.
+**The pattern across all four:** every one was a fixed number chosen for how fast this machine
+happened to be, standing in for a property of the code. Two were budgets for observing a death, one
+was a budget for a refusal path that had nothing to do with timing, one was a budget for starting a
+shell. The rule that falls out: if a constant in a test exists to accommodate the machine, it must
+either be derived from the machine or be escalated until the precondition holds — never guessed.
+
+**CORRECTION, 2026-09-13, to something recorded twice above as inherent.** The note that "on a
+FileVault-off runner every Electron test here takes the gate branch, so CI proves the app starts and
+refuses, not that OCR reads" was WRONG, and stating it as a property of the environment made it
+invisible. It was a property of one environment variable. `LAWBAR_MODE=dev` turns the Tier 1
+FileVault check from a block into a warning and the product shell loads;
+`smoke.electron.test.mjs` has always launched that way, so the pattern was already in this lane. The
+two OCR Electron suites launched in production mode, hit the gate on every runner, and returned
+early from every test — green, and asserting nothing about OCR at all.
+**Both now launch in dev mode, and the early return is gone: a readiness window is a FAILURE, not a
+branch.** The gate itself is `readiness.electron.test.mjs`'s subject and keeps production mode;
+proving it a second time here bought nothing and cost the feature its entire CI coverage.
+**Proven against the failing condition, not argued:** with the built FileVault probe forced to
+report OFF — a throwaway dist edit, restored, marker count 0 — the two suites pass 6 of 6 in dev
+mode and fail 6 of 6 in production mode with "the product shell did not load". Before this change
+that same production-mode run passed 6 of 6 by returning early. Six vacuous passes became six real
+ones.
+
 **Not yet built:** the packaged acceptance.
 
 **The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The

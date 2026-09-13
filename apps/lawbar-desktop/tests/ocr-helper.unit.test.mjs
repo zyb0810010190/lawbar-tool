@@ -215,22 +215,35 @@ test("a helper that ignores SIGTERM and leaves a child behind is killed with its
   t.after(() => { if (childPid !== null) { try { process.kill(childPid, "SIGKILL"); } catch { /* already reaped */ } } });
   writeFileSync(file, `#!/bin/sh\ntrap '' TERM\n/bin/sleep 100000 &\necho $! > "${childPidFile}"\nwait\n`);
   chmodSync(file, 0o755);
-  // The deadline is generous on purpose: under a loaded machine (the full lane runs Electron
-  // suites alongside this file) a shell can take over half a second just to start, and a deadline
-  // that fires before the child exists measures the machine, not the kill. The bound below is
-  // still one third of the child's sleep.
-  const t0 = Date.now();
-  const r = await probeHelper(pinned(file, { timeoutMs: 4000, killGraceMs: 300 }));
-  const took = Date.now() - t0;
-  assert.equal(r.ok, false);
-  assert.equal(r.code, "helper_timeout");
-  assert.ok(took < 10_000, `deadline was not enforced: took ${took} ms`);
-  assert.ok(existsSync(childPidFile), "the fake must have started its child before the deadline");
+  // THE DEADLINE IS A PRECONDITION, AND THE PRECONDITION IS ABOUT THE MACHINE, NOT THE CLAIM.
+  // The runner's deadline can only demonstrate a group kill if the group EXISTS when it fires, and
+  // whether a shell has started and written a pid within N milliseconds is a fact about how loaded
+  // the machine is. A fixed N is a bet on that, and under the full lane this bet has now lost twice
+  // in two different ways: once with the child surviving the observation, once with the fake never
+  // reaching its first line.
+  //
+  // So the deadline escalates, and ONLY the precondition is retried. The claim below — that the
+  // child is dead afterwards — is asserted exactly once, on the attempt that got a running child,
+  // and a failure there is a failure. Retrying a precondition costs seconds on a loaded machine and
+  // nothing on an idle one; retrying a claim would be how a real defect gets waited out.
+  let r = null;
+  let took = 0;
+  for (const timeoutMs of [4000, 8000, 16_000]) {
+    const t0 = Date.now();
+    r = await probeHelper(pinned(file, { timeoutMs, killGraceMs: 300 }));
+    took = Date.now() - t0;
+    assert.equal(r.ok, false);
+    assert.equal(r.code, "helper_timeout");
+    assert.ok(took < timeoutMs + 6000, `deadline was not enforced: took ${took} ms against ${timeoutMs} ms`);
+    if (existsSync(childPidFile)) break;
+    t.diagnostic(`the fake had not started its child within ${timeoutMs} ms; retrying the precondition`);
+  }
+  assert.ok(existsSync(childPidFile),
+    "the fake never started its child, even at 16 s — this machine cannot start a shell, so the kill was never exercised");
   childPid = Number(readFileSync(childPidFile, "utf8").trim());
   assert.ok(Number.isInteger(childPid) && childPid > 1, `bad child pid ${childPid}`);
   // The child was alive at spawn (it wrote its pid). It must be gone — see waitForDeath for why
-  // "gone" cannot be read in the same tick, and why a five-second budget still cannot let a
-  // surviving `sleep 30` through.
+  // "gone" cannot be read in the same tick, and why the budget cannot let a survivor through.
   const died = await waitForDeath(childPid, 5000);
   assert.equal(died.survived, undefined,
     `SURVIVOR: the helper's child ${childPid} outlived the deadline by 5 s (${died.survived})`);

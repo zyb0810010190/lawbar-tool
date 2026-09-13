@@ -14,8 +14,10 @@
 // ISOLATED PROFILE, WITH A REFUSAL. `--user-data-dir` points at a throwaway directory and the
 // launch aborts if the app ever resolves the litigator's real store.
 //
-// NO SILENT SKIP. On a FileVault-off host the product shell never loads; the test then asserts the
-// gate window IS showing rather than returning early.
+// NO SILENT SKIP, AND NO VACUOUS PASS. The launch sets LAWBAR_MODE=dev, which turns the Tier 1
+// FileVault gate from a block into a warning. Without it, a CI runner (FileVault off) showed the
+// readiness window, every test returned early, and this suite was green while asserting nothing
+// about OCR whatsoever. The product shell failing to load is now a failure, not a branch.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -64,17 +66,22 @@ async function launchIsolated(t, { seed = false } = {}) {
   const app = await electron.launch({
     args: [".", `--user-data-dir=${profile}`],
     cwd: projectRoot,
-    env: { ...process.env, LAWBAR_MODE: "", ...(seed ? { LAWBAR_OCR_TEST_HOOK: "true" } : {}) },
+    // LAWBAR_MODE=dev turns the Tier 1 FileVault gate from a BLOCK into a warning, exactly as
+    // smoke.electron.test.mjs has always done. It is the difference between a test that runs and a
+    // test that only looks like it runs: a CI runner has FileVault OFF, so in production mode this
+    // suite reached the readiness window and asserted nothing about OCR at all. The gate itself is
+    // readiness.electron.test.mjs's subject, and it keeps production mode; proving it twice here
+    // bought nothing and cost the entire feature its coverage.
+    env: { ...process.env, LAWBAR_MODE: "dev", ...(seed ? { LAWBAR_OCR_TEST_HOOK: "true" } : {}) },
   });
   // TEARDOWN FIRST, before anything that can throw. The isolation assertions below are refusals —
   // they fire when the app resolved the wrong profile — and a refusal that leaves an Electron
   // process alive turns a clear failure into a hung job that reports nothing at all.
   //
-  // ALWAYS close, on every path. A test that returns early — the FileVault gate branch below does,
-  // and on a CI runner it always does — must still not leave an Electron process alive: node:test
-  // will not exit while one is, and the job dies on the 40-minute limit instead of reporting.
-  // That happened. A test may ALSO close the app itself to assert that quitting works; closing an
-  // already-closed app returns cleanly, so the second close reports nothing new.
+  // ALWAYS close, on every path. Any test that leaves an Electron process alive hangs the whole
+  // run: node:test will not exit while one lives, and the job dies on the 40-minute limit instead
+  // of reporting. That happened. A test may ALSO close the app itself to assert that quitting
+  // works; closing an already-closed app returns cleanly, so the second close reports nothing new.
   t.after(async () => {
     const err = await closeApp(app);
     rmSync(profile, { recursive: true, force: true });
@@ -90,27 +97,34 @@ async function launchIsolated(t, { seed = false } = {}) {
   return { app, profile };
 }
 
+/**
+ * The product shell, or a loud failure. NOT a branch.
+ *
+ * This used to return null when the readiness window appeared, and every test below then returned
+ * early — which on a FileVault-off CI runner meant every test, every time. The suite was green and
+ * proved nothing. In dev mode the gate warns instead of blocking, so a readiness window here means
+ * the app genuinely failed to start, and that is a failure worth reporting rather than skipping.
+ */
 async function productWindow(app) {
   const win = await app.firstWindow();
   await win.waitForLoadState("domcontentloaded");
-  const isReadiness = (await win.locator("#readiness-title").count()) > 0;
-  return isReadiness ? null : win;
+  const readiness = await win.locator("#readiness-title").count();
+  assert.equal(readiness, 0,
+    "the product shell did not load: the readiness gate is showing even though LAWBAR_MODE=dev disables the block");
+  return win;
 }
 
-async function assertGateIsBlocking(app, profile) {
-  const win = await app.firstWindow();
-  const title = await win.locator("#readiness-title").innerText();
-  assert.ok(title.trim().length > 0, "no product shell AND no readiness window: the app showed nothing at all");
-  // The gate branch is not a free pass: behind the gate the app must write NOTHING, and that has
-  // to include the derived store, or a blocked launch could still create a database.
-  assertNoOcrStore(profile, "behind the FileVault gate");
-}
-
-/** No OCR database anywhere it could exist, and none where the backup would miss it. */
+/**
+ * No OCR database anywhere it could exist, and nothing OCR-shaped where the backup would miss it.
+ * The write-ahead and shared-memory sidecars count: `ocr.sqlite-wal` does not end in `.sqlite`,
+ * and a check that only looked at that suffix would miss a store that had been opened and rolled.
+ */
 function assertNoOcrStore(profile, when) {
   assert.equal(existsSync(path.join(profile, "ocr-derived")), false, `${when}: no derived store may exist`);
-  const root = readdirSync(profile).filter((f) => f.endsWith(".sqlite"));
-  assert.deepEqual(root.filter((f) => f !== "case-box.sqlite"), [],
+  const root = readdirSync(profile);
+  assert.deepEqual(root.filter((f) => f.startsWith("ocr.sqlite")), [],
+    `${when}: nothing OCR-shaped may appear in the profile ROOT, where the backup would miss it`);
+  assert.deepEqual(root.filter((f) => f.endsWith(".sqlite") && f !== "case-box.sqlite"), [],
     `${when}: only the case box may be a database in the profile root`);
 }
 
@@ -134,7 +148,6 @@ async function seedFixture(app) {
 test("the OCR bridge exposes exactly probe, extract and pages, and both new channels answer", async (t) => {
   const { app, profile } = await launchIsolated(t);
   const win = await productWindow(app);
-  if (win === null) { await assertGateIsBlocking(app, profile); return; }
 
   const shape = await win.evaluate(() => ({
     keys: Object.keys(window.lawbar?.ocr ?? {}).sort(),
@@ -156,7 +169,6 @@ test("the OCR bridge exposes exactly probe, extract and pages, and both new chan
 test("a malformed request is refused by main, not by the preload, and never reaches persistence", async (t) => {
   const { app, profile } = await launchIsolated(t);
   const win = await productWindow(app);
-  if (win === null) { await assertGateIsBlocking(app, profile); return; }
 
   // The preload rebuilds the payload from two named fields, so an extra field cannot cross; what
   // CAN cross is a missing or empty one, and main must refuse that itself.
@@ -173,7 +185,6 @@ test("a malformed request is refused by main, not by the preload, and never reac
 test("END TO END: a real born-digital document is read, stored in the DERIVED store only, and read back", async (t) => {
   const { app, profile } = await launchIsolated(t, { seed: true });
   const win = await productWindow(app);
-  if (win === null) { await assertGateIsBlocking(app, profile); return; }
 
   const seeded = await seedFixture(app);
   assert.ok(seeded.matterId && seeded.documentId, "the seed must return the identity it created");
@@ -210,7 +221,6 @@ test("the app quits cleanly once the derived store is open", async (t) => {
   // closes with the store OPEN on purpose, so the failure is attributed to the thing that caused it.
   const { app, profile } = await launchIsolated(t, { seed: true });
   const win = await productWindow(app);
-  if (win === null) { await assertGateIsBlocking(app, profile); return; }
   const seeded = await seedFixture(app);
   await win.evaluate((r) => window.lawbar.ocr.extract(r), { matterId: seeded.matterId, documentId: seeded.documentId });
   assert.ok(existsSync(path.join(profile, "ocr-derived", "ocr.sqlite")), "the store must be open for this to mean anything");
@@ -220,16 +230,8 @@ test("the app quits cleanly once the derived store is open", async (t) => {
 test("the derived store is LAZY and is never created in the profile root beside the case box", async (t) => {
   const { app, profile } = await launchIsolated(t);
   const win = await productWindow(app);
-  if (win === null) { await assertGateIsBlocking(app, profile); return; }
 
   // A refused request must not open the store: a profile that never OCRs never grows one.
   await win.evaluate(() => window.lawbar.ocr.pages({ matterId: "nope", documentId: "nope" }));
-  const root = readdirSync(profile);
-  assert.equal(root.includes("ocr-derived"), false, "a refused request must not open the derived store");
-  assert.deepEqual(root.filter((f) => f.startsWith("ocr.sqlite")), [],
-    "and nothing OCR-shaped may ever appear in the profile ROOT, where the backup would miss it");
-  // Whatever else the app wrote, no second database may sit beside case-box.sqlite.
-  const dbsInRoot = root.filter((f) => f.endsWith(".sqlite"));
-  assert.deepEqual(dbsInRoot.sort(), dbsInRoot.filter((f) => f === "case-box.sqlite").sort(),
-    `only the case box may be a database in the profile root; found ${dbsInRoot.join(", ")}`);
+  assertNoOcrStore(profile, "after a refused request");
 });
