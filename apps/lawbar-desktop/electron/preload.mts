@@ -280,13 +280,25 @@ const documentOpenApi: DocumentOpenApi = {
   open: (req) => ipcRenderer.invoke("document:open", req),
 };
 
-// R3 / WI-12 step 2: one read-only OCR channel, no payload. The renderer learns what the bundled
-// helper is (digest, version), what this Mac supports (Vision languages), and nothing else.
+// R3 / WI-12: the OCR surface. `probe` is read-only and takes nothing. `extract` and `pages` take
+// an IDENTITY — a matter and a document — and never a path: main resolves the file, main authorises
+// it, and wrong-tenant, wrong-matter and no-such-document are one refusal so none confirms another.
+// `extract` answers with COUNTS; text comes back only from `pages`, on a separate explicit call.
+// Nothing here is certified: no control engine ships, so every page needs the owner's reading.
+interface OcrDocumentRef {
+  readonly matterId: string;
+  readonly documentId: string;
+}
 interface OcrApi {
   probe(): Promise<unknown>;
+  extract(ref: OcrDocumentRef): Promise<unknown>;
+  pages(ref: OcrDocumentRef): Promise<unknown>;
 }
 const ocrApi: OcrApi = {
   probe: () => ipcRenderer.invoke("ocr:probe"),
+  // Rebuilt, not forwarded: only the two known fields cross, whatever else a caller passes.
+  extract: ({ matterId, documentId }) => ipcRenderer.invoke("ocr:extract", { matterId, documentId }),
+  pages: ({ matterId, documentId }) => ipcRenderer.invoke("ocr:pages", { matterId, documentId }),
 };
 
 contextBridge.exposeInMainWorld("lawbar", {

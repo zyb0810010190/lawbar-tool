@@ -14,6 +14,8 @@ import {
 import type { BackupCapableDb } from "../src/backup/runBackup.js";
 import { DOCUMENT_OPEN_CHANNEL, documentOpenHandler } from "../src/caseBox/documentOpenHandlers.js";
 import { OCR_CHANNEL, ocrProbeHandler } from "../src/ocr/ocrHandlers.js";
+import { OCR_EXTRACT_CHANNEL, ocrExtractHandler, ocrPagesHandler } from "../src/ocr/ocrExtractHandlers.js";
+import { openOcrStore, type OcrStore } from "../src/ocr/ocrStore.js";
 import { readPinnedDigest, resolveHelperPath } from "../src/ocr/helper.js";
 import { CURRENT_SCHEMA_VERSION } from "case-box-persistence";
 import { makeStoreFile } from "../src/caseBox/documentStorage.js";
@@ -145,6 +147,19 @@ ipcMain.handle("app:info", () => ({
 // Everything after the gate. Extracted so it can be started EITHER immediately, when the
 // precondition already holds, OR by the readiness window once a re-check clears it. The gate
 // itself is unchanged and still lives below.
+/**
+ * The derived OCR store, opened on first use inside `startProduct` and closed on quit. Module-level
+ * only so `before-quit` can reach it; a profile that never OCRs never opens it.
+ */
+let ocrStore: OcrStore | null = null;
+function closeOcrStore(): void {
+  const s = ocrStore;
+  ocrStore = null;
+  if (s !== null) {
+    try { s.close(); } catch { /* quitting: a derived store failing to close costs nothing */ }
+  }
+}
+
 async function startProduct(): Promise<void> {
   const userDataDir = app.getPath("userData");
   // WI-07. This call refuses to open a database that is corrupt, locked, foreign or
@@ -228,6 +243,33 @@ async function startProduct(): Promise<void> {
   const ocrPinnedDigest = readPinnedDigest(path.join(app.getAppPath(), "dist", "src", "ocr", "helper-pin.json"));
   ipcMain.handle(OCR_CHANNEL.probe, (_evt, payload: unknown) =>
     ocrProbeHandler(payload, { helperPath: ocrHelperPath, pinnedDigest: ocrPinnedDigest, timeoutMs: 15_000 }));
+
+  // R3 / WI-12: reading a document. The DERIVED store opens beside the case box but in its own
+  // directory — it is regenerable by construction, because the backup copies exactly one database
+  // by name and a second one there would be silently absent from every verified backup.
+  //
+  // OPENED LAZILY, and that is deliberate: a profile where OCR is never used never grows a second
+  // database, so `readiness.electron.test`'s claim that nothing is written behind the FileVault
+  // gate stays true of this store as well, and a corrupt derived store cannot stop the app from
+  // starting — the handler turns a failure to open it into a code, since the store is derived and
+  // the owner can simply try again.
+  //
+  // TWO DEADLINES, because the two calls are not the same work. The text layer is ONE call for the
+  // whole document and measured 40–60 ms a page, so 15 s is already generous; recognition is one
+  // call per page and measured p95 1.04 s a page on the owner's real scans, so 120 s lets a slow
+  // page finish while a wedged one costs that page and not the document.
+  const ocrStoreOnce = (): OcrStore => (ocrStore ??= openOcrStore({ userDataDir }));
+  const ocrExtractDeps = {
+    provide: () => caseBoxRuntime,
+    storageRoot: documentStorageRoot,
+    store: ocrStoreOnce,
+    helper: { helperPath: ocrHelperPath, pinnedDigest: ocrPinnedDigest, timeoutMs: 15_000 },
+    recogniseTimeoutMs: 120_000,
+  };
+  ipcMain.handle(OCR_EXTRACT_CHANNEL.extract, (_evt, payload: unknown) =>
+    ocrExtractHandler(payload, ocrExtractDeps));
+  ipcMain.handle(OCR_EXTRACT_CHANNEL.pages, (_evt, payload: unknown) =>
+    ocrPagesHandler(payload, ocrExtractDeps));
 
   registerCaseBoxIpcHandlers({
     persistenceProvider: () => caseBoxRuntime,
@@ -314,6 +356,15 @@ async function startProduct(): Promise<void> {
   // persistence API and registers one synthetic original through the real store path, so the store
   // layout is production's. Registers NO IPC channel, NO preload surface, NO renderer global, and
   // accepts no arguments at all. Production launches never import the module.
+  // LAWBAR_OCR_TEST_HOOK=true (set ONLY by tests/ocr-extract.electron.test.mjs and the packaged
+  // acceptance): install a fixed-fixture seed on globalThis so a test can create a real
+  // born-digital document and drive the ladder end to end. Same gate discipline as the hooks
+  // beside it: default-off, no IPC channel, no renderer surface, nothing in a production launch.
+  if (process.env.LAWBAR_OCR_TEST_HOOK === "true") {
+    const { seedOcrFixture } = await import("../src/caseBox/testSeed/ocrSeed.js");
+    (globalThis as { __lawbarOcrSeed?: typeof seedOcrFixture }).__lawbarOcrSeed = seedOcrFixture;
+  }
+
   if (process.env.LAWBAR_DOCUMENT_OPEN_TEST_HOOK === "true") {
     const { seedDocumentOpenFixture } = await import("../src/caseBox/testSeed/documentOpenSeed.js");
     (globalThis as { __lawbarDocumentOpenSeed?: typeof seedDocumentOpenFixture }).__lawbarDocumentOpenSeed =
@@ -381,5 +432,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  closeOcrStore();
   closeCaseBoxRuntime();
 });

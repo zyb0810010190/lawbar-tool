@@ -40,7 +40,14 @@ export type HelperFailureCode =
   | "helper_unreadable"
   | "helper_unpinned"
   | "helper_stale"
-  | "helper_identity_mismatch";
+  | "helper_identity_mismatch"
+  | "helper_unreadable_input"
+  | "helper_page_out_of_range"
+  | "helper_bad_arguments"
+  | "helper_error";
+
+/** The helper's whole error vocabulary. A code outside it never becomes part of any code we emit. */
+export const HELPER_ERROR_CODES: ReadonlySet<string> = new Set(["unreadable_input", "page_out_of_range", "bad_arguments"]);
 
 export interface HelperProbe {
   readonly helper_build_digest: string;
@@ -202,6 +209,174 @@ function isProbeRecord(v: unknown): v is HelperProbe & { kind: string } {
   return r.kind === "probe" && typeof r.helper_build_digest === "string" && /^[0-9a-f]{64}$/.test(r.helper_build_digest)
     && typeof r.helper_version === "string" && typeof r.os_version === "string" && typeof r.os_build === "string"
     && typeof r.arch === "string" && Array.isArray(r.vision_languages) && r.vision_languages.every((l) => typeof l === "string");
+}
+
+// ---------------------------------------------------------------------------
+// Extraction — the tier ladder's two calls, under the same identity rules as the probe
+// ---------------------------------------------------------------------------
+
+/** One page as the helper reports it. Absent fields stay absent: nothing unmeasured becomes a zero. */
+export interface HelperPage {
+  readonly page: number;
+  readonly page_count: number;
+  readonly source: "pdf" | "image";
+  readonly mode: "full" | "layer_only";
+  readonly layer_text: string | null;
+  readonly layer_chars: number;
+  readonly layer_ms: number | null;
+  readonly vision_text: string | null;
+  readonly vision_ms: number | null;
+  readonly render_ms: number | null;
+  readonly render_digest: string | null;
+  /** The helper's own per-page failure: the page is reported, never skipped. */
+  readonly error: string | null;
+}
+
+export type ExtractResult =
+  | { readonly ok: true; readonly pages: readonly HelperPage[]; readonly elapsed_ms: number }
+  | { readonly ok: false; readonly code: HelperFailureCode; readonly elapsed_ms: number };
+
+export interface ExtractOptions {
+  readonly file: string;
+  /** Inclusive 1-based page range. Absent means every page. */
+  readonly pages?: { readonly from: number; readonly to: number };
+  /** Read the text layer only: no render, no recognition. The cheapest tier. */
+  readonly layerOnly?: boolean;
+  readonly languages?: readonly string[];
+}
+
+const isMs = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
+const isIndex = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 1;
+const strOrNull = (v: unknown): string | null => (typeof v === "string" ? v : null);
+const absent = (v: unknown): boolean => v === undefined || v === null;
+
+/** The helper's whole PAGE-error vocabulary. Anything else becomes `page_error`, never free text. */
+export const HELPER_PAGE_ERRORS: ReadonlySet<string> = new Set(["render_failed", "vision_failed"]);
+
+/**
+ * A page record, or null when the line is not one this call asked for. Identifiers are checked as
+ * integers and NEVER rounded — rounding a page number attaches a reading to the wrong page — and
+ * the fields required are the ones the requested MODE actually measures, so a full extraction
+ * missing its recognition is a refusal rather than a success carrying nulls.
+ */
+function asPage(v: unknown, mode: "full" | "layer_only", digest: string): HelperPage | null {
+  if (typeof v !== "object" || v === null) return null;
+  const r = v as Record<string, unknown>;
+  if (r.kind !== "page" || r.mode !== mode || r.helper_build_digest !== digest) return null;
+  if (!isIndex(r.page) || !isIndex(r.page_count) || r.page > r.page_count) return null;
+  if (r.source !== "pdf" && r.source !== "image") return null;
+  if (typeof r.layer_chars !== "number" || !Number.isSafeInteger(r.layer_chars) || r.layer_chars < 0) return null;
+
+  const pageError = absent(r.error) ? null
+    : typeof r.error === "string" && HELPER_PAGE_ERRORS.has(r.error) ? r.error
+    : "page_error";
+
+  if (mode === "layer_only") {
+    // Nothing was rendered or recognised, so those fields must be ABSENT. A zero here would be a
+    // measurement that never happened.
+    if (!absent(r.vision_text) || !absent(r.vision_ms) || !absent(r.render_ms) || !absent(r.render_digest)) return null;
+    if (r.source === "pdf" && !isMs(r.layer_ms)) return null;
+    return {
+      page: r.page, page_count: r.page_count, source: r.source, mode,
+      layer_text: strOrNull(r.layer_text), layer_chars: r.layer_chars,
+      layer_ms: isMs(r.layer_ms) ? Math.round(r.layer_ms) : null,
+      vision_text: null, vision_ms: null, render_ms: null, render_digest: null, error: pageError,
+    };
+  }
+  // Full mode. A page the helper could not process reports its error and measures nothing further;
+  // a page it did process must carry every field the mode exists to produce.
+  if (pageError !== null) {
+    return {
+      page: r.page, page_count: r.page_count, source: r.source, mode,
+      layer_text: strOrNull(r.layer_text), layer_chars: r.layer_chars,
+      layer_ms: isMs(r.layer_ms) ? Math.round(r.layer_ms) : null,
+      vision_text: null, vision_ms: null, render_ms: null, render_digest: null, error: pageError,
+    };
+  }
+  if (typeof r.vision_text !== "string" || !isMs(r.vision_ms) || !isMs(r.render_ms)) return null;
+  if (typeof r.render_digest !== "string" || !/^[0-9a-f]{64}$/.test(r.render_digest)) return null;
+  return {
+    page: r.page, page_count: r.page_count, source: r.source, mode,
+    layer_text: strOrNull(r.layer_text), layer_chars: r.layer_chars,
+    layer_ms: isMs(r.layer_ms) ? Math.round(r.layer_ms) : null,
+    vision_text: r.vision_text, vision_ms: Math.round(r.vision_ms), render_ms: Math.round(r.render_ms),
+    render_digest: r.render_digest, error: null,
+  };
+}
+
+/**
+ * Run `lawbar-ocr extract` and return one record per page. Identity is proved exactly as it is for
+ * the probe — pin, then the bytes on disk, then EVERY page record's self-reported digest — because
+ * a page is where the text the owner may rely on actually comes from. A helper error record
+ * (unreadable input, page out of range) is mapped to its code; a page-level failure stays on its
+ * page, so a document with one bad page still reports every other page.
+ */
+export async function extractPages(deps: HelperDeps, options: ExtractOptions): Promise<ExtractResult> {
+  const t0 = Date.now();
+  if (deps.pinnedDigest === null) return { ok: false, code: "helper_unpinned", elapsed_ms: Date.now() - t0 };
+  const pre = checkExecutable(deps.helperPath);
+  if (pre !== null) return { ok: false, code: pre, elapsed_ms: Date.now() - t0 };
+  let executableDigest: string;
+  try {
+    executableDigest = sha256OfFile(deps.helperPath);
+  } catch {
+    return { ok: false, code: "helper_unreadable", elapsed_ms: Date.now() - t0 };
+  }
+  if (executableDigest !== deps.pinnedDigest) return { ok: false, code: "helper_stale", elapsed_ms: Date.now() - t0 };
+
+  const mode: "full" | "layer_only" = options.layerOnly === true ? "layer_only" : "full";
+  const args = ["extract", options.file];
+  if (options.pages !== undefined) args.push("--pages", `${options.pages.from}-${options.pages.to}`);
+  if (mode === "layer_only") args.push("--layer-only");
+  else args.push("--lang", (options.languages ?? ["zh-Hans", "en-US"]).join(","));
+
+  const out = await runHelper(deps, args);
+  const elapsed = Date.now() - t0;
+  if (out.spawnFailed) return { ok: false, code: "helper_not_executable", elapsed_ms: elapsed };
+  if (out.timedOut) return { ok: false, code: "helper_timeout", elapsed_ms: elapsed };
+  if (out.overflow) return { ok: false, code: "helper_bad_output", elapsed_ms: elapsed };
+
+  const lines = out.stdout.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+  const parsed: unknown[] = [];
+  for (const line of lines) {
+    try { parsed.push(JSON.parse(line)); } catch { return { ok: false, code: "helper_bad_output", elapsed_ms: elapsed }; }
+  }
+  // An error record is the helper refusing the whole call; it carries no digest by protocol, so it
+  // is trusted only for which of its three known codes it is.
+  const errorRecord = parsed.find((r) => typeof r === "object" && r !== null && (r as { kind?: unknown }).kind === "error");
+  if (errorRecord !== undefined) {
+    const code = (errorRecord as { code?: unknown }).code;
+    const mapped = typeof code === "string" && HELPER_ERROR_CODES.has(code) ? `helper_${code}` : "helper_error";
+    return { ok: false, code: mapped as HelperFailureCode, elapsed_ms: elapsed };
+  }
+  if (out.exitCode !== 0) return { ok: false, code: "helper_exit", elapsed_ms: elapsed };
+  if (parsed.length === 0) return { ok: false, code: "helper_bad_output", elapsed_ms: elapsed };
+
+  const pages: HelperPage[] = [];
+  for (const p of parsed) {
+    const page = asPage(p, mode, executableDigest);
+    // A record that is not this helper's page record in the mode asked for taints the whole run:
+    // half a document read by something unidentified is worse than no document read.
+    if (page === null) return { ok: false, code: "helper_identity_mismatch", elapsed_ms: elapsed };
+    pages.push(page);
+  }
+  // TOPOLOGY. Everything above checks records one at a time; this checks that together they are the
+  // document that was asked for. A truncated run — the helper killed after page 2 of a hundred —
+  // otherwise returns ok with two pages and the caller cannot tell partial from complete. Silent
+  // loss of a page is the failure this whole feature exists to avoid.
+  const total = pages[0]!.page_count;
+  if (!pages.every((p) => p.page_count === total)) return { ok: false, code: "helper_bad_output", elapsed_ms: elapsed };
+  const seen = new Set(pages.map((p) => p.page));
+  if (seen.size !== pages.length) return { ok: false, code: "helper_bad_output", elapsed_ms: elapsed };
+  const from = options.pages?.from ?? 1;
+  const to = options.pages?.to ?? total;
+  if (from > to || to > total) return { ok: false, code: "helper_bad_output", elapsed_ms: elapsed };
+  for (let n = from; n <= to; n += 1) {
+    if (!seen.has(n)) return { ok: false, code: "helper_bad_output", elapsed_ms: elapsed };
+  }
+  if (pages.length !== to - from + 1) return { ok: false, code: "helper_bad_output", elapsed_ms: elapsed };
+  pages.sort((a, b) => a.page - b.page);
+  return { ok: true, pages, elapsed_ms: elapsed };
 }
 
 /**

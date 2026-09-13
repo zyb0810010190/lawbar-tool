@@ -880,6 +880,217 @@ rather than one universal bundle. Intel users keep a working app, each artifact 
 runtime it can execute (~410 MB rather than ~500 MB), and nobody downloads a runtime for a chip
 they do not have. electron-builder already produces `mac-arm64` and `mac` outputs; only the
 universal packaging of the second engine would change.
+**Progress — the derived store and page extraction, 2026-09-12. The first code of the slice.**
+`apps/lawbar-desktop/src/ocr/ocrStore.ts` (new) and `extractPages()` in `src/ocr/helper.ts`.
+**The design was decided by something verified rather than assumed.** `runBackup.ts` copies exactly
+one database, `case-box.sqlite`, by hardcoded name, hashes only that file and names it in the
+manifest; `restore-from-backup.mjs` refuses a manifest naming anything else — read, not inferred. A
+second database beside it would therefore be absent from every backup while the app reported the
+backup VERIFIED. So the store is built to make that omission CORRECT: it holds only what the app
+can produce again, the case box's ocr-link stays the authority, and it lives at
+`<userData>/ocr-derived/ocr.sqlite` — the directory name is the contract a reader meets while
+debugging a restore. Every row is keyed by the helper build digest that produced it, so an upgrade
+re-extracts instead of serving text no shipped binary would produce today.
+**Reviewed BEFORE the stamp, and it changed the code:** Codex, one job per file, read-only,
+`gpt-5.6-sol` — threads 01a094b5-9085 (store), 01a094b5-9ae4 (extraction diff), 01a094b5-a5d2
+(tests). 14 findings, all 14 verified against the code and all 14 real; none cosmetic. What they
+changed, in the order they matter:
+- **Scope.** The store was keyed by document id alone, so a leaked id could read another matter's
+  readings. Every row and every read now carries the matter — a second lock behind the handler's
+  tenant and matter check, not a replacement for it.
+- **The overclaim, in code this time.** The store would have accepted `control: "agreed"` from any
+  caller. Marking a page agreed now requires naming the DIFFERENT engine that agreed, and the set
+  of shippable control engines is EMPTY in this build, so it cannot be done at all. The invariant
+  is enforced by data rather than by remembering a version flag.
+- **Silent loss.** `extractPages` validated each page record and never checked that together they
+  were the document requested: a helper killed after page 2 of 100 returned `ok` with two pages and
+  nothing downstream could tell partial from complete. The boundary now requires every requested
+  page present, unique, and agreeing on the document's length; the store records `page_count` and
+  `completeness()` reports the gap, because the bar is every page's outcome, not every stored
+  page's outcome.
+- **Numbers with nothing behind them.** A failed page could carry invented text and invented
+  timings; both are refused now, in code and in SQLite CHECK constraints. Extraction rounded page
+  identifiers, so a record claiming page 1.6 attached a reading to page 2 — identifiers are safe
+  integers and are never rounded. Full-mode records must carry the fields the mode exists to
+  produce instead of passing with nulls, and layer-only records must NOT carry render or Vision
+  fields.
+- **Free text across the boundary.** A helper page error was forwarded verbatim; it is now an
+  allowlist, with anything unknown becoming `page_error`.
+- **Closed sets at run time.** `outcome`, `source` and `control` are checked as values, not only as
+  types, and mirrored as CHECK constraints — an unknown outcome would have vanished from the counts
+  and taken a page's visibility with it. A store written under another schema version is discarded
+  and rebuilt rather than read, which is what being derived buys.
+**Verified:** 10 store tests; 10 mutants killed across two rounds (store in the profile root, key
+without the helper digest, read ignoring the helper, failed page without a code, read ignoring the
+matter, any named engine certifying, failed page carrying timings, foreign schema version read
+anyway, completeness reporting stored as expected, closed sets unchecked). The test file is
+registered in `scripts.test`, and the reachability guard — which fails when a test exists that no
+runner lists — passes; it was NOT registered when first written, which is the "coverage that looks
+real" trap this repository has hit before.
+**Progress — the extract handler, 2026-09-12.** `src/ocr/ocrExtractHandlers.ts`: `ocr:extract` runs
+the ladder measurement decided — ONE layer call for the whole document, then recognition only for
+pages with no usable layer, one call per page so a hang costs one page — and `ocr:pages` returns
+the stored readings on a separate, explicit call. Scoping is `documentOpenHandlers`' invariant:
+the payload is an identity, never a path; wrong tenant, wrong matter and no such document are one
+refusal, so none confirms the other; nothing is read before that check passes. The 20-character
+layer threshold GATES ESCALATION ONLY — short escalates, and nothing is accepted for being long.
+Every page is stored `unchecked` and `needsReview` is the whole document, because no control
+engine ships.
+**Reviewed BEFORE the stamp** (both jobs STALLED with empty output first — the known failure of
+this route — and were recovered with `--resume <threadId>`, which is why the thread ids below are
+the resumed ones): Codex, read-only, `gpt-5.6-sol` — 01a094f2-dbf5 (handler), 01a094f2-e5e9
+(tests). 11 findings. **Nine verified and fixed; TWO REJECTED after checking the source**, and the
+rejections matter as much as the fixes: it reported a duplicate `const base` that "fails
+compilation" (there is none; `tsc` reports zero errors) and an unbounded per-page hang (every
+helper call is bounded by `runHelper`'s deadline). Agent output is evidence, not verdict.
+What the nine changed:
+- **A thrown dependency could cross as raw text.** `extractPages` returns failures as fields, but
+  an injected implementation, an OOM or a bug can still reject, and that message can name a path.
+  Every call is now wrapped; a test throws a path-bearing error and asserts no path survives into
+  the refusal or into the store.
+- **`needsReview` counted the wrong direction.** It summed successes, so a document with three
+  failed pages reported FEWER pages needing the owner's eyes than a clean one. It is now the whole
+  page count: a failed page needs reading more, not less.
+- **Two different facts shared one answer.** Reading back with no helper pin returned an empty
+  list, which reads as "this document has no OCR". It now refuses with `helper_unavailable`,
+  because that is a different fact from "there is nothing here".
+- **The tests were weaker than they looked:** "nothing is read before scoping" was asserted only
+  against the helper (the derived store and the file resolver are now counted too, via a proxy);
+  only the first returned page was shape-checked (every page now is, plus the envelope); two loops
+  would have passed vacuously with zero rows; and the threshold test claimed "one over" while
+  using exactly the threshold — it now covers under, at, and over.
+**Verified:** 13 handler tests; 10 mutants killed (matter unchecked, tenant unchecked, every page
+recognised, any layer accepted, a failed page aborting the document, `needsReview` zeroed, a thrown
+helper escaping, `needsReview` counting only successes, a no-pin read returning empty, plus the
+earlier six). One mutant SURVIVED the first round and that was the most useful result of the day:
+removing the matter's own tenant check broke nothing, because every scoping case was also caught by
+the document's check — the first lock was untested. The test that isolates it (a case box that
+disagrees with itself: this tenant's document sitting in another tenant's matter) now exists.
+Both new test files are registered in `scripts.test`.
+**Progress — the feature is REACHABLE, 2026-09-12.** `ocr:extract` and `ocr:pages` are registered
+in `electron/main.ts` between the document-open block and the case-box barrel (so they exist before
+the window can invoke them), exposed as `window.lawbar.ocr.{probe,extract,pages}` where the preload
+rebuilds the payload from two named fields, and driven end to end by
+`tests/ocr-extract.electron.test.mjs` against a seeded REAL born-digital PDF
+(`src/caseBox/testSeed/ocrSeed.ts`, env-gated by `LAWBAR_OCR_TEST_HOOK`, hand-written minimal PDF
+so PDFKit finds a genuine text layer and the document travels the production storage and
+registration path).
+**Reviewed BEFORE the stamp:** Codex, read-only, `gpt-5.6-sol` — 01a095d6-7b94 (wiring diff),
+01a095d6-864e (the Electron test). 5 findings, all 5 verified and fixed. Two mattered:
+- **One deadline covered two different kinds of work.** The layer read is ONE call for the whole
+  document and measured 40–60 ms a page; recognition is one call per page and measured p95 1.04 s.
+  A single 120 s number let a wedged layer read hold two minutes for work that should take
+  milliseconds. Split: 15 s for the layer, 120 s per recognised page, and a test asserts both.
+- **An unopenable derived store threw across IPC.** SQLite's error names the file, so a database
+  path could have reached the renderer. It is now `store_unavailable`; a test throws a
+  path-bearing error and asserts no path survives, on open and mid-document.
+Both reviews independently found the same hole from opposite sides: every test refused before the
+store was ever opened, so the WORKING path was untested. That gap is now an end-to-end test, and
+closing it found two more bugs of mine.
+**Three bugs the tests found that inspection did not:**
+1. The store was NOT lazy as claimed — building the deps object opened it, so a refused request
+   created a database in a profile that never OCRs, weakening the readiness guarantee. The handler
+   now takes a provider and opens nothing until a request passes scoping.
+2. My edit spliced the seed hook into the MIDDLE of an unrelated function, because the anchor I
+   matched occurred twice. It compiled. Compiling is not evidence; the end-to-end test is what
+   exposed it.
+3. The test then assumed the seed existed the instant the window appeared, but the seed hooks
+   install AFTER `createWindow()` — a race that passes on a fast machine and fails on a slow one.
+   It waits for the hook now.
+**Verified:** 5 Electron tests (bridge shape, malformed payload, end-to-end read-and-read-back,
+clean quit with the store open, laziness), 15 handler tests, desktop lane green. The end-to-end
+test asserts what nothing else could: the derived store is created ONLY at
+`<profile>/ocr-derived/ocr.sqlite`, and the profile root still holds exactly one database.
+**A fourth bug, found by CI and not by any local run (2026-09-12).** The desktop gate FAILED on
+PR #307: all five OCR Electron tests passed, then the job hung for 38 minutes and died on the
+40-minute limit, with orphaned Electron processes named in the cleanup log. Cause: the clean-quit
+test used a `keepOpen` flag so it could own its own `app.close()` — and on a CI runner FileVault is
+OFF, so that test takes the readiness-gate branch and RETURNS BEFORE its close, leaving an app
+alive that `t.after` had been told to skip. `node --test` will not exit while a child process
+lives, so the suite never finished. The teardown now closes on EVERY path and the test closes
+again itself; a double close is harmless, and only the test's own close can fail loudly.
+**Verified against the failing condition, not just re-run:** forcing the gate branch locally
+(productWindow returning null, a throwaway edit, reverted) the suite now EXITS in 157 s with zero
+orphans where it previously hung. Suite green again on a normal run.
+**A limitation this exposed, stated rather than papered over:** on a FileVault-off CI runner every
+Electron test in this repository — mine included — takes the gate branch and asserts only that the
+readiness window is showing. So the END-TO-END OCR test does NOT exercise the ladder in CI; it
+runs fully only on a FileVault-on machine, which is the owner's. That is the established
+convention here (a runner cannot enable FileVault), but it means CI proves the app starts and
+refuses, not that OCR reads. The packaged acceptance is where that gap gets closed for real.
+**A fifth bug, and the worst kind: a test that fails while the code is right (2026-09-12).** With
+the leak fixed, the full desktop lane came back RED — not in the new code, but in the process-group
+kill test from step 2, twice in a row: `SURVIVOR: the helper's child outlived the deadline`. That
+file passes alone and passed in CI when it shipped. The assertion was
+`process.kill(childPid, 0)` executed in the same tick as the group SIGKILL. That reads a kernel
+transition as if it were a return value, and it is wrong twice over: `kill(2)` POSTS a signal and
+does not wait for the target to be scheduled, and a process that HAS terminated keeps answering
+signal 0 until it is reaped — and here its parent, the one that would reap it, was killed in the
+same group. So the test was measuring how quickly the machine got round to reaping, which under a
+lane running Electron suites on eight cores is sometimes not within one tick.
+**The evidence it was a reap race and not a broken kill:** synthetic CPU load (24 spinners) never
+reproduced it, 0/6; the full lane reproduced it 2/2 and then, after the fix, reported the child
+disappearing in 0–1 ms. Instant when it wins, one tick late when it loses. That is a boundary race,
+not a kill that failed.
+**The fix** polls for death with a five-second budget and, at the budget, distinguishes a zombie
+(terminated, merely unreaped — dead) from a running process, reporting the `ps` state in the
+failure message so a future red is diagnosable instead of mysterious. The wait duration is emitted
+as a diagnostic on success, so a kill that starts taking seconds becomes VISIBLE rather than being
+silently absorbed by the budget.
+**Two-sided, against a mutant, not just re-run green:** a copy of the built helper with `killGroup`
+neutered (the real build untouched, sha256 unchanged) makes the fixed test FAIL in 9.3 s with
+`ps state S` — the child genuinely running. The budget cannot let a real survivor through, because
+the child these tests start sleeps for 30 s.
+**What this actually was:** not a new discovery. `services/ocr-worker-bakeoff/tests/lawbar-ocr-vision.test.mjs`
+already carries the same helper, with the same comment about zombies and the same polling shape. The
+lesson had been learned one directory over and was not carried across when the desktop copy of this
+test was written. Full desktop lane after the fix: **1527 tests, 0 failures.**
+
+**REVIEWED (read-only Codex station, one job per file, both diffs gated through the eight
+no-real-data patterns applied directly — CLEAN — before transmission).** Nine findings; six
+adopted after checking each against the source, three declined with reasons.
+
+*On the process-group test.* **Adopted:** (1) the test could still pass with the kill broken, if the
+node process were starved long enough for a `sleep 30` to expire naturally — the assertion had two
+ways to be satisfied and was only as strong as the weaker one; the fake's child now sleeps
+effectively forever, so "gone" can only mean "killed", with a `t.after` that reaps it (verified: no
+stray processes after a deliberately failing run). (2) At the budget, a pid `ps` cannot find was
+being read as a SURVIVOR — a process that vanished between the last signal-0 and the `ps` call
+would have produced a false red. (3) `psState` reported a failure to RUN `ps` and a genuinely
+absent process with the same word, which made the diagnostic untrue. Now `spawnSync` with a
+timeout, and three distinguishable outcomes. (4) `Date.now()` is adjustable wall time; the budget
+is now monotonic. **Declined:** pid reuse inside the five-second budget could in principle make an
+unrelated new process look like a survivor — but the poll returns on the FIRST signal-0 after the
+kill, so the reuse would have to happen within about a millisecond, and the fix (having the fake
+record its process group and checking membership) buys protection against a false RED that the
+reported `ps` state already makes diagnosable. Complexity not earned.
+
+*On the Electron leak fix.* **Adopted:** (5) teardown was registered AFTER the two isolation
+assertions, so the refusal that exists to catch the app resolving the owner's real profile would
+have left an Electron process alive and hung the job — a refusal that reports nothing is worse than
+no refusal. Teardown is now registered immediately after launch. (6) `app.close()` had no bound and
+its error was swallowed; this app does work on `before-quit` (it closes the derived store), so a
+bug there would hang teardown — the same 40-minute death by another route — and a swallowed close
+error is a test that cannot fail. Close is now bounded at 20 s with a SIGKILL fallback, and the
+error is rethrown. The fallback was PROVEN reachable rather than assumed: a probe against the real
+app confirms `app.process()` returns a child with a pid and a `kill`, and that SIGKILL on it leaves
+nothing behind — a fallback nobody has fired is otherwise just a comment. The double close was
+checked the same way: the clean-quit test closes and teardown closes again, and with the error now
+rethrown the lane is still green, so closing an already-closed app reports nothing. **Declined:** the reviewer's first finding — that the clean-quit test is
+vacuous on CI — is TRUE and is the limitation recorded above, but its proposed fix is a test-only
+override of the FileVault readiness gate. That is a bypass of a court-facing safety gate shipped
+inside the product binary, it affects every Electron test rather than this one, and it is not
+WI-12's to decide. Recorded, not built.
+
+*One thing the review surfaced that is NOT fixed here:* registering teardown after the isolation
+assertions is the convention in every Electron test file in this repository (backup, document-open,
+evidence, ocr, readiness, smoke and others), not something this branch introduced. Both OCR files
+are fixed — the extract suite gets the bounded close as well, because it is the one that opens the
+derived store and so the one with real work on `before-quit`; the probe suite gets the ordering
+move alone, since it only probes and has nothing to block a quit. The other Electron suites are a
+separate change and are left alone deliberately.
+**Not yet built:** the screen, and the packaged acceptance.
+
 **The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The
 interface must show the source page and must never label agreed text verified, with case numbers,
 dates and amounts prompting review regardless of agreement, because short lines are where Vision is
