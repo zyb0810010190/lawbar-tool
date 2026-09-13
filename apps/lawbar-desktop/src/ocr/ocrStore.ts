@@ -23,7 +23,7 @@
 // belongs in the case box, not here, and `backupRecord`/`runBackup` must learn about it first.
 // The schema below has no column for owner-authored content, and a test pins that column set.
 
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -91,7 +91,14 @@ export interface OcrStoreOptions {
   /** The profile directory. The store places itself in `ocr-derived/` beneath it. */
   readonly userDataDir: string;
   /** Injectable for tests; defaults to better-sqlite3. */
-  readonly openDatabase?: (file: string) => OcrDatabase;
+  readonly openDatabase?: (file: string, mustExist?: boolean) => OcrDatabase;
+  /**
+   * Refuse to CREATE the file. Opening a SQLite database creates it, so "is there a store?" cannot
+   * be answered by opening one — that is the question creating its own answer. With this set the
+   * open fails when the file is absent and `openExistingOcrStore` turns that into null, in one
+   * step, with no window between the check and the open for the file to appear or vanish.
+   */
+  readonly mustExist?: boolean;
 }
 
 export const OCR_DERIVED_DIRNAME = "ocr-derived";
@@ -185,12 +192,12 @@ const CONTROLS: ReadonlySet<string> = new Set(["unchecked", "agreed", "disagreed
  */
 const KNOWN_CONTROL_ENGINES: ReadonlySet<string> = new Set<string>([]);
 
-function defaultOpen(file: string): OcrDatabase {
+function defaultOpen(file: string, mustExist = false): OcrDatabase {
   // Required lazily so this module can be imported (and unit-tested) without a native build that
   // matches the host: the desktop's better-sqlite3 is compiled for Electron's ABI.
   const require_ = createRequire(import.meta.url);
-  const Database = require_("better-sqlite3") as new (f: string) => OcrDatabase;
-  return new Database(file);
+  const Database = require_("better-sqlite3") as new (f: string, opts?: { fileMustExist?: boolean }) => OcrDatabase;
+  return new Database(file, mustExist ? { fileMustExist: true } : {});
 }
 
 /**
@@ -199,8 +206,10 @@ function defaultOpen(file: string): OcrDatabase {
  */
 export function openOcrStore(options: OcrStoreOptions): OcrStore {
   const dbPath = ocrDbPath(options.userDataDir);
-  mkdirSync(path.dirname(dbPath), { recursive: true });
-  const db = (options.openDatabase ?? defaultOpen)(dbPath);
+  // Creating the DIRECTORY is as much a creation as creating the file: a profile that only ever
+  // asked a question must not be left with an empty `ocr-derived/` either.
+  if (options.mustExist !== true) mkdirSync(path.dirname(dbPath), { recursive: true });
+  const db = (options.openDatabase ?? defaultOpen)(dbPath, options.mustExist === true);
   // WAL for the same reason the case box uses it, and a busy timeout so a second reader waits
   // rather than throwing. No integrity gate here: a corrupt DERIVED store is thrown away and
   // rebuilt, which is the whole point of it being derived.
@@ -293,4 +302,33 @@ export function openOcrStore(options: OcrStoreOptions): OcrStore {
     },
     close() { db.close(); },
   };
+}
+
+/**
+ * The derived store IF it already exists, else null — never creating one.
+ *
+ * WHY THE OPEN COMES FIRST. `existsSync` and then `openOcrStore` is check-then-act, and the losing
+ * case is the one that matters: between the two calls the file vanishes, the open runs anyway, and
+ * a panel opened merely to ASK a question has created a database. That was the defect the packaged
+ * acceptance caught. Here the refusal to create belongs to the open itself, so no ordering of
+ * events can produce a file. The filesystem is consulted only afterwards, to tell an ABSENT store
+ * from a BROKEN one, which cannot create anything.
+ */
+export function openExistingOcrStore(options: OcrStoreOptions): OcrStore | null {
+  try {
+    return openOcrStore({ ...options, mustExist: true });
+  } catch (e) {
+    // ABSENT, or BROKEN? Ask the filesystem rather than the error, because the error does not say
+    // it reliably: better-sqlite3 reports a missing FILE as a SqliteError with code SQLITE_CANTOPEN,
+    // and a missing DIRECTORY as a plain TypeError with no code at all and different wording. An
+    // earlier version of this function matched on those and silently turned the second case into
+    // `store_unavailable` on screen — caught by the packaged acceptance, which is exactly the shape
+    // of defect that only shows up in the real layout.
+    //
+    // This check runs AFTER the open has already failed, so it cannot cause a creation: the only
+    // code path that creates is `openOcrStore` without `mustExist`, which this never calls. A
+    // corrupt or unreadable file that EXISTS is a real fault and is rethrown.
+    if (!existsSync(ocrDbPath(options.userDataDir))) return null;
+    throw e;
+  }
 }

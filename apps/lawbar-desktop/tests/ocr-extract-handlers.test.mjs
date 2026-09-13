@@ -68,7 +68,9 @@ function fakeHelper(plan) {
   };
 }
 
-function harness(t, { plan, persistence, tenant = TENANT } = {}) {
+function harness(t, { plan, persistence, tenant = TENANT, storeExists = true } = {}) {
+  // `storeExists: false` models a profile where nothing has ever been extracted: the provider
+  // returns null and the store is never touched, because touching it is what would create it.
   const dir = mkdtempSync(path.join(os.tmpdir(), "lawbar-ocr-h-"));
   const real = openOcrStore({ userDataDir: dir, openDatabase });
   t.after(() => { real.close(); rmSync(dir, { recursive: true, force: true }); });
@@ -95,6 +97,10 @@ function harness(t, { plan, persistence, tenant = TENANT } = {}) {
     },
     storageRoot: "/store",
     store: () => { touched.push("openStore"); return store; },
+    // Default true: most tests here concern a profile that already has readings. The test for a
+    // profile with none sets it false and asserts the store is never opened at all — because
+    // opening it is what CREATES it, and browsing must not create a database.
+    existingStore: () => { touched.push("existingStore"); return storeExists ? store : null; },
     // The same two deadlines main passes, so a test that asserts them is asserting production's shape.
     helper: { helperPath: "/nowhere/lawbar-ocr", pinnedDigest: DIGEST, timeoutMs: 15_000 },
     recogniseTimeoutMs: 120_000,
@@ -344,7 +350,11 @@ test("a derived store that cannot be opened or written is a CODE, never raw text
   // Opening sqlite throws an error whose message names the file. That must not reach the renderer.
   const boom = () => { throw new Error("SQLITE_CANTOPEN: unable to open database file /Users/someone/Library/ocr.sqlite"); };
   const { deps } = harness(t, { plan: () => ({ ok: true, pages: [page(1, 1)], elapsed_ms: 5 }) });
+  // BOTH providers: extraction opens the store to write, reading asks for the one already there,
+  // and a failure in either must arrive as a code. Overriding only `store` left the read path
+  // untested the moment the handler stopped using it.
   deps.store = boom;
+  deps.existingStore = boom;
   for (const res of [await ocrExtractHandler(REQ, deps), await ocrPagesHandler(REQ, deps)]) {
     assert.deepEqual(Object.keys(res).sort(), ["code", "ok"]);
     assert.equal(res.code, "store_unavailable");
@@ -398,4 +408,33 @@ test("ocr:pages returns text only on its own call, rebuilt field by field, with 
       "EVERY page: no path, no digest, no timing crosses; a column added to the store cannot cross by default");
   }
   assert.equal(res.value.pages[0].text, long);
+});
+
+test("asking what a document has had read does NOT create the derived store when nothing ever has", async (t) => {
+  // The packaged acceptance caught this: opening the OCR disclosure on a document answered the
+  // question by OPENING the store, which creates it. A profile where the owner only ever looked
+  // then grew a second database — the exact thing ocrStore.ts is built to avoid, since runBackup
+  // copies one database by hardcoded name and would never carry this one.
+  const { deps, touched } = harness(t, { storeExists: false });
+  const r = await ocrPagesHandler({ matterId: "m-1", documentId: "doc-1" }, deps);
+  assert.deepEqual(r, { ok: true, value: { pages: [], missing: null } },
+    "no store means no pages, and completeness UNKNOWN rather than a claim of zero missing");
+  assert.equal(touched.includes("openStore"), false,
+    `the store was opened to answer a question that did not need it: ${touched.join(", ")}`);
+  assert.equal(touched.includes("existingStore"), true, "the handler must actually ask");
+});
+
+test("but once a reading exists, the same request reads it", async (t) => {
+  // The other side, so the short-circuit above cannot be satisfied by never reading at all.
+  const { deps, store } = harness(t);
+  store.putPage({
+    matterId: "m-1", documentId: "doc-1", page: 1, pageCount: 1, helperDigest: DIGEST,
+    outcome: "text_layer", text: "已存在的一页", source: "pdf", failureCode: null,
+    renderDigest: null, layerMs: 1, visionMs: null, renderMs: null,
+    control: "unchecked", controlEngine: null, extractedAt: "2026-09-12T00:00:00Z",
+  });
+  const r = await ocrPagesHandler({ matterId: "m-1", documentId: "doc-1" }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.value.pages.length, 1);
+  assert.equal(r.value.pages[0].text, "已存在的一页");
 });

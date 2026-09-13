@@ -15,7 +15,7 @@ import type { BackupCapableDb } from "../src/backup/runBackup.js";
 import { DOCUMENT_OPEN_CHANNEL, documentOpenHandler } from "../src/caseBox/documentOpenHandlers.js";
 import { OCR_CHANNEL, ocrProbeHandler } from "../src/ocr/ocrHandlers.js";
 import { OCR_EXTRACT_CHANNEL, ocrExtractHandler, ocrPagesHandler } from "../src/ocr/ocrExtractHandlers.js";
-import { openOcrStore, type OcrStore } from "../src/ocr/ocrStore.js";
+import { openExistingOcrStore, openOcrStore, type OcrStore } from "../src/ocr/ocrStore.js";
 import { readPinnedDigest, resolveHelperPath } from "../src/ocr/helper.js";
 import { CURRENT_SCHEMA_VERSION } from "case-box-persistence";
 import { makeStoreFile } from "../src/caseBox/documentStorage.js";
@@ -263,6 +263,9 @@ async function startProduct(): Promise<void> {
     provide: () => caseBoxRuntime,
     storageRoot: documentStorageRoot,
     store: ocrStoreOnce,
+    // Never creates. Returns the store already open in this process when there is one, so a file
+    // deleted underneath a running app does not make readings the app is still holding vanish.
+    existingStore: () => ocrStore ?? (ocrStore = openExistingOcrStore({ userDataDir })),
     helper: { helperPath: ocrHelperPath, pinnedDigest: ocrPinnedDigest, timeoutMs: 15_000 },
     recogniseTimeoutMs: 120_000,
   };

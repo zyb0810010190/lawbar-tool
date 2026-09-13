@@ -235,3 +235,19 @@ test("the derived store is LAZY and is never created in the profile root beside 
   await win.evaluate(() => window.lawbar.ocr.pages({ matterId: "nope", documentId: "nope" }));
   assertNoOcrStore(profile, "after a refused request");
 });
+
+test("asking a REAL document what it has had read creates NO store, and says nothing has been read", async (t) => {
+  // The gap the packaged acceptance found. The lazy test above uses an UNKNOWN document, which is
+  // refused by scoping long before the store is reached — so it never covered the case the OCR
+  // panel actually performs on every open: a valid document, in a profile where nothing has been
+  // extracted. That path opened the store to answer, and opening it is what creates it.
+  const { app, profile } = await launchIsolated(t, { seed: true });
+  const win = await productWindow(app);
+  const seeded = await seedFixture(app);
+
+  const res = await win.evaluate((r) => window.lawbar.ocr.pages(r),
+    { matterId: seeded.matterId, documentId: seeded.documentId });
+  assert.deepEqual(res, { ok: true, value: { pages: [], missing: null } },
+    `a real document with no readings must answer, not fail: ${JSON.stringify(res)}`);
+  assertNoOcrStore(profile, "after asking a real document what it has had read");
+});

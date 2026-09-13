@@ -46,6 +46,7 @@
     "test:evidence-packaged": "LAWBAR_TEST_FILES=tests/evidence.packaged.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
     "test:t3-submitter-packaged": "LAWBAR_TEST_FILES=tests/t3-submitter.packaged.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
     "test:ocr-probe-packaged": "LAWBAR_TEST_FILES=tests/ocr-probe.packaged.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
+    "test:ocr-acceptance-packaged": "LAWBAR_TEST_FILES=tests/ocr-acceptance.packaged.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
     "test:smoke-matrix": "LAWBAR_TEST_FILES=tests/casebox-ui.electron.test.mjs node scripts/test-packaged-wrapper.mjs",
     "lint:renderer-imports": "node scripts/check-renderer-imports.mjs",
     "check:no-real-data": "node scripts/check-no-real-data.mjs",
