@@ -117,6 +117,17 @@ export interface OcrExtractDeps {
    * gate quietly stops covering this store. An Electron test pins that.
    */
   readonly store: () => OcrStore;
+  /**
+   * The derived store IF it already exists, else null — never creating one. REQUIRED, and separate
+   * from `store`, because opening the store CREATES it: reading "what has this document had read?"
+   * must not be what brings a second database into a profile. The owner opening a disclosure to
+   * look is not the owner asking for a reading. Found by the packaged acceptance, which watched
+   * `ocr.sqlite` appear on a profile where nothing had been extracted.
+   *
+   * One provider rather than an exists-check plus an open, so there is no window between the two
+   * in which the answer changes and the losing branch creates the thing it was checking for.
+   */
+  readonly existingStore: () => OcrStore | null;
   readonly helper: HelperDeps;
   /**
    * The deadline for ONE RECOGNISED PAGE, when it differs from the layer read's. The layer is a
@@ -299,7 +310,10 @@ export async function ocrPagesHandler(payload: unknown, deps: OcrExtractDeps): P
   let rows;
   let done;
   try {
-    const store = deps.store();
+    const store = deps.existingStore();
+    // Nothing has ever been extracted into this profile. Same answer as an existing-but-empty
+    // store: no pages, and completeness UNKNOWN rather than a claim of zero missing pages.
+    if (store === null) return { ok: true, value: { pages: [], missing: null } };
     rows = store.listPages(payload.matterId, payload.documentId, helperDigest);
     done = store.completeness(payload.matterId, payload.documentId, helperDigest);
   } catch {

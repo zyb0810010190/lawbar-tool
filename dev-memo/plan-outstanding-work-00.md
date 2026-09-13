@@ -1189,7 +1189,85 @@ mode and fail 6 of 6 in production mode with "the product shell did not load". B
 that same production-mode run passed 6 of 6 by returning early. Six vacuous passes became six real
 ones.
 
-**Not yet built:** the packaged acceptance.
+**THE PACKAGED ACCEPTANCE, 2026-09-13 — and it found a defect on its first run.**
+`tests/ocr-acceptance.packaged.electron.test.mjs`, run through the crash-attribution wrapper as
+`npm run test:ocr-acceptance-packaged`. It drives the packaged binary TWICE against ONE profile,
+through the shipped interface: open the matter, open the document, open the OCR section, press the
+button, read the text; quit; relaunch **without the seed hook and without pressing anything**; look
+again. PATH is emptied, so the helper that answers can only be the one inside
+`Contents/Resources`. It answers the only question that makes the rest moot: *I asked the tool to
+read this document — tomorrow, is what it read still there?*
+
+**What it caught, before it ever passed.** Merely OPENING the disclosure created
+`ocr-derived/ocr.sqlite`. The panel asks "what has this document had read?", the handler answered by
+opening the store, and opening the store is what CREATES it. So a profile where the owner only ever
+LOOKED grew a second database — precisely what that store's design exists to avoid, since
+`runBackup` copies one database by hardcoded name and would never carry this one. Nothing in the
+unpackaged tests could see it: they assert that a REFUSED request does not open the store, and this
+request was perfectly valid. `ocrPagesHandler` now asks a **required** `storeExists` dependency
+first and answers "no pages, completeness unknown" without opening anything. Required, not
+optional, so main must wire it — an optional dep with a permissive default is how a fix passes its
+test and never reaches production.
+
+**Two-sided, three ways, because this is the acceptance for the whole feature:**
+- honest build → passes;
+- derived store made per-process so no reading can survive → fails;
+- the reading destroyed between the two sessions (a throwaway copy of the test, removed) → fails in
+  SESSION 2 on the text being absent, which is where the claim actually lives. The second mutant
+  alone was not enough: it tripped the store-path assertion first, so it never exercised the
+  relaunch claim.
+
+**Also asserted, because only the packaged form can show it:** the derived store lands at
+`<userData>/ocr-derived/ocr.sqlite` and nothing OCR-shaped appears in the profile root; the case box
+stays the only database beside it across a restart; no database appears anywhere in the repository
+working tree; and the certifying-word scan runs against the SHIPPED strings on screen rather than
+the catalogue source.
+
+**REVIEWED before the stamp, and the review found the acceptance was weaker than it read.** Six
+findings, all verified against the source, five adopted.
+
+- **The relaunch proved the text came BACK, not where from.** Two broken apps would have passed:
+  one that silently re-ran OCR on the stored original, and one that had stashed the result in the
+  renderer's own storage inside the shared Chromium profile. So there is now a WITNESS: between the
+  sessions the test opens `ocr-derived/ocr.sqlite` itself, asserts the row holds what the screen
+  showed, and rewrites it to a nonce that appears nowhere in the document. Session 2 must display
+  the NONCE, and must NOT display the document's own words. That binds the second process's screen
+  to that file causally, and it is what makes the claim in this file's title true.
+  (`/usr/bin/sqlite3`, not better-sqlite3, whose copy here is built for Electron's ABI and will not
+  load in a test process; not `node:sqlite` either, since a witness should not be an experimental
+  API.)
+- **`npm run dist` emits BOTH `release/mac` (x86_64) and `release/mac-arm64`,** and "the first
+  bundle that exists" would let an Apple-silicon host test the x86_64 build under Rosetta — a whole
+  acceptance suite passing about the wrong binary. The bundle is now chosen by host architecture and
+  `lipo` is asked to confirm it, rather than the directory name trusted.
+- **The database assertions were shallow:** profile ROOT only, with anything STARTING WITH
+  `case-box.sqlite` exempted — so `ocr-derived/cache.sqlite` and `case-box.sqlite-ocr.sqlite` would
+  both have passed. Now a recursive inventory of the whole profile against an exact allowed set.
+- **The certifying-word scan read the disclosure's BODY,** which is a sibling of its `<summary>`, so
+  a heading reading 「已核实的识别文字」 — the one line read before deciding whether to trust the
+  rest — was outside the scan. It now covers the whole disclosure, with a wider word list.
+- **Declined, because it is not mine to do:** wiring this suite into the release gate. Four packaged
+  suites are already defined-but-never-run there. `desktop-release-gates.yml` is owner-owned and
+  mid-redesign; the one-line step is recorded for the owner, not added.
+
+**And the review's `storeExists` critique was right, in a way that then broke the app.** Check the
+file, then open it, is check-then-act; the fix was one non-creating provider,
+`openExistingOcrStore`. But its first implementation decided "absent" by matching better-sqlite3's
+error, and better-sqlite3 reports a missing FILE as a SqliteError with `SQLITE_CANTOPEN` and a
+missing DIRECTORY as a plain `TypeError` with no code and different wording. The second case fell
+through to `store_unavailable`, so the panel showed a failure on every unread document. Caught by
+the packaged acceptance again. It now asks the filesystem AFTER the open has already failed, which
+cannot create anything, and rethrows when the file is really there — absent and broken are
+different answers.
+**A coverage gap that let it through locally:** the unpackaged laziness test used an UNKNOWN
+document, refused by scoping long before the store, so nothing covered the case the panel performs
+on every open — a REAL document in a profile with no readings. That test now exists, reproduces the
+failure in three seconds instead of a five-minute repackage, and passes.
+
+**Verified:** packaged acceptance 1 pass, 0 crash attributions · fails when the reading is destroyed
+between the sessions, on the text being absent · packaged probe suite still 1 pass · full desktop
+lane green · the mutant build was rebuilt away before anything else ran, so no broken bundle was
+left on a machine the owner shares.
 
 **The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The
 interface must show the source page and must never label agreed text verified, with case numbers,
