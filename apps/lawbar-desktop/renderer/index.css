@@ -2836,3 +2836,114 @@ body.lawbar-app {
 .view-deadlines-proposed[hidden] {
   display: none;
 }
+
+/* ============================================================================================
+   OCR panel (product plan R3, WI-12). Design approved by the owner 2026-09-13.
+
+   THE ONE RULE THIS BLOCK EXISTS TO ENFORCE: agreement is never marked.
+
+   The instinct is to reward agreement with a tick. A tick is an endorsement, and the measurement
+   does not support one — fifteen blind agreements put the 95% upper bound on the failure rate near
+   one in five, and short lines, which is where case numbers, dates and amounts live, carry 0.31
+   character error. A tick would lie in the most reassuring way available.
+
+   So ink goes to exactly two things: a line the two engines read DIFFERENTLY, and a field carrying
+   a number. Everything else is plain body text. A page of recognised text should look like a
+   document with a few marked spots, not like a report card. No green, no ticks, no percentages.
+   ============================================================================================ */
+
+.view-ocr-caveat {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-normal);
+  color: var(--color-muted-text);
+  background: var(--color-surface-sunken);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: 4px;
+}
+
+.view-ocr-page { list-style: none; margin: 0 0 var(--space-5); }
+.view-ocr-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+  margin: 0 0 var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
+}
+.view-ocr-page-no {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-strong);
+}
+.view-ocr-provenance {
+  font-size: var(--font-size-xs);
+  color: var(--color-subtle-text);
+  letter-spacing: var(--tracking-snug);
+}
+
+.view-ocr-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-serif);
+  font-size: var(--font-size-md);
+  line-height: var(--line-reading);
+}
+.view-ocr-line { position: relative; padding: 2px 0 2px var(--space-5); }
+
+/* AGREED and UNCHECKED are deliberately identical and unmarked. "Two engines read this the same"
+   and "nothing has compared this" are not a difference the reader should act on: neither is a
+   reason to trust the line. The distinction is recorded in the store, not drawn on the screen. */
+.view-ocr-line--agreed,
+.view-ocr-line--unchecked { /* no mark, on purpose */ }
+
+.view-ocr-line--disagreed {
+  background: var(--color-warning-subtle);
+  border-radius: 3px;
+}
+.view-ocr-line--disagreed::before {
+  content: "";
+  position: absolute;
+  left: var(--space-2);
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--color-warning);
+}
+.view-ocr-line-note {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-xs);
+  color: var(--color-warning);
+}
+
+/* A numeric field. An underline that says "read this against the page", not an alarm — and a
+   different language from the disagreement bar on purpose, because they answer different
+   questions and a line can be both at once. */
+.view-ocr-num {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  letter-spacing: var(--tracking-mono);
+  padding: 0 2px;
+  border-bottom: 2px dotted var(--color-accent-border);
+  cursor: help;
+}
+
+.view-ocr-unreadable {
+  padding-left: var(--space-5);
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+}
+.view-ocr-empty {
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted-text);
+}
+.view-ocr-status { margin: var(--space-2) 0 0; font-size: var(--font-size-xs); color: var(--color-muted-text); }
+.view-ocr-pages { margin: var(--space-3) 0 0; padding: 0; }

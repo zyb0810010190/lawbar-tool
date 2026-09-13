@@ -1300,6 +1300,43 @@ the repository through the `/design-sync` skill; it is not mine to invent.
 **Nothing about the engine choice or the size decision changes.** What changes is the order: the
 line-level store and the interface come before the 190 MB of native dependency, not after.
 
+**THE PANEL DESIGN, APPROVED BY THE OWNER 2026-09-13, AND BUILT.** Specimens were put to him as a
+private review page and in a new Claude Design project; he approved without changes.
+**The rule the design encodes: agreement is NEVER marked.** A line the two engines read identically
+looks exactly like a line nothing has compared — plain body text, no tick, no colour, no badge. The
+instinct is to reward agreement, and a tick is an endorsement the measurement does not support:
+fifteen blind agreements put the 95% upper bound on the failure rate near one in five. Ink goes to
+exactly two things — a line the engines read DIFFERENTLY (an amber margin bar plus a reason), and a
+field carrying a number (a dotted underline, with the reason one hover away). The rejected
+alternative was shown beside it: green ticks and confidence percentages on every agreeing line,
+where the eye lands nowhere and the one line worth checking is buried in approval.
+
+**Built without a schema change, which is why it could ship now.** The panel renders LINE BY LINE
+by splitting the stored page text on newlines — the helper already found those lines and the
+desktop joined them before storing, so splitting is reading that back, not guessing. Numeric fields
+are marked WHERE THEY SIT, spliced into the sentence with text nodes only. Per-line CONTROL
+verdicts still need the store change and the second engine; until then every line is `unchecked`,
+which the design renders as plain text. That is the intended resting state, not a placeholder.
+
+**Two defects found by mutation testing, both real:**
+- A tick added to every agreed line SURVIVED. The test asserted only "no line carries the
+  disagreement class", which a tick class passes. The rule is that an agreed line carries NOTHING,
+  and only an exact class comparison says that. Now asserted exactly.
+- Overlapping numeric spans were DROPPED rather than merged, and the case occurs in exactly the
+  worst place: 「5亿叁仟万元整」 is a digit run 「5亿」 and a capital-numeral run 「亿叁仟万元整」
+  sharing the 亿, neither containing the other. The panel marked only 「5亿」 and left the rest of
+  the award bare. Found by a random search over the relevant alphabet after the mutant survived
+  twenty hand-written cases. Overlapping numeric material is now one field.
+
+**Verified:** 29 unit tests · **12 mutants, 12 killed** (a tick on agreed lines; disagreement
+unmarked; the note dropped; fields unmarked; the page rendered as one blob; a mark losing its
+explanation; the caveat dropped; a certifying string entering the catalogue; the agreed label
+losing its caveat; spans spliced as markup instead of nodes; overlaps no longer merged; blank lines
+kept as rows) · full desktop lane **1555 tests, 0 failures** · packaged acceptance passes, 0 crash
+attributions · i18n drift 0 · no-real-data OK · doc-references 172/172.
+**The i18n guard caught one of mine, correctly:** a literal `" "` used as a separator between two
+labels. It is a layout decision, not copy — the row is flex with a gap, and the separator is gone.
+
 **ARTIFACT SHAPE DECIDED by the owner, 2026-09-13: two per-architecture builds, not one universal
 bundle.** Each artifact then carries only the runtime it can execute — about 410 MB rather than
 500 — and nobody downloads an ONNX runtime for a chip they do not have.
