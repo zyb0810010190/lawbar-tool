@@ -8,8 +8,9 @@
 // ISOLATED PROFILE, WITH A REFUSAL. `--user-data-dir` points at a throwaway directory and the
 // launch aborts if the app ever resolves the litigator's real store.
 //
-// NO SILENT SKIP. On a FileVault-off host the product shell never loads; the test then asserts
-// the gate window IS showing rather than returning early.
+// NO SILENT SKIP, AND NO VACUOUS PASS. LAWBAR_MODE=dev turns the Tier 1 FileVault gate from a
+// block into a warning, so this suite really runs on a CI runner instead of stopping at the
+// readiness window and asserting nothing.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -32,7 +33,13 @@ async function launchIsolated(t) {
   const app = await electron.launch({
     args: [".", `--user-data-dir=${profile}`],
     cwd: projectRoot,
-    env: { ...process.env, LAWBAR_MODE: "" },
+    // LAWBAR_MODE=dev turns the Tier 1 FileVault gate from a BLOCK into a warning, exactly as
+    // smoke.electron.test.mjs has always done. It is the difference between a test that runs and a
+    // test that only looks like it runs: a CI runner has FileVault OFF, so in production mode this
+    // suite reached the readiness window and asserted nothing about OCR at all. The gate itself is
+    // readiness.electron.test.mjs's subject, and it keeps production mode; proving it twice here
+    // bought nothing and cost the entire feature its coverage.
+    env: { ...process.env, LAWBAR_MODE: "dev" },
   });
   // TEARDOWN FIRST, before anything that can throw. The assertions below are refusals — they fire
   // when the app resolved the wrong profile, the owner's real one included — and a refusal that
@@ -52,17 +59,14 @@ async function launchIsolated(t) {
   return app;
 }
 
+/** The product shell, or a loud failure — see ocr-extract.electron.test.mjs for why this is not a branch. */
 async function productWindow(app) {
   const win = await app.firstWindow();
   await win.waitForLoadState("domcontentloaded");
-  const isReadiness = (await win.locator("#readiness-title").count()) > 0;
-  return isReadiness ? null : win;
-}
-
-async function assertGateIsBlocking(app) {
-  const win = await app.firstWindow();
-  const title = await win.locator("#readiness-title").innerText();
-  assert.ok(title.trim().length > 0, "no product shell AND no readiness window: the app showed nothing at all");
+  const readiness = await win.locator("#readiness-title").count();
+  assert.equal(readiness, 0,
+    "the product shell did not load: the readiness gate is showing even though LAWBAR_MODE=dev disables the block");
+  return win;
 }
 
 test("window.lawbar.ocr.probe reaches the staged helper, and the digest it returns is the bytes of that file", async (t) => {
@@ -72,7 +76,6 @@ test("window.lawbar.ocr.probe reaches the staged helper, and the digest it retur
 
   const app = await launchIsolated(t);
   const win = await productWindow(app);
-  if (win === null) { await assertGateIsBlocking(app); return; }
 
   const shape = await win.evaluate(() => ({
     hasOcr: typeof window.lawbar?.ocr === "object",

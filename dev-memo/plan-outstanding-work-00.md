@@ -1089,7 +1089,107 @@ are fixed — the extract suite gets the bounded close as well, because it is th
 derived store and so the one with real work on `before-quit`; the probe suite gets the ordering
 move alone, since it only probes and has nothing to block a quit. The other Electron suites are a
 separate change and are left alone deliberately.
-**Not yet built:** the screen, and the packaged acceptance.
+**THE SCREEN, 2026-09-13.** `renderer/screens/viewMatterOcr.ts` (new), mounted inside the document
+row's own detail body in `viewMatterDocuments.ts`, beside the control that opens the original —
+because every sentence it shows has to be checked against the page it came from, and a check that
+needs navigation is a check that does not happen. Its own file, deliberately: the i18n allowlist
+pins literals by exact `{file,line}`, so a new section inside an existing screen file shifts those
+numbers for no semantic reason. It contributes ZERO allowlist entries; every string is in the
+catalogue, and the allowlist was regenerated only after proving the literal multiset was identical
+and only line numbers had moved.
+
+**What the panel is allowed to claim, and how that is enforced rather than intended.** Nothing is
+ever labelled verified, checked or correct. Each page states HOW its text was obtained (the file's
+own text layer, or machine recognition) and that no second engine has compared it. The caveat sits
+above the text, unconditionally, in every state. Digit-bearing fields are pulled out and listed for
+the reader one by one. Two tests hold that line: one scans the whole `document.ocr.*` catalogue for
+twenty certifying phrasings, and one RENDERS every reachable state and scans what a person would
+actually see — because the catalogue test cannot see a literal written straight into the DOM. The
+three control labels are pinned as exact reviewed sentences, not substrings: 「已与原件核验一致；
+机器识别本身不表示正确」 would satisfy any substring check while telling a litigator the text was
+checked against the original.
+
+**Reviewed BEFORE the stamp, one job per file, both payloads gated through the eight no-real-data
+patterns first — and the review changed the code substantially.** Twenty findings, every one
+verified against the source. On the panel: (1) the summary reported four numbers that could sum to
+less than the page count, so a document could look fully read when a page was never reached — it
+now accounts for every page including the ones with no result; (2) `numericFields` was digit-only,
+and a Chinese judgment writes its two most binding numbers in Chinese numerals — 二〇二四年九月十二日
+and 人民币壹拾万元整 were invisible, while a case number （2024）京0105民初12345号 was shredded into
+three fragments, none of them the thing to check. Four patterns now, with containment by POSITION
+so the case number is listed once, whole; (3) two `pages()` reads can be in flight at once, one
+from opening the section and one from finishing an extraction, and the OLDER could win the screen —
+the reader would see pre-extraction text under post-extraction counts, with nothing saying it was
+stale. A generation token fixes it.
+
+On the tests, which was the sharper half: the claim test only read the catalogue; the agreed label
+was checked by substring; the caveat was proved to exist, never to precede the text; outcome lines
+were flattened across pages so both could belong to page one; `control: "agreed"` was never
+rendered at all; distinct refusal KEYS were asserted without asserting distinct SENTENCES; the
+failed-page fixture carried empty text, so `if (p.text) show(p.text)` would have passed while
+leaking a partial reading; `btn.disabled === false` was read as proof the internal latch released;
+the extract stub ignored its arguments, so extracting the WRONG DOCUMENT would have passed. All
+fixed. The mock has no browser semantics for `innerHTML`, so a `StrictDoc` now throws on any access
+to it — dom.ts bans innerHTML, and this makes the ban observable instead of taken on trust.
+
+**Verified:** 25 unit tests · **19 mutants, 19 killed** (caveat dropped; agreed label weakened; a
+certifying string entering the catalogue; numeric prompt dropped; failed page showing text; latch
+not released; unknown completeness reported as complete; needsReview and missing dropped from the
+summary; two codes sharing a sentence; text inserted as a child node; generation token removed;
+control and outcome lines pinned to one value; case number no longer kept whole; the Chinese date
+and capital-amount patterns removed; extract called with the wrong identity; the running latch
+never released) · i18n drift 0, stale 0 · no-real-data OK · doc-references 172/172.
+
+**A THIRD instance of the same flake family, found by the lane while building this.**
+`ocr-helper.unit.test.mjs` went red on 「output that is not exactly one probe record…」 with
+`helper_timeout` where it expected `helper_bad_output`. The fake there does two `printf` calls and
+exits; the 5 s budget it was given is not a statement about the code path, it is a bet on how fast
+the machine can start a process, and under the full lane that bet lost. Every test in that file
+whose subject is NOT the deadline now uses one named generous budget; the three that ARE about the
+deadline keep their own short ones. Two-sided: with the probe parser mutated to read only the first
+record, the suite still fails, so the looser budget kept the test's teeth. Same lesson as the
+process-group assertion above, third location — a budget chosen for the machine, not for the claim,
+is a test that fails for the wrong reason.
+
+**One thing the gates caught in my own work, worth recording:** the test fixture for identity- and
+telephone-shaped fields tripped `check-no-real-data`, and a source COMMENT example tripped it too.
+Both were synthetic, and both were reshaped rather than exempted. A fixture is not a reason to
+teach that gate exceptions.
+
+**A FOURTH instance of the flake family, and the structural fix this time.** The process-group test
+went red again, with the OTHER half of the same problem: not the child surviving observation, but
+`the fake must have started its child before the deadline` — the shell had not reached its first
+line within 4 s. That assertion is a PRECONDITION about the machine, not the claim: a deadline can
+only demonstrate a group kill if the group exists when it fires. The deadline now ESCALATES,
+4 s → 8 s → 16 s, and only until the child is running; the claim that the child is dead afterwards
+is asserted exactly once, on the attempt that got one. Retrying a precondition costs seconds on a
+loaded machine and nothing on an idle one. Retrying a CLAIM would be how a real defect gets waited
+out, and nothing here does that — verified by mutating `killGroup` to a no-op, which still fails
+the test with the child in `ps state S`.
+**The pattern across all four:** every one was a fixed number chosen for how fast this machine
+happened to be, standing in for a property of the code. Two were budgets for observing a death, one
+was a budget for a refusal path that had nothing to do with timing, one was a budget for starting a
+shell. The rule that falls out: if a constant in a test exists to accommodate the machine, it must
+either be derived from the machine or be escalated until the precondition holds — never guessed.
+
+**CORRECTION, 2026-09-13, to something recorded twice above as inherent.** The note that "on a
+FileVault-off runner every Electron test here takes the gate branch, so CI proves the app starts and
+refuses, not that OCR reads" was WRONG, and stating it as a property of the environment made it
+invisible. It was a property of one environment variable. `LAWBAR_MODE=dev` turns the Tier 1
+FileVault check from a block into a warning and the product shell loads;
+`smoke.electron.test.mjs` has always launched that way, so the pattern was already in this lane. The
+two OCR Electron suites launched in production mode, hit the gate on every runner, and returned
+early from every test — green, and asserting nothing about OCR at all.
+**Both now launch in dev mode, and the early return is gone: a readiness window is a FAILURE, not a
+branch.** The gate itself is `readiness.electron.test.mjs`'s subject and keeps production mode;
+proving it a second time here bought nothing and cost the feature its entire CI coverage.
+**Proven against the failing condition, not argued:** with the built FileVault probe forced to
+report OFF — a throwaway dist edit, restored, marker count 0 — the two suites pass 6 of 6 in dev
+mode and fail 6 of 6 in production mode with "the product shell did not load". Before this change
+that same production-mode run passed 6 of 6 by returning early. Six vacuous passes became six real
+ones.
+
+**Not yet built:** the packaged acceptance.
 
 **The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The
 interface must show the source page and must never label agreed text verified, with case numbers,

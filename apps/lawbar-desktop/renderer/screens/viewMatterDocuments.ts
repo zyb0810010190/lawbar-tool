@@ -10,6 +10,7 @@ import { el, setText } from "../dom.js";
 import { formatLocalDateTime, hashTruncate, ulidShort } from "../format.js";
 import { t } from "../i18n/t.js";
 import { errorMessage } from "../i18n/errorMessage.js";
+import { renderOcrDisclosure, type OcrBridge } from "./viewMatterOcr.js";
 
 // Known doc_type / document status enum values whose zh-CN labels live in the
 // catalog (docs/contracts/case-box-contract/schemas/case-box-document.schema.json).
@@ -85,6 +86,9 @@ export function renderDocumentsDisclosure(
   // Optional and last, so every existing caller is untouched: production resolves the preload
   // bridge; tests inject a stub. `null` renders no open control at all.
   openOriginal: OpenOriginalFn | null = defaultOpenOriginal(),
+  // Same contract as openOriginal, one step looser: `undefined` means "let the OCR module resolve
+  // the preload bridge itself", so no caller here has to know how that bridge is found.
+  ocr?: OcrBridge | null,
 ): HTMLElement {
   // The list container is owned by loadDocuments (cleared + refilled), so a
   // successful registration can refresh it in place.
@@ -94,7 +98,7 @@ export function renderDocumentsDisclosure(
     [],
     doc,
   );
-  const refresh = (): Promise<void> => loadDocuments(listContainer, doc, api, matterId, openOriginal);
+  const refresh = (): Promise<void> => loadDocuments(listContainer, doc, api, matterId, openOriginal, ocr);
   const addControl = renderAddControl(doc, api, matterId, refresh);
 
   const body = el(
@@ -120,7 +124,7 @@ export function renderDocumentsDisclosure(
   summary.addEventListener("click", () => {
     if (loaded) return;
     loaded = true;
-    void loadDocuments(listContainer, doc, api, matterId, openOriginal);
+    void loadDocuments(listContainer, doc, api, matterId, openOriginal, ocr);
   });
   return details;
 }
@@ -319,6 +323,7 @@ function renderDocumentRow(
   matterId: string,
   row: DocumentRow,
   openOriginal: OpenOriginalFn | null,
+  ocr: OcrBridge | null | undefined,
 ): HTMLElement {
   const summary = el(
     "summary",
@@ -378,6 +383,11 @@ function renderDocumentRow(
       if (openOriginal !== null) {
         detailBody.appendChild(renderOpenControl(doc, matterId, row.id, openOriginal));
       }
+      // The recognised text sits BESIDE the control that opens the original, not on a screen of
+      // its own. Every sentence this panel shows has to be checked against the page it came from,
+      // and a check that needs navigation is a check that does not happen.
+      const ocrSection = renderOcrDisclosure(doc, matterId, row.id, ocr);
+      if (ocrSection !== null) detailBody.appendChild(ocrSection);
     })();
   });
   return el("li", { class: "view-docs-item-li" }, [details], doc);
@@ -389,6 +399,7 @@ async function loadDocuments(
   api: CaseBoxApi,
   matterId: string,
   openOriginal: OpenOriginalFn | null,
+  ocr: OcrBridge | null | undefined,
 ): Promise<void> {
   // Clear any prior render so this can be called again to refresh after a
   // successful registration.
@@ -449,7 +460,7 @@ async function loadDocuments(
     }
     const page = env.value as ListDocumentsPage;
     for (const row of page.rows) {
-      list.appendChild(renderDocumentRow(doc, api, matterId, row, openOriginal));
+      list.appendChild(renderDocumentRow(doc, api, matterId, row, openOriginal, ocr));
       total += 1;
     }
     if (total === 0) {
