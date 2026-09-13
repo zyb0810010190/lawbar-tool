@@ -1269,6 +1269,37 @@ between the sessions, on the text being absent · packaged probe suite still 1 p
 lane green · the mutant build was rebuilt away before anything else ran, so no broken bundle was
 left on a machine the owner shares.
 
+**STOP BEFORE BUILDING THE CONTROL — a granularity mismatch, found 2026-09-13 and MEASURED.**
+The control is decided (PaddleOCR) and the packaging cost is accepted, but the thing that was
+validated and the thing the app can currently hold are not the same thing, and building the
+dependency first would have been building the wrong shape.
+
+- **What was validated is LINE-level EXACT agreement.** The blind round kept only lines where the
+  two engines agreed exactly, on lines of 3 to 44 characters: 15 of 15, and 25 of 25 in round one.
+- **What the app models is PAGE-level control.** `ocr_page.control` is one value per page, and
+  `ocr_page.text` is one string per page. Worse, `src/ocr/helper.ts` never parses `vision_lines` at
+  all — the Swift helper emits per-line records with text, confidence and a bounding box, and the
+  desktop boundary throws all of it away, keeping only the joined `vision_text`.
+- **So a page-level exact-agreement control would flag essentially every page.** Measured rather
+  than argued: the staged helper over real pages from the private corpus (counts only — no text,
+  no filenames) gives **19 to 37 lines per page, median 23.5**. At the recorded line-agreement rate
+  of about 25/56 = 0.45, the chance that EVERY line on a median page agrees is 7e-09. Even at an
+  implausibly generous 0.90 per line it is 0.08. That is the precise failure this plan used to
+  reject Tesseract as a control: *"a control that flags everything tells the owner nothing"*.
+  The sanity check holds too — Vision was exactly right on 31 of 56 crops and PaddleOCR on 28, so
+  an agreement count of 25 sits inside the possible overlap of those two sets.
+
+**Therefore the control needs LINE granularity end to end**, which is a bigger change than
+"bundle a second engine": carry `vision_lines` through `helper.ts`, store lines rather than one
+page blob, compare per line, and show per-line agreement in the panel. The store schema is the
+part to get right first, because it is the one already shipped.
+**And the panel side is a DESIGN question, not a coding one:** how to show, per line, that two
+engines read the same thing — without any of it reading as verification, when the honest bound is
+a failure rate near one in five. That goes to the owner via claude.ai/design, and comes back into
+the repository through the `/design-sync` skill; it is not mine to invent.
+**Nothing about the engine choice or the size decision changes.** What changes is the order: the
+line-level store and the interface come before the 190 MB of native dependency, not after.
+
 **The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The
 interface must show the source page and must never label agreed text verified, with case numbers,
 dates and amounts prompting review regardless of agreement, because short lines are where Vision is
