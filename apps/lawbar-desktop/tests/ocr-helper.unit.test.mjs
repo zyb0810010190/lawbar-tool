@@ -108,8 +108,21 @@ function impostorFake(dir, claimedDigest) {
   return file;
 }
 
+/**
+ * The deadline for a test that is NOT about the deadline.
+ *
+ * Most tests here assert which CODE a misbehaving helper produces — malformed output, the wrong
+ * record kind, two records, a non-zero exit. The fake does almost no work, so any budget is enough
+ * for the code path; what the budget actually has to cover is the machine starting a process. Under
+ * the full lane, with Electron suites on every core, that is not a fixed cost: a 5 s budget here
+ * produced `helper_timeout` instead of `helper_bad_output`, failing a test whose subject was never
+ * timing. A generous budget cannot make any of those assertions vacuous, because none of them
+ * passes when the deadline fires. The two tests that ARE about the deadline set their own, short.
+ */
+const AMPLE_MS = 30_000;
+
 /** deps whose pin is the file's own bytes — the honest configuration. */
-const pinned = (file, extra = {}) => ({ helperPath: file, pinnedDigest: sha256OfFile(file), timeoutMs: 5000, ...extra });
+const pinned = (file, extra = {}) => ({ helperPath: file, pinnedDigest: sha256OfFile(file), timeoutMs: AMPLE_MS, ...extra });
 
 test("resolveHelperPath: packaged resolves ONLY inside the bundle's Resources; development resolves the staged build", () => {
   assert.equal(
@@ -161,11 +174,11 @@ test("a helper this build did not ship is helper_stale and is NEVER RUN; no pin 
   assert.ok(existsSync(ran), "the honest run must leave its marker");
   rmSync(ran);
 
-  const stale = await probeHelper({ helperPath: file, pinnedDigest: "0".repeat(64), timeoutMs: 5000 });
+  const stale = await probeHelper({ helperPath: file, pinnedDigest: "0".repeat(64), timeoutMs: AMPLE_MS });
   assert.equal(stale.code, "helper_stale");
   assert.equal(existsSync(ran), false, "a stale helper must be refused BEFORE it runs");
 
-  const unpinned = await probeHelper({ helperPath: file, pinnedDigest: null, timeoutMs: 5000 });
+  const unpinned = await probeHelper({ helperPath: file, pinnedDigest: null, timeoutMs: AMPLE_MS });
   assert.equal(unpinned.code, "helper_unpinned");
   assert.equal(existsSync(ran), false, "an unpinned build must not run the helper");
 });
@@ -185,7 +198,7 @@ test("a symlink at the helper path is not the helper (helper_missing), wherever 
   const honest = honestFake(dir);
   const link = path.join(dir, "link");
   symlinkSync(honest, link);
-  const r = await probeHelper({ helperPath: link, pinnedDigest: sha256OfFile(honest), timeoutMs: 5000 });
+  const r = await probeHelper({ helperPath: link, pinnedDigest: sha256OfFile(honest), timeoutMs: AMPLE_MS });
   assert.equal(r.code, "helper_missing", "a symlink must be refused even when it points at the pinned bytes");
 });
 
@@ -270,21 +283,21 @@ test("output that is not exactly one probe record is helper_bad_output; a non-ze
   const failing = mk("failing", "#!/bin/sh\nexit 5\n");
   assert.equal((await probeHelper(pinned(failing))).code, "helper_exit");
 
-  assert.equal((await probeHelper({ helperPath: path.join(dir, "nope"), pinnedDigest: "0".repeat(64), timeoutMs: 5000 })).code, "helper_missing");
-  assert.equal((await probeHelper({ helperPath: dir, pinnedDigest: "0".repeat(64), timeoutMs: 5000 })).code, "helper_missing", "a directory is not a helper");
+  assert.equal((await probeHelper({ helperPath: path.join(dir, "nope"), pinnedDigest: "0".repeat(64), timeoutMs: AMPLE_MS })).code, "helper_missing");
+  assert.equal((await probeHelper({ helperPath: dir, pinnedDigest: "0".repeat(64), timeoutMs: AMPLE_MS })).code, "helper_missing", "a directory is not a helper");
 
   const notExec = mk("notexec", "#!/bin/sh\n", 0o644);
-  assert.equal((await probeHelper({ helperPath: notExec, pinnedDigest: "0".repeat(64), timeoutMs: 5000 })).code, "helper_not_executable");
+  assert.equal((await probeHelper({ helperPath: notExec, pinnedDigest: "0".repeat(64), timeoutMs: AMPLE_MS })).code, "helper_not_executable");
 
   // Execute-only: runnable but not hashable. A code, not the filesystem's error text.
   const execOnly = mk("execonly", "#!/bin/sh\n", 0o111);
-  const r = await probeHelper({ helperPath: execOnly, pinnedDigest: "0".repeat(64), timeoutMs: 5000 });
+  const r = await probeHelper({ helperPath: execOnly, pinnedDigest: "0".repeat(64), timeoutMs: AMPLE_MS });
   assert.equal(r.code, process.getuid?.() === 0 ? "helper_stale" : "helper_unreadable");
 });
 
 test("runHelper: a spawn that fails asynchronously is reported as a field, not thrown into main as an unhandled error", async (t) => {
   const dir = scratch(t);
-  const out = await runHelper({ helperPath: path.join(dir, "absent"), pinnedDigest: null, timeoutMs: 5000 }, []);
+  const out = await runHelper({ helperPath: path.join(dir, "absent"), pinnedDigest: null, timeoutMs: AMPLE_MS }, []);
   assert.equal(out.spawnFailed, true);
   assert.equal(out.stdout, "");
   // Give the event loop a turn: an unhandled `error` would surface here and kill the test process.
@@ -296,7 +309,7 @@ test("runHelper hands the helper an EMPTY PATH, and decodes multi-byte output as
   const file = path.join(dir, "path");
   writeFileSync(file, '#!/bin/sh\nprintf "[%s]\\n" "$PATH"\nprintf "合同\\n"\n');
   chmodSync(file, 0o755);
-  const out = await runHelper({ helperPath: file, pinnedDigest: null, timeoutMs: 5000 }, []);
+  const out = await runHelper({ helperPath: file, pinnedDigest: null, timeoutMs: AMPLE_MS }, []);
   assert.equal(out.exitCode, 0);
   assert.deepEqual(out.stdout.split("\n"), ["[]", "合同", ""]);
 });

@@ -313,151 +313,151 @@
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 20,
-    "text": "pleading",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
     "line": 21,
-    "text": "contract",
+    "text": "pleading",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
     "line": 22,
-    "text": "correspondence",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 23,
-    "text": "transcript",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 24,
-    "text": "exhibit",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 25,
-    "text": "other",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 28,
-    "text": "registered",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 29,
-    "text": "ocr_pending",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 30,
-    "text": "ocr_complete",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 31,
-    "text": "ocr_failed",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 32,
-    "text": "triaged",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 33,
-    "text": "tagged",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 34,
-    "text": "reviewed",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 73,
-    "text": "pleading",
-    "kind": "text"
-  },
-  {
-    "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 74,
     "text": "contract",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 75,
+    "line": 23,
     "text": "correspondence",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 76,
+    "line": 24,
     "text": "transcript",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 77,
+    "line": 25,
     "text": "exhibit",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 78,
+    "line": 26,
     "text": "other",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 194,
+    "line": 29,
+    "text": "registered",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 30,
+    "text": "ocr_pending",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 31,
+    "text": "ocr_complete",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 32,
+    "text": "ocr_failed",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 33,
+    "text": "triaged",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 34,
+    "text": "tagged",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 35,
+    "text": "reviewed",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 74,
+    "text": "pleading",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 75,
+    "text": "contract",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 76,
+    "text": "correspondence",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 77,
+    "text": "transcript",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 78,
+    "text": "exhibit",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 79,
+    "text": "other",
+    "kind": "text"
+  },
+  {
+    "file": "renderer/screens/viewMatterDocuments.ts",
+    "line": 198,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 204,
+    "line": 208,
     "text": "${label}: ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 219,
+    "line": 223,
     "text": "${t(\"document.detail.contentHash\")}: ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 328,
+    "line": 333,
     "text": " ",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 329,
+    "line": 334,
     "text": "${docTypeLabel(row.doc_type)} · ${docStatusLabel(row.status)}",
     "kind": "text"
   },
   {
     "file": "renderer/screens/viewMatterDocuments.ts",
-    "line": 330,
+    "line": 335,
     "text": " ",
     "kind": "text"
   },

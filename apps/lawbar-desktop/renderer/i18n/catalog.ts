@@ -496,6 +496,57 @@ export const CATALOG = {
   "document.open.failed.unverifiable": "无法确认该原件仍处于本应用的独占保管之下，已拒绝打开。请核查存储目录是否被移动、链接或改动。",
   "document.open.failed.open": "无法在本机打开该文档的只读副本，请重试。",
   "document.open.failed.request": "无法发出打开请求，请重试。",
+
+  // OCR text extraction (product plan R3, WI-12).
+  //
+  // THE COPY IS PART OF THE FEATURE, NOT DECORATION. The measurement on the owner's own scans says
+  // the machine reads whole documents well and short fields badly: folded CER 0.190, but 0.31 on
+  // lines of six characters or fewer — which is exactly where case numbers, dates and amounts live.
+  // Agreement between two engines prioritises attention; it never certifies a reading. So no string
+  // below may tell the reader that any text has been checked, confirmed or is correct, and the
+  // catalogue is tested for that. 已核对/无误/准确/正确 are claims this tool cannot make.
+  "document.ocr.summary": "识别文字",
+  "document.ocr.caveat":
+    "识别出来的文字只用于查找和定位，不能当作原文引用。要写进文书的任何内容，都请逐字对照原件。",
+  "document.ocr.loading": "正在读取已识别的文字…",
+  "document.ocr.loadFailed": "无法读取已识别的文字，请重新展开本节。",
+  "document.ocr.none": "本文档尚未识别过文字。",
+  "document.ocr.readButton": "识别本文档的文字",
+  "document.ocr.readAgainButton": "重新识别",
+  "document.ocr.working": "正在识别，长文档可能需要一些时间…",
+  // One key, not two joined in code: a separator or a join written in a screen file is a
+  // user-facing literal outside the catalogue, which the i18n guard rightly refuses.
+  // The breakdown accounts for EVERY page, including the ones with no result at all. Four numbers
+  // that silently sum to less than the page count would let a document look fully read when a page
+  // of it was never reached, and the reader would only find out if the page list happened to load.
+  "document.ocr.counts":
+    "共 {pageCount} 页：文本层 {fromTextLayer} 页，机器识别 {recognised} 页，未能读取 {failed} 页，没有结果 {missing} 页。其中 {needsReview} 页需要您对照原件核对。",
+  "document.ocr.outcomeLine": "{outcome} · {control}",
+  "document.ocr.missing": "有 {missing} 页没有任何结果，本次识别没有走完整个文档。",
+  "document.ocr.missingUnknown": "无法确定本文档是否已全部识别。",
+  "document.ocr.page": "第 {page} 页 / 共 {pageCount} 页",
+  "document.ocr.pageEmpty": "本页没有可显示的文字。",
+  // The outcome names say HOW the text was obtained, never how good it is.
+  "document.ocr.outcome.text_layer": "取自文件自带的文本层",
+  "document.ocr.outcome.ocr": "由机器识别图像得出",
+  // NOT named `.failed`, deliberately. renderer-empty-state-copy.test.mjs holds every key ending
+  // in `.failed` to the 无法…请重试。 form, and rightly: those are actionable failures. This is an
+  // OUTCOME NAME sitting beside the two above it, shown per page in a list that has no per-page
+  // retry — inviting a retry there would be the exact defect that guard exists to prevent.
+  "document.ocr.outcome.unreadable": "未能读取本页",
+  "document.ocr.failureCode": "本页失败原因代码：{code}",
+  // v1 ships no second engine, so every page is 未核对. The 已比对 wording deliberately keeps the
+  // caveat inside the sentence, because agreement is not verification.
+  "document.ocr.control.unchecked": "未经第二引擎比对",
+  "document.ocr.control.agreed": "第二引擎读出相同结果（仅表示两者一致，不表示正确）",
+  "document.ocr.control.disagreed": "第二引擎读出不同结果，请优先核对本页",
+  "document.ocr.numbers": "本页含数字字段，请对照原件逐字核对：{fields}",
+  "document.ocr.failed.unknown": "无法找到该文档，请刷新页面后重试。",
+  "document.ocr.failed.unsupported": "本应用尚不能识别这种格式的文件。",
+  "document.ocr.failed.helper": "识别程序不可用，本次没有读取任何内容。",
+  "document.ocr.failed.store": "无法写入识别结果。识别结果可以随时重新生成，请重试。",
+  "document.ocr.failed.extract": "识别过程中断，本文档没有完整读取，请重试。",
+  "document.ocr.failed.request": "无法发出识别请求，请重试。",
   "document.detail.language": "语言",
   "document.detail.mime": "MIME 类型",
   "document.detail.bytes": "字节数",

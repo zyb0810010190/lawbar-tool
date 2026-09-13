@@ -1089,7 +1089,74 @@ are fixed — the extract suite gets the bounded close as well, because it is th
 derived store and so the one with real work on `before-quit`; the probe suite gets the ordering
 move alone, since it only probes and has nothing to block a quit. The other Electron suites are a
 separate change and are left alone deliberately.
-**Not yet built:** the screen, and the packaged acceptance.
+**THE SCREEN, 2026-09-13.** `renderer/screens/viewMatterOcr.ts` (new), mounted inside the document
+row's own detail body in `viewMatterDocuments.ts`, beside the control that opens the original —
+because every sentence it shows has to be checked against the page it came from, and a check that
+needs navigation is a check that does not happen. Its own file, deliberately: the i18n allowlist
+pins literals by exact `{file,line}`, so a new section inside an existing screen file shifts those
+numbers for no semantic reason. It contributes ZERO allowlist entries; every string is in the
+catalogue, and the allowlist was regenerated only after proving the literal multiset was identical
+and only line numbers had moved.
+
+**What the panel is allowed to claim, and how that is enforced rather than intended.** Nothing is
+ever labelled verified, checked or correct. Each page states HOW its text was obtained (the file's
+own text layer, or machine recognition) and that no second engine has compared it. The caveat sits
+above the text, unconditionally, in every state. Digit-bearing fields are pulled out and listed for
+the reader one by one. Two tests hold that line: one scans the whole `document.ocr.*` catalogue for
+twenty certifying phrasings, and one RENDERS every reachable state and scans what a person would
+actually see — because the catalogue test cannot see a literal written straight into the DOM. The
+three control labels are pinned as exact reviewed sentences, not substrings: 「已与原件核验一致；
+机器识别本身不表示正确」 would satisfy any substring check while telling a litigator the text was
+checked against the original.
+
+**Reviewed BEFORE the stamp, one job per file, both payloads gated through the eight no-real-data
+patterns first — and the review changed the code substantially.** Twenty findings, every one
+verified against the source. On the panel: (1) the summary reported four numbers that could sum to
+less than the page count, so a document could look fully read when a page was never reached — it
+now accounts for every page including the ones with no result; (2) `numericFields` was digit-only,
+and a Chinese judgment writes its two most binding numbers in Chinese numerals — 二〇二四年九月十二日
+and 人民币壹拾万元整 were invisible, while a case number （2024）京0105民初12345号 was shredded into
+three fragments, none of them the thing to check. Four patterns now, with containment by POSITION
+so the case number is listed once, whole; (3) two `pages()` reads can be in flight at once, one
+from opening the section and one from finishing an extraction, and the OLDER could win the screen —
+the reader would see pre-extraction text under post-extraction counts, with nothing saying it was
+stale. A generation token fixes it.
+
+On the tests, which was the sharper half: the claim test only read the catalogue; the agreed label
+was checked by substring; the caveat was proved to exist, never to precede the text; outcome lines
+were flattened across pages so both could belong to page one; `control: "agreed"` was never
+rendered at all; distinct refusal KEYS were asserted without asserting distinct SENTENCES; the
+failed-page fixture carried empty text, so `if (p.text) show(p.text)` would have passed while
+leaking a partial reading; `btn.disabled === false` was read as proof the internal latch released;
+the extract stub ignored its arguments, so extracting the WRONG DOCUMENT would have passed. All
+fixed. The mock has no browser semantics for `innerHTML`, so a `StrictDoc` now throws on any access
+to it — dom.ts bans innerHTML, and this makes the ban observable instead of taken on trust.
+
+**Verified:** 25 unit tests · **19 mutants, 19 killed** (caveat dropped; agreed label weakened; a
+certifying string entering the catalogue; numeric prompt dropped; failed page showing text; latch
+not released; unknown completeness reported as complete; needsReview and missing dropped from the
+summary; two codes sharing a sentence; text inserted as a child node; generation token removed;
+control and outcome lines pinned to one value; case number no longer kept whole; the Chinese date
+and capital-amount patterns removed; extract called with the wrong identity; the running latch
+never released) · i18n drift 0, stale 0 · no-real-data OK · doc-references 172/172.
+
+**A THIRD instance of the same flake family, found by the lane while building this.**
+`ocr-helper.unit.test.mjs` went red on 「output that is not exactly one probe record…」 with
+`helper_timeout` where it expected `helper_bad_output`. The fake there does two `printf` calls and
+exits; the 5 s budget it was given is not a statement about the code path, it is a bet on how fast
+the machine can start a process, and under the full lane that bet lost. Every test in that file
+whose subject is NOT the deadline now uses one named generous budget; the three that ARE about the
+deadline keep their own short ones. Two-sided: with the probe parser mutated to read only the first
+record, the suite still fails, so the looser budget kept the test's teeth. Same lesson as the
+process-group assertion above, third location — a budget chosen for the machine, not for the claim,
+is a test that fails for the wrong reason.
+
+**One thing the gates caught in my own work, worth recording:** the test fixture for identity- and
+telephone-shaped fields tripped `check-no-real-data`, and a source COMMENT example tripped it too.
+Both were synthetic, and both were reshaped rather than exempted. A fixture is not a reason to
+teach that gate exceptions.
+
+**Not yet built:** the packaged acceptance.
 
 **The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The
 interface must show the source page and must never label agreed text verified, with case numbers,
