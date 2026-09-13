@@ -1300,6 +1300,19 @@ the repository through the `/design-sync` skill; it is not mine to invent.
 **Nothing about the engine choice or the size decision changes.** What changes is the order: the
 line-level store and the interface come before the 190 MB of native dependency, not after.
 
+**ARTIFACT SHAPE DECIDED by the owner, 2026-09-13: two per-architecture builds, not one universal
+bundle.** Each artifact then carries only the runtime it can execute — about 410 MB rather than
+500 — and nobody downloads an ONNX runtime for a chip they do not have.
+**It costs nothing to honour, because it is already what the build does:** `package.json`'s
+`build.mac.target` is `[{ target: "dir", arch: ["arm64", "x64"] }]`, and `npm run dist` emits
+`release/mac-arm64` (arm64) and `release/mac` (x86_64) today — verified with `lipo -archs` on both.
+So the decision is a CONSTRAINT on the control work rather than a change to it: when
+`@gutenye/ocr-node`, `onnxruntime-node` and `sharp` are added, they stay per-architecture and
+`asarUnpack` grows to cover them. Switching to a universal bundle to make packaging simpler would
+silently reverse an owner decision, so the packaged acceptance's architecture check
+(`lipo`, added 2026-09-13) is also the guard on this: it refuses to test a bundle whose
+architecture is not the host's.
+
 **The remaining caveat, which no packaging choice fixes:** prioritisation is not certification. The
 interface must show the source page and must never label agreed text verified, with case numbers,
 dates and amounts prompting review regardless of agreement, because short lines are where Vision is
