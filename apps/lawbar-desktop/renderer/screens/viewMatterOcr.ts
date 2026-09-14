@@ -303,6 +303,11 @@ export function lineNodes(doc: Document, line: string): readonly Node[] {
  *
  * So the header reports the three numbers and lets the reader see the shape of the page. Only the
  * absence of any verdict still collapses to a word, because there it is the whole truth.
+ *
+ * ONE SENTENCE rather than chips or a carried-out figure, chosen by the owner on 2026-09-14 with all
+ * three drawn out. The cost he accepted, recorded so it is not rediscovered as a defect: the numbers
+ * must be read rather than scanned, so the header alone will not pick the differing pages out of a
+ * long document. The per-line mark does that, and the line design deliberately spends its ink there.
  */
 function controlSummary(p: OcrPageView): string {
   let agreed = 0;

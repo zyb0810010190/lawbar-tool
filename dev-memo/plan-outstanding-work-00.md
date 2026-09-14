@@ -1841,7 +1841,8 @@ and it would require inventing a join separator the measurement has no basis for
    `ControlVerdict`, the catalogue string and the panel treatment all follow from that word. Without
    it the tool states something false about itself, which is this repo's standard, not a nicety.
 2. **`pageControl()` cannot stay a single word.** No one word is true of a page with 386 agreeing
-   lines, 109 differing and 1215 not comparable. This is the part that is a UI decision.
+   lines, 109 differing and 1215 not comparable. Which SHAPE the three numbers take was a UI
+   decision, and it has since been made — see "The header's treatment" below.
 3. **`band` should replace `iou-any` as the touch predicate** — x-intervals overlap AND each box's
    vertical centre inside the other's vertical extent. Still threshold-free. Pairs 28% of lines
    against 20%, agreed 22% against 16%. Ten of the eleven guarantees the committed suite asserts
@@ -1853,7 +1854,7 @@ and it would require inventing a join separator the measurement has no basis for
 4. **`agrees` does not change.** It is the rule the 15/15 blind round validated.
 
 **What was then built, same day.** Points 1, 3 and 4 are implemented; point 2 is implemented only as
-far as truth requires and its treatment is the owner's. `ControlVerdict` gained `uncompared`;
+far as truth requires; its treatment was then put to the owner and settled, unchanged. `ControlVerdict` gained `uncompared`;
 `sameRow` replaced `overlap` as the pairing predicate and `overlap` is gone with it; the store's
 CHECK gained the fourth value and `SCHEMA_VERSION` went to 3, because a CHECK constraint is baked
 into the table at CREATE time and widening the text without the bump would give a store that fails
@@ -1878,6 +1879,27 @@ and ran one test, which proves nothing.
 
 The measurement scripts and the cached engine output live in the session scratchpad and hold real
 document text, so they stay off the repo and are deleted when this is settled.
+
+**The header's treatment — DECIDED by the owner, 2026-09-14.** Three options were put to him with
+the page drawn out: the counts as one prose sentence; the counts with the DIFFERING number carried
+out of the sentence and emphasised; and three labelled chips. He chose the **prose sentence**, which
+is what the code already does, so nothing changed on the strength of the decision — it is recorded
+because the alternative was live and a later reader would otherwise assume the sentence was a
+default rather than a choice.
+
+What the choice buys: one voice on the page header, no visual vocabulary the panel does not already
+use, and no per-page furniture on a surface whose job is reading. What it costs, stated so it is not
+rediscovered as a defect: the three numbers must be READ rather than scanned, so a reader skimming a
+27-page document will not find the differing pages at a glance from the header alone. The per-line
+mark still does that job, and it is the mark — not the header — that the approved line design spends
+its ink on.
+
+This also settles the item that was left open when the panel shipped: *the page header discloses the
+control state, so an agreed page reads differently from an uncompared one even though the LINES look
+identical*. That is now deliberate rather than incidental. The header's whole purpose is to say how
+much of the page was compared, precisely because the lines cannot: an agreed line and an uncompared
+line both carry no mark, by the design the owner approved on 2026-09-13, and without the header the
+reader would have no way to tell a page the control covered from one it could not.
 
 ## Not work items — owner decisions
 
