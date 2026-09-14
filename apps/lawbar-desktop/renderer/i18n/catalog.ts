@@ -540,7 +540,11 @@ export const CATALOG = {
   "document.ocr.control.unchecked": "未经第二引擎比对",
   "document.ocr.control.agreed": "第二引擎读出相同结果（仅表示两者一致，不表示正确）",
   "document.ocr.control.disagreed": "第二引擎读出不同结果，请优先核对本页",
-  "document.ocr.numbers": "本页含数字字段，请对照原件逐字核对：{fields}",
+  // The prompt moved from a list under the page to the fields themselves: a reader checking an
+  // amount wants it underlined in the sentence, not repeated in a footnote to map back by hand.
+  // Kept as a tooltip on each mark, so the reason is one hover away and never shouts.
+  "document.ocr.numberHint": "数字字段，请对照原件逐字核对",
+  "document.ocr.disagreedNote": "两个引擎读出的结果不同，请优先核对本行",
   "document.ocr.failed.unknown": "无法找到该文档，请刷新页面后重试。",
   "document.ocr.failed.unsupported": "本应用尚不能识别这种格式的文件。",
   "document.ocr.failed.helper": "识别程序不可用，本次没有读取任何内容。",

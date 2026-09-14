@@ -152,8 +152,19 @@ const trimField = (raw: string): string =>
     .replace(/[.,，、:：\-–—/／（）()\[\]【】][^0-9０-９]*$/u, "")
     .replace(/[.,，、:：\-–—/／第（）()\[\]【】]+$/u, "");
 
-export function numericFields(text: string): readonly string[] {
-  const hits: { readonly text: string; readonly start: number; readonly end: number }[] = [];
+export interface NumericSpan {
+  readonly text: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+/**
+ * The digit-bearing fields in one line, WITH their positions, so each can be marked where it sits
+ * rather than listed underneath. Position is what makes the mark useful: a reader checking an
+ * amount wants it underlined in the sentence, not repeated in a footnote they must map back.
+ */
+export function numericSpans(text: string): readonly NumericSpan[] {
+  const hits: NumericSpan[] = [];
   for (const re of FIELD_PATTERNS) {
     for (const m of text.matchAll(re)) {
       const field = trimField(m[0]);
@@ -172,35 +183,108 @@ export function numericFields(text: string): readonly string[] {
   // because "2012年" appears elsewhere on the page.
   const kept = hits.filter((h, i) => !hits.some((g, j) =>
     j !== i && g.start <= h.start && g.end >= h.end && g.end - g.start > h.end - h.start));
-  const seen = new Set<string>();
-  return kept
-    .sort((a, b) => a.start - b.start)
-    .filter((h) => (seen.has(h.text) ? false : (seen.add(h.text), true)))
-    .map((h) => h.text);
+  // Overlapping-but-not-contained matches are MERGED, not dropped. They do occur: 「5亿叁仟万元整」
+  // is a digit run 「5亿」 and a capital-numeral run 「亿叁仟万元整」 that share the 亿 without
+  // either containing the other. Dropping one marked only 「5亿」 and left the rest of the amount
+  // bare — the worst outcome for the one field class a litigator must check character by character.
+  // Overlapping numeric material is one field, so it is marked as one.
+  const out: NumericSpan[] = [];
+  for (const h of [...kept].sort((a, b) => a.start - b.start || b.end - a.end)) {
+    const last = out[out.length - 1];
+    if (last !== undefined && h.start < last.end) {
+      if (h.end > last.end) out[out.length - 1] = { text: text.slice(last.start, h.end), start: last.start, end: h.end };
+      continue;
+    }
+    out.push(h);
+  }
+  return out;
 }
 
+/** The distinct field TEXTS on a page, first occurrence first. */
+export function numericFields(text: string): readonly string[] {
+  const seen = new Set<string>();
+  return numericSpans(text).filter((h) => (seen.has(h.text) ? false : (seen.add(h.text), true))).map((h) => h.text);
+}
+
+/**
+ * One line of a page, split into text nodes and marked numeric fields.
+ *
+ * TEXT NODES ONLY. This is a client's document and may contain anything; `innerHTML` is banned in
+ * this renderer and the marking is done by slicing the string and calling `createTextNode`, so
+ * nothing in a document can ever become an element.
+ */
+export function lineNodes(doc: Document, line: string): readonly Node[] {
+  const spans = numericSpans(line);
+  if (spans.length === 0) return [doc.createTextNode(line)];
+  const out: Node[] = [];
+  let at = 0;
+  for (const s of spans) {
+    if (s.start > at) out.push(doc.createTextNode(line.slice(at, s.start)));
+    const mark = el("span", { class: "view-ocr-num", "data-test-id": "view-ocr-num", title: t("document.ocr.numberHint") }, [], doc);
+    setText(mark, line.slice(s.start, s.end));
+    out.push(mark);
+    at = s.end;
+  }
+  if (at < line.length) out.push(doc.createTextNode(line.slice(at)));
+  return out;
+}
+
+/**
+ * The lines of a stored page.
+ *
+ * The helper already found them — Vision returns per-line records and the desktop joins them with
+ * a newline before storing. Splitting that back apart is not a guess about where lines are; it is
+ * reading back what the recogniser reported. Blank lines are dropped: they carry no text to check
+ * and would render as an empty row with a mark beside it.
+ */
+export function pageLines(text: string): readonly string[] {
+  return text.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim().length > 0);
+}
+
+/**
+ * One page: how it was read, then the text itself line by line.
+ *
+ * THE DESIGN DECISION THIS ENCODES, approved by the owner 2026-09-13. A line the two engines read
+ * identically gets NO MARK — the same as a line nothing has compared. The instinct is to tick it,
+ * and a tick is an endorsement the measurement does not support: fifteen blind agreements put the
+ * 95% upper bound on the failure rate near one in five. Ink is spent only on the two things worth
+ * the reader's eye: a line the engines read DIFFERENTLY, and a field carrying a number.
+ *
+ * No control ships yet, so every line is `unchecked` today and the page reads as plain text with
+ * its numbers underlined. That is the intended resting state, not a placeholder.
+ */
 function renderPage(doc: Document, p: OcrPageView): HTMLElement {
   const parts: HTMLElement[] = [
-    el("p", { class: "view-ocr-page-head", "data-test-id": "view-ocr-page-head" },
-      [t("document.ocr.page", { page: p.page, pageCount: p.pageCount })], doc),
-    el("p", { class: "view-ocr-page-outcome", "data-test-id": "view-ocr-page-outcome" },
-      [t("document.ocr.outcomeLine", { outcome: t(OUTCOME_KEY[p.outcome]), control: t(CONTROL_KEY[p.control]) })], doc),
+    el("p", { class: "view-ocr-page-head", "data-test-id": "view-ocr-page-head" }, [
+      el("span", { class: "view-ocr-page-no", "data-test-id": "view-ocr-page-no" }, [t("document.ocr.page", { page: p.page, pageCount: p.pageCount })], doc),
+      // No separator string here: the row is flex with a gap, so the layout does the spacing. A
+      // literal " " would also be a user-facing string outside the catalogue, which the i18n drift
+      // guard refuses — correctly, since a space between two labels is a layout decision.
+      el("span", { class: "view-ocr-provenance", "data-test-id": "view-ocr-page-outcome" },
+        [t("document.ocr.outcomeLine", { outcome: t(OUTCOME_KEY[p.outcome]), control: t(CONTROL_KEY[p.control]) })], doc),
+    ], doc),
   ];
   if (p.outcome === "failed") {
-    parts.push(el("p", { role: "alert", "data-test-id": "view-ocr-page-failure" },
+    parts.push(el("p", { role: "alert", class: "view-ocr-unreadable", "data-test-id": "view-ocr-page-failure" },
       [t("document.ocr.failureCode", { code: p.failureCode ?? "" })], doc));
-  } else if (p.text.length === 0) {
-    parts.push(el("p", { "data-test-id": "view-ocr-page-empty" }, [t("document.ocr.pageEmpty")], doc));
+  } else if (pageLines(p.text).length === 0) {
+    parts.push(el("p", { class: "view-ocr-empty", "data-test-id": "view-ocr-page-empty" }, [t("document.ocr.pageEmpty")], doc));
   } else {
-    // textContent, never markup: this is a client's document, and it may contain anything.
-    const body = el("p", { class: "view-ocr-page-text", "data-test-id": "view-ocr-page-text" }, [], doc);
-    setText(body, p.text);
-    parts.push(body);
-    const fields = numericFields(p.text);
-    if (fields.length > 0) {
-      parts.push(el("p", { class: "view-ocr-page-numbers", "data-test-id": "view-ocr-page-numbers" },
-        [t("document.ocr.numbers", { fields: fields.join("、") })], doc));
+    // `data-test-id` stays on the container that holds ALL the page's text, so a reader of these
+    // tests — and the packaged acceptance, which matches a witness string against it — keeps
+    // asking the same question it always asked: what does this page show?
+    const lines = el("ol", { class: "view-ocr-lines", "data-test-id": "view-ocr-page-text" }, [], doc);
+    for (const line of pageLines(p.text)) {
+      const li = el("li",
+        { class: `view-ocr-line view-ocr-line--${p.control}`, "data-test-id": "view-ocr-line" }, [], doc);
+      for (const node of lineNodes(doc, line)) li.appendChild(node);
+      if (p.control === "disagreed") {
+        li.appendChild(el("span", { class: "view-ocr-line-note", "data-test-id": "view-ocr-line-note" },
+          [t("document.ocr.disagreedNote")], doc));
+      }
+      lines.appendChild(li);
     }
+    parts.push(lines);
   }
   return el("li", { class: "view-ocr-page", "data-test-id": "view-ocr-page" }, parts, doc);
 }

@@ -17,7 +17,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { CATALOG } from "../dist/renderer/i18n/catalog.js";
-import { renderOcrDisclosure, numericFields, ocrFailureKey } from "../dist/renderer/screens/viewMatterOcr.js";
+import { renderOcrDisclosure, numericFields, ocrFailureKey, pageLines } from "../dist/renderer/screens/viewMatterOcr.js";
 import { MockDoc, MockEl, MockText, findByTestId, findAllByTestId, findAll, collectText, flush } from "./_view-matter-dom.mjs";
 
 /**
@@ -224,13 +224,35 @@ test("EACH page carries its OWN acquisition line and its OWN control state", asy
   ];
   containers.forEach((c, i) => {
     const [head, outcome, control] = expected[i];
-    const heads = within(c, "view-ocr-page-head");
-    assert.equal(heads.length, 1, `page ${i + 1} must carry exactly one heading`);
-    assert.equal(collectText(heads[0]), head);
-    const lines = within(c, "view-ocr-page-outcome");
-    assert.equal(lines.length, 1, `page ${i + 1} must carry exactly one acquisition line`);
-    assert.equal(collectText(lines[0]), `${outcome} · ${control}`,
+    const nos = within(c, "view-ocr-page-no");
+    assert.equal(nos.length, 1, `page ${i + 1} must carry exactly one page number`);
+    assert.equal(collectText(nos[0]), head);
+    const acquisition = within(c, "view-ocr-page-outcome");
+    assert.equal(acquisition.length, 1, `page ${i + 1} must carry exactly one acquisition line`);
+    assert.equal(collectText(acquisition[0]), `${outcome} · ${control}`,
       `page ${i + 1} must state its own outcome and its own control, not another page's`);
+    // THE APPROVED DESIGN, asserted directly: disagreement is marked and nothing else is. A page
+    // whose engines AGREED must look exactly like one nothing has compared — a tick there would be
+    // an endorsement the measurement does not support.
+    const lines = within(c, "view-ocr-line");
+    assert.ok(lines.length > 0, `page ${i + 1} rendered no lines`);
+    // The EXACT class, not "does it contain --disagreed". Checking only for the disagreement class
+    // let a mutant that added a tick to every agreed line pass: the rule is that agreed carries
+    // NOTHING, and only an exact comparison says that.
+    const expectClass = `view-ocr-line view-ocr-line--${["unchecked", "agreed", "disagreed"][i]}`;
+    for (const n of lines) {
+      assert.equal(n.getAttribute("class"), expectClass,
+        `page ${i + 1} line carries a class the design does not allow`);
+    }
+    const marked = lines.filter((n) => (n.getAttribute("class") ?? "").includes("--disagreed"));
+    const notes = within(c, "view-ocr-line-note");
+    if (control === CATALOG["document.ocr.control.disagreed"]) {
+      assert.equal(marked.length, lines.length, `page ${i + 1} disagreed, so every line must be marked`);
+      assert.equal(notes.length, lines.length, `page ${i + 1} must say why on each marked line`);
+    } else {
+      assert.equal(marked.length, 0, `page ${i + 1} agreed or was unchecked, so NO line may be marked`);
+      assert.equal(notes.length, 0, `page ${i + 1} must carry no disagreement note`);
+    }
   });
 });
 
@@ -239,12 +261,34 @@ test("the page text is rendered as TEXT — markup in a client's document is nev
   const bridge = stubBridge({ pages: { ok: true, value: { missing: 0, pages: [page({ text: hostile })] } } });
   const node = renderOcrDisclosure(new StrictDoc(), MATTER, DOCUMENT, bridge);
   await open(node);
-  const body = findByTestId(node, "view-ocr-page-text");
-  // textContent, character for character. StrictDoc throws on any innerHTML access, so reaching
-  // this line at all proves the panel never touched it — the mock alone could not show that,
-  // because an innerHTML assignment there is an inert expando and markup in Electron.
-  assert.equal(body.textContent, hostile);
-  assert.equal(body.children.length, 0, "the text must be set as content, not parsed into nodes");
+  // The line, character for character. StrictDoc throws on any innerHTML access, so reaching this
+  // line at all proves the panel never touched it — the mock alone could not show that, because an
+  // innerHTML assignment there is an inert expando and markup in Electron.
+  const line = findByTestId(node, "view-ocr-line");
+  assert.equal(line.textContent, hostile);
+  // Now that fields are marked INSIDE the sentence, the text is spliced and reassembled rather
+  // than set once. Every child must still be a bare text node: an element here would mean a
+  // document's own characters had become part of the document tree.
+  for (const child of line.children) {
+    assert.ok(child instanceof MockText,
+      `a client's text became an element: <${child.tagName}> ${JSON.stringify(child.textContent)}`);
+  }
+});
+
+test("a marked numeric field is a SPAN around text, never markup, even when the document fights back", async () => {
+  // A hostile string that also contains a real numeric field, so the splice path runs.
+  const hostile = '<img src=x onerror=alert(1)> 金额 12,345.67元 </p><script>bad()</script>';
+  const bridge = stubBridge({ pages: { ok: true, value: { missing: 0, pages: [page({ text: hostile })] } } });
+  const node = renderOcrDisclosure(new StrictDoc(), MATTER, DOCUMENT, bridge);
+  await open(node);
+  const line = findByTestId(node, "view-ocr-line");
+  assert.equal(line.textContent, hostile, "splicing must reassemble the line exactly");
+  const marks = findAllByTestId(node, "view-ocr-num");
+  assert.deepEqual(marks.map((m) => m.textContent), ["12,345.67元"]);
+  for (const m of marks) {
+    assert.equal(m.tagName, "SPAN");
+    for (const child of m.children) assert.ok(child instanceof MockText, "a mark may only contain text");
+  }
 });
 
 test("a FAILED page leaks NO text even when the record carries some, and still discloses itself", async () => {
@@ -314,6 +358,15 @@ test("numericFields covers the everyday digit-bearing fields, and lists nothing 
   assert.deepEqual(numericFields("2026年第一季度"), ["2026年"], "a dangling connector is not part of the field");
 });
 
+test("a MIXED-notation amount is marked whole, not split at the character the two patterns share", () => {
+  // 「5亿叁仟万元整」 is a digit run 「5亿」 and a capital-numeral run 「亿叁仟万元整」 overlapping on
+  // the 亿, with neither containing the other. Dropping one of them marked only 「5亿」 and left the
+  // rest of the award unmarked — found by mutation testing, and the worst possible field to
+  // half-mark. Overlapping numeric material is one field.
+  assert.deepEqual(numericFields("赔偿5亿叁仟万元整"), ["5亿叁仟万元整"]);
+  assert.deepEqual(numericFields("合计3万贰仟元"), ["3万贰仟元"]);
+});
+
 test("numericFields drops a bare enumeration marker, and says so by keeping the same digit when it has a unit", () => {
   assert.deepEqual(numericFields("1、原告身份证明；2、授权委托书"), [],
     "the 1 in a numbered list is not a field the reader can check");
@@ -334,14 +387,17 @@ test("EVERY page with numbers gets its own prompt, listing that page's own field
   await open(node);
   const [p1, p2, p3] = pageContainers(node);
 
-  assert.equal(within(p1, "view-ocr-page-numbers").length, 1);
-  assert.equal(collectText(within(p1, "view-ocr-page-numbers")[0]), "本页含数字字段，请对照原件逐字核对：12,345.67元");
-  assert.equal(within(p2, "view-ocr-page-numbers").length, 0, "a page without numbers carries no prompt");
-  assert.equal(within(p3, "view-ocr-page-numbers").length, 1);
-  assert.equal(collectText(within(p3, "view-ocr-page-numbers")[0]),
-    "本页含数字字段，请对照原件逐字核对：（2024）京0105民初12345号、二〇二四年九月十二日");
-  // And page 1's amount must not have leaked into page 3's prompt.
-  assert.equal(collectText(within(p3, "view-ocr-page-numbers")[0]).includes("12,345.67元"), false);
+  // Marked WHERE THEY SIT, not listed underneath: a reader checking an amount wants it underlined
+  // in the sentence, not repeated in a footnote they have to map back by hand.
+  assert.deepEqual(within(p1, "view-ocr-num").map((n) => n.textContent), ["12,345.67元"]);
+  assert.deepEqual(within(p2, "view-ocr-num").map((n) => n.textContent), [],
+    "a page without numbers carries no marks");
+  assert.deepEqual(within(p3, "view-ocr-num").map((n) => n.textContent),
+    ["（2024）京0105民初12345号", "二〇二四年九月十二日"]);
+  // Every mark says why it is there, one hover away and without shouting.
+  for (const m of within(p1, "view-ocr-num")) {
+    assert.equal(m.getAttribute("title"), CATALOG["document.ocr.numberHint"]);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -533,4 +589,35 @@ test("an OLDER read that FAILS cannot replace a newer success with an error", as
   await flush();
   assert.equal(findByTestId(node, "view-ocr-error"), null, "a dead older request must not report over a live newer result");
   assert.equal(findByTestId(node, "view-ocr-page-text").textContent, "新的一页");
+});
+
+test("a page is rendered LINE BY LINE, in order, with blank lines dropped", async () => {
+  // The helper found the lines and the store joined them with newlines; splitting them back apart
+  // is reading that back, not guessing. Without this, a renderer that printed the whole page as one
+  // paragraph passed every other test here — the fixtures elsewhere are one line long.
+  const text = "第一行：本院查明。\n\n第二行：金额 12,345.67元。\n   \n第三行：如不服本判决。";
+  const bridge = stubBridge({ pages: { ok: true, value: { missing: 0, pages: [page({ text })] } } });
+  const node = renderOcrDisclosure(new StrictDoc(), MATTER, DOCUMENT, bridge);
+  await open(node);
+
+  const lines = findAllByTestId(node, "view-ocr-line");
+  assert.equal(lines.length, 3, "three lines of text, and the two blank ones are not rows");
+  assert.deepEqual(lines.map((l) => l.textContent), [
+    "第一行：本院查明。",
+    "第二行：金额 12,345.67元。",
+    "第三行：如不服本判决。",
+  ], "the lines must come back in the recogniser's order, unaltered");
+  // The mark belongs to the line it is in, not to the page.
+  assert.deepEqual(within(lines[1], "view-ocr-num").map((n) => n.textContent), ["12,345.67元"]);
+  assert.deepEqual(within(lines[0], "view-ocr-num"), []);
+});
+
+test("pageLines reads back what the recogniser reported, and nothing else", () => {
+  assert.deepEqual(pageLines("a\nb\nc"), ["a", "b", "c"]);
+  assert.deepEqual(pageLines("a\r\nb"), ["a", "b"], "a carriage return is not a line of text");
+  assert.deepEqual(pageLines("a\n\n\nb"), ["a", "b"], "blank lines are not rows");
+  assert.deepEqual(pageLines("   \n\t\n"), [], "whitespace-only input has no lines");
+  assert.deepEqual(pageLines("only one"), ["only one"]);
+  assert.deepEqual(pageLines("keep  inner   spaces"), ["keep  inner   spaces"],
+    "only the ENDS are trimmed; a document's own spacing is its own");
 });
