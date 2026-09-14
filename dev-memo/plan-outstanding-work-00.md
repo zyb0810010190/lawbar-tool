@@ -1491,8 +1491,49 @@ retried.
 **Verified:** full desktop lane **1582 tests, 0 failures** · packaged acceptance passes, 0 crash
 attributions · no-real-data OK · doc-references 172/172.
 
-**Still not built:** the second engine itself. What remains is bundling PaddleOCR, comparing line to
-line, and filling `KNOWN_CONTROL_ENGINES` — which is still empty, so nothing can be marked agreed.
+**THE CONTROL'S SEMANTICS, BUILT 2026-09-14 — before the engine, deliberately.** `src/ocr/control.ts`
+holds what agreement MEANS and which lines are compared, and nothing else: no engine, no process, no
+store. That split is the point. The semantics are the part that was MEASURED, and a later engine
+swap must not be able to change them quietly.
+
+**Two things it had to copy rather than invent, and one it had to refuse.**
+- **The comparison is the blind round's own rule**, `a.strip() == b.strip()` — stripped, then
+  byte-exact. NOT the NFKC folding the bake-off uses for its error metric; those are different
+  questions. Folding would make `12345` and `１２３４５` agree, and full-width digits in a case number
+  or an amount are precisely where this engine is weakest (0.31 at six characters or fewer). A rule
+  looser than the one that selected the fifteen accepts pairs the 15/15 result does not cover.
+- **Stripping is PYTHON's set, not JavaScript's.** The audit caught the word "copied" being false:
+  `trim()` removes U+FEFF and `strip()` does not, so a byte-order mark would make two DIFFERENT
+  readings agree; `strip()` removes U+0085 and U+001C–U+001F and `trim()` does not, so those would
+  make two IDENTICAL readings disagree. Both reproduced against the real function. The set is now
+  written out.
+- **No threshold appears in the file.** A minimum overlap would be a number this project has no
+  measurement for, and every rule is chosen so none is needed.
+
+**The audit's High finding, and the reason best-overlap pairing is gone.** Mutual-best-overlap marks
+a FRAGMENT as a whole line, on exactly the field that matters. Reproduced in the auditor's own
+numbers: the primary reads an amount without its unit while keeping the whole field's box, the
+control reads number and unit as two lines, the number fragment wins on overlap 0.625 to 0.375, the
+characters match exactly — and the line came back **agreed** while the page carried a unit the reader
+would never see. The blind round compared whole line against whole line on the same crop; agreement
+between spans that are not the same span was never measured. Pairing is now ONE TO ONE IN THE
+OVERLAP GRAPH: exactly one control line touching this primary line, and that control line touching
+no other. Splits, merges and ties all fall out as "no counterpart", which reads as disagreed and
+sends the owner's eye there — erring toward more review, never less.
+
+**Two more the audit found in my own tests, both real:** a whitespace assertion that contained
+literal backslashes and therefore tested nothing, and an exactness test that would have passed an
+implementation adding NFC normalisation or dropping internal whitespace. Also corrected: a tie test
+that asserted OPPOSITE verdicts for the two orderings while claiming to be about reproducibility.
+
+**Verified:** 16 unit tests · **10 mutants, 9 killed and 1 shown EQUIVALENT** (the zero-intersection
+fast path: the intersection can be zero but never negative, so removing the guard returns the same
+zero — verified rather than tested around) · full desktop lane **1598 tests, 0 failures** ·
+no-real-data OK.
+
+**Still not built:** the second engine itself. What remains is bundling PaddleOCR, feeding its lines
+into `compareLines`, and filling `KNOWN_CONTROL_ENGINES` — which is still empty, so nothing can be
+marked agreed.
 
 **ARTIFACT SHAPE DECIDED by the owner, 2026-09-13: two per-architecture builds, not one universal
 bundle.** Each artifact then carries only the runtime it can execute — about 410 MB rather than
