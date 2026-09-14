@@ -19,6 +19,11 @@ import assert from "node:assert/strict";
 import { CATALOG } from "../dist/renderer/i18n/catalog.js";
 import { renderOcrDisclosure, numericFields, ocrFailureKey } from "../dist/renderer/screens/viewMatterOcr.js";
 import { MockDoc, MockEl, MockText, findByTestId, findAllByTestId, findAll, collectText, flush } from "./_view-matter-dom.mjs";
+import { t } from "../dist/renderer/i18n/t.js";
+
+/** The control sentence for a page, built through the SAME catalogue entry the screen uses. */
+const counts = (agreed, disagreed, uncompared) =>
+  t("document.ocr.control.counts", { agreed, disagreed, uncompared });
 
 /**
  * A document whose elements REFUSE innerHTML.
@@ -150,12 +155,23 @@ test("NOTHING THE PANEL RENDERS claims the text has been checked — every reach
   }
 });
 
-test("the AGREED label is one exact reviewed sentence — agreement is not correctness", () => {
+test("the CONTROL sentence is one exact reviewed sentence — agreement is not correctness", () => {
   // Exact, not a substring test: 「已与原件核验一致；机器识别本身不表示正确」 would satisfy any
   // substring check while telling a litigator the text was checked against the original.
-  assert.equal(CATALOG["document.ocr.control.agreed"], "第二引擎读出相同结果（仅表示两者一致，不表示正确）");
+  //
+  // It reports COUNTS because one word could not be true. Measured over 26 pages of the real corpus,
+  // the single word this replaced made all 26 read 「第二引擎读出不同结果，请优先核对本页」 — it put
+  // that label on 1440 of 1710 lines, while on the same pages the rule that replaced it finds 109
+  // the engines actually read differently. The rest of that 1440 was the two engines dividing the
+  // page differently, not reading it differently. (1440 minus 109 is not the exact count of false
+  // labels — the pairing predicate changed too — but the gap is the order of the error.)
+  assert.equal(CATALOG["document.ocr.control.counts"],
+    "第二引擎：一致 {agreed} 行，不同 {disagreed} 行，未能比对 {uncompared} 行（一致不等于正确）");
   assert.equal(CATALOG["document.ocr.control.unchecked"], "未经第二引擎比对");
-  assert.equal(CATALOG["document.ocr.control.disagreed"], "第二引擎读出不同结果，请优先核对本页");
+  // The caveat must survive INSIDE the sentence, not beside it, or a reader who sees only the
+  // numbers reads agreement as verification.
+  assert.ok(CATALOG["document.ocr.control.counts"].includes("一致不等于正确"),
+    "the counts sentence must carry its own caveat");
   assert.equal(CATALOG["document.ocr.caveat"],
     "识别出来的文字只用于查找和定位，不能当作原文引用。要写进文书的任何内容，都请逐字对照原件。");
 });
@@ -230,8 +246,8 @@ test("EACH page carries its OWN acquisition line and its OWN control state", asy
   assert.equal(containers.length, 3, "one container per page");
   const expected = [
     ["第 1 页 / 共 3 页", CATALOG["document.ocr.outcome.text_layer"], CATALOG["document.ocr.control.unchecked"]],
-    ["第 2 页 / 共 3 页", CATALOG["document.ocr.outcome.ocr"], CATALOG["document.ocr.control.agreed"]],
-    ["第 3 页 / 共 3 页", CATALOG["document.ocr.outcome.ocr"], CATALOG["document.ocr.control.disagreed"]],
+    ["第 2 页 / 共 3 页", CATALOG["document.ocr.outcome.ocr"], counts(1, 0, 0)],
+    ["第 3 页 / 共 3 页", CATALOG["document.ocr.outcome.ocr"], counts(0, 1, 0)],
   ];
   containers.forEach((c, i) => {
     const [head, outcome, control] = expected[i];
@@ -257,7 +273,7 @@ test("EACH page carries its OWN acquisition line and its OWN control state", asy
     }
     const marked = lines.filter((n) => (n.getAttribute("class") ?? "").includes("--disagreed"));
     const notes = within(c, "view-ocr-line-note");
-    if (control === CATALOG["document.ocr.control.disagreed"]) {
+    if (control === counts(0, 1, 0)) {
       assert.equal(marked.length, lines.length, `page ${i + 1} disagreed, so every line must be marked`);
       assert.equal(notes.length, lines.length, `page ${i + 1} must say why on each marked line`);
     } else {
@@ -650,23 +666,88 @@ test("ONE disagreeing line in a page of agreeing ones marks THAT line, and marks
   ], "each line wears its OWN verdict, not the page's");
   assert.equal(findAllByTestId(node, "view-ocr-line-note").length, 1, "only the disagreeing line explains itself");
 
-  // And the page's summary: one bad line is enough to make the page worth opening.
-  assert.ok(collectText(findByTestId(node, "view-ocr-page-outcome")).includes(CATALOG["document.ocr.control.disagreed"]),
-    "a page with any disagreeing line must not be summarised as agreed or unchecked");
+  // And the page's summary: it must SHOW the one bad line among the two good ones. A word could only
+  // have called this page disputed or agreed, and both are false — which is the whole reason the
+  // header carries numbers.
+  assert.ok(collectText(findByTestId(node, "view-ocr-page-outcome")).includes(counts(2, 1, 0)),
+    `a mixed page must report its own mix; got ${JSON.stringify(collectText(findByTestId(node, "view-ocr-page-outcome")))}`);
 });
 
-test("a page is summarised as AGREED only when every line on it was compared", async () => {
+test("the summary ACCOUNTS FOR every line, so a half-compared page cannot read as a compared one", async () => {
+  // `unchecked` (no control reached this line) and `uncompared` (a control ran and could not line the
+  // two readings up) are different facts about the run and the same fact about the page: neither was
+  // set against a second reading. They share the third number so that the three always sum to the
+  // page. A summary that counted only what it compared would report one agreeing line here and never
+  // mention the other two.
+  //
+  // The sum is the assertion. Checking only that the string mentions 「1」 would pass an
+  // implementation that dropped the unchecked line entirely, so the numbers are checked together
+  // and against the page's own line count.
   const partly = page({ outcome: "ocr", lines: [
     { text: "已比对的一行。", control: "agreed" },
     { text: "没有比对过的一行。", control: "unchecked" },
+    { text: "分行方式不同的一行。", control: "uncompared" },
   ] });
   const bridge = stubBridge({ pages: { ok: true, value: { missing: 0, pages: [partly] } } });
   const node = renderOcrDisclosure(new StrictDoc(), MATTER, DOCUMENT, bridge);
   await open(node);
   const summary = collectText(findByTestId(node, "view-ocr-page-outcome"));
-  assert.ok(summary.includes(CATALOG["document.ocr.control.unchecked"]),
-    `half a page compared is not a compared page; got ${JSON.stringify(summary)}`);
-  assert.equal(summary.includes(CATALOG["document.ocr.control.agreed"]), false);
+  assert.ok(summary.includes(counts(1, 0, 2)),
+    `the three numbers must account for all three lines; got ${JSON.stringify(summary)}`);
+  assert.equal(1 + 0 + 2, partly.lines.length, "and the three must sum to the page, or the header hides a line");
+});
+
+test("a page NOTHING has compared says exactly that, and does not report three zeros", async () => {
+  // The one case where a word is the whole truth. Counts here would read 「一致 0 行，不同 0 行,
+  // 未能比对 2 行」, which states that a second engine ran and failed — it never ran.
+  const untouched = page({ outcome: "ocr", lines: [
+    { text: "第一行。", control: "unchecked" },
+    { text: "第二行。", control: "unchecked" },
+  ] });
+  const bridge = stubBridge({ pages: { ok: true, value: { missing: 0, pages: [untouched] } } });
+  const node = renderOcrDisclosure(new StrictDoc(), MATTER, DOCUMENT, bridge);
+  await open(node);
+  const summary = collectText(findByTestId(node, "view-ocr-page-outcome"));
+  assert.ok(summary.includes(CATALOG["document.ocr.control.unchecked"]), summary);
+  assert.equal(summary.includes(counts(0, 0, 2)), false, "no control ran, so no count may suggest one did");
+});
+
+test("a page the control could compare NOTHING on still says a control ran", async () => {
+  // The two zero cases are different facts and must read differently. Here a second engine ran over
+  // the page and could not line up a single reading — which happens on a table, where one engine
+  // sees cells and the other sees rows. Reporting 「未经第二引擎比对」 would say no control ran.
+  // A mutant that returned the word whenever nothing agreed or differed survived every other test.
+  const nothingLinedUp = page({ outcome: "ocr", lines: [
+    { text: "表格第一格。", control: "uncompared" },
+    { text: "表格第二格。", control: "uncompared" },
+  ] });
+  const bridge = stubBridge({ pages: { ok: true, value: { missing: 0, pages: [nothingLinedUp] } } });
+  const node = renderOcrDisclosure(new StrictDoc(), MATTER, DOCUMENT, bridge);
+  await open(node);
+  const summary = collectText(findByTestId(node, "view-ocr-page-outcome"));
+  assert.ok(summary.includes(counts(0, 0, 2)), summary);
+  assert.equal(summary.includes(CATALOG["document.ocr.control.unchecked"]), false,
+    "a control that ran and compared nothing is not the same as no control at all");
+});
+
+test("an UNCOMPARED line carries no mark — it is not a softer disagreement", async () => {
+  // The approved design spends ink only on a real difference. `uncompared` is the absence of a
+  // comparison, and marking it would put a warning on 70% of the lines of a real page, which is the
+  // exact failure — flagging everything and telling the owner nothing — that the line-level control
+  // exists to avoid.
+  const mixed = page({ outcome: "ocr", lines: [
+    { text: "分行方式不同的一行。", control: "uncompared" },
+    { text: "两个引擎读出不同结果的一行。", control: "disagreed" },
+  ] });
+  const bridge = stubBridge({ pages: { ok: true, value: { missing: 0, pages: [mixed] } } });
+  const node = renderOcrDisclosure(new StrictDoc(), MATTER, DOCUMENT, bridge);
+  await open(node);
+  assert.deepEqual(findAllByTestId(node, "view-ocr-line").map((l) => l.getAttribute("class")), [
+    "view-ocr-line view-ocr-line--uncompared",
+    "view-ocr-line view-ocr-line--disagreed",
+  ]);
+  assert.equal(findAllByTestId(node, "view-ocr-line-note").length, 1,
+    "only the differing line explains itself; the uncompared one has nothing to explain");
 });
 
 test("a single-digit field is marked: length cannot tell an enumeration marker from an amount", () => {

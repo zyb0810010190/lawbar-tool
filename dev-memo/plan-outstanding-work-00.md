@@ -1754,6 +1754,131 @@ its tier and its verification state, that survives a restart, a page the helper 
 its failure code and a working retry, and the committed bakeoff result names why each tier holds its
 slot — no silent loss, no unmeasured choice.
 
+## WI-12 STOP — the control's verdict, measured against the real corpus, says something false
+
+Recorded 2026-09-14, after `9d819f3` committed the control's semantics and BEFORE any engine was
+wired to it. Nothing here is a plan; it is what happened when the committed rule met real pages, and
+it contradicts part of what `control.ts` claims.
+
+**How it was measured.** 26 pages sampled across all 20 documents of the private corpus, each
+rasterised ONCE with `pdftoppm -r 150` so both engines see the identical pixels — the Swift helper
+renders internally and never writes its render out, so comparing PDF-in against PDF-in would have
+conflated rendering differences with recognition differences. Apple Vision through the shipped
+helper; PaddleOCR through `@gutenye/ocr-node` 1.4.8, whose boxes are four corner points in pixels
+with the origin top-left, converted to the helper's bottom-left normalised space. 1710 Vision lines,
+882 Paddle lines. Verdicts computed by the SHIPPED `compareLines`, and the page header by the
+renderer's own `pageControl()`, both imported rather than reimplemented.
+
+**The result.**
+
+```
+26 real pages, 1710 lines, shipped rule (compareLines as committed)
+page header would read  agreed 0 | disagreed 26 | unchecked 0
+lines marked agreed: 270 of 1710 (16%)
+lines marked "the second engine read a different result": 1440 (84%)
+```
+
+Every page. The header string is `document.ocr.control.disagreed` —
+"第二引擎读出不同结果，请优先核对本页". It goes on 1440 of those 1710 lines, and for the great
+majority of them it is **not true**: the second engine did not read a different result, it did not
+produce a comparable line at all, because the two engines divide a page differently. How many of the
+1440 were genuine is settled further down — 109 on the same pages once the rule could tell the two
+cases apart — and the difference between the two numbers is the size of the false claim, not a count
+of it, because the pairing predicate changed at the same time. This is the failure the store's own schema
+comment says disqualified a page-level control — "it would flag everything and tell the owner
+nothing" — reproduced at line level by a rule written to avoid it.
+
+**Why the pairing fails, measured rather than guessed.** The first suspicion was that Vision draws
+taller boxes that graze the next line. That is false: median line-box height is 0.0230 for Vision
+against 0.0231 for Paddle, ratio 1.00. The real cause is segmentation. Vision emits one box per
+CELL or per horizontal run; Paddle emits one box per ROW. On the five table pages in the sample,
+Vision's median line width is 0.062 of the page against Paddle's 0.88–0.96, and Vision reports
+209–221 lines where Paddle reports 60. Across the sample, of the lines the committed rule leaves
+unpaired: 10 have no control line at all, 12 touch two or more, and 111 touch one control line that
+another primary line also touches — merges, overwhelmingly.
+
+**What the control is worth WHERE it applies.** On the 486 lines both engines saw as one line:
+
+```
+byte-exact after strip (agreed today) :  384 ( 79%)
+differ ONLY by internal whitespace    :   29 (  6%)
+differ ONLY by width/compat folding   :   27 (  6%)
+differ in the CHARACTERS themselves   :   46 (  9%)
+```
+
+Those 46 lines are the entire point of having a control, and their character error rate is a median
+0.200 — real misreadings, not noise. Under the shipped rule they are 46 flags among 1440, which is
+where they become invisible. The 6% whitespace and 6% folding differences stay on the disagreed side
+and should: loosening `agrees` would go past what the 15/15 blind round covered, and full-width
+digits in an amount are exactly where Vision is weakest. Worth recording that Paddle emits 1004
+internal spaces over 272 lines against Vision's 200 over 171 — the whitespace difference is
+systematic and one-sided, so closing it would need its own blind round, not a normalisation.
+
+**Four alternative rules were measured. Three are worse or unsafe.**
+
+```
+rule           paired      agreed        guarantees the committed unit suite proves
+iou-any       109 ( 45%)    93 ( 38%)    all hold          <- what ships today
+band          114 ( 47%)    95 ( 39%)    all hold
+centre2       135 ( 56%)    95 ( 39%)    BREAKS fragment refused
+best-mutual   156 ( 64%)    95 ( 39%)    BREAKS fragment, spanning, tie
+```
+
+(That table is the eight-page pilot; the 26-page run gives 16% agreed for `iou-any` and 22% for
+`band`.) The finding that matters: **loosening the pairing rule buys almost no additional agreement
+— 93 to 95 lines — while breaking guarantees.** Every extra pair a looser rule finds is a
+disagreement. So the strictness is not what is costing the owner anything, and `centre2` and
+`best-mutual` are refused.
+
+Comparing the whole shared SPAN instead of the line — connected components of the overlap graph,
+each side joined in reading order — was also measured: 23% against 22% under `band`. It buys nothing
+and it would require inventing a join separator the measurement has no basis for. Refused.
+
+**What this implies, for the owner to settle before an engine is wired in.**
+
+1. **A third verdict is needed.** A line the control could not pair is not "read differently"; it is
+   "not compared, because the engines divided the page differently". The store's CHECK constraint,
+   `ControlVerdict`, the catalogue string and the panel treatment all follow from that word. Without
+   it the tool states something false about itself, which is this repo's standard, not a nicety.
+2. **`pageControl()` cannot stay a single word.** No one word is true of a page with 386 agreeing
+   lines, 109 differing and 1215 not comparable. This is the part that is a UI decision.
+3. **`band` should replace `iou-any` as the touch predicate** — x-intervals overlap AND each box's
+   vertical centre inside the other's vertical extent. Still threshold-free. Pairs 28% of lines
+   against 20%, agreed 22% against 16%. Ten of the eleven guarantees the committed suite asserts
+   hold unchanged under it. The eleventh — "a partial overlap does not become agreement just because
+   it was seen first" — passes today because a 2%-tall grazing box counts as touching; under `band`
+   that box is a different row and the fixture stops exercising ambiguity at all. The fixture must
+   be rebuilt with two genuine same-row candidates, NOT deleted and NOT edited to match the new
+   output. `overlap()` becomes unused if `band` lands, and dead exported code should go with it.
+4. **`agrees` does not change.** It is the rule the 15/15 blind round validated.
+
+**What was then built, same day.** Points 1, 3 and 4 are implemented; point 2 is implemented only as
+far as truth requires and its treatment is the owner's. `ControlVerdict` gained `uncompared`;
+`sameRow` replaced `overlap` as the pairing predicate and `overlap` is gone with it; the store's
+CHECK gained the fourth value and `SCHEMA_VERSION` went to 3, because a CHECK constraint is baked
+into the table at CREATE time and widening the text without the bump would give a store that fails
+only once a control actually runs. The panel header now reports three counts rather than one word.
+
+One defect was found while building it, and it is worth keeping: the first version of the fallback
+asked `sameRow` whether the control had found anything on this line's row, and called a line with no
+row match `disagreed`. That is wrong for a control box spanning two rows — its centre falls between
+them, so it belongs to neither row while plainly covering both. The fallback now asks the weaker
+question, plain box intersection, which is the only thing that question is good for: if nothing the
+control produced touches this line at all, the engines really did read differently; if something
+touches it but is not its row, they divided the page differently. Shipped numbers over the same 26
+pages: 386 agreed, 109 disagreed, 1215 uncompared, a median of four disagreeing lines per page
+against fifty-five under the rule this replaced.
+
+The rewritten unit suite was checked BOTH ways. Run against the old rule exported under the new
+names — so the assertions actually execute rather than failing on an import — seven of its seventeen
+tests fail and ten pass, and the ten that pass are the ones whose claims did not change: what
+agreement is, position pairing, order independence. A first attempt at this check was vacuous and
+was thrown away: pointing the new suite at the untouched baseline file failed on the missing export
+and ran one test, which proves nothing.
+
+The measurement scripts and the cached engine output live in the session scratchpad and hold real
+document text, so they stay off the repo and are deleted when this is settled.
+
 ## Not work items — owner decisions
 
 These are recorded so the review is complete. They are **not** for an executor and must not be

@@ -2906,6 +2906,7 @@ body.lawbar-app {
    and "nothing has compared this" are not a difference the reader should act on: neither is a
    reason to trust the line. The distinction is recorded in the store, not drawn on the screen. */
 .view-ocr-line--agreed,
+.view-ocr-line--uncompared,
 .view-ocr-line--unchecked { /* no mark, on purpose */ }
 
 .view-ocr-line--disagreed {

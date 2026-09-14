@@ -535,11 +535,20 @@ export const CATALOG = {
   // retry — inviting a retry there would be the exact defect that guard exists to prevent.
   "document.ocr.outcome.unreadable": "未能读取本页",
   "document.ocr.failureCode": "本页失败原因代码：{code}",
-  // v1 ships no second engine, so every page is 未核对. The 已比对 wording deliberately keeps the
-  // caveat inside the sentence, because agreement is not verification.
+  // v1 ships no second engine, so every page is 未核对.
   "document.ocr.control.unchecked": "未经第二引擎比对",
-  "document.ocr.control.agreed": "第二引擎读出相同结果（仅表示两者一致，不表示正确）",
-  "document.ocr.control.disagreed": "第二引擎读出不同结果，请优先核对本页",
+  // COUNTS, not a word. Measured on 26 pages of the real corpus: one word made every page read as
+  // disputed, because two engines divide a page differently and most lines never get an
+  // unambiguous counterpart. 未能比对 means exactly NOT COMPARED and nothing narrower: it covers the
+  // line a second engine ran past without producing a comparable reading AND the line no control
+  // reached at all. The two are different facts about the run and the same fact about the page, and
+  // the number has to cover both or the three counts would not add up to the page — a page of three
+  // lines would report two and never mention the third. What it is NOT is a disagreement; saying it
+  // was is the defect this key replaced. The caveat stays inside the sentence, because agreement is
+  // not verification: fifteen blind agreements put the 95% upper bound on the failure rate near one
+  // in five.
+  "document.ocr.control.counts":
+    "第二引擎：一致 {agreed} 行，不同 {disagreed} 行，未能比对 {uncompared} 行（一致不等于正确）",
   // The prompt moved from a list under the page to the fields themselves: a reader checking an
   // amount wants it underlined in the sentence, not repeated in a footnote to map back by hand.
   // Kept as a tooltip on each mark, so the reason is one hover away and never shouts.

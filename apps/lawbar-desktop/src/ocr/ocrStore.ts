@@ -34,8 +34,15 @@ export type OcrOutcome = "text_layer" | "ocr" | "failed";
  * The different-engine control's verdict. `unchecked` is honest and is what v1 writes: no control
  * ships yet, and measurement showed agreement is the only signal that certifies nothing wrong.
  * The column exists from the first commit so adding the control needs no migration.
+ *
+ * `uncompared` is the fourth value and it is not a softer `disagreed`. It says a second engine ran
+ * and did not divide the page the same way, so this line's reading was never set against another
+ * one. Measured on 26 pages of the real corpus, collapsing it into `disagreed` marked 1440 of 1710
+ * lines as read differently and made every page read as disputed; kept apart, the same pages give
+ * 386 agreed, 109 disagreed and 1215 uncompared. See `src/ocr/control.ts` for the rule and the
+ * numbers behind it.
  */
-export type OcrControl = "unchecked" | "agreed" | "disagreed";
+export type OcrControl = "unchecked" | "agreed" | "disagreed" | "uncompared";
 
 /** One line of a page, with the verdict that belongs to it and where it sits on the render. */
 export interface OcrLineRecord {
@@ -138,9 +145,13 @@ export interface OcrStoreOptions {
 export const OCR_DERIVED_DIRNAME = "ocr-derived";
 export const OCR_DB_FILENAME = "ocr.sqlite";
 // 2: the control became a LINE-level verdict, so `ocr_line` arrived and `control` left `ocr_page`.
+// 3: `uncompared` joined the verdicts. A CHECK constraint is baked into the table at CREATE time, so
+//    a v2 file on disk would keep the old three-value constraint and reject the new verdict at
+//    INSERT — widening the text here without bumping would produce a store that fails only once a
+//    control actually runs.
 // Bumping this is cheap ON PURPOSE — a foreign version makes the store delete itself and rebuild,
 // which is the whole benefit of it being derived. No migration is written, and none should be.
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /** Where the derived store lives for a given profile. Exported so tests and guards can name it. */
 export function ocrDbPath(userDataDir: string): string {
@@ -207,7 +218,7 @@ CREATE TABLE IF NOT EXISTS ocr_line (
   y             REAL    CHECK (y IS NULL OR (y >= 0 AND y <= 1)),
   w             REAL    CHECK (w IS NULL OR (w >= 0 AND w <= 1)),
   h             REAL    CHECK (h IS NULL OR (h >= 0 AND h <= 1)),
-  control       TEXT    NOT NULL CHECK (control IN ('unchecked','agreed','disagreed')),
+  control       TEXT    NOT NULL CHECK (control IN ('unchecked','agreed','disagreed','uncompared')),
   control_engine TEXT,
   -- A verdict must name the DIFFERENT engine that produced it. Agreement between one engine and
   -- itself is not agreement; it accepted three wrong readings in thirty-two when it was measured.
@@ -270,7 +281,7 @@ const toRecord = (r: Row, lines: readonly OcrLineRecord[]): OcrPageRecord => ({
 
 const OUTCOMES: ReadonlySet<string> = new Set(["text_layer", "ocr", "failed"]);
 const SOURCES: ReadonlySet<string> = new Set(["pdf", "image"]);
-const CONTROLS: ReadonlySet<string> = new Set(["unchecked", "agreed", "disagreed"]);
+const CONTROLS: ReadonlySet<string> = new Set(["unchecked", "agreed", "disagreed", "uncompared"]);
 
 /**
  * The DIFFERENT engines whose agreement may be recorded as a control verdict. EMPTY in v1, and

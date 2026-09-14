@@ -25,7 +25,7 @@ import { el, setText } from "../dom.js";
 import { t } from "../i18n/t.js";
 
 export type OcrOutcome = "text_layer" | "ocr" | "failed";
-export type OcrControl = "unchecked" | "agreed" | "disagreed";
+export type OcrControl = "unchecked" | "agreed" | "disagreed" | "uncompared";
 
 /** One line as main sends it: its text, and the verdict that belongs to that line. */
 export interface OcrLineView {
@@ -115,11 +115,6 @@ const OUTCOME_KEY: Readonly<Record<OcrOutcome, Parameters<typeof t>[0]>> = {
   failed: "document.ocr.outcome.unreadable",
 };
 
-const CONTROL_KEY: Readonly<Record<OcrControl, Parameters<typeof t>[0]>> = {
-  unchecked: "document.ocr.control.unchecked",
-  agreed: "document.ocr.control.agreed",
-  disagreed: "document.ocr.control.disagreed",
-};
 
 /**
  * The fields on a page that carry a number, for the reader to check one by one.
@@ -296,16 +291,45 @@ export function lineNodes(doc: Document, line: string): readonly Node[] {
  * its numbers underlined. That is the intended resting state, not a placeholder.
  */
 /**
- * The page's own control state, SUMMARISED from its lines rather than stored.
+ * What the page header says about the control, SUMMARISED from its lines rather than stored.
  *
- * One disagreeing line makes the page worth opening, so disagreement wins. A page is only reported
- * as compared when every line on it was, because "checked" said of a page where half the lines were
- * never compared is the kind of half-true headline this repository exists to avoid.
+ * COUNTS, NOT A WORD, and the measurement is why. An earlier version answered with one of three
+ * words, disagreement winning. Run against 26 pages of the real corpus that made all 26 pages read
+ * "the second engine read a different result, check this page first" — because two engines divide a
+ * page differently and most lines never get an unambiguous counterpart. No single word is true of a
+ * page carrying 386 agreeing lines, 109 differing ones and 1215 the engines never compared, and a
+ * word that is wrong on every page is worse than no control at all: it is the failure that
+ * disqualified a page-level control, arrived at from the other direction.
+ *
+ * So the header reports the three numbers and lets the reader see the shape of the page. Only the
+ * absence of any verdict still collapses to a word, because there it is the whole truth.
  */
-function pageControl(p: OcrPageView): OcrControl {
-  if (p.lines.length === 0) return "unchecked";
-  if (p.lines.some((l) => l.control === "disagreed")) return "disagreed";
-  return p.lines.every((l) => l.control === "agreed") ? "agreed" : "unchecked";
+function controlSummary(p: OcrPageView): string {
+  let agreed = 0;
+  let disagreed = 0;
+  let uncompared = 0;
+  for (const line of p.lines) {
+    if (line.control === "agreed") agreed += 1;
+    else if (line.control === "disagreed") disagreed += 1;
+    // `uncompared` and `unchecked` are different facts about the RUN and the same fact about the
+    // page: neither line was set against a second reading. The header's job is to account for every
+    // line, so they share its third number — and a page where they were kept apart here would
+    // report two agreeing lines out of three and never mention the third.
+    //
+    // The cost of that, named because an audit named it: the count alone no longer says whether a
+    // control was ATTEMPTED on a given line, so an unchecked line reads the same as one a control
+    // could not line up. That is a loss of detail, not a false claim — 未能比对 says not compared and
+    // claims nothing about why — and the alternative loses a whole line from the reckoning, which
+    // is the failure this header was rewritten to stop. A page where the two genuinely differ is
+    // also not something the pipeline produces: a control runs over a page, not over a line.
+    else uncompared += 1;
+  }
+  // Only when NOTHING on the page was compared does the word come back, because only then is it the
+  // whole truth. Reporting counts there would say a control ran and failed, which it did not.
+  if (agreed + disagreed === 0 && p.lines.every((l) => l.control === "unchecked")) {
+    return t("document.ocr.control.unchecked");
+  }
+  return t("document.ocr.control.counts", { agreed, disagreed, uncompared });
 }
 
 function renderPage(doc: Document, p: OcrPageView): HTMLElement {
@@ -316,7 +340,7 @@ function renderPage(doc: Document, p: OcrPageView): HTMLElement {
       // literal " " would also be a user-facing string outside the catalogue, which the i18n drift
       // guard refuses — correctly, since a space between two labels is a layout decision.
       el("span", { class: "view-ocr-provenance", "data-test-id": "view-ocr-page-outcome" },
-        [t("document.ocr.outcomeLine", { outcome: t(OUTCOME_KEY[p.outcome]), control: t(CONTROL_KEY[pageControl(p)]) })], doc),
+        [t("document.ocr.outcomeLine", { outcome: t(OUTCOME_KEY[p.outcome]), control: controlSummary(p) })], doc),
     ], doc),
   ];
   if (p.outcome === "failed") {

@@ -99,7 +99,11 @@ test("the column set is pinned: nothing the owner authors can live in a store ex
     db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r) => r.name),
     ["ocr_line", "ocr_page", "schema_version"],
   );
-  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 2);
+  // 3, not 2: `uncompared` joined the control's values, and a CHECK constraint is baked into the
+  // table at CREATE time, so a v2 file on disk keeps the old three-value rule and rejects the new
+  // verdict at INSERT. The number is written out rather than read from the module on purpose — a
+  // test that imports the constant agrees with any bump, including an accidental one.
+  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 3);
 });
 
 test("a document id alone reaches nothing: reads are scoped to the matter", (t) => {
@@ -189,6 +193,12 @@ test("nothing can be marked agreed in this build, because no control engine ship
     /no control engine ships/, "and naming an engine this build does not carry is refused too");
   assert.throws(() => s.putPage({ ...RECORD, lines: [line({ control: "unchecked", controlEngine: "paddleocr-onnx" })] }),
     /may not name a control engine/);
+  // `uncompared` is a verdict like any other: a second engine ran to produce it, so it must name
+  // that engine, and no engine ships. It is NOT a back door to writing control state today.
+  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ control: "uncompared", controlEngine: null })] }),
+    /must name the different engine/);
+  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ control: "uncompared", controlEngine: "paddleocr-onnx" })] }),
+    /no control engine ships/);
 });
 
 test("a store written under another schema version is discarded and rebuilt, not read", (t) => {
@@ -207,7 +217,7 @@ test("a store written under another schema version is discarded and rebuilt, not
   assert.equal(second.getPage("m-1", "doc-1", 1, DIGEST), null, "rows from a schema we do not understand must not be served");
   const db = new Database(second.dbPath, { readonly: true });
   t.after(() => db.close());
-  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 2, "and the store is rebuilt at the version we do understand");
+  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 3, "and the store is rebuilt at the version we do understand");
 });
 
 test("opening an existing store again is a no-op, and the data survives", (t) => {
@@ -273,7 +283,7 @@ test("a store from a FUTURE schema is thrown away, even when its columns no long
   assert.equal(s.getPage("m-1", "doc-1", 1, DIGEST).text, RECORD.text, "the rebuilt store must work");
   const db = new Database(s.dbPath, { readonly: true });
   t.after(() => db.close());
-  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 2);
+  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 3);
   assert.deepEqual(
     db.prepare("PRAGMA table_info(ocr_page)").all().map((c) => c.name).filter((n) => n === "page" || n === "page_index"),
     ["page"], "the future build's column is gone, not merged");
