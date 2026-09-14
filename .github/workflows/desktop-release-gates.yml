@@ -160,6 +160,43 @@ jobs:
       - name: Backup/restore acceptance — real button + isolated restore, packaged
         run: npm --prefix apps/lawbar-desktop run test:restore-acceptance-packaged
 
+      # THE FIVE PACKAGED ACCEPTANCES. Each one is an npm script that has existed for a while and has
+      # been run by hand at the end of the work item that added it. That makes them runnable, not
+      # enforced — and this repository has already learned, twice, what the difference is worth: the
+      # backup lane above stands here because two claims a litigator's data depends on were WRONG
+      # within a week of being checked by hand, and the OCR panel below shipped a defect (the store
+      # created itself the moment the panel opened) that only the packaged run could see, because it
+      # is the only run with a real profile and a real relaunch.
+      #
+      # Marginal cost only — `dist` above already built the bundle. Measured 2026-09-14 against a
+      # packaged arm64 build, wall clock per step including the wrapper's mandatory 30s settle:
+      # document-open 37s, evidence 35s, t3-submitter 34s, ocr-probe 37s, ocr-acceptance 34s. Call it
+      # three minutes for all five, against a job that already spends longer than that packaging.
+      #
+      # Each asserts ONE thing, and each thing is a claim the product makes in the owner's hands:
+      - name: Document-open acceptance — read-only copy, and an altered original refused after restart
+        run: npm --prefix apps/lawbar-desktop run test:document-open-packaged
+
+      - name: Evidence acceptance — adopted rows survive a restart and reach the exported T3 DOCX
+        run: npm --prefix apps/lawbar-desktop run test:evidence-packaged
+
+      - name: T3 submitter acceptance — the chosen name reaches the DOCX, and survives an isolated restore
+        run: npm --prefix apps/lawbar-desktop run test:t3-submitter-packaged
+
+      # This one is about the HELPER's identity rather than its output, and it is the reason the tier-1
+      # claim can be made at all: the probe runs from a relocated copy with PATH empty, so a pass means
+      # the digest came from the helper inside the bundle and not from anything on the developer's
+      # machine — and a swapped helper is refused UNRUN, after a relaunch.
+      - name: OCR probe acceptance — pinned digest from inside the bundle; a swapped helper refused unrun
+        run: npm --prefix apps/lawbar-desktop run test:ocr-probe-packaged
+
+      # And this one guards the sentence the panel puts in front of the owner. It writes a nonce into
+      # `ocr_line` between sessions, so a pass cannot be produced by recomputation or a renderer cache
+      # — it can only mean the text came off the disk the packaged app actually reads. It also asserts
+      # the panel never claims a reading was CHECKED, which is what no control shipping yet means.
+      - name: OCR acceptance — a reading survives a relaunch, and never claims to be checked
+        run: npm --prefix apps/lawbar-desktop run test:ocr-acceptance-packaged
+
       # DELIBERATELY NOT RUN HERE, and this is a risk acceptance rather than a judgement that these
       # surfaces are redundant:
       #   test:packaged      — packaged-binary smoke (3 tests)
