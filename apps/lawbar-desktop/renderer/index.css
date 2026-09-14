@@ -2892,7 +2892,15 @@ body.lawbar-app {
   font-size: var(--font-size-md);
   line-height: var(--line-reading);
 }
-.view-ocr-line { position: relative; padding: 2px 0 2px var(--space-5); }
+.view-ocr-line {
+  position: relative;
+  padding: 2px 0 2px var(--space-5);
+  /* A recognised line can be one unbroken run — a digit sequence, a hash, or OCR garbage off a bad
+     scan — with no space to break at. The ancestor hides horizontal overflow, so without this the
+     remainder is not merely off-screen, it is unreachable. Anywhere, not break-word: CJK has few
+     break opportunities of its own. */
+  overflow-wrap: anywhere;
+}
 
 /* AGREED and UNCHECKED are deliberately identical and unmarked. "Two engines read this the same"
    and "nothing has compared this" are not a difference the reader should act on: neither is a

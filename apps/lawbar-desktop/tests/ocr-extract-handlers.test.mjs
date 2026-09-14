@@ -482,17 +482,22 @@ test("a TEXT-LAYER page stores lines too, split on the layer's own newlines", as
   assert.deepEqual(stored.lines.map((l) => l.text), ["合同金额为 12,345.67元。", "本合同自签字之日起生效。"]);
   // No render happened, so no line has a position. The unit square says "unmeasured" instead of a
   // fabricated rectangle, and confidence is 1 because these characters were READ, not recognised.
+  // NO POSITION, because there was no render. The unit square would assert that every line covers
+  // the whole page, which is a measurement that did not happen and would later match a second
+  // engine's line to the wrong one.
   for (const l of stored.lines) {
-    assert.deepEqual([l.x, l.y, l.w, l.h], [0, 0, 1, 1]);
-    assert.equal(l.confidence, 1);
+    assert.deepEqual([l.x, l.y, l.w, l.h], [null, null, null, null],
+      "a text-layer line has no position; null says so, (0,0,1,1) would claim otherwise");
+    assert.equal(l.confidence, 1, "read, not recognised");
   }
 });
 
 test("layerLines reads back what the layer says, and nothing else", () => {
+  const noBox = { confidence: 1, x: null, y: null, w: null, h: null, control: "unchecked", controlEngine: null };
   assert.deepEqual(layerLines("a\nb\nc"), [
-    { lineNo: 1, text: "a", confidence: 1, x: 0, y: 0, w: 1, h: 1, control: "unchecked", controlEngine: null },
-    { lineNo: 2, text: "b", confidence: 1, x: 0, y: 0, w: 1, h: 1, control: "unchecked", controlEngine: null },
-    { lineNo: 3, text: "c", confidence: 1, x: 0, y: 0, w: 1, h: 1, control: "unchecked", controlEngine: null },
+    { lineNo: 1, text: "a", ...noBox },
+    { lineNo: 2, text: "b", ...noBox },
+    { lineNo: 3, text: "c", ...noBox },
   ]);
   assert.deepEqual(layerLines("a\r\nb").map((l) => l.text), ["a", "b"], "a carriage return is not a line of text");
   assert.deepEqual(layerLines("a\n\n\nb").map((l) => l.text), ["a", "b"], "blank lines are not lines");

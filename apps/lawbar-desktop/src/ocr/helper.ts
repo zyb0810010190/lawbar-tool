@@ -302,9 +302,17 @@ function asLines(v: unknown): readonly HelperLine[] | null {
     if (typeof l.text !== "string") return null;
     const nums = [l.confidence, l.x, l.y, l.w, l.h];
     if (!nums.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
-    // Normalised coordinates. A box that runs off the page is a protocol disagreement, not a line.
-    if ((l.x as number) < 0 || (l.y as number) < 0 || (l.w as number) < 0 || (l.h as number) < 0) return null;
+    // Normalised coordinates. Each one individually in 0..1, because the store's CHECK constraints
+    // say exactly that: a value the parser waved through and the store then refused would reach the
+    // owner as `store_unavailable`, blaming the disk for the helper's protocol error. The endpoint
+    // tolerance is for floating-point rounding only, and it is applied to the SUM, never used to
+    // widen the range of a single coordinate.
+    for (const v of [l.x, l.y, l.w, l.h] as number[]) if (v < 0 || v > 1) return null;
     if ((l.x as number) + (l.w as number) > 1.0001 || (l.y as number) + (l.h as number) > 1.0001) return null;
+    // A box with no area cannot locate a line, and cannot be matched against a second engine's line
+    // by position — which is the reason the box is carried at all. Measured on this owner's corpus:
+    // 0 of the lines on 8 real pages had one, so refusing costs nothing real.
+    if ((l.w as number) <= 0 || (l.h as number) <= 0) return null;
     if ((l.confidence as number) < 0 || (l.confidence as number) > 1) return null;
     out.push({
       text: l.text,
@@ -357,6 +365,14 @@ function asPage(v: unknown, mode: "full" | "layer_only", digest: string): Helper
   // would be a guess where the helper already has the answer.
   const lines = asLines(r.vision_lines);
   if (lines === null) return null;
+  // THE JOINED TEXT AND THE LINES MUST BE THE SAME FACT. They are stored in two tables, and the
+  // transaction around that write prevents a torn write, not a contradictory one: a helper that
+  // reported "甲\n乙" with a single line "甲" would have persisted a page whose text says one thing
+  // and whose lines say another, with the screen drawing the lines and search reading the text.
+  // The helper builds vision_text BY joining the lines, so this holds by construction — verified on
+  // 8 real pages of the owner's corpus, up to 36 lines each, all equal. Where it does not hold, the
+  // two sides disagree about the protocol and the record is refused rather than half-believed.
+  if (lines.map((l) => l.text).join("\n") !== r.vision_text) return null;
   return {
     page: r.page, page_count: r.page_count, source: r.source, mode,
     layer_text: strOrNull(r.layer_text), layer_chars: r.layer_chars,
@@ -422,6 +438,10 @@ export async function extractPages(deps: HelperDeps, options: ExtractOptions): P
     // a litigator as evidence that the program is not what it claims to be — an accusation the
     // facts did not support. A record that names another build still taints the whole run: half a
     // document read by something unidentified is worse than no document read.
+    // A record that is not an object at all — a bare `null` on the wire — must become a CODE here.
+    // Reaching into it would throw a TypeError out of a function whose whole contract is to return
+    // a result, and the caller's catch would then report it as something else entirely.
+    if (typeof p !== "object" || p === null) return { ok: false, code: "helper_bad_output", elapsed_ms: elapsed };
     const claimed = (p as Record<string, unknown>).helper_build_digest;
     if (claimed !== executableDigest) return { ok: false, code: "helper_identity_mismatch", elapsed_ms: elapsed };
     const page = asPage(p, mode, executableDigest);

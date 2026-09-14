@@ -212,15 +212,19 @@ function recognisedLines(p: HelperPage): readonly OcrLineRecord[] {
  *
  * A PDF's own text layer has no line records — it is a string, and its newlines are the only line
  * information that exists. Splitting on them is therefore not a guess here, it is the whole of what
- * the file says. The box is recorded as the unit square rather than a fabricated rectangle: this
- * page was never rendered, so no line has a position, and a made-up one would be a measurement that
- * did not happen. Confidence is 1 because the characters were read, not recognised.
+ * the file says.
+ *
+ * THE BOX IS NULL, not the unit square. This page was never rendered, so no line has a position.
+ * An earlier version stored (0,0,1,1) and called it "unmeasured" in a comment while the data said
+ * every line covers the entire page — a measurement that did not happen, and one that would later
+ * match a second engine's line to the wrong line here. Null is the only honest value.
+ * Confidence is 1 because these characters were READ, not recognised.
  */
 export function layerLines(text: string): readonly OcrLineRecord[] {
   return text.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim().length > 0)
     .map((line, i) => ({
       lineNo: i + 1, text: line, confidence: 1,
-      x: 0, y: 0, w: 1, h: 1,
+      x: null, y: null, w: null, h: null,
       control: "unchecked" as const, controlEngine: null,
     }));
 }

@@ -42,10 +42,16 @@ export interface OcrLineRecord {
   readonly lineNo: number;
   readonly text: string;
   readonly confidence: number;
-  readonly x: number;
-  readonly y: number;
-  readonly w: number;
-  readonly h: number;
+  /**
+   * Where the line sits on the RENDER, normalised, origin bottom-left — or null, all four together,
+   * when there is no render to sit on. A text-layer page is read, not recognised: it was never
+   * drawn, so its lines have no position, and the unit square would assert they each cover the
+   * whole page rather than record that nothing is known.
+   */
+  readonly x: number | null;
+  readonly y: number | null;
+  readonly w: number | null;
+  readonly h: number | null;
   readonly control: OcrControl;
   /**
    * Which DIFFERENT engine produced the agreement. Required for `agreed` and `disagreed`, refused
@@ -193,16 +199,23 @@ CREATE TABLE IF NOT EXISTS ocr_line (
   helper_digest TEXT    NOT NULL,
   text          TEXT    NOT NULL,
   confidence    REAL    NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
-  x             REAL    NOT NULL CHECK (x >= 0 AND x <= 1),
-  y             REAL    NOT NULL CHECK (y >= 0 AND y <= 1),
-  w             REAL    NOT NULL CHECK (w >= 0 AND w <= 1),
-  h             REAL    NOT NULL CHECK (h >= 0 AND h <= 1),
+  -- NULLABLE, all four together. A text-layer line has NO position: that page was never rendered.
+  -- Storing the unit square for it would not record "unknown", it would assert that every line
+  -- covers the whole page — a measurement that did not happen, and one that would later match the
+  -- wrong line to a second engine's output. Null says what is true.
+  x             REAL    CHECK (x IS NULL OR (x >= 0 AND x <= 1)),
+  y             REAL    CHECK (y IS NULL OR (y >= 0 AND y <= 1)),
+  w             REAL    CHECK (w IS NULL OR (w >= 0 AND w <= 1)),
+  h             REAL    CHECK (h IS NULL OR (h >= 0 AND h <= 1)),
   control       TEXT    NOT NULL CHECK (control IN ('unchecked','agreed','disagreed')),
   control_engine TEXT,
   -- A verdict must name the DIFFERENT engine that produced it. Agreement between one engine and
   -- itself is not agreement; it accepted three wrong readings in thirty-two when it was measured.
   CHECK ((control = 'unchecked' AND control_engine IS NULL)
       OR (control <> 'unchecked' AND control_engine IS NOT NULL)),
+  -- All four, or none. Half a box is not a position.
+  CHECK ((x IS NULL AND y IS NULL AND w IS NULL AND h IS NULL)
+      OR (x IS NOT NULL AND y IS NOT NULL AND w IS NOT NULL AND h IS NOT NULL)),
   PRIMARY KEY (matter_id, document_id, page, line_no, helper_digest)
 );
 CREATE INDEX IF NOT EXISTS ocr_line_by_page ON ocr_line (matter_id, document_id, page, line_no);
@@ -236,7 +249,8 @@ interface Row {
 }
 
 interface LineRow {
-  line_no: number; text: string; confidence: number; x: number; y: number; w: number; h: number;
+  line_no: number; text: string; confidence: number;
+  x: number | null; y: number | null; w: number | null; h: number | null;
   control: string; control_engine: string | null;
 }
 
@@ -375,9 +389,18 @@ export function openOcrStore(options: OcrStoreOptions): OcrStore {
         if (seen.has(l.lineNo)) throw new Error(`line ${l.lineNo} appears twice`);
         seen.add(l.lineNo);
         if (typeof l.text !== "string") throw new Error("a line must carry its text");
-        for (const [name, v] of [["confidence", l.confidence], ["x", l.x], ["y", l.y], ["w", l.w], ["h", l.h]] as const) {
-          if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
-            throw new Error(`${name} must be a number in 0..1, got ${JSON.stringify(v)}`);
+        if (typeof l.confidence !== "number" || !Number.isFinite(l.confidence) || l.confidence < 0 || l.confidence > 1) {
+          throw new Error(`confidence must be a number in 0..1, got ${JSON.stringify(l.confidence)}`);
+        }
+        // All four, or none. A half-known box is not a position.
+        const box = [l.x, l.y, l.w, l.h];
+        const nulls = box.filter((v) => v === null).length;
+        if (nulls !== 0 && nulls !== 4) throw new Error("a line's box must be complete or absent, never partial");
+        if (nulls === 0) {
+          for (const [name, v] of [["x", l.x], ["y", l.y], ["w", l.w], ["h", l.h]] as const) {
+            if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
+              throw new Error(`${name} must be a number in 0..1, got ${JSON.stringify(v)}`);
+            }
           }
         }
         if (!CONTROLS.has(l.control)) throw new Error(`unknown control ${JSON.stringify(l.control)}`);

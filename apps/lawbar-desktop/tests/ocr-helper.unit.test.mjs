@@ -474,3 +474,57 @@ test("a record naming ANOTHER build is still an identity mismatch, and a malform
   assert.equal((await extractPages(malformed.deps, extractOpts)).code, "helper_bad_output",
     "a shape problem is NOT an accusation about the binary; that code reaches the owner's screen");
 });
+
+test("a page whose joined text and whose LINES disagree is refused: two tables, one fact", async (t) => {
+  // The transaction around the write prevents a torn write, not a contradictory one. A helper that
+  // reported "甲\n乙" with a single line "甲" would persist a page whose text says one thing and
+  // whose lines say another — the screen drawing the lines, search reading the text. The helper
+  // builds vision_text BY joining the lines, so this holds by construction; verified on 8 real
+  // pages of the owner's corpus, up to 36 lines each.
+  const dir = scratch(t);
+  const mismatch = extractFake(dir, "mismatch", (d) => pageJson(d, {
+    vision_text: "甲\n乙",
+    vision_lines: [{ text: "甲", confidence: 1, x: 0, y: 0, w: 0.5, h: 0.1 }],
+  }));
+  assert.equal((await extractPages(mismatch.deps, extractOpts)).code, "helper_bad_output");
+
+  // And the other direction: text with no lines at all would make the panel call a page empty.
+  const noLines = extractFake(dir, "textnolines", (d) => pageJson(d, { vision_text: "甲", vision_lines: [] }));
+  assert.equal((await extractPages(noLines.deps, extractOpts)).code, "helper_bad_output");
+
+  // An empty page is consistent when BOTH are empty.
+  const empty = extractFake(dir, "bothempty", (d) => pageJson(d, { vision_text: "", vision_lines: [] }));
+  const r = await extractPages(empty.deps, extractOpts);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(r.pages[0].vision_lines, []);
+});
+
+test("a coordinate outside 0..1, or a box with no area, is the HELPER's error and is named as one", async (t) => {
+  // The store's CHECK constraints say each coordinate is in 0..1. A value the parser waved through
+  // and the store then refused reached the owner as `store_unavailable` — blaming the disk for a
+  // protocol error. The endpoint tolerance is for rounding on the SUM, never to widen one value.
+  const dir = scratch(t);
+  const cases = {
+    "x-over-one": { text: "x", confidence: 1, x: 1.00005, y: 0, w: 0, h: 0.1 },
+    "zero-width": { text: "x", confidence: 1, x: 0.1, y: 0.1, w: 0, h: 0.1 },
+    "zero-height": { text: "x", confidence: 1, x: 0.1, y: 0.1, w: 0.1, h: 0 },
+  };
+  for (const [name, line] of Object.entries(cases)) {
+    const { deps } = extractFake(dir, name, (d) => pageJson(d, { vision_text: "x", vision_lines: [line] }));
+    assert.equal((await extractPages(deps, extractOpts)).code, "helper_bad_output",
+      `${name}: a box the store would refuse must be refused HERE, or the owner is told the disk failed`);
+  }
+  // Rounding at the endpoint is still tolerated, because that is what the tolerance is for.
+  const ok = extractFake(dir, "endpoint", (d) => pageJson(d, {
+    vision_text: "x", vision_lines: [{ text: "x", confidence: 1, x: 0.5, y: 0.5, w: 0.50005, h: 0.4 }],
+  }));
+  assert.equal((await extractPages(ok.deps, extractOpts)).ok, true, "a rounding-width overshoot is not a protocol error");
+});
+
+test("a bare null on the wire is a CODE, not a thrown TypeError out of a function that returns results", async (t) => {
+  const dir = scratch(t);
+  const { deps } = extractFake(dir, "nullrec", () => "null");
+  const r = await extractPages(deps, extractOpts);
+  assert.equal(r.ok, false);
+  assert.equal(r.code, "helper_bad_output");
+});

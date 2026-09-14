@@ -1383,6 +1383,59 @@ lane **1567 tests, 0 failures** · packaged acceptance passes · no-real-data OK
 whose lines disagree with EACH OTHER, which is the entire point of line granularity and which
 nothing tested. That case now exists.
 
+**AUDITED 2026-09-14, at the owner's prompting, because I had NOT run the review station on the two
+previous pieces of work.** The panel rebuild (merged as part of #310) and the line-level store both
+went in on mutation testing alone. Mutation testing is not the review station, and saying so is the
+point: this is the third time the owner has had to ask. Two read-only Codex audits, one per change,
+both payloads gated through the eight no-real-data patterns — and the gate BLOCKED the first attempt,
+because `git show` carries commit metadata with email addresses in it. Regenerated as a bare diff.
+
+*On the shipped panel — five findings, all verified, all acted on or referred:*
+- **The page verdict was painted onto every line.** True at that commit, and already fixed by the
+  line-level store, where each line wears its own. Confirmed against the source rather than assumed.
+- **Two quadratic hot paths, measured rather than argued.** Span containment asked, for every match,
+  whether any other contained it: **51.5 ms on a 6,000-character line**. And `trimField`'s unanchored
+  suffix regex backtracked: **38.9 ms on 4,000 characters**. Both run per line, on the main thread,
+  every render, so a page of badly scanned lines could hold the window for seconds. Both are now
+  single passes: **3.0 ms and 0.1 ms**, and still 8.8 ms / 0.3 ms at 24,000 and 16,000 characters.
+  Behaviour identical, all tests unchanged.
+- **A recognised line could not wrap.** One unbroken run — a digit sequence, a hash, OCR garbage off
+  a bad scan — overflowed a container whose ancestor hides horizontal overflow, so the remainder was
+  not merely off-screen but unreachable. `overflow-wrap: anywhere`.
+- **Referred to the owner, not decided here:** the page header discloses the control state, so
+  「第二引擎读出相同结果（仅表示两者一致，不表示正确）」 and 「未经第二引擎比对」 read differently
+  even though the LINES look identical. The approved rule was about line marks; whether page-level
+  provenance should be disclosed at all is a design question, and it is unreachable today because
+  `KNOWN_CONTROL_ENGINES` is empty. It must be settled before the control ships.
+
+*On the line-level store — six answers, three defects, all fixed:*
+- **The two tables could hold contradictory facts.** The transaction prevents a torn write, not a
+  logically inconsistent one: a helper reporting `"甲\\n乙"` with the single line `"甲"` would have
+  persisted a page whose text says one thing and whose lines say another, the screen drawing the
+  lines and search reading the text. The parser now requires `join(lines) === vision_text`.
+  **Verified safe before enforcing:** 8 real pages of the owner's corpus, up to 36 lines each, all
+  equal — counts only, nothing from the documents.
+- **A coordinate the parser allowed and the store refused** reached the owner as
+  `store_unavailable`, blaming the disk for the helper's protocol error. Each coordinate is now
+  checked individually against the same 0..1 the schema states; the endpoint tolerance applies to
+  the SUM only. A zero-area box is refused too: it cannot locate a line, which is the only reason
+  the box is carried. Measured: 0 such boxes on those 8 real pages.
+- **I wrote that a fabricated position would be "a measurement that did not happen", and then
+  fabricated one.** Text-layer lines were stored with the unit square, which does not record
+  "unknown" — it asserts that every line covers the whole page, and would later match a second
+  engine's line to the wrong one. The geometry is now NULLABLE, all four together, and text-layer
+  lines carry none.
+- **A bare `null` on the wire** threw a TypeError out of a function whose contract is to return a
+  result. Now a code.
+- *No defect* on re-extraction (clear and reinsert is correctly scoped and transactional) or on the
+  page-level summary itself.
+
+**Verified after the audit:** full desktop lane **1571 tests, 0 failures** · packaged acceptance
+passes · timings above · no-real-data OK · doc-references 172/172.
+**The i18n guard caught me twice more, and was right both times:** a literal space used as a
+separator, and a Set of CJK punctuation characters. Both are layout or character classes rather than
+copy; the first is gone and the second is a regex literal.
+
 **Still not built:** the second engine itself. What remains is bundling PaddleOCR, comparing line to
 line, and filling `KNOWN_CONTROL_ENGINES` — which is still empty, so nothing can be marked agreed.
 

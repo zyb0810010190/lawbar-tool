@@ -228,3 +228,13 @@ test("a line must be a line: its number, its box and its verdict are all checked
   assert.throws(() => s.putPage({ ...RECORD, lines: [line({ x: -0.1 })] }), /x must be a number in 0\.\.1/);
   assert.throws(() => s.putPage({ ...RECORD, lines: [line({ text: 12 })] }), /a line must carry its text/);
 });
+
+test("a line's box is complete or absent, never partial, and null is a real answer", (t) => {
+  const { s } = store(t);
+  // A text-layer line has no position; the store must be able to say so.
+  s.putPage({ ...RECORD, lines: [line({ x: null, y: null, w: null, h: null })] });
+  assert.deepEqual(s.getPage("m-1", "doc-1", 1, DIGEST).lines[0].x, null);
+  // Half a box is not a position.
+  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ x: null })] }),
+    /complete or absent/, "three numbers and a null is not a location");
+});
