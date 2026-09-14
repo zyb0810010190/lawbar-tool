@@ -51,9 +51,12 @@ const RECORD = {
   matterId: "m-1", documentId: "doc-1", page: 1, pageCount: 1, helperDigest: DIGEST,
   outcome: "text_layer", text: "本院经审理查明", source: "pdf", failureCode: null,
   renderDigest: null, layerMs: 3, visionMs: null, renderMs: null,
-  control: "unchecked", controlEngine: null, extractedAt: "2026-09-12T00:00:00Z",
+  lines: [{ lineNo: 1, text: "本院经审理查明", confidence: 1, x: 0, y: 0, w: 1, h: 1, control: "unchecked", controlEngine: null }],
+  extractedAt: "2026-09-12T00:00:00Z",
 };
-const FAILED = { ...RECORD, outcome: "failed", text: "", failureCode: "helper_timeout", layerMs: null };
+/** A line, so a test can vary one field without restating the shape. */
+const line = (o = {}) => ({ lineNo: 1, text: "一行", confidence: 1, x: 0, y: 0, w: 1, h: 1, control: "unchecked", controlEngine: null, ...o });
+const FAILED = { ...RECORD, outcome: "failed", text: "", failureCode: "helper_timeout", layerMs: null, lines: [] };
 
 test("the derived store lives in its OWN directory, never beside the case box", (t) => {
   const { s, dir } = store(t);
@@ -70,15 +73,22 @@ test("the column set is pinned: nothing the owner authors can live in a store ex
   t.after(() => db.close());
   const cols = db.prepare("PRAGMA table_info(ocr_page)").all().map((c) => c.name).sort();
   assert.deepEqual(cols, [
-    "control", "control_engine", "document_id", "extracted_at", "failure_code", "helper_digest",
+    "document_id", "extracted_at", "failure_code", "helper_digest",
     "layer_ms", "matter_id", "outcome", "page", "page_count", "render_digest", "render_ms",
     "source", "text", "vision_ms",
   ], "a new column here would become data that no backup carries — change this test deliberately or not at all");
+  // `control` is NOT among them, deliberately. The verdict is line-level, because that is what the
+  // measurement validated; a page-level copy would be a second place for it to disagree.
+  const lineCols = db.prepare("PRAGMA table_info(ocr_line)").all().map((c) => c.name).sort();
+  assert.deepEqual(lineCols, [
+    "confidence", "control", "control_engine", "document_id", "h", "helper_digest",
+    "line_no", "matter_id", "page", "text", "w", "x", "y",
+  ]);
   assert.deepEqual(
     db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r) => r.name),
-    ["ocr_page", "schema_version"],
+    ["ocr_line", "ocr_page", "schema_version"],
   );
-  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 1);
+  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 2);
 });
 
 test("a document id alone reaches nothing: reads are scoped to the matter", (t) => {
@@ -111,7 +121,7 @@ test("every page has an outcome, and a run that stopped early is VISIBLE rather 
   const three = { ...RECORD, pageCount: 3 };
   s.putPage({ ...three, page: 1, outcome: "text_layer" });
   s.putPage({ ...three, page: 2, outcome: "ocr", text: "读出来的字", visionMs: 220, renderMs: 30, renderDigest: "0".repeat(64), layerMs: null });
-  s.putPage({ ...three, page: 3, outcome: "failed", text: "", failureCode: "helper_timeout", layerMs: null });
+  s.putPage({ ...three, page: 3, outcome: "failed", text: "", failureCode: "helper_timeout", layerMs: null, lines: [] });
   const pages = s.listPages("m-1", "doc-1", DIGEST);
   assert.deepEqual(pages.map((p) => p.page), [1, 2, 3], "pages come back in page order");
   assert.deepEqual(pages.map((p) => p.outcome), ["text_layer", "ocr", "failed"]);
@@ -154,18 +164,19 @@ test("the store refuses records that would make an outcome unreadable or a page 
   // from the counts and take a page's visibility with it.
   assert.throws(() => s.putPage({ ...RECORD, outcome: "unknown" }), /unknown outcome/);
   assert.throws(() => s.putPage({ ...RECORD, source: "tiff" }), /unknown source/);
-  assert.throws(() => s.putPage({ ...RECORD, control: "verified" }), /unknown control/);
+  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ control: "verified" })] }), /unknown control/);
 });
 
 test("nothing can be marked agreed in this build, because no control engine ships", (t) => {
   const { s } = store(t);
   s.putPage(RECORD);
-  assert.equal(s.getPage("m-1", "doc-1", 1, DIGEST).control, "unchecked");
-  assert.throws(() => s.putPage({ ...RECORD, control: "agreed", controlEngine: null }),
+  assert.deepEqual(s.getPage("m-1", "doc-1", 1, DIGEST).lines.map((l) => l.control), ["unchecked"],
+    "the verdict lives on the LINE, because line-level agreement is what was measured");
+  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ control: "agreed", controlEngine: null })] }),
     /must name the different engine/, "a bare agreement names nothing and is refused");
-  assert.throws(() => s.putPage({ ...RECORD, control: "agreed", controlEngine: "paddleocr-onnx" }),
+  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ control: "agreed", controlEngine: "paddleocr-onnx" })] }),
     /no control engine ships/, "and naming an engine this build does not carry is refused too");
-  assert.throws(() => s.putPage({ ...RECORD, control: "unchecked", controlEngine: "paddleocr-onnx" }),
+  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ control: "unchecked", controlEngine: "paddleocr-onnx" })] }),
     /may not name a control engine/);
 });
 
@@ -178,14 +189,14 @@ test("a store written under another schema version is discarded and rebuilt, not
   first.close();
   // Pretend a future build wrote this file.
   const raw = new Database(dbPath);
-  raw.prepare("UPDATE schema_version SET version = 2").run();
+  raw.prepare("UPDATE schema_version SET version = 99").run();
   raw.close();
   const second = openOcrStore({ userDataDir: dir, openDatabase });
   t.after(() => second.close());
   assert.equal(second.getPage("m-1", "doc-1", 1, DIGEST), null, "rows from a schema we do not understand must not be served");
   const db = new Database(second.dbPath, { readonly: true });
   t.after(() => db.close());
-  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 1, "and the store is rebuilt at the version we do understand");
+  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 2, "and the store is rebuilt at the version we do understand");
 });
 
 test("opening an existing store again is a no-op, and the data survives", (t) => {
@@ -197,4 +208,23 @@ test("opening an existing store again is a no-op, and the data survives", (t) =>
   const second = openOcrStore({ userDataDir: dir, openDatabase });
   t.after(() => second.close());
   assert.equal(second.getPage("m-1", "doc-1", 1, DIGEST).text, RECORD.text);
+});
+
+test("a FAILED page may carry no lines: text with no reading behind it is not storable", (t) => {
+  const { s } = store(t);
+  assert.throws(() => s.putPage({ ...FAILED, lines: [line({ text: "半截识别结果" })] }),
+    /a failed page must carry no lines/,
+    "a page that failed read nothing, so a line on it would be text nobody can account for");
+  // And the honest version stores clean.
+  s.putPage(FAILED);
+  assert.deepEqual(s.getPage("m-1", "doc-1", 1, DIGEST).lines, []);
+});
+
+test("a line must be a line: its number, its box and its verdict are all checked", (t) => {
+  const { s } = store(t);
+  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ lineNo: 0 })] }), /lineNo must be a positive integer/);
+  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ lineNo: 1 }), line({ lineNo: 1 })] }), /appears twice/);
+  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ confidence: 1.5 })] }), /confidence must be a number in 0\.\.1/);
+  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ x: -0.1 })] }), /x must be a number in 0\.\.1/);
+  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ text: 12 })] }), /a line must carry its text/);
 });

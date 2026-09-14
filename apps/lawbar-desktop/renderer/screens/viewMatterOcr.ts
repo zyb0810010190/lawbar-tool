@@ -27,13 +27,28 @@ import { t } from "../i18n/t.js";
 export type OcrOutcome = "text_layer" | "ocr" | "failed";
 export type OcrControl = "unchecked" | "agreed" | "disagreed";
 
+/** One line as main sends it: its text, and the verdict that belongs to that line. */
+export interface OcrLineView {
+  readonly text: string;
+  readonly control: OcrControl;
+}
+
 export interface OcrPageView {
   readonly page: number;
   readonly pageCount: number;
   readonly outcome: OcrOutcome;
+  /** The page's text joined, as the helper reported it. Not what this panel draws. */
   readonly text: string;
+  /**
+   * The lines the RECOGNISER found, each with its own verdict — not a split of `text`.
+   *
+   * The panel used to split the page text on newlines, which was the only option while the store
+   * held one blob. It now receives the helper's own line records, because the control is a
+   * line-level verdict: exact agreement between two engines was validated LINE BY LINE, and a mark
+   * that belongs to one line cannot be placed from a page-sized string.
+   */
+  readonly lines: readonly OcrLineView[];
   readonly failureCode: string | null;
-  readonly control: OcrControl;
 }
 
 export interface OcrExtractSummary {
@@ -229,17 +244,6 @@ export function lineNodes(doc: Document, line: string): readonly Node[] {
   return out;
 }
 
-/**
- * The lines of a stored page.
- *
- * The helper already found them — Vision returns per-line records and the desktop joins them with
- * a newline before storing. Splitting that back apart is not a guess about where lines are; it is
- * reading back what the recogniser reported. Blank lines are dropped: they carry no text to check
- * and would render as an empty row with a mark beside it.
- */
-export function pageLines(text: string): readonly string[] {
-  return text.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim().length > 0);
-}
 
 /**
  * One page: how it was read, then the text itself line by line.
@@ -253,6 +257,19 @@ export function pageLines(text: string): readonly string[] {
  * No control ships yet, so every line is `unchecked` today and the page reads as plain text with
  * its numbers underlined. That is the intended resting state, not a placeholder.
  */
+/**
+ * The page's own control state, SUMMARISED from its lines rather than stored.
+ *
+ * One disagreeing line makes the page worth opening, so disagreement wins. A page is only reported
+ * as compared when every line on it was, because "checked" said of a page where half the lines were
+ * never compared is the kind of half-true headline this repository exists to avoid.
+ */
+function pageControl(p: OcrPageView): OcrControl {
+  if (p.lines.length === 0) return "unchecked";
+  if (p.lines.some((l) => l.control === "disagreed")) return "disagreed";
+  return p.lines.every((l) => l.control === "agreed") ? "agreed" : "unchecked";
+}
+
 function renderPage(doc: Document, p: OcrPageView): HTMLElement {
   const parts: HTMLElement[] = [
     el("p", { class: "view-ocr-page-head", "data-test-id": "view-ocr-page-head" }, [
@@ -261,24 +278,24 @@ function renderPage(doc: Document, p: OcrPageView): HTMLElement {
       // literal " " would also be a user-facing string outside the catalogue, which the i18n drift
       // guard refuses — correctly, since a space between two labels is a layout decision.
       el("span", { class: "view-ocr-provenance", "data-test-id": "view-ocr-page-outcome" },
-        [t("document.ocr.outcomeLine", { outcome: t(OUTCOME_KEY[p.outcome]), control: t(CONTROL_KEY[p.control]) })], doc),
+        [t("document.ocr.outcomeLine", { outcome: t(OUTCOME_KEY[p.outcome]), control: t(CONTROL_KEY[pageControl(p)]) })], doc),
     ], doc),
   ];
   if (p.outcome === "failed") {
     parts.push(el("p", { role: "alert", class: "view-ocr-unreadable", "data-test-id": "view-ocr-page-failure" },
       [t("document.ocr.failureCode", { code: p.failureCode ?? "" })], doc));
-  } else if (pageLines(p.text).length === 0) {
+  } else if (p.lines.length === 0) {
     parts.push(el("p", { class: "view-ocr-empty", "data-test-id": "view-ocr-page-empty" }, [t("document.ocr.pageEmpty")], doc));
   } else {
     // `data-test-id` stays on the container that holds ALL the page's text, so a reader of these
     // tests — and the packaged acceptance, which matches a witness string against it — keeps
     // asking the same question it always asked: what does this page show?
     const lines = el("ol", { class: "view-ocr-lines", "data-test-id": "view-ocr-page-text" }, [], doc);
-    for (const line of pageLines(p.text)) {
+    for (const line of p.lines) {
       const li = el("li",
-        { class: `view-ocr-line view-ocr-line--${p.control}`, "data-test-id": "view-ocr-line" }, [], doc);
-      for (const node of lineNodes(doc, line)) li.appendChild(node);
-      if (p.control === "disagreed") {
+        { class: `view-ocr-line view-ocr-line--${line.control}`, "data-test-id": "view-ocr-line" }, [], doc);
+      for (const node of lineNodes(doc, line.text)) li.appendChild(node);
+      if (line.control === "disagreed") {
         li.appendChild(el("span", { class: "view-ocr-line-note", "data-test-id": "view-ocr-line-note" },
           [t("document.ocr.disagreedNote")], doc));
       }

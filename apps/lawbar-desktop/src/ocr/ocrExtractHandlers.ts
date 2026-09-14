@@ -26,7 +26,7 @@
 // raw thrown message.
 
 import { extractPages, type ExtractResult, type HelperDeps, type HelperPage } from "./helper.js";
-import type { OcrControl, OcrOutcome, OcrPageRecord, OcrStore } from "./ocrStore.js";
+import type { OcrControl, OcrLineRecord, OcrOutcome, OcrPageRecord, OcrStore } from "./ocrStore.js";
 import { getActiveTenantId } from "../security/activeTenant.js";
 
 export const OCR_EXTRACT_CHANNEL = {
@@ -42,13 +42,25 @@ export const OCR_EXTRACT_CHANNEL = {
 export const MIN_USABLE_LAYER_CHARS = 20;
 
 /** One page as the renderer may see it. No path, no digest, no timing it cannot interpret. */
+/** One line as the renderer sees it. The verdict belongs HERE, because that is what was measured. */
+export interface OcrLineView {
+  readonly text: string;
+  readonly control: OcrControl;
+}
+
 export interface OcrPageView {
   readonly page: number;
   readonly pageCount: number;
   readonly outcome: OcrOutcome;
+  /** The page's text as the helper reported it, joined. Kept for search and for copying out. */
   readonly text: string;
+  /**
+   * The same text as the recogniser found it, line by line, each with its own control verdict.
+   * Empty for a failed page. The renderer draws these, not `text`: a mark that belongs to one line
+   * cannot be placed from a page-sized blob.
+   */
+  readonly lines: readonly OcrLineView[];
   readonly failureCode: string | null;
-  readonly control: OcrControl;
 }
 
 export interface OcrExtractSummary {
@@ -179,6 +191,40 @@ const layerIsUsable = (p: HelperPage): boolean =>
   p.error === null && p.layer_chars >= MIN_USABLE_LAYER_CHARS
   && typeof p.layer_text === "string" && p.layer_text.trim().length > 0;
 
+/**
+ * The lines of a RECOGNISED page: the helper's own records, passed through unchanged.
+ *
+ * Not a split of the joined string. Vision reports lines, and reconstructing them by splitting the
+ * join would be a guess where the recogniser already has the answer — and the control depends on it
+ * being right, because what was validated is agreement line by line.
+ */
+function recognisedLines(p: HelperPage): readonly OcrLineRecord[] {
+  return (p.vision_lines ?? []).map((l, i) => ({
+    lineNo: i + 1, text: l.text, confidence: l.confidence,
+    x: l.x, y: l.y, w: l.w, h: l.h,
+    // Unchecked, always, in a build with no control engine. The store refuses anything else.
+    control: "unchecked" as const, controlEngine: null,
+  }));
+}
+
+/**
+ * The lines of a TEXT-LAYER page.
+ *
+ * A PDF's own text layer has no line records — it is a string, and its newlines are the only line
+ * information that exists. Splitting on them is therefore not a guess here, it is the whole of what
+ * the file says. The box is recorded as the unit square rather than a fabricated rectangle: this
+ * page was never rendered, so no line has a position, and a made-up one would be a measurement that
+ * did not happen. Confidence is 1 because the characters were read, not recognised.
+ */
+export function layerLines(text: string): readonly OcrLineRecord[] {
+  return text.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim().length > 0)
+    .map((line, i) => ({
+      lineNo: i + 1, text: line, confidence: 1,
+      x: 0, y: 0, w: 1, h: 1,
+      control: "unchecked" as const, controlEngine: null,
+    }));
+}
+
 function record(
   base: { matterId: string; documentId: string; helperDigest: string; pageCount: number; at: string },
   page: number,
@@ -188,8 +234,7 @@ function record(
     matterId: base.matterId, documentId: base.documentId, page, pageCount: base.pageCount,
     helperDigest: base.helperDigest, failureCode: null, renderDigest: null,
     layerMs: null, visionMs: null, renderMs: null,
-    // Unchecked, always, in a build with no control engine. The store refuses anything else.
-    control: "unchecked", controlEngine: null, extractedAt: base.at,
+    lines: [], extractedAt: base.at,
     ...fields,
   };
 }
@@ -250,6 +295,7 @@ export async function ocrExtractHandler(payload: unknown, deps: OcrExtractDeps):
     if (layerIsUsable(p)) {
       store.putPage(record(withCount, p.page, {
         outcome: "text_layer", text: p.layer_text as string, source: p.source, layerMs: p.layer_ms,
+        lines: layerLines(p.layer_text as string),
       }));
     } else {
       needOcr.push(p);
@@ -271,7 +317,7 @@ export async function ocrExtractHandler(payload: unknown, deps: OcrExtractDeps):
       continue;
     }
     store.putPage(record(withCount, p.page, {
-      outcome: "ocr", text: got.vision_text, source: got.source,
+      outcome: "ocr", text: got.vision_text, source: got.source, lines: recognisedLines(got),
       layerMs: got.layer_ms, visionMs: got.vision_ms, renderMs: got.render_ms, renderDigest: got.render_digest,
     }));
   }
@@ -325,7 +371,8 @@ export async function ocrPagesHandler(payload: unknown, deps: OcrExtractDeps): P
     value: {
       pages: rows.map((r) => ({
         page: r.page, pageCount: r.pageCount, outcome: r.outcome, text: r.text,
-        failureCode: r.failureCode, control: r.control,
+        lines: r.lines.map((l) => ({ text: l.text, control: l.control })),
+        failureCode: r.failureCode,
       })),
       // Nothing stored at all means nothing is known about how many pages there are.
       missing: rows.length === 0 ? null : done.missing,

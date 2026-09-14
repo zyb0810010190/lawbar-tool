@@ -17,7 +17,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { CATALOG } from "../dist/renderer/i18n/catalog.js";
-import { renderOcrDisclosure, numericFields, ocrFailureKey, pageLines } from "../dist/renderer/screens/viewMatterOcr.js";
+import { renderOcrDisclosure, numericFields, ocrFailureKey } from "../dist/renderer/screens/viewMatterOcr.js";
 import { MockDoc, MockEl, MockText, findByTestId, findAllByTestId, findAll, collectText, flush } from "./_view-matter-dom.mjs";
 
 /**
@@ -59,16 +59,27 @@ function allText(node) {
 const MATTER = "01jzabcdef0123456789ghjkmn";
 const DOCUMENT = "01jzwxyzpq0123456789rstvwx";
 
+/**
+ * A stored page as main now sends it: lines, each carrying its own verdict.
+ *
+ * `control` here is a convenience for the tests — it sets the verdict on EVERY line of the page,
+ * which is what a page-shaped fixture used to mean. A test that needs lines to differ passes
+ * `lines` directly.
+ */
 function page(overrides = {}) {
-  return {
+  const { control = "unchecked", ...rest } = {
     page: 1,
     pageCount: 1,
     outcome: "text_layer",
     text: "被告应于本判决生效之日起十日内支付",
     failureCode: null,
-    control: "unchecked",
     ...overrides,
   };
+  if (rest.lines !== undefined) return rest;
+  const texts = rest.outcome === "failed"
+    ? []
+    : String(rest.text).split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim().length > 0);
+  return { ...rest, lines: texts.map((text) => ({ text, control })) };
 }
 
 /** A bridge that records what it was asked, so laziness and re-entrancy are observable. */
@@ -612,12 +623,47 @@ test("a page is rendered LINE BY LINE, in order, with blank lines dropped", asyn
   assert.deepEqual(within(lines[0], "view-ocr-num"), []);
 });
 
-test("pageLines reads back what the recogniser reported, and nothing else", () => {
-  assert.deepEqual(pageLines("a\nb\nc"), ["a", "b", "c"]);
-  assert.deepEqual(pageLines("a\r\nb"), ["a", "b"], "a carriage return is not a line of text");
-  assert.deepEqual(pageLines("a\n\n\nb"), ["a", "b"], "blank lines are not rows");
-  assert.deepEqual(pageLines("   \n\t\n"), [], "whitespace-only input has no lines");
-  assert.deepEqual(pageLines("only one"), ["only one"]);
-  assert.deepEqual(pageLines("keep  inner   spaces"), ["keep  inner   spaces"],
-    "only the ENDS are trimmed; a document's own spacing is its own");
+
+test("ONE disagreeing line in a page of agreeing ones marks THAT line, and marks the page", async () => {
+  // The whole reason the verdict is line-level. A page-level control would have to call this page
+  // either wholly agreed or wholly disputed, and both are false. Nothing before this test had a
+  // page whose lines differ from each other, so a renderer that painted every line with the PAGE's
+  // verdict — or a summary that needed EVERY line to disagree — passed.
+  const mixed = page({
+    outcome: "ocr",
+    lines: [
+      { text: "本院经审理查明，双方均已履行。", control: "agreed" },
+      { text: "被告应支付违约金 12,345.67元。", control: "disagreed" },
+      { text: "如不服本判决，可提起上诉。", control: "agreed" },
+    ],
+  });
+  const bridge = stubBridge({ pages: { ok: true, value: { missing: 0, pages: [mixed] } } });
+  const node = renderOcrDisclosure(new StrictDoc(), MATTER, DOCUMENT, bridge);
+  await open(node);
+
+  const lines = findAllByTestId(node, "view-ocr-line");
+  assert.deepEqual(lines.map((l) => l.getAttribute("class")), [
+    "view-ocr-line view-ocr-line--agreed",
+    "view-ocr-line view-ocr-line--disagreed",
+    "view-ocr-line view-ocr-line--agreed",
+  ], "each line wears its OWN verdict, not the page's");
+  assert.equal(findAllByTestId(node, "view-ocr-line-note").length, 1, "only the disagreeing line explains itself");
+
+  // And the page's summary: one bad line is enough to make the page worth opening.
+  assert.ok(collectText(findByTestId(node, "view-ocr-page-outcome")).includes(CATALOG["document.ocr.control.disagreed"]),
+    "a page with any disagreeing line must not be summarised as agreed or unchecked");
+});
+
+test("a page is summarised as AGREED only when every line on it was compared", async () => {
+  const partly = page({ outcome: "ocr", lines: [
+    { text: "已比对的一行。", control: "agreed" },
+    { text: "没有比对过的一行。", control: "unchecked" },
+  ] });
+  const bridge = stubBridge({ pages: { ok: true, value: { missing: 0, pages: [partly] } } });
+  const node = renderOcrDisclosure(new StrictDoc(), MATTER, DOCUMENT, bridge);
+  await open(node);
+  const summary = collectText(findByTestId(node, "view-ocr-page-outcome"));
+  assert.ok(summary.includes(CATALOG["document.ocr.control.unchecked"]),
+    `half a page compared is not a compared page; got ${JSON.stringify(summary)}`);
+  assert.equal(summary.includes(CATALOG["document.ocr.control.agreed"]), false);
 });

@@ -215,6 +215,30 @@ function isProbeRecord(v: unknown): v is HelperProbe & { kind: string } {
 // Extraction — the tier ladder's two calls, under the same identity rules as the probe
 // ---------------------------------------------------------------------------
 
+/**
+ * One line as Vision recognised it, with where it sits on the rendered page.
+ *
+ * WHY THE DESKTOP KEEPS THESE AT ALL. Until now this boundary parsed only `vision_text` — the lines
+ * joined with newlines — and threw the per-line records away. That was fine while the store held
+ * one blob per page, and it stops being fine the moment a control ships: what the measurement
+ * validated is EXACT AGREEMENT LINE BY LINE (15 of 15 blind, on lines of 3 to 44 characters), and a
+ * page-level verdict would flag essentially every page. Real pages carry 19 to 37 lines; at the
+ * recorded agreement rate the chance that a whole page agrees is about 7e-09.
+ *
+ * The box is normalised to the rendered page, origin bottom-left, which is Vision's own convention.
+ * It is carried because a reader who is told "check this line" will eventually want to be shown
+ * WHERE, and because a second engine's output has to be matched to this one's by position, not by
+ * hoping two engines emit lines in the same order.
+ */
+export interface HelperLine {
+  readonly text: string;
+  readonly confidence: number;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
 /** One page as the helper reports it. Absent fields stay absent: nothing unmeasured becomes a zero. */
 export interface HelperPage {
   readonly page: number;
@@ -225,6 +249,8 @@ export interface HelperPage {
   readonly layer_chars: number;
   readonly layer_ms: number | null;
   readonly vision_text: string | null;
+  /** The same text, unjoined. Null whenever `vision_text` is null; never an empty array then. */
+  readonly vision_lines: readonly HelperLine[] | null;
   readonly vision_ms: number | null;
   readonly render_ms: number | null;
   readonly render_digest: string | null;
@@ -259,6 +285,36 @@ export const HELPER_PAGE_ERRORS: ReadonlySet<string> = new Set(["render_failed",
  * the fields required are the ones the requested MODE actually measures, so a full extraction
  * missing its recognition is a refusal rather than a success carrying nulls.
  */
+/**
+ * The per-line records, or null when the shape is not exactly what the helper documents.
+ *
+ * REFUSES rather than repairs. A line whose box is outside 0..1, whose confidence is not a number,
+ * or whose text is missing means the helper and this build disagree about the protocol, and a
+ * silently dropped line is a line of a client's document that vanished. The caller treats null as
+ * "this page did not parse", which is already how every other malformed field is handled here.
+ */
+function asLines(v: unknown): readonly HelperLine[] | null {
+  if (!Array.isArray(v)) return null;
+  const out: HelperLine[] = [];
+  for (const item of v) {
+    if (typeof item !== "object" || item === null) return null;
+    const l = item as Record<string, unknown>;
+    if (typeof l.text !== "string") return null;
+    const nums = [l.confidence, l.x, l.y, l.w, l.h];
+    if (!nums.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+    // Normalised coordinates. A box that runs off the page is a protocol disagreement, not a line.
+    if ((l.x as number) < 0 || (l.y as number) < 0 || (l.w as number) < 0 || (l.h as number) < 0) return null;
+    if ((l.x as number) + (l.w as number) > 1.0001 || (l.y as number) + (l.h as number) > 1.0001) return null;
+    if ((l.confidence as number) < 0 || (l.confidence as number) > 1) return null;
+    out.push({
+      text: l.text,
+      confidence: l.confidence as number,
+      x: l.x as number, y: l.y as number, w: l.w as number, h: l.h as number,
+    });
+  }
+  return out;
+}
+
 function asPage(v: unknown, mode: "full" | "layer_only", digest: string): HelperPage | null {
   if (typeof v !== "object" || v === null) return null;
   const r = v as Record<string, unknown>;
@@ -275,12 +331,13 @@ function asPage(v: unknown, mode: "full" | "layer_only", digest: string): Helper
     // Nothing was rendered or recognised, so those fields must be ABSENT. A zero here would be a
     // measurement that never happened.
     if (!absent(r.vision_text) || !absent(r.vision_ms) || !absent(r.render_ms) || !absent(r.render_digest)) return null;
+    if (!absent(r.vision_lines)) return null;
     if (r.source === "pdf" && !isMs(r.layer_ms)) return null;
     return {
       page: r.page, page_count: r.page_count, source: r.source, mode,
       layer_text: strOrNull(r.layer_text), layer_chars: r.layer_chars,
       layer_ms: isMs(r.layer_ms) ? Math.round(r.layer_ms) : null,
-      vision_text: null, vision_ms: null, render_ms: null, render_digest: null, error: pageError,
+      vision_text: null, vision_lines: null, vision_ms: null, render_ms: null, render_digest: null, error: pageError,
     };
   }
   // Full mode. A page the helper could not process reports its error and measures nothing further;
@@ -290,16 +347,21 @@ function asPage(v: unknown, mode: "full" | "layer_only", digest: string): Helper
       page: r.page, page_count: r.page_count, source: r.source, mode,
       layer_text: strOrNull(r.layer_text), layer_chars: r.layer_chars,
       layer_ms: isMs(r.layer_ms) ? Math.round(r.layer_ms) : null,
-      vision_text: null, vision_ms: null, render_ms: null, render_digest: null, error: pageError,
+      vision_text: null, vision_lines: null, vision_ms: null, render_ms: null, render_digest: null, error: pageError,
     };
   }
   if (typeof r.vision_text !== "string" || !isMs(r.vision_ms) || !isMs(r.render_ms)) return null;
   if (typeof r.render_digest !== "string" || !/^[0-9a-f]{64}$/.test(r.render_digest)) return null;
+  // A page that recognised text MUST report the lines it recognised. The joined string alone is no
+  // longer enough: a control compares line by line, and reconstructing lines by splitting the join
+  // would be a guess where the helper already has the answer.
+  const lines = asLines(r.vision_lines);
+  if (lines === null) return null;
   return {
     page: r.page, page_count: r.page_count, source: r.source, mode,
     layer_text: strOrNull(r.layer_text), layer_chars: r.layer_chars,
     layer_ms: isMs(r.layer_ms) ? Math.round(r.layer_ms) : null,
-    vision_text: r.vision_text, vision_ms: Math.round(r.vision_ms), render_ms: Math.round(r.render_ms),
+    vision_text: r.vision_text, vision_lines: lines, vision_ms: Math.round(r.vision_ms), render_ms: Math.round(r.render_ms),
     render_digest: r.render_digest, error: null,
   };
 }
@@ -354,10 +416,17 @@ export async function extractPages(deps: HelperDeps, options: ExtractOptions): P
 
   const pages: HelperPage[] = [];
   for (const p of parsed) {
+    // IDENTITY FIRST, AND ONLY IDENTITY. "This record was produced by a different binary" and "this
+    // record's shape is wrong" are two different facts, and they used to share one code. That code
+    // reaches the owner's screen as the page's failure reason, so a malformed field was reported to
+    // a litigator as evidence that the program is not what it claims to be — an accusation the
+    // facts did not support. A record that names another build still taints the whole run: half a
+    // document read by something unidentified is worse than no document read.
+    const claimed = (p as Record<string, unknown>).helper_build_digest;
+    if (claimed !== executableDigest) return { ok: false, code: "helper_identity_mismatch", elapsed_ms: elapsed };
     const page = asPage(p, mode, executableDigest);
-    // A record that is not this helper's page record in the mode asked for taints the whole run:
-    // half a document read by something unidentified is worse than no document read.
-    if (page === null) return { ok: false, code: "helper_identity_mismatch", elapsed_ms: elapsed };
+    // Identity is established; anything still wrong is the protocol, not the binary.
+    if (page === null) return { ok: false, code: "helper_bad_output", elapsed_ms: elapsed };
     pages.push(page);
   }
   // TOPOLOGY. Everything above checks records one at a time; this checks that together they are the

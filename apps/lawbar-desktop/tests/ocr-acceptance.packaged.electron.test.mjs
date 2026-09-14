@@ -274,10 +274,19 @@ test("a reading survives quitting and relaunching, in the packaged app, and neve
   };
   assert.equal(sqlite("SELECT count(*) FROM ocr_page;"), "1",
     "exactly one page should be stored on disk after reading a one-page document");
+  // The witness goes in ocr_line, because that is the table the SCREEN is fed from. It used to go
+  // in ocr_page.text, and when the verdict became line-level this assertion caught that the page
+  // row no longer drives the display — which is exactly what a witness is for.
+  assert.equal(sqlite("SELECT count(*) FROM ocr_line;"), "1",
+    "a one-line page should store one line; the panel draws lines, not the joined page text");
+  assert.ok(sqlite("SELECT text FROM ocr_line;").includes(SEEDED_TEXT),
+    "the line on disk does not hold what the screen showed, so the screen was not fed by this database");
+  sqlite(`UPDATE ocr_line SET text = '${NONCE}';`);
+  assert.equal(sqlite("SELECT text FROM ocr_line;"), NONCE, "the witness was not written");
+  // The page's joined text is deliberately left alone. If session 2 showed THAT, the panel would be
+  // rendering the blob again rather than the lines, and this test would say so.
   assert.ok(sqlite("SELECT text FROM ocr_page;").includes(SEEDED_TEXT),
-    "the row on disk does not hold what the screen showed, so the screen was not fed by this database");
-  sqlite(`UPDATE ocr_page SET text = '${NONCE}';`);
-  assert.equal(sqlite("SELECT text FROM ocr_page;"), NONCE, "the witness was not written");
+    "the page row should still hold the helper's own joined text, untouched");
 
   // ---------- Session 2: a cold start, no seed hook, no button ----------
   const second = await launch(profile, "ocr-acceptance-session2");

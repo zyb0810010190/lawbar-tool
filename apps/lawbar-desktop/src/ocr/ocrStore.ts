@@ -37,6 +37,25 @@ export type OcrOutcome = "text_layer" | "ocr" | "failed";
  */
 export type OcrControl = "unchecked" | "agreed" | "disagreed";
 
+/** One line of a page, with the verdict that belongs to it and where it sits on the render. */
+export interface OcrLineRecord {
+  readonly lineNo: number;
+  readonly text: string;
+  readonly confidence: number;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  readonly control: OcrControl;
+  /**
+   * Which DIFFERENT engine produced the agreement. Required for `agreed` and `disagreed`, refused
+   * for `unchecked`. Measurement is the reason this is not optional: agreement between two
+   * different engines was the only signal that accepted nothing wrong, and the same engine twice
+   * was not. A verdict that cannot name its second engine is not a verdict.
+   */
+  readonly controlEngine: string | null;
+}
+
 export interface OcrPageRecord {
   /**
    * The matter the document belongs to. A document id alone is a bearer token for any document in
@@ -64,14 +83,17 @@ export interface OcrPageRecord {
   readonly layerMs: number | null;
   readonly visionMs: number | null;
   readonly renderMs: number | null;
-  readonly control: OcrControl;
+
   /**
-   * Which DIFFERENT engine produced the agreement. Required for `agreed` and `disagreed`, refused
-   * for `unchecked`. Measurement is the reason this is not optional: agreement between two
-   * different engines was the only signal that accepted nothing wrong, and the same engine twice
-   * was not. A control verdict that cannot name its second engine is not a verdict.
+   * The lines this page was read as, in the recogniser's own order. Empty for a failed page and for
+   * a page with nothing on it.
+   *
+   * These are the helper's own line records, not a split of `text`: Vision reports lines and the
+   * helper passes them through. Splitting the joined string would be a guess where the recogniser
+   * already has the answer, and the CONTROL depends on getting it right — what was validated is
+   * exact agreement line by line, not page by page.
    */
-  readonly controlEngine: string | null;
+  readonly lines: readonly OcrLineRecord[];
   readonly extractedAt: string;
 }
 
@@ -84,6 +106,12 @@ export interface OcrDatabase {
     get(...params: unknown[]): unknown;
     all(...params: unknown[]): unknown[];
   };
+  /**
+   * Wrap a write so a page and its lines land together or not at all. Part of the injected surface
+   * because the in-memory double the tests use must honour it too: a fake that quietly ran the body
+   * without a transaction would let a test pass against a store that can tear.
+   */
+  transaction<A extends unknown[]>(fn: (...args: A) => void): (...args: A) => void;
   close(): unknown;
 }
 
@@ -103,7 +131,10 @@ export interface OcrStoreOptions {
 
 export const OCR_DERIVED_DIRNAME = "ocr-derived";
 export const OCR_DB_FILENAME = "ocr.sqlite";
-const SCHEMA_VERSION = 1;
+// 2: the control became a LINE-level verdict, so `ocr_line` arrived and `control` left `ocr_page`.
+// Bumping this is cheap ON PURPOSE — a foreign version makes the store delete itself and rebuild,
+// which is the whole benefit of it being derived. No migration is written, and none should be.
+const SCHEMA_VERSION = 2;
 
 /** Where the derived store lives for a given profile. Exported so tests and guards can name it. */
 export function ocrDbPath(userDataDir: string): string {
@@ -128,21 +159,53 @@ CREATE TABLE IF NOT EXISTS ocr_page (
   layer_ms      INTEGER,
   vision_ms     INTEGER,
   render_ms     INTEGER,
-  control       TEXT    NOT NULL CHECK (control IN ('unchecked','agreed','disagreed')),
-  control_engine TEXT,
   extracted_at  TEXT    NOT NULL,
   -- A failed page carries its reason and no text; a read page carries neither a reason nor a lie.
   CHECK ((outcome = 'failed' AND failure_code IS NOT NULL AND text = '')
       OR (outcome <> 'failed' AND failure_code IS NULL)),
-  -- A control verdict must name the different engine that produced it.
-  CHECK ((control = 'unchecked' AND control_engine IS NULL)
-      OR (control <> 'unchecked' AND control_engine IS NOT NULL)),
   -- A failed page measured nothing, so it reports nothing: no timing may be invented for it.
   CHECK (outcome <> 'failed'
       OR (layer_ms IS NULL AND vision_ms IS NULL AND render_ms IS NULL AND render_digest IS NULL)),
   PRIMARY KEY (matter_id, document_id, page, helper_digest)
 );
 CREATE INDEX IF NOT EXISTS ocr_page_by_document ON ocr_page (matter_id, document_id, page);
+-- Lines, because the control is a LINE-level verdict and nothing else would be honest.
+--
+-- What the measurement validated is exact agreement between two engines LINE BY LINE: 15 of 15
+-- blind, on lines of 3 to 44 characters. A page-level verdict cannot carry that finding. Real pages
+-- run 19 to 37 lines, so at the recorded agreement rate the chance that every line of a page agrees
+-- is about 7e-09 — a page-level control would mark essentially every page as disputed, which is
+-- precisely the failure that disqualified Tesseract as a control: it would flag everything and tell
+-- the owner nothing.
+--
+-- So control lives HERE and nowhere else. A page reports a summary computed from its lines at read
+-- time rather than storing one, because two places to record the same verdict is two places for it
+-- to disagree.
+--
+-- The box is Vision's own: normalised to the rendered page, origin bottom-left. It is stored so a
+-- second engine's lines can be matched to these by POSITION rather than by hoping two engines emit
+-- their lines in the same order, and so a reader told to check a line can eventually be shown where.
+CREATE TABLE IF NOT EXISTS ocr_line (
+  matter_id     TEXT    NOT NULL,
+  document_id   TEXT    NOT NULL,
+  page          INTEGER NOT NULL,
+  line_no       INTEGER NOT NULL CHECK (line_no >= 1),
+  helper_digest TEXT    NOT NULL,
+  text          TEXT    NOT NULL,
+  confidence    REAL    NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+  x             REAL    NOT NULL CHECK (x >= 0 AND x <= 1),
+  y             REAL    NOT NULL CHECK (y >= 0 AND y <= 1),
+  w             REAL    NOT NULL CHECK (w >= 0 AND w <= 1),
+  h             REAL    NOT NULL CHECK (h >= 0 AND h <= 1),
+  control       TEXT    NOT NULL CHECK (control IN ('unchecked','agreed','disagreed')),
+  control_engine TEXT,
+  -- A verdict must name the DIFFERENT engine that produced it. Agreement between one engine and
+  -- itself is not agreement; it accepted three wrong readings in thirty-two when it was measured.
+  CHECK ((control = 'unchecked' AND control_engine IS NULL)
+      OR (control <> 'unchecked' AND control_engine IS NOT NULL)),
+  PRIMARY KEY (matter_id, document_id, page, line_no, helper_digest)
+);
+CREATE INDEX IF NOT EXISTS ocr_line_by_page ON ocr_line (matter_id, document_id, page, line_no);
 `;
 
 export interface OcrStore {
@@ -169,15 +232,26 @@ interface Row {
   matter_id: string; document_id: string; page: number; page_count: number; helper_digest: string; outcome: string;
   text: string; source: string; failure_code: string | null; render_digest: string | null;
   layer_ms: number | null; vision_ms: number | null; render_ms: number | null;
-  control: string; control_engine: string | null; extracted_at: string;
+  extracted_at: string;
 }
 
-const toRecord = (r: Row): OcrPageRecord => ({
+interface LineRow {
+  line_no: number; text: string; confidence: number; x: number; y: number; w: number; h: number;
+  control: string; control_engine: string | null;
+}
+
+const toLine = (r: LineRow): OcrLineRecord => ({
+  lineNo: r.line_no, text: r.text, confidence: r.confidence,
+  x: r.x, y: r.y, w: r.w, h: r.h,
+  control: r.control as OcrControl, controlEngine: r.control_engine,
+});
+
+const toRecord = (r: Row, lines: readonly OcrLineRecord[]): OcrPageRecord => ({
   matterId: r.matter_id, documentId: r.document_id, page: r.page, pageCount: r.page_count, helperDigest: r.helper_digest,
   outcome: r.outcome as OcrOutcome, text: r.text, source: r.source as "pdf" | "image",
   failureCode: r.failure_code, renderDigest: r.render_digest,
   layerMs: r.layer_ms, visionMs: r.vision_ms, renderMs: r.render_ms,
-  control: r.control as OcrControl, controlEngine: r.control_engine, extractedAt: r.extracted_at,
+  lines, extractedAt: r.extracted_at,
 });
 
 const OUTCOMES: ReadonlySet<string> = new Set(["text_layer", "ocr", "failed"]);
@@ -231,17 +305,43 @@ export function openOcrStore(options: OcrStoreOptions): OcrStore {
   const put = db.prepare(`
     INSERT INTO ocr_page (matter_id, document_id, page, page_count, helper_digest, outcome, text,
                           source, failure_code, render_digest, layer_ms, vision_ms, render_ms,
-                          control, control_engine, extracted_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          extracted_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (matter_id, document_id, page, helper_digest) DO UPDATE SET
       page_count = excluded.page_count, outcome = excluded.outcome, text = excluded.text, source = excluded.source,
       failure_code = excluded.failure_code, render_digest = excluded.render_digest,
       layer_ms = excluded.layer_ms, vision_ms = excluded.vision_ms, render_ms = excluded.render_ms,
-      control = excluded.control, control_engine = excluded.control_engine,
       extracted_at = excluded.extracted_at
   `);
+  const putLine = db.prepare(`
+    INSERT INTO ocr_line (matter_id, document_id, page, line_no, helper_digest,
+                          text, confidence, x, y, w, h, control, control_engine)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (matter_id, document_id, page, line_no, helper_digest) DO UPDATE SET
+      text = excluded.text, confidence = excluded.confidence,
+      x = excluded.x, y = excluded.y, w = excluded.w, h = excluded.h,
+      control = excluded.control, control_engine = excluded.control_engine
+  `);
+  // Re-extracting a page REPLACES its lines rather than merging them: a page that came back with
+  // fewer lines the second time must not keep the surplus from the first, or the store would show
+  // text the helper no longer reports.
+  const clearLines = db.prepare("DELETE FROM ocr_line WHERE matter_id = ? AND document_id = ? AND page = ? AND helper_digest = ?");
+  const linesOfPage = db.prepare(
+    "SELECT line_no, text, confidence, x, y, w, h, control, control_engine FROM ocr_line " +
+    "WHERE matter_id = ? AND document_id = ? AND page = ? AND helper_digest = ? ORDER BY line_no ASC");
   const one = db.prepare("SELECT * FROM ocr_page WHERE matter_id = ? AND document_id = ? AND page = ? AND helper_digest = ?");
   const many = db.prepare("SELECT * FROM ocr_page WHERE matter_id = ? AND document_id = ? AND helper_digest = ? ORDER BY page ASC");
+
+  const writePage = db.transaction((record: OcrPageRecord) => {
+    put.run(record.matterId, record.documentId, record.page, record.pageCount, record.helperDigest, record.outcome,
+      record.text, record.source, record.failureCode, record.renderDigest, record.layerMs,
+      record.visionMs, record.renderMs, record.extractedAt);
+    clearLines.run(record.matterId, record.documentId, record.page, record.helperDigest);
+    for (const l of record.lines) {
+      putLine.run(record.matterId, record.documentId, record.page, l.lineNo, record.helperDigest,
+        l.text, l.confidence, l.x, l.y, l.w, l.h, l.control, l.controlEngine);
+    }
+  });
 
   return {
     dbPath,
@@ -255,7 +355,6 @@ export function openOcrStore(options: OcrStoreOptions): OcrStore {
       if (record.page > record.pageCount) throw new Error("page must not exceed pageCount");
       if (!OUTCOMES.has(record.outcome)) throw new Error(`unknown outcome ${JSON.stringify(record.outcome)}`);
       if (!SOURCES.has(record.source)) throw new Error(`unknown source ${JSON.stringify(record.source)}`);
-      if (!CONTROLS.has(record.control)) throw new Error(`unknown control ${JSON.stringify(record.control)}`);
       if (record.outcome === "failed") {
         if (record.failureCode === null) throw new Error("a failed page must carry its failure code");
         // A failed page with text would be text nobody can account for.
@@ -267,23 +366,41 @@ export function openOcrStore(options: OcrStoreOptions): OcrStore {
       } else if (record.failureCode !== null) {
         throw new Error("only a failed page may carry a failure code");
       }
-      if (record.control === "unchecked") {
-        if (record.controlEngine !== null) throw new Error("an unchecked page may not name a control engine");
-      } else if (record.controlEngine === null || record.controlEngine.length === 0) {
-        throw new Error("a control verdict must name the different engine that produced it");
-      } else if (!KNOWN_CONTROL_ENGINES.has(record.controlEngine)) {
-        throw new Error(`no control engine ships in this build, so nothing may be marked ${record.control}`);
+      if (!Array.isArray(record.lines)) throw new Error("lines are required; use [] for a page with none");
+      // A failed page read nothing, so lines on it would be text with no reading behind them.
+      if (record.outcome === "failed" && record.lines.length > 0) throw new Error("a failed page must carry no lines");
+      const seen = new Set<number>();
+      for (const l of record.lines) {
+        if (!Number.isSafeInteger(l.lineNo) || l.lineNo < 1) throw new Error("lineNo must be a positive integer");
+        if (seen.has(l.lineNo)) throw new Error(`line ${l.lineNo} appears twice`);
+        seen.add(l.lineNo);
+        if (typeof l.text !== "string") throw new Error("a line must carry its text");
+        for (const [name, v] of [["confidence", l.confidence], ["x", l.x], ["y", l.y], ["w", l.w], ["h", l.h]] as const) {
+          if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
+            throw new Error(`${name} must be a number in 0..1, got ${JSON.stringify(v)}`);
+          }
+        }
+        if (!CONTROLS.has(l.control)) throw new Error(`unknown control ${JSON.stringify(l.control)}`);
+        if (l.control === "unchecked") {
+          if (l.controlEngine !== null) throw new Error("an unchecked line may not name a control engine");
+        } else if (l.controlEngine === null || l.controlEngine.length === 0) {
+          throw new Error("a control verdict must name the different engine that produced it");
+        } else if (!KNOWN_CONTROL_ENGINES.has(l.controlEngine)) {
+          throw new Error(`no control engine ships in this build, so nothing may be marked ${l.control}`);
+        }
       }
-      put.run(record.matterId, record.documentId, record.page, record.pageCount, record.helperDigest, record.outcome,
-        record.text, record.source, record.failureCode, record.renderDigest, record.layerMs,
-        record.visionMs, record.renderMs, record.control, record.controlEngine, record.extractedAt);
+      // ONE transaction: a page and its lines are one fact. Half of it on disk would be a page whose
+      // text and whose lines disagree, which is the divergence this table layout exists to avoid.
+      writePage(record);
     },
     getPage(matterId, documentId, page, helperDigest) {
       const row = one.get(matterId, documentId, page, helperDigest) as Row | undefined;
-      return row === undefined ? null : toRecord(row);
+      if (row === undefined) return null;
+      return toRecord(row, (linesOfPage.all(matterId, documentId, page, helperDigest) as LineRow[]).map(toLine));
     },
     listPages(matterId, documentId, helperDigest) {
-      return (many.all(matterId, documentId, helperDigest) as Row[]).map(toRecord);
+      return (many.all(matterId, documentId, helperDigest) as Row[]).map((r) =>
+        toRecord(r, (linesOfPage.all(matterId, documentId, r.page, helperDigest) as LineRow[]).map(toLine)));
     },
     countByOutcome(matterId, documentId, helperDigest) {
       const counts: Record<OcrOutcome, number> = { text_layer: 0, ocr: 0, failed: 0 };

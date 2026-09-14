@@ -202,10 +202,20 @@ test("END TO END: a real born-digital document is read, stored in the DERIVED st
   const back = await win.evaluate((r) => window.lawbar.ocr.pages(r), ref);
   assert.equal(back.ok, true, JSON.stringify(back));
   assert.equal(back.value.pages.length, 1);
-  assert.equal(back.value.pages[0].outcome, "text_layer");
-  assert.equal(back.value.pages[0].control, "unchecked");
-  assert.ok(back.value.pages[0].text.includes(seeded.expectedText),
-    `the layer's own text must come back; got ${JSON.stringify(back.value.pages[0].text)}`);
+  const page = back.value.pages[0];
+  assert.equal(page.outcome, "text_layer");
+  assert.ok(page.text.includes(seeded.expectedText),
+    `the layer's own text must come back; got ${JSON.stringify(page.text)}`);
+  // THE VERDICT IS ON THE LINE, because line-level agreement is what was measured. A page-level one
+  // could not carry the finding: real pages run 19 to 37 lines, so at the recorded agreement rate a
+  // whole page agreeing is about a one-in-a-hundred-million event, and the control would flag
+  // everything and tell the owner nothing.
+  assert.ok(page.lines.length > 0, "a read page must come back as the lines it was read as");
+  assert.ok(page.lines.some((l) => l.text.includes(seeded.expectedText)),
+    `the seeded line must be among them; got ${JSON.stringify(page.lines.map((l) => l.text))}`);
+  for (const l of page.lines) {
+    assert.equal(l.control, "unchecked", "no control engine ships, so no line may claim to have been compared");
+  }
 
   // NOW the store exists — and only where it belongs. This is the assertion the earlier tests
   // could not make, because nothing in them ever opened it successfully.

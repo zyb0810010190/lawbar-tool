@@ -29,7 +29,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { MIN_USABLE_LAYER_CHARS, OCR_EXTRACT_CHANNEL, ocrExtractHandler, ocrPagesHandler } from "../dist/src/ocr/ocrExtractHandlers.js";
+import { MIN_USABLE_LAYER_CHARS, OCR_EXTRACT_CHANNEL, ocrExtractHandler, ocrPagesHandler, layerLines } from "../dist/src/ocr/ocrExtractHandlers.js";
 import { openOcrStore } from "../dist/src/ocr/ocrStore.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -46,13 +46,15 @@ function page(n, count, over = {}) {
   return {
     page: n, page_count: count, source: "pdf", mode: "layer_only",
     layer_text: null, layer_chars: 0, layer_ms: 2,
-    vision_text: null, vision_ms: null, render_ms: null, render_digest: null, error: null,
+    vision_text: null, vision_lines: null, vision_ms: null, render_ms: null, render_digest: null, error: null,
     ...over,
   };
 }
 const withLayer = (n, count, text) => page(n, count, { layer_text: text, layer_chars: text.length });
+/** A recognised page, with the per-line records the real helper emits alongside the joined text. */
 const recognised = (n, count, text) => ({
   ...page(n, count), mode: "full", vision_text: text, vision_ms: 220, render_ms: 30,
+  vision_lines: text.split("\n").map((t, i) => ({ text: t, confidence: 0.9, x: 0.1, y: 0.9 - i * 0.05, w: 0.8, h: 0.04 })),
   render_digest: "0".repeat(64),
 });
 
@@ -299,8 +301,11 @@ test("nothing is certified: every stored page is unchecked and the summary says 
   const stored = store.listPages("m-1", "doc-1", DIGEST);
   assert.equal(stored.length, 2, "and the loop below is not vacuous");
   for (const r of stored) {
-    assert.equal(r.control, "unchecked");
-    assert.equal(r.controlEngine, null);
+    assert.ok(r.lines.length > 0, "a read page must store the lines it was read as");
+    for (const l of r.lines) {
+      assert.equal(l.control, "unchecked", "no control engine ships, so nothing may be marked");
+      assert.equal(l.controlEngine, null);
+    }
   }
 });
 
@@ -404,8 +409,12 @@ test("ocr:pages returns text only on its own call, rebuilt field by field, with 
   assert.equal(res.value.pages.length, 2, "and the per-page check below is not vacuous");
   for (const p of res.value.pages) {
     assert.deepEqual(Object.keys(p).sort(),
-      ["control", "failureCode", "outcome", "page", "pageCount", "text"],
+      ["failureCode", "lines", "outcome", "page", "pageCount", "text"],
       "EVERY page: no path, no digest, no timing crosses; a column added to the store cannot cross by default");
+    for (const l of p.lines) {
+      assert.deepEqual(Object.keys(l).sort(), ["control", "text"],
+        "a LINE crosses its text and its verdict, and not its confidence or its box");
+    }
   }
   assert.equal(res.value.pages[0].text, long);
 });
@@ -431,10 +440,78 @@ test("but once a reading exists, the same request reads it", async (t) => {
     matterId: "m-1", documentId: "doc-1", page: 1, pageCount: 1, helperDigest: DIGEST,
     outcome: "text_layer", text: "已存在的一页", source: "pdf", failureCode: null,
     renderDigest: null, layerMs: 1, visionMs: null, renderMs: null,
-    control: "unchecked", controlEngine: null, extractedAt: "2026-09-12T00:00:00Z",
+    lines: [{ lineNo: 1, text: "已存在的一页", confidence: 1, x: 0, y: 0, w: 1, h: 1, control: "unchecked", controlEngine: null }],
+    extractedAt: "2026-09-12T00:00:00Z",
   });
   const r = await ocrPagesHandler({ matterId: "m-1", documentId: "doc-1" }, deps);
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.value.pages.length, 1);
   assert.equal(r.value.pages[0].text, "已存在的一页");
+});
+
+test("a RECOGNISED page stores the helper's OWN line records, not a split of the joined text", async (t) => {
+  // The control compares line by line, so where the lines come from is load-bearing. Vision reports
+  // them; reconstructing them by splitting the join would be a guess where the recogniser already
+  // has the answer — and the two differ the moment a line contains a newline of its own.
+  const { deps, store } = harness(t, {
+    plan: (options) => options.layerOnly
+      ? { ok: true, pages: [page(1, 1)], elapsed_ms: 4 }
+      : { ok: true, pages: [recognised(1, 1, "第一行\n第二行\n第三行")], elapsed_ms: 9 },
+  });
+  const res = await ocrExtractHandler(REQ, deps);
+  assert.equal(res.ok, true, JSON.stringify(res));
+  const stored = store.getPage("m-1", "doc-1", 1, DIGEST);
+  assert.deepEqual(stored.lines.map((l) => l.text), ["第一行", "第二行", "第三行"]);
+  assert.deepEqual(stored.lines.map((l) => l.lineNo), [1, 2, 3], "numbered in the recogniser's order");
+  // The box and confidence come from the helper and are kept: a second engine's lines will be
+  // matched to these by POSITION, not by hoping two engines emit them in the same order.
+  assert.deepEqual(stored.lines.map((l) => l.confidence), [0.9, 0.9, 0.9]);
+  assert.equal(stored.lines[0].x, 0.1);
+  assert.ok(stored.lines[0].y > stored.lines[1].y, "the boxes descend the page as the lines do");
+});
+
+test("a TEXT-LAYER page stores lines too, split on the layer's own newlines", async (t) => {
+  // A PDF's text layer has no line records — it is a string, and its newlines are the whole of the
+  // line information that exists. Splitting them is not a guess here; it is what the file says.
+  const { deps, store } = harness(t, {
+    plan: () => ({ ok: true, pages: [withLayer(1, 1, "合同金额为 12,345.67元。\n\n本合同自签字之日起生效。")], elapsed_ms: 3 }),
+  });
+  assert.equal((await ocrExtractHandler(REQ, deps)).ok, true);
+  const stored = store.getPage("m-1", "doc-1", 1, DIGEST);
+  assert.equal(stored.outcome, "text_layer");
+  assert.deepEqual(stored.lines.map((l) => l.text), ["合同金额为 12,345.67元。", "本合同自签字之日起生效。"]);
+  // No render happened, so no line has a position. The unit square says "unmeasured" instead of a
+  // fabricated rectangle, and confidence is 1 because these characters were READ, not recognised.
+  for (const l of stored.lines) {
+    assert.deepEqual([l.x, l.y, l.w, l.h], [0, 0, 1, 1]);
+    assert.equal(l.confidence, 1);
+  }
+});
+
+test("layerLines reads back what the layer says, and nothing else", () => {
+  assert.deepEqual(layerLines("a\nb\nc"), [
+    { lineNo: 1, text: "a", confidence: 1, x: 0, y: 0, w: 1, h: 1, control: "unchecked", controlEngine: null },
+    { lineNo: 2, text: "b", confidence: 1, x: 0, y: 0, w: 1, h: 1, control: "unchecked", controlEngine: null },
+    { lineNo: 3, text: "c", confidence: 1, x: 0, y: 0, w: 1, h: 1, control: "unchecked", controlEngine: null },
+  ]);
+  assert.deepEqual(layerLines("a\r\nb").map((l) => l.text), ["a", "b"], "a carriage return is not a line of text");
+  assert.deepEqual(layerLines("a\n\n\nb").map((l) => l.text), ["a", "b"], "blank lines are not lines");
+  assert.deepEqual(layerLines("   \n\t\n"), [], "whitespace-only input has no lines");
+  assert.deepEqual(layerLines("keep  inner   spaces").map((l) => l.text), ["keep  inner   spaces"],
+    "only the ENDS are trimmed; a document's own spacing is its own");
+});
+
+test("re-extracting a page REPLACES its lines; a shorter second reading leaves no surplus behind", async (t) => {
+  // A page that came back with fewer lines the second time must not keep the first run's extras, or
+  // the store would show text the helper no longer reports.
+  const { deps, store } = harness(t, {
+    plan: (options, n) => options.layerOnly
+      ? { ok: true, pages: [page(1, 1)], elapsed_ms: 4 }
+      : { ok: true, pages: [recognised(1, 1, n <= 2 ? "甲\n乙\n丙" : "甲")], elapsed_ms: 9 },
+  });
+  assert.equal((await ocrExtractHandler(REQ, deps)).ok, true);
+  assert.deepEqual(store.getPage("m-1", "doc-1", 1, DIGEST).lines.map((l) => l.text), ["甲", "乙", "丙"]);
+  assert.equal((await ocrExtractHandler(REQ, deps)).ok, true);
+  assert.deepEqual(store.getPage("m-1", "doc-1", 1, DIGEST).lines.map((l) => l.text), ["甲"],
+    "the second reading's lines are the page's lines; the first run's are gone");
 });

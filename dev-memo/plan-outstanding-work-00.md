@@ -1337,6 +1337,55 @@ attributions · i18n drift 0 · no-real-data OK · doc-references 172/172.
 **The i18n guard caught one of mine, correctly:** a literal `" "` used as a separator between two
 labels. It is a layout decision, not copy — the row is flex with a gap, and the separator is gone.
 
+**THE LINE-LEVEL STORE, BUILT 2026-09-14 — the change the granularity finding demanded, and the
+one that had to come before the second engine.** Store schema **v2**: `control` and
+`control_engine` LEFT `ocr_page` and a new `ocr_line` table arrived, keyed
+`(matter_id, document_id, page, line_no, helper_digest)`, carrying the text, Vision's confidence and
+normalised box, and the verdict. A page now reports a control SUMMARY computed from its lines at
+read time instead of storing one, because two places to record the same verdict is two places for it
+to disagree. Bumping the version is cheap on purpose: a foreign version makes the derived store
+delete itself and rebuild, so no migration is written and none should be.
+
+**The desktop boundary stopped discarding the line records.** `src/ocr/helper.ts` parsed only
+`vision_text` and threw `vision_lines` away; it now parses and VALIDATES them — text present, every
+number finite, confidence in 0..1, and a box that stays on the page — and REFUSES the record rather
+than repairing it, because a silently dropped line is a line of a client's document that vanished.
+A recognised page that reports no lines at all is refused too: the joined string is no longer
+enough when the verdict is per line. A text-layer page has no line records to report, so its lines
+come from the layer's own newlines, and their box is the unit square rather than a fabricated
+rectangle — that page was never rendered, so no line has a position and inventing one would be a
+measurement that did not happen. Panel and packaged acceptance now read stored lines; the renderer's
+own splitter is gone as dead code, and its test moved to `layerLines` where the behaviour now lives.
+
+**A defect this work exposed, found by writing the first test the extract parser ever had.**
+`extractPages` had NO unit test — the handler tests inject a fake `extract`, so `asPage` and the
+topology checks were only ever exercised end to end. Writing one showed that ANY malformed record
+returned `helper_identity_mismatch`. That code reaches the owner's screen as the page's failure
+reason, so a wrong field was reported to a litigator as evidence that the program is not the binary
+it claims to be — an accusation the facts did not support. Identity is now checked first and alone
+(a record naming another build still taints the whole run), and a shape problem answers
+`helper_bad_output`. Both halves are asserted together so neither can drift into the other.
+
+**The packaged acceptance's nonce witness caught the change itself.** It rewrote `ocr_page.text` and
+required session 2 to show the nonce; once the panel drew lines, that stopped being the row feeding
+the screen, and the test failed exactly as designed. The witness now goes into `ocr_line` and
+deliberately leaves the page's joined text alone — if session 2 ever showed THAT, the panel would be
+rendering the blob again and this test would say so.
+
+**Verified:** **12 mutants, 12 killed** on the line plumbing (lines dropped; numbering off by one;
+blank layer lines kept; a text-layer page storing none; re-extraction keeping stale lines; a failed
+page keeping lines; the store not reading lines back; a box off the page accepted; a recognised page
+excused from reporting lines; one disagreeing line no longer marking the page; a partly-compared
+page reported as agreed; lines drawn with the page's verdict instead of their own) · full desktop
+lane **1567 tests, 0 failures** · packaged acceptance passes · no-real-data OK · doc-references
+172/172.
+**Three of those twelve survived the first pass**, all pointing at the same missing case: a page
+whose lines disagree with EACH OTHER, which is the entire point of line granularity and which
+nothing tested. That case now exists.
+
+**Still not built:** the second engine itself. What remains is bundling PaddleOCR, comparing line to
+line, and filling `KNOWN_CONTROL_ENGINES` — which is still empty, so nothing can be marked agreed.
+
 **ARTIFACT SHAPE DECIDED by the owner, 2026-09-13: two per-architecture builds, not one universal
 bundle.** Each artifact then carries only the runtime it can execute — about 410 MB rather than
 500 — and nobody downloads an ONNX runtime for a chip they do not have.

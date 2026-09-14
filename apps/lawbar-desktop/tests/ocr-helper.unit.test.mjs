@@ -18,7 +18,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { probeHelper, readPinnedDigest, resolveHelperPath, runHelper, sha256OfFile } from "../dist/src/ocr/helper.js";
+import { extractPages, probeHelper, readPinnedDigest, resolveHelperPath, runHelper, sha256OfFile } from "../dist/src/ocr/helper.js";
 import { ocrProbeHandler, OCR_CHANNEL } from "../dist/src/ocr/ocrHandlers.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -367,4 +367,110 @@ test("the REAL staged helper: universal, pinned by the build, proves its identit
   // returns something would otherwise count as Chinese OCR.
   assert.equal(r.probe.roundtrip_text?.replace(/\s+/g, ""), "合同");
   assert.match(r.probe.os_build, /^\d+[A-Z]\d+/, "os_build must be a Darwin build string");
+});
+
+// ---------------------------------------------------------------------------
+// extractPages — the parser at the boundary
+//
+// Everything above drives `probe`. The EXTRACT parser had no unit test at all: the handler tests
+// inject a fake `extract`, so nothing exercised `asPage`/`asLines` except the end-to-end runs. That
+// is the layer that decides whether a helper and this build still agree about the protocol, and a
+// disagreement it waves through becomes a page of a client's document silently altered or lost.
+// ---------------------------------------------------------------------------
+
+/** A full-mode page record, valid by default; each test breaks exactly one thing. */
+function pageJson(digest, over = {}) {
+  return JSON.stringify({
+    kind: "page", mode: "full", page: 1, page_count: 1, source: "pdf",
+    layer_text: null, layer_chars: 0, layer_ms: 1,
+    vision_text: "第一行\n第二行", vision_ms: 20, render_ms: 5,
+    render_digest: "0".repeat(64),
+    vision_lines: [
+      { text: "第一行", confidence: 0.9, x: 0.1, y: 0.9, w: 0.8, h: 0.04 },
+      { text: "第二行", confidence: 0.8, x: 0.1, y: 0.8, w: 0.8, h: 0.04 },
+    ],
+    helper_build_digest: digest,
+    error: null,
+    ...over,
+  });
+}
+
+/**
+ * A fake helper that prints one page record.
+ *
+ * SHELL BUILTINS ONLY — no `cat`, no `sed`. The runner hands the helper an EMPTY PATH, which is the
+ * same constraint the real one lives under, so a fake that shells out to anything simply does not
+ * run. The digest is baked into the record after the script is written, so nothing has to be
+ * substituted at run time.
+ */
+function extractFake(dir, name, build) {
+  const file = path.join(dir, name);
+  writeFileSync(file, `#!/bin/sh\nread -r line < "$0.json"\nprintf '%s\\n' "$line"\n`);
+  chmodSync(file, 0o755);
+  const digest = sha256OfFile(file);
+  writeFileSync(`${file}.json`, build(digest));
+  return { file, deps: { helperPath: file, pinnedDigest: digest, timeoutMs: AMPLE_MS } };
+}
+
+const extractOpts = { file: "/nowhere/doc.pdf", pages: { from: 1, to: 1 } };
+
+test("extractPages: an honest page is parsed, and its LINES come through with box and confidence", async (t) => {
+  const { deps } = extractFake(scratch(t), "good", (d) => pageJson(d));
+  const r = await extractPages(deps, extractOpts);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const p = r.pages[0];
+  assert.equal(p.vision_text, "第一行\n第二行");
+  assert.deepEqual(p.vision_lines.map((l) => l.text), ["第一行", "第二行"]);
+  assert.deepEqual(p.vision_lines.map((l) => l.confidence), [0.9, 0.8]);
+  assert.deepEqual(p.vision_lines[0], { text: "第一行", confidence: 0.9, x: 0.1, y: 0.9, w: 0.8, h: 0.04 });
+});
+
+test("extractPages REFUSES a recognised page that reports no lines at all", async (t) => {
+  // The joined string alone is no longer enough: the control compares line by line, and a build
+  // that accepted a page without lines would store text no verdict could ever attach to.
+  const { deps } = extractFake(scratch(t), "nolines", (d) => pageJson(d, { vision_lines: undefined }));
+  assert.equal((await extractPages(deps, extractOpts)).code, "helper_bad_output");
+});
+
+test("extractPages REFUSES a line whose box runs off the page, or whose numbers are not numbers", async (t) => {
+  const dir = scratch(t);
+  const bad = [
+    ["offpage", { text: "x", confidence: 1, x: 0.5, y: 0.5, w: 0.9, h: 0.1 }],
+    ["negative", { text: "x", confidence: 1, x: -0.1, y: 0.5, w: 0.1, h: 0.1 }],
+    ["conf-high", { text: "x", confidence: 1.5, x: 0, y: 0, w: 0.1, h: 0.1 }],
+    ["not-a-number", { text: "x", confidence: "high", x: 0, y: 0, w: 0.1, h: 0.1 }],
+    ["no-text", { confidence: 1, x: 0, y: 0, w: 0.1, h: 0.1 }],
+  ];
+  for (const [name, line] of bad) {
+    const { deps } = extractFake(dir, name, (d) => pageJson(d, { vision_lines: [line] }));
+    assert.equal((await extractPages(deps, extractOpts)).code, "helper_bad_output",
+      `a ${name} line must be refused, not repaired: a silently dropped line is a line of a client's document that vanished`);
+  }
+});
+
+test("extractPages: a LAYER-ONLY page must report no lines, because nothing was recognised", async (t) => {
+  const dir = scratch(t);
+  const layer = (over) => JSON.stringify({
+    kind: "page", mode: "layer_only", page: 1, page_count: 1, source: "pdf",
+    layer_text: "合同", layer_chars: 2, layer_ms: 3, helper_build_digest: "DIGEST", error: null, ...over,
+  });
+  const ok = extractFake(dir, "layer-ok", (d) => layer({ helper_build_digest: d }));
+  const good = await extractPages(ok.deps, { ...extractOpts, layerOnly: true });
+  assert.equal(good.ok, true, JSON.stringify(good));
+  assert.equal(good.pages[0].vision_lines, null, "absent, not an empty array: nothing was recognised");
+
+  const withLines = extractFake(dir, "layer-lines", (d) => layer({ helper_build_digest: d, vision_lines: [] }));
+  assert.equal((await extractPages(withLines.deps, { ...extractOpts, layerOnly: true })).code, "helper_bad_output",
+    "a page that recognised nothing may not report a recognition field, not even an empty one");
+});
+
+test("a record naming ANOTHER build is still an identity mismatch, and a malformed one is not", async (t) => {
+  // The two halves of the distinction, asserted together so neither can drift into the other.
+  const dir = scratch(t);
+  const impostor = extractFake(dir, "impostor", () => pageJson("b".repeat(64)));
+  assert.equal((await extractPages(impostor.deps, extractOpts)).code, "helper_identity_mismatch",
+    "a record that claims a different binary is an identity question and must stay one");
+  const malformed = extractFake(dir, "malformed", (d) => pageJson(d, { render_digest: "not-a-digest" }));
+  assert.equal((await extractPages(malformed.deps, extractOpts)).code, "helper_bad_output",
+    "a shape problem is NOT an accusation about the binary; that code reaches the owner's screen");
 });
