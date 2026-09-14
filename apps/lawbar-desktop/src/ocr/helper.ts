@@ -181,13 +181,30 @@ export async function runHelper(deps: HelperDeps, args: ReadonlyArray<string>): 
   });
   clearTimeout(timeoutHandle);
   if (sigkillHandle !== undefined) clearTimeout(sigkillHandle); // never fire against a recycled pgid
-  if (timedOut) {
-    // Belt and braces: whatever is left of the group dies now, not after a grace we will not wait for.
+  // Belt and braces, but ONLY WHILE WE STILL OWN THE GROUP. The pgid is the leader's pid, and once
+  // the leader has been reaped the kernel may hand that number to somebody else — at which point
+  // `kill(-pgid)` is a signal aimed at an unrelated process group on the owner's machine. The
+  // escaped-descendant path resolves BEFORE the leader is reaped, which is the case this exists for;
+  // if the leader is already gone there is nothing of ours left to signal.
+  if (timedOut && proc.exitCode === null && proc.signalCode === null) {
     killGroup("SIGKILL");
   }
-  // Decode ONCE: a multi-byte character split across chunks must not become replacement characters.
-  const stdout = overflow ? "" : Buffer.concat(chunks).toString("utf8");
-  return { stdout, exitCode: exit.code, signal: exit.signal, timedOut, spawnFailed, overflow };
+  // Decode ONCE, and FATALLY. Decoding once is needed because a multi-byte character split across
+  // chunks would otherwise be mangled. Decoding fatally is needed because `toString("utf8")`
+  // REPAIRS invalid bytes into U+FFFD instead of reporting them — and the repair is deterministic,
+  // so the same corrupt bytes in `vision_text` and in its line both become the same replacement
+  // character and the consistency check between them passes. Invented characters would then be
+  // shown to a litigator as the document's own text. Measured: 3 bad bytes become 本\uFFFD\uFFFD院.
+  let stdout = "";
+  let undecodable = false;
+  if (!overflow) {
+    try {
+      stdout = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
+    } catch {
+      undecodable = true;
+    }
+  }
+  return { stdout, exitCode: exit.code, signal: exit.signal, timedOut, spawnFailed, overflow: overflow || undecodable };
 }
 
 function checkExecutable(file: string): HelperFailureCode | null {
@@ -330,9 +347,18 @@ function asPage(v: unknown, mode: "full" | "layer_only", digest: string): Helper
   if (!isIndex(r.page) || !isIndex(r.page_count) || r.page > r.page_count) return null;
   if (r.source !== "pdf" && r.source !== "image") return null;
   if (typeof r.layer_chars !== "number" || !Number.isSafeInteger(r.layer_chars) || r.layer_chars < 0) return null;
+  // MEASURED TEXT THAT IS NOT TEXT IS MALFORMED, NOT ABSENT. `strOrNull` turned `layer_text: 12345`
+  // into null, so a broken record became a page that legitimately has no text layer — and the ladder
+  // would then send it to recognition as though the helper had said there was nothing to read.
+  if (!absent(r.layer_text) && typeof r.layer_text !== "string") return null;
 
+  // A page's error must be ABSENT or a STRING. `false`, `0` and `{}` used to become "page_error",
+  // which both invented a failure the helper never reported AND took the branch that skips the
+  // recognition-field checks — so a malformed record arrived as a legitimately failed page, and the
+  // owner was shown a page failure where the evidence said protocol disagreement.
+  if (!absent(r.error) && typeof r.error !== "string") return null;
   const pageError = absent(r.error) ? null
-    : typeof r.error === "string" && HELPER_PAGE_ERRORS.has(r.error) ? r.error
+    : HELPER_PAGE_ERRORS.has(r.error as string) ? (r.error as string)
     : "page_error";
 
   if (mode === "layer_only") {
@@ -442,7 +468,14 @@ export async function extractPages(deps: HelperDeps, options: ExtractOptions): P
     // Reaching into it would throw a TypeError out of a function whose whole contract is to return
     // a result, and the caller's catch would then report it as something else entirely.
     if (typeof p !== "object" || p === null) return { ok: false, code: "helper_bad_output", elapsed_ms: elapsed };
+    // A DIGEST-SHAPED VALUE FIRST. A record with a missing, null or malformed digest has not named
+    // another binary — it has failed to identify itself at all, which is a shape problem. Reserving
+    // `helper_identity_mismatch` for a well-formed digest that differs keeps that code meaning the
+    // one thing it should, since it reaches the owner as a page's failure reason.
     const claimed = (p as Record<string, unknown>).helper_build_digest;
+    if (typeof claimed !== "string" || !/^[0-9a-f]{64}$/.test(claimed)) {
+      return { ok: false, code: "helper_bad_output", elapsed_ms: elapsed };
+    }
     if (claimed !== executableDigest) return { ok: false, code: "helper_identity_mismatch", elapsed_ms: elapsed };
     const page = asPage(p, mode, executableDigest);
     // Identity is established; anything still wrong is the protocol, not the binary.

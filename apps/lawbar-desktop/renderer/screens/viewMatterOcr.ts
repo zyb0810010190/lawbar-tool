@@ -103,6 +103,7 @@ export function ocrFailureKey(code: string): Parameters<typeof t>[0] {
     case "unsupported_document": return "document.ocr.failed.unsupported";
     case "helper_unavailable": return "document.ocr.failed.helper";
     case "store_unavailable": return "document.ocr.failed.store";
+    case "lookup_failed": return "document.ocr.failed.lookup";
     case "extract_failed": return "document.ocr.failed.extract";
     default: return "document.ocr.failed.request"; // invalid_request, and anything a later version adds
   }
@@ -152,8 +153,14 @@ const FIELD_PATTERNS: readonly RegExp[] = [
   /[0-9０-９][0-9０-９.,，、:：\-–—/／年月日时分秒元万亿千百十％%号第条款项页（）()\[\]【】]*/gu,
 ];
 
-/** A capital-numeral run carrying no capital digit is a bare unit like 「万元」, not an amount. */
-const BARE_UNIT = /^[零拾佰仟万萬亿億圆元角分整两]+$/u;
+/**
+ * A run made only of UNITS — 「万元」, 「元整」 — is not an amount and carries no value.
+ *
+ * 零, 两 and 拾 are NOT units and were wrongly in this class: they name quantities, so
+ * 「人民币零元整」, 「人民币两万元」 and 「人民币拾万元整」 were matched by the amount pattern and then
+ * discarded here, leaving three perfectly ordinary ways of writing a sum unmarked.
+ */
+const BARE_UNIT = /^[佰仟万萬亿億圆元角分整]+$/u;
 
 /**
  * Trim what the run swallowed but the field does not own: a tail that begins with punctuation and
@@ -209,10 +216,12 @@ export function numericSpans(text: string): readonly NumericSpan[] {
   for (const re of FIELD_PATTERNS) {
     for (const m of text.matchAll(re)) {
       const field = trimField(m[0]);
-      // A lone digit with nothing attached is an enumeration marker, not a field: the 1 in
-      // 「1、原告身份证明」 tells the reader nothing to check. Anything with a unit survives, so
-      // 5条 and 5元 are kept.
-      if (field.length < 2) continue;
+      // ONLY EMPTY IS DROPPED. This used to drop anything shorter than two characters, on the
+      // grounds that the 1 in 「1、原告身份证明」 is an enumeration marker. Length cannot tell an
+      // enumeration marker from an amount: 「金额（万元）：5」 got no mark while 「…：15」 did, and a
+      // recognised table puts exactly that cell on a line of its own. It also contradicted the rule
+      // written six lines above — over-listing costs a glance, a missed amount costs a filing.
+      if (field.length === 0) continue;
       // The capital-amount pattern would otherwise match bare units like 「万元」. An amount has to
       // carry at least one capital digit to be an amount.
       if (BARE_UNIT.test(field)) continue;
@@ -444,7 +453,9 @@ export function renderOcrDisclosure(
           missing: s.missing,
           needsReview: s.needsReview,
         }));
-        await showStored();
+        // The result matters: a read that fails here must still leave the disclosure retryable, or
+        // closing and reopening it would never try again and the owner would have to re-extract.
+        if (!(await showStored())) reopenable();
       } catch {
         status.setAttribute("role", "alert");
         setText(status, t("document.ocr.failed.request"));
@@ -468,6 +479,8 @@ export function renderOcrDisclosure(
     [summary, body], doc);
 
   let loaded = false;
+  /** Let the section be opened again, after a read that failed. */
+  const reopenable = (): void => { loaded = false; };
   summary.addEventListener("click", () => {
     if (loaded) return;
     loaded = true;

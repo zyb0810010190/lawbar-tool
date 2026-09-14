@@ -303,17 +303,35 @@ export function openOcrStore(options: OcrStoreOptions): OcrStore {
   // rebuilt, which is the whole point of it being derived.
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
-  db.exec(SCHEMA);
+  // THE VERSION IS READ BEFORE ANY SCHEMA IS APPLIED, and that order is the whole mechanism.
+  //
   // A DERIVED store answers a version it does not understand by throwing itself away. Reading rows
   // written under another schema, or writing new rows beside them, is how a cache becomes a
-  // corruption; recomputing is what being derived buys.
-  const found = db.prepare("SELECT version FROM schema_version LIMIT 1").get() as { version?: number } | undefined;
-  if (found === undefined) {
+  // corruption; recomputing is what being derived buys. That is also why bumping the version is
+  // said to be cheap.
+  //
+  // It was not cheap, until this order was fixed. Running `CREATE TABLE IF NOT EXISTS` and
+  // `CREATE INDEX IF NOT EXISTS` FIRST means the DDL meets whatever the older or newer file already
+  // has: a future build that renames a column leaves an `ocr_page` this build's index cannot be
+  // built on, and the open throws `no such column: page` before the version is ever consulted. The
+  // store is then permanently unopenable and every read answers `store_unavailable` for ever —
+  // exactly the self-healing this design claims, absent in the case most likely to need it.
+  // Reproduced before the change, and the test beside it reproduces it again.
+  const hasVersionTable = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'")
+    .get() !== undefined;
+  if (hasVersionTable) {
+    const found = db.prepare("SELECT version FROM schema_version LIMIT 1").get() as { version?: number } | undefined;
+    // A table with no row is a half-built store, which for a derived one is also just rubbish.
+    if (found === undefined || found.version !== SCHEMA_VERSION) {
+      db.close();
+      for (const suffix of ["", "-wal", "-shm"]) rmSync(`${dbPath}${suffix}`, { force: true });
+      return openOcrStore(options);
+    }
+  }
+  db.exec(SCHEMA);
+  if (!hasVersionTable) {
     db.prepare("INSERT INTO schema_version (version) VALUES (?)").run(SCHEMA_VERSION);
-  } else if (found.version !== SCHEMA_VERSION) {
-    db.close();
-    for (const suffix of ["", "-wal", "-shm"]) rmSync(`${dbPath}${suffix}`, { force: true });
-    return openOcrStore(options);
   }
 
   const put = db.prepare(`
@@ -383,6 +401,23 @@ export function openOcrStore(options: OcrStoreOptions): OcrStore {
       if (!Array.isArray(record.lines)) throw new Error("lines are required; use [] for a page with none");
       // A failed page read nothing, so lines on it would be text with no reading behind them.
       if (record.outcome === "failed" && record.lines.length > 0) throw new Error("a failed page must carry no lines");
+      // TEXT AND LINES ARE ONE FACT, held in two tables. The transaction makes the write atomic; it
+      // does not make it consistent. A page whose text said 10000 while its only line said 100000
+      // would store happily, with the SCREEN drawing the line and search reading the text — and for
+      // an amount, those are different documents. Containment rather than an exact re-join, because
+      // the two tiers differ honestly: a recognised page's lines rejoin to its text exactly, while a
+      // text layer's lines are that text with its blank lines dropped and its line ends trimmed.
+      for (const l of record.lines) {
+        if (typeof l.text !== "string") throw new Error("a line must carry its text");
+        if (!record.text.includes(l.text)) {
+          throw new Error("a line's text does not appear in the page's text; they would disagree on disk");
+        }
+      }
+      // And the other direction: text with no lines would make the panel call a page empty while
+      // search still finds words on it.
+      if (record.outcome !== "failed" && record.text.trim().length > 0 && record.lines.length === 0) {
+        throw new Error("a page with text must carry the lines that text is made of");
+      }
       const seen = new Set<number>();
       for (const l of record.lines) {
         if (!Number.isSafeInteger(l.lineNo) || l.lineNo < 1) throw new Error("lineNo must be a positive integer");
@@ -396,6 +431,16 @@ export function openOcrStore(options: OcrStoreOptions): OcrStore {
         const box = [l.x, l.y, l.w, l.h];
         const nulls = box.filter((v) => v === null).length;
         if (nulls !== 0 && nulls !== 4) throw new Error("a line's box must be complete or absent, never partial");
+        // AND THE OUTCOME DECIDES WHICH. A text-layer page was never rendered, so its lines cannot
+        // have a position; accepting one would let the exact invented full-page box this design
+        // forbids back in through a different door. A recognised page WAS rendered, so its lines
+        // must have one, or a second engine could never be matched to them by position.
+        if (record.outcome === "text_layer" && nulls !== 4) {
+          throw new Error("a text-layer line has no position: that page was never rendered");
+        }
+        if (record.outcome === "ocr" && nulls !== 0) {
+          throw new Error("a recognised line must carry the box it was recognised at");
+        }
         if (nulls === 0) {
           for (const [name, v] of [["x", l.x], ["y", l.y], ["w", l.w], ["h", l.h]] as const) {
             if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {

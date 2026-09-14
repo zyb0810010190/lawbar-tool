@@ -549,6 +549,8 @@ export const CATALOG = {
   "document.ocr.failed.unsupported": "本应用尚不能识别这种格式的文件。",
   "document.ocr.failed.helper": "识别程序不可用，本次没有读取任何内容。",
   "document.ocr.failed.store": "无法写入识别结果。识别结果可以随时重新生成，请重试。",
+  // "could not ask" is not "there is no such document": the case box itself did not answer.
+  "document.ocr.failed.lookup": "无法读取案件资料，暂时查不到这份文档，请稍后重试。",
   "document.ocr.failed.extract": "识别过程中断，本文档没有完整读取，请重试。",
   "document.ocr.failed.request": "无法发出识别请求，请重试。",
   "document.detail.language": "语言",

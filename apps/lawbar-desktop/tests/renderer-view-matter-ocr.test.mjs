@@ -281,8 +281,12 @@ test("the page text is rendered as TEXT — markup in a client's document is nev
   // than set once. Every child must still be a bare text node: an element here would mean a
   // document's own characters had become part of the document tree.
   for (const child of line.children) {
-    assert.ok(child instanceof MockText,
+    // A numeric mark is the ONE element this panel creates, and it holds text only. Anything else
+    // would mean a document's own characters had become part of the tree.
+    const isMark = child instanceof MockEl && child.getAttribute("data-test-id") === "view-ocr-num";
+    assert.ok(child instanceof MockText || isMark,
       `a client's text became an element: <${child.tagName}> ${JSON.stringify(child.textContent)}`);
+    if (isMark) for (const g of child.children) assert.ok(g instanceof MockText, "a mark may only contain text");
   }
 });
 
@@ -295,7 +299,9 @@ test("a marked numeric field is a SPAN around text, never markup, even when the 
   const line = findByTestId(node, "view-ocr-line");
   assert.equal(line.textContent, hostile, "splicing must reassemble the line exactly");
   const marks = findAllByTestId(node, "view-ocr-num");
-  assert.deepEqual(marks.map((m) => m.textContent), ["12,345.67元"]);
+  // "1" comes from alert(1): a lone digit is marked now, deliberately, since length cannot tell an
+  // enumeration marker from an amount.
+  assert.deepEqual(marks.map((m) => m.textContent), ["1", "12,345.67元"]);
   for (const m of marks) {
     assert.equal(m.tagName, "SPAN");
     for (const child of m.children) assert.ok(child instanceof MockText, "a mark may only contain text");
@@ -378,11 +384,6 @@ test("a MIXED-notation amount is marked whole, not split at the character the tw
   assert.deepEqual(numericFields("合计3万贰仟元"), ["3万贰仟元"]);
 });
 
-test("numericFields drops a bare enumeration marker, and says so by keeping the same digit when it has a unit", () => {
-  assert.deepEqual(numericFields("1、原告身份证明；2、授权委托书"), [],
-    "the 1 in a numbered list is not a field the reader can check");
-  assert.deepEqual(numericFields("第1条"), ["1条"], "the same digit WITH a unit is a field");
-});
 
 test("EVERY page with numbers gets its own prompt, listing that page's own fields", async () => {
   // Three pages, three different situations. One document-level warning, or a warning only on the
@@ -666,4 +667,48 @@ test("a page is summarised as AGREED only when every line on it was compared", a
   assert.ok(summary.includes(CATALOG["document.ocr.control.unchecked"]),
     `half a page compared is not a compared page; got ${JSON.stringify(summary)}`);
   assert.equal(summary.includes(CATALOG["document.ocr.control.agreed"]), false);
+});
+
+test("a single-digit field is marked: length cannot tell an enumeration marker from an amount", () => {
+  // 「金额（万元）：5」 got no mark while 「…：15」 did, and a recognised table puts exactly that cell
+  // on a line of its own. The rule this file states is that over-listing costs a glance and a missed
+  // amount costs a filing, so the short field wins and the enumeration marker is the price.
+  assert.deepEqual(numericFields("金额（万元）：5"), ["5"]);
+  assert.deepEqual(numericFields("金额（万元）：15"), ["15"]);
+  assert.deepEqual(numericFields("1、原告身份证明；2、授权委托书"), ["1", "2"],
+    "the enumeration marker is listed too; that is the accepted price of not missing a lone amount");
+});
+
+test("零, 两 and 拾 name quantities, so the amounts written with them are marked", () => {
+  // They were classed as bare units, so the amount pattern matched these and the filter then threw
+  // them away — three perfectly ordinary ways of writing a sum, left unmarked.
+  assert.deepEqual(numericFields("人民币零元整"), ["零元整"]);
+  assert.deepEqual(numericFields("人民币两万元"), ["两万元"]);
+  assert.deepEqual(numericFields("人民币拾万元整"), ["拾万元整"]);
+  // A run of pure UNITS still carries no value and is still dropped.
+  assert.deepEqual(numericFields("金额以万元计"), []);
+});
+
+test("a read that fails AFTER an extraction leaves the section retryable", async () => {
+  // The generation guard suppressed the stale read correctly, but the newer read's failure was
+  // ignored, so the once-only latch stayed shut and reopening the disclosure never tried again.
+  let reads = 0;
+  const bridge = {
+    pages: async () => {
+      reads += 1;
+      if (reads === 1) return { ok: true, value: { pages: [], missing: null } };
+      if (reads === 2) throw new Error("the read after extraction died");
+      return { ok: true, value: { missing: 0, pages: [page({ text: "终于读到了" })] } };
+    },
+    extract: async () => ({ ok: true, value: { pageCount: 1, fromTextLayer: 1, recognised: 0, failed: 0, missing: 0, needsReview: 1 } }),
+  };
+  const node = renderOcrDisclosure(new StrictDoc(), MATTER, DOCUMENT, bridge);
+  await open(node);
+  findByTestId(node, "view-ocr-read").dispatchEvent({ type: "click" });
+  await flush();
+  assert.equal(collectText(findByTestId(node, "view-ocr-error")), CATALOG["document.ocr.loadFailed"]);
+
+  await open(node);
+  assert.equal(reads, 3, "reopening after a failed post-extraction read must try again");
+  assert.equal(findByTestId(node, "view-ocr-page-text").textContent, "终于读到了");
 });

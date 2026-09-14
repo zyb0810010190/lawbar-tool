@@ -1436,6 +1436,61 @@ passes · timings above · no-real-data OK · doc-references 172/172.
 separator, and a Set of CJK punctuation characters. Both are layout or character classes rather than
 copy; the first is gone and the second is a regex literal.
 
+**SECOND AUDIT, 2026-09-14, at the owner's direction: a different and stronger head over the SAME
+code, after the first round of fixes.** He asked for "codex-astor"; no such slug exists, and the
+preflight was run rather than guessed — the most capable available is `gpt-6-astra`, which is what
+was used, at `xhigh`, one job per file over the FULL current sources rather than diffs, so it sees
+what a diff hides. **Fourteen more defects, all verified against the source, all fixed.** A second
+head over already-audited code was worth its cost; that is the finding about the process.
+
+*The store's self-healing did not work, which is the claim the whole schema design rests on.*
+`db.exec(SCHEMA)` ran BEFORE the version was read, so a future build that renames a column left an
+`ocr_page` this build's index cannot be built on: the open threw `no such column: page` before the
+version was ever consulted, and the store was then permanently unopenable with every read answering
+`store_unavailable`. **Reproduced before the fix and again in a test.** The version is now read
+first. Also: the store accepted a page whose text said `10000` while its only line said `100000`
+(the transaction makes a write atomic, not consistent — for an amount those are different
+documents), and it let a text-layer line carry the invented full-page box back in through a
+different door. Text and lines are now checked against each other, and the OUTCOME decides whether
+a line may have a position at all.
+
+*Two handlers leaked in ways the existing guards did not cover.* Asking the CASE BOX who owns a
+document was unguarded — the store open and the helper call already were — so a thrown
+better-sqlite3 error carrying a profile path would be forwarded to the renderer by Electron with its
+message intact. A new code, `lookup_failed`, says "I could not ask", which is not
+`unknown_document`. And the derived store was opened BEFORE the ladder ran, so an extraction that
+was going to be refused still left a brand-new database behind — the same defect the packaged
+acceptance caught on the read path, arriving through the write path.
+
+*The helper boundary repaired what it should have refused.* `toString("utf8")` turns invalid bytes
+into U+FFFD **deterministically**, so the same corruption in `vision_text` and in its line produced
+the same repaired string and the consistency check between them passed — invented characters would
+have reached a litigator as the document's own text. Measured: three bad bytes become 本��院.
+Decoding is fatal now. Also fixed: `layer_text: 12345` became a legitimately absent text layer;
+`error: false` became a page failure the helper never reported AND skipped the recognition checks;
+and a record with a missing or malformed digest was still answered `helper_identity_mismatch`,
+which means my earlier fix to that same code was incomplete.
+
+*A process-group signal could hit a stranger.* The belt-and-braces `kill(-pgid)` after the deadline
+ran even when the leader had already been reaped, and the kernel may by then have handed that number
+to somebody else. It is now sent only while the leader is alive, which is the only time the group is
+ours. **Recorded and NOT fixed, with the reason:** a helper that spawns a same-group child, redirects
+its stdio away from our pipe and exits normally leaves that child alive, because on the normal-close
+path the leader is already gone and signalling is no longer safe. The pinned helper does not spawn
+children, and signalling a possibly-recycled group is worse than the leak it would prevent.
+
+*And two the panel got wrong about the owner's own documents.* A single-digit field was dropped as
+an "enumeration marker", so 「金额（万元）：5」 got no mark while 「…：15」 did — and a recognised table
+puts exactly that cell on a line of its own. That also contradicted the rule written six lines above
+it. Only empty is dropped now, and the enumeration marker is the accepted price. Worse: 零, 两 and 拾
+were classed as bare units, so 「人民币零元整」, 「人民币两万元」 and 「人民币拾万元整」 were matched as
+amounts and then thrown away — three ordinary ways of writing a sum, left unmarked. Finally, a read
+that failed AFTER an extraction left the once-only latch shut, so reopening the disclosure never
+retried.
+
+**Verified:** full desktop lane **1582 tests, 0 failures** · packaged acceptance passes, 0 crash
+attributions · no-real-data OK · doc-references 172/172.
+
 **Still not built:** the second engine itself. What remains is bundling PaddleOCR, comparing line to
 line, and filling `KNOWN_CONTROL_ENGINES` — which is still empty, so nothing can be marked agreed.
 

@@ -528,3 +528,52 @@ test("a bare null on the wire is a CODE, not a thrown TypeError out of a functio
   assert.equal(r.ok, false);
   assert.equal(r.code, "helper_bad_output");
 });
+
+test("invalid UTF-8 is REFUSED, never repaired into replacement characters the owner reads as text", async (t) => {
+  // toString("utf8") turns bad bytes into U+FFFD, deterministically — so the same corruption in
+  // vision_text and in its line produces the same repaired string and the consistency check between
+  // them passes. Invented characters would then be shown to a litigator as the document's own text.
+  const dir = scratch(t);
+  const file = path.join(dir, "badbytes");
+  // printf with octal escapes: 本 followed by two bytes that are not valid UTF-8.
+  writeFileSync(file, `#!/bin/sh\nprintf '\\346\\234\\254\\377\\376\\n'\n`);
+  chmodSync(file, 0o755);
+  const r = await probeHelper({ helperPath: file, pinnedDigest: sha256OfFile(file), timeoutMs: AMPLE_MS });
+  assert.equal(r.code, "helper_bad_output", "undecodable output is not output");
+});
+
+test("a record that cannot NAME itself is malformed, not an accusation about the binary", async (t) => {
+  const dir = scratch(t);
+  for (const [name, digest] of [["nodigest", undefined], ["nulldigest", null], ["shortdigest", "abc"]]) {
+    const { deps } = extractFake(dir, name, () => pageJson("PLACEHOLDER").replace('"PLACEHOLDER"', JSON.stringify(digest ?? null)));
+    assert.equal((await extractPages(deps, extractOpts)).code, "helper_bad_output",
+      `${name}: a record with no usable digest has not named another binary, it has failed to identify itself`);
+  }
+});
+
+test("a page error that is not a STRING is a malformed record, not a page that failed", async (t) => {
+  // These used to become "page_error" — inventing a failure the helper never reported, AND taking
+  // the branch that skips the recognition-field checks, so the record was accepted.
+  const dir = scratch(t);
+  for (const bad of [false, 0, {}]) {
+    const { deps } = extractFake(dir, `err-${JSON.stringify(bad)}`, (d) => pageJson(d, { error: bad }));
+    assert.equal((await extractPages(deps, extractOpts)).code, "helper_bad_output", JSON.stringify(bad));
+  }
+  // A real page error is still a real page error.
+  const ok = extractFake(dir, "err-real", (d) => pageJson(d, {
+    error: "render_failed", vision_text: undefined, vision_lines: undefined, vision_ms: undefined,
+    render_ms: undefined, render_digest: undefined,
+  }));
+  const r = await extractPages(ok.deps, extractOpts);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.pages[0].error, "render_failed");
+});
+
+test("measured text that is not text is MALFORMED, not absent", async (t) => {
+  // strOrNull turned layer_text: 12345 into null, so a broken record became a page that legitimately
+  // has no text layer — and the ladder would then send it to recognition as if the helper had said
+  // there was nothing to read.
+  const dir = scratch(t);
+  const { deps } = extractFake(dir, "numlayer", (d) => pageJson(d, { layer_text: 12345, layer_chars: 5 }));
+  assert.equal((await extractPages(deps, extractOpts)).code, "helper_bad_output");
+});

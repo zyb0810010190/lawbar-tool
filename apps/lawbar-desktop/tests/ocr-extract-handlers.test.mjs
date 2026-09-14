@@ -440,7 +440,8 @@ test("but once a reading exists, the same request reads it", async (t) => {
     matterId: "m-1", documentId: "doc-1", page: 1, pageCount: 1, helperDigest: DIGEST,
     outcome: "text_layer", text: "已存在的一页", source: "pdf", failureCode: null,
     renderDigest: null, layerMs: 1, visionMs: null, renderMs: null,
-    lines: [{ lineNo: 1, text: "已存在的一页", confidence: 1, x: 0, y: 0, w: 1, h: 1, control: "unchecked", controlEngine: null }],
+    // A text-layer page was never rendered, so its line has no position.
+    lines: [{ lineNo: 1, text: "已存在的一页", confidence: 1, x: null, y: null, w: null, h: null, control: "unchecked", controlEngine: null }],
     extractedAt: "2026-09-12T00:00:00Z",
   });
   const r = await ocrPagesHandler({ matterId: "m-1", documentId: "doc-1" }, deps);
@@ -519,4 +520,37 @@ test("re-extracting a page REPLACES its lines; a shorter second reading leaves n
   assert.equal((await ocrExtractHandler(REQ, deps)).ok, true);
   assert.deepEqual(store.getPage("m-1", "doc-1", 1, DIGEST).lines.map((l) => l.text), ["甲"],
     "the second reading's lines are the page's lines; the first run's are gone");
+});
+
+test("a case-box lookup that THREW is a code, never a rejected promise carrying a path", async (t) => {
+  // The store open and the helper call were already guarded; asking the case box WHO OWNS this
+  // document was not. Electron forwards a rejected handler to the renderer with the message intact,
+  // and better-sqlite3's message names the file it failed on — a profile path on a litigator's
+  // screen. `unknown_document` would be the wrong answer too: "I could not ask" is not "there is no
+  // such document".
+  const boom = () => { throw new Error("SQLITE_CANTOPEN: unable to open database file /Users/someone/Library/case-box.sqlite"); };
+  for (const handler of [ocrExtractHandler, ocrPagesHandler]) {
+    const { deps } = harness(t, { persistence: { getMatter: boom, getDocument: boom } });
+    const res = await handler(REQ, deps);
+    assert.deepEqual(Object.keys(res).sort(), ["code", "ok"]);
+    assert.equal(res.code, "lookup_failed",
+      "a lookup that threw is its own answer, distinct from a document that is absent");
+    assert.equal(JSON.stringify(res).includes("/Users"), false, "no path may cross");
+  }
+  // And a lookup that ANSWERS "no such document" still says exactly that.
+  const { deps } = harness(t);
+  assert.equal((await ocrPagesHandler({ matterId: "m-1", documentId: "nope" }, deps)).code, "unknown_document");
+});
+
+test("a REFUSED extraction leaves no derived store behind", async (t) => {
+  // Opening the store creates it. An extraction that was going to be refused — a helper missing at
+  // spawn time, a file it cannot read — would otherwise leave a brand-new database in a profile
+  // where nothing was ever read. That is the defect the packaged acceptance caught on the READ
+  // path, arriving through the write path instead.
+  const { deps, touched } = harness(t, { plan: () => ({ ok: false, code: "helper_unreadable_input", elapsed_ms: 2 }) });
+  const res = await ocrExtractHandler(REQ, deps);
+  assert.equal(res.ok, false);
+  assert.equal(res.code, "unsupported_document", JSON.stringify(res));
+  assert.equal(touched.includes("openStore"), false,
+    `the store was opened for an extraction that read nothing: ${touched.join(", ")}`);
 });

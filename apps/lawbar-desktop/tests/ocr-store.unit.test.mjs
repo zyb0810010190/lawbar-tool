@@ -25,7 +25,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -51,11 +51,22 @@ const RECORD = {
   matterId: "m-1", documentId: "doc-1", page: 1, pageCount: 1, helperDigest: DIGEST,
   outcome: "text_layer", text: "本院经审理查明", source: "pdf", failureCode: null,
   renderDigest: null, layerMs: 3, visionMs: null, renderMs: null,
-  lines: [{ lineNo: 1, text: "本院经审理查明", confidence: 1, x: 0, y: 0, w: 1, h: 1, control: "unchecked", controlEngine: null }],
+  lines: [{ lineNo: 1, text: "本院经审理查明", confidence: 1, x: null, y: null, w: null, h: null, control: "unchecked", controlEngine: null }],
   extractedAt: "2026-09-12T00:00:00Z",
 };
-/** A line, so a test can vary one field without restating the shape. */
-const line = (o = {}) => ({ lineNo: 1, text: "一行", confidence: 1, x: 0, y: 0, w: 1, h: 1, control: "unchecked", controlEngine: null, ...o });
+/**
+ * A line, so a test can vary one field without restating the shape. NO BOX by default, because the
+ * default RECORD is a TEXT-LAYER page and such a page was never rendered — its lines cannot have a
+ * position. A test about a recognised page passes one.
+ */
+const line = (o = {}) => ({ lineNo: 1, text: RECORD.text, confidence: 1, x: null, y: null, w: null, h: null, control: "unchecked", controlEngine: null, ...o });
+/** A recognised line: rendered, so it has the box its recognition reported. */
+const ocrLine = (o = {}) => line({ x: 0.1, y: 0.1, w: 0.5, h: 0.05, ...o });
+/** A recognised page, with the timings and the render digest a recognised page must carry. */
+const recognisedPage = (text, over = {}) => ({
+  ...RECORD, outcome: "ocr", text, layerMs: null, visionMs: 220, renderMs: 30,
+  renderDigest: "0".repeat(64), lines: [ocrLine({ text })], ...over,
+});
 const FAILED = { ...RECORD, outcome: "failed", text: "", failureCode: "helper_timeout", layerMs: null, lines: [] };
 
 test("the derived store lives in its OWN directory, never beside the case box", (t) => {
@@ -98,7 +109,7 @@ test("a document id alone reaches nothing: reads are scoped to the matter", (t) 
   assert.equal(s.getPage("m-2", "doc-1", 1, DIGEST), null, "the same document id under another matter must reach nothing");
   assert.deepEqual(s.listPages("m-2", "doc-1", DIGEST), []);
   // The same document id in two matters is two rows, not one overwriting the other.
-  s.putPage({ ...RECORD, matterId: "m-2", text: "another matter's reading" });
+  s.putPage({ ...RECORD, matterId: "m-2", text: "another matter's reading", lines: [line({ text: "another matter's reading" })] });
   assert.equal(s.getPage("m-1", "doc-1", 1, DIGEST).text, RECORD.text);
   assert.equal(s.getPage("m-2", "doc-1", 1, DIGEST).text, "another matter's reading");
 });
@@ -106,12 +117,12 @@ test("a document id alone reaches nothing: reads are scoped to the matter", (t) 
 test("re-extracting with the same helper replaces its row; a different helper writes its own", (t) => {
   const { s } = store(t);
   s.putPage(RECORD);
-  s.putPage({ ...RECORD, text: "本院经审理查明：", layerMs: 4 });
+  s.putPage({ ...RECORD, text: "本院经审理查明：", layerMs: 4, lines: [line({ text: "本院经审理查明：" })] });
   const rows = s.listPages("m-1", "doc-1", DIGEST);
   assert.equal(rows.length, 1, "same helper, same page: one row, not two");
   assert.equal(rows[0].text, "本院经审理查明：");
   const other = "b".repeat(64);
-  s.putPage({ ...RECORD, helperDigest: other, text: "a different binary read this" });
+  s.putPage({ ...RECORD, helperDigest: other, text: "a different binary read this", lines: [line({ text: "a different binary read this" })] });
   assert.equal(s.listPages("m-1", "doc-1", DIGEST).length, 1, "the old helper's reading is untouched");
   assert.equal(s.getPage("m-1", "doc-1", 1, "c".repeat(64)), null, "an unknown helper must not be served another helper's text");
 });
@@ -120,7 +131,7 @@ test("every page has an outcome, and a run that stopped early is VISIBLE rather 
   const { s } = store(t);
   const three = { ...RECORD, pageCount: 3 };
   s.putPage({ ...three, page: 1, outcome: "text_layer" });
-  s.putPage({ ...three, page: 2, outcome: "ocr", text: "读出来的字", visionMs: 220, renderMs: 30, renderDigest: "0".repeat(64), layerMs: null });
+  s.putPage({ ...recognisedPage("读出来的字"), pageCount: 3, page: 2 });
   s.putPage({ ...three, page: 3, outcome: "failed", text: "", failureCode: "helper_timeout", layerMs: null, lines: [] });
   const pages = s.listPages("m-1", "doc-1", DIGEST);
   assert.deepEqual(pages.map((p) => p.page), [1, 2, 3], "pages come back in page order");
@@ -225,7 +236,8 @@ test("a line must be a line: its number, its box and its verdict are all checked
   assert.throws(() => s.putPage({ ...RECORD, lines: [line({ lineNo: 0 })] }), /lineNo must be a positive integer/);
   assert.throws(() => s.putPage({ ...RECORD, lines: [line({ lineNo: 1 }), line({ lineNo: 1 })] }), /appears twice/);
   assert.throws(() => s.putPage({ ...RECORD, lines: [line({ confidence: 1.5 })] }), /confidence must be a number in 0\.\.1/);
-  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ x: -0.1 })] }), /x must be a number in 0\.\.1/);
+  assert.throws(() => s.putPage({ ...recognisedPage(RECORD.text), lines: [ocrLine({ text: RECORD.text, x: -0.1 })] }),
+    /x must be a number in 0\.\.1/);
   assert.throws(() => s.putPage({ ...RECORD, lines: [line({ text: 12 })] }), /a line must carry its text/);
 });
 
@@ -234,7 +246,62 @@ test("a line's box is complete or absent, never partial, and null is a real answ
   // A text-layer line has no position; the store must be able to say so.
   s.putPage({ ...RECORD, lines: [line({ x: null, y: null, w: null, h: null })] });
   assert.deepEqual(s.getPage("m-1", "doc-1", 1, DIGEST).lines[0].x, null);
-  // Half a box is not a position.
-  assert.throws(() => s.putPage({ ...RECORD, lines: [line({ x: null })] }),
+  // Half a box is not a position. Asserted on a RECOGNISED page, because that is the outcome where
+  // a box is allowed at all — on a text-layer page any box is refused earlier and for a different
+  // reason, which would have made this assertion pass without ever testing what it names.
+  assert.throws(() => s.putPage({ ...recognisedPage(RECORD.text), lines: [ocrLine({ text: RECORD.text, x: null })] }),
     /complete or absent/, "three numbers and a null is not a location");
+});
+
+test("a store from a FUTURE schema is thrown away, even when its columns no longer match ours", (t) => {
+  // The self-healing this design rests on, exercised on the case most likely to need it. Applying
+  // our CREATE TABLE / CREATE INDEX before reading the version meant a future build that renamed a
+  // column left an ocr_page our index could not be built on: the open threw `no such column: page`
+  // and every read answered store_unavailable for ever. Reproduced before the fix.
+  const dir = mkdtempSync(path.join(os.tmpdir(), "lawbar-ocr-store-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const dbPath = ocrDbPath(dir);
+  mkdirSync(path.dirname(dbPath), { recursive: true });
+  const future = new Database(dbPath);
+  future.exec("CREATE TABLE schema_version (version INTEGER NOT NULL); INSERT INTO schema_version VALUES (99);");
+  future.exec("CREATE TABLE ocr_page (matter_id TEXT, document_id TEXT, page_index INTEGER);");
+  future.close();
+
+  const s = openOcrStore({ userDataDir: dir, openDatabase });
+  t.after(() => s.close());
+  s.putPage(RECORD);
+  assert.equal(s.getPage("m-1", "doc-1", 1, DIGEST).text, RECORD.text, "the rebuilt store must work");
+  const db = new Database(s.dbPath, { readonly: true });
+  t.after(() => db.close());
+  assert.equal(db.prepare("SELECT version FROM schema_version").get().version, 2);
+  assert.deepEqual(
+    db.prepare("PRAGMA table_info(ocr_page)").all().map((c) => c.name).filter((n) => n === "page" || n === "page_index"),
+    ["page"], "the future build's column is gone, not merged");
+});
+
+test("text and lines are one fact: a page whose line contradicts its text is refused", (t) => {
+  const { s } = store(t);
+  // For an amount, 10000 and 100000 are different documents. The screen draws the line; search
+  // reads the text. A transaction makes the write atomic, not consistent.
+  assert.throws(() => s.putPage({ ...RECORD, text: "10000", lines: [line({ text: "100000" })] }),
+    /does not appear in the page's text/);
+  // And text with no lines would make the panel call a page empty while search finds words on it.
+  assert.throws(() => s.putPage({ ...RECORD, text: "有字的一页", lines: [] }),
+    /must carry the lines that text is made of/);
+  // A whitespace-only page legitimately has none.
+  s.putPage({ ...RECORD, text: "   ", lines: [] });
+  assert.deepEqual(s.getPage("m-1", "doc-1", 1, DIGEST).lines, []);
+});
+
+test("the OUTCOME decides whether a line has a position at all", (t) => {
+  const { s } = store(t);
+  const boxed = { x: 0.1, y: 0.1, w: 0.5, h: 0.05 };
+  // A text-layer page was never rendered, so the invented full-page box cannot come back in.
+  assert.throws(() => s.putPage({ ...RECORD, outcome: "text_layer", lines: [line({ text: "本院经审理查明", ...boxed })] }),
+    /never rendered/);
+  // A recognised page WAS rendered, so a line without a box could never be matched by position.
+  assert.throws(() => s.putPage({
+    ...RECORD, outcome: "ocr", visionMs: 5, renderMs: 5, renderDigest: "0".repeat(64), layerMs: null,
+    lines: [line({ text: "本院经审理查明", x: null, y: null, w: null, h: null })],
+  }), /must carry the box it was recognised at/);
 });

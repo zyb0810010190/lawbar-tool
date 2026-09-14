@@ -85,6 +85,8 @@ export type OcrExtractRefusal =
   | "helper_unavailable"
   /** The derived store could not be opened or written. Regenerable, so this is recoverable. */
   | "store_unavailable"
+  /** The case box could not be asked. Distinct from `unknown_document`, which is a real answer. */
+  | "lookup_failed"
   | "extract_failed";
 
 export type OcrExtractResult =
@@ -105,7 +107,7 @@ export type OcrPagesResult =
         readonly missing: number | null;
       };
     }
-  | { readonly ok: false; readonly code: "invalid_request" | "unknown_document" | "helper_unavailable" | "store_unavailable" };
+  | { readonly ok: false; readonly code: "invalid_request" | "unknown_document" | "helper_unavailable" | "store_unavailable" | "lookup_failed" };
 
 /** The slice of persistence these handlers need. Structural, so the runtime satisfies it as-is. */
 export interface OcrDocumentPersistence {
@@ -245,21 +247,23 @@ function record(
 
 export async function ocrExtractHandler(payload: unknown, deps: OcrExtractDeps): Promise<OcrExtractResult> {
   if (!isValidRequest(payload)) return { ok: false, code: "invalid_request" };
-  const doc = await resolveDocument(deps, payload.matterId, payload.documentId);
+  // THE LOOKUP ITSELF CAN THROW. The store open and the helper call were already guarded; asking the
+  // CASE BOX who owns this document was not, and better-sqlite3's error names the file it failed on.
+  // An unguarded rejection here is forwarded to the renderer by Electron with its message intact,
+  // which is a profile path on a litigator's screen. `unknown_document` would be the wrong answer
+  // too: "I could not ask" is not "there is no such document".
+  let doc;
+  try {
+    doc = await resolveDocument(deps, payload.matterId, payload.documentId);
+  } catch {
+    return { ok: false, code: "lookup_failed" };
+  }
   if (doc === null) return { ok: false, code: "unknown_document" };
 
   const helperDigest = deps.helper.pinnedDigest;
   if (helperDigest === null) return { ok: false, code: "helper_unavailable" };
   const run = deps.extract ?? extractPages;
   const file = (deps.resolveFile ?? defaultResolveFile)(deps.storageRoot, payload.documentId, doc.filename);
-  // Opening a sqlite file can throw, and what it throws names the file. A code crosses; the path
-  // does not. The store is derived, so this is recoverable: the owner can try again.
-  let store: OcrStore;
-  try {
-    store = deps.store();
-  } catch {
-    return { ok: false, code: "store_unavailable" };
-  }
   const at = (deps.now ?? (() => new Date().toISOString()))();
   const base = { matterId: payload.matterId, documentId: payload.documentId, helperDigest, pageCount: 1, at };
 
@@ -291,9 +295,22 @@ export async function ocrExtractHandler(payload: unknown, deps: OcrExtractDeps):
   if (pageCount === 0) return { ok: false, code: "unsupported_document" };
   const withCount = { ...base, pageCount };
 
-  // Every store WRITE below is inside this guard for the same reason: a disk error mid-document
-  // must become a code, not a path in a dialog.
+  // THE STORE IS OPENED HERE, not before the ladder ran. Opening it CREATES it, and an extraction
+  // that was going to be refused — a helper that is missing at spawn time, a file the helper cannot
+  // read — would otherwise leave a brand-new derived database behind in a profile where nothing was
+  // ever read. That is the same defect the packaged acceptance caught on the READ path, arriving
+  // through the write path instead.
+  //
+  // Every store WRITE below is inside this guard for the same reason: opening a sqlite file can
+  // throw, and what it throws names the file. A code crosses; the path does not. The store is
+  // derived, so this is recoverable: the owner can try again.
   const needOcr: HelperPage[] = [];
+  let store: OcrStore;
+  try {
+    store = deps.store();
+  } catch {
+    return { ok: false, code: "store_unavailable" };
+  }
   try {
   for (const p of layer.pages) {
     if (layerIsUsable(p)) {
@@ -350,7 +367,14 @@ export async function ocrExtractHandler(payload: unknown, deps: OcrExtractDeps):
 
 export async function ocrPagesHandler(payload: unknown, deps: OcrExtractDeps): Promise<OcrPagesResult> {
   if (!isValidRequest(payload)) return { ok: false, code: "invalid_request" };
-  const doc = await resolveDocument(deps, payload.matterId, payload.documentId);
+  // See the extract handler: a lookup that THREW is not a document that is absent, and the thrown
+  // message names a file.
+  let doc;
+  try {
+    doc = await resolveDocument(deps, payload.matterId, payload.documentId);
+  } catch {
+    return { ok: false, code: "lookup_failed" };
+  }
   if (doc === null) return { ok: false, code: "unknown_document" };
   const helperDigest = deps.helper.pinnedDigest;
   // No pin means no reading this build would stand behind, and no basis for a page count either.
